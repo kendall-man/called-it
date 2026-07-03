@@ -116,19 +116,19 @@ export class TxlineClient {
       startEpochDay: params?.startEpochDay,
       competitionId: params?.competitionId,
     });
-    return this.parseWith(z.array(fixtureRecordSchema), data, '/api/fixtures/snapshot');
+    return this.parseRecords(fixtureRecordSchema, data, '/api/fixtures/snapshot');
   }
 
   async scoresSnapshot(fixtureId: number, asOfMs?: number): Promise<ScoresRecord[]> {
     const path = `/api/scores/snapshot/${fixtureId}`;
     const data = await this.requestJson(path, { asOf: asOfMs });
-    return this.parseWith(z.array(scoresRecordSchema), data, path);
+    return this.parseRecords(scoresRecordSchema, data, path);
   }
 
   async oddsSnapshot(fixtureId: number, asOfMs?: number): Promise<OddsRecord[]> {
     const path = `/api/odds/snapshot/${fixtureId}`;
     const data = await this.requestJson(path, { asOf: asOfMs });
-    return this.parseWith(z.array(oddsRecordSchema), data, path);
+    return this.parseRecords(oddsRecordSchema, data, path);
   }
 
   async statValidation(
@@ -212,6 +212,43 @@ export class TxlineClient {
       );
     }
     return parsed.data;
+  }
+
+  /**
+   * Snapshot arrays parse per-record: a malformed record is logged and
+   * skipped, never allowed to reject the whole response (observed live on
+   * devnet — one null-bearing odds record must not zero out pricing).
+   * A non-array body is still a hard error.
+   */
+  private parseRecords<Schema extends z.ZodTypeAny>(
+    schema: Schema,
+    data: unknown,
+    endpoint: string,
+  ): Array<z.infer<Schema>> {
+    if (!Array.isArray(data)) {
+      this.logger('unexpected response shape', { endpoint });
+      throw new TxlineApiError(endpoint, null, 'unexpected response shape — expected an array');
+    }
+    const records: Array<z.infer<Schema>> = [];
+    let firstIssues: string | null = null;
+    for (const item of data) {
+      const parsed = schema.safeParse(item);
+      if (parsed.success) {
+        records.push(parsed.data);
+      } else if (firstIssues === null) {
+        firstIssues = summarizeZodIssues(parsed.error);
+      }
+    }
+    const skipped = data.length - records.length;
+    if (skipped > 0) {
+      this.logger('skipped malformed records', {
+        endpoint,
+        skipped,
+        kept: records.length,
+        firstIssues,
+      });
+    }
+    return records;
   }
 }
 

@@ -6,9 +6,19 @@ import { z } from 'zod';
  * spec exactly: Scores/fixture records are camelCase, Odds records are
  * PascalCase. Everything parses defensively:
  *   - `.passthrough()` keeps unknown fields instead of stripping them;
- *   - only load-bearing fields are required, the rest are optional so minor
+ *   - only load-bearing fields are required, the rest are lenient so minor
  *     spec drift degrades gracefully instead of dropping the whole record.
  */
+
+/**
+ * Optional wire field. Devnet sends explicit `null` where the spec marks
+ * fields optional (observed live on /api/odds/snapshot: GameState and
+ * MarketParameters were null), and zod's `.optional()` rejects explicit null.
+ * Accept null on the wire but fold it to undefined so downstream code keeps
+ * the plain `T | undefined` view.
+ */
+const lenient = <T extends z.ZodTypeAny>(schema: T) =>
+  schema.nullish().transform((value): z.output<T> | undefined => value ?? undefined);
 
 // ── Soccer score fragments ────────────────────────────────────────────────
 
@@ -26,14 +36,14 @@ export type SoccerPeriodScore = z.infer<typeof soccerPeriodScoreSchema>;
 /** All periods optional — the feed adds them as the match progresses (spec: SoccerTotalScore). */
 export const soccerTotalScoreSchema = z
   .object({
-    H1: soccerPeriodScoreSchema.optional(),
-    HT: soccerPeriodScoreSchema.optional(),
-    H2: soccerPeriodScoreSchema.optional(),
-    ET1: soccerPeriodScoreSchema.optional(),
-    ET2: soccerPeriodScoreSchema.optional(),
-    PE: soccerPeriodScoreSchema.optional(),
-    ETTotal: soccerPeriodScoreSchema.optional(),
-    Total: soccerPeriodScoreSchema.optional(),
+    H1: lenient(soccerPeriodScoreSchema),
+    HT: lenient(soccerPeriodScoreSchema),
+    H2: lenient(soccerPeriodScoreSchema),
+    ET1: lenient(soccerPeriodScoreSchema),
+    ET2: lenient(soccerPeriodScoreSchema),
+    PE: lenient(soccerPeriodScoreSchema),
+    ETTotal: lenient(soccerPeriodScoreSchema),
+    Total: lenient(soccerPeriodScoreSchema),
   })
   .passthrough();
 export type SoccerTotalScore = z.infer<typeof soccerTotalScoreSchema>;
@@ -55,22 +65,22 @@ export type SoccerFixtureScore = z.infer<typeof soccerFixtureScoreSchema>;
  */
 export const soccerDataSchema = z
   .object({
-    Action: z.string().optional(),
-    Corner: z.boolean().optional(),
-    Goal: z.boolean().optional(),
+    Action: lenient(z.string()),
+    Corner: lenient(z.boolean()),
+    Goal: lenient(z.boolean()),
     GoalType: z.unknown().optional(),
-    Minutes: z.number().optional(),
-    Outcome: z.string().optional(),
-    Participant: z.number().optional(),
-    Penalty: z.boolean().optional(),
-    PlayerId: z.number().optional(),
-    PlayerInId: z.number().optional(),
-    PlayerOutId: z.number().optional(),
-    StatusId: z.number().optional(),
-    Type: z.string().optional(),
-    RedCard: z.boolean().optional(),
-    YellowCard: z.boolean().optional(),
-    VAR: z.boolean().optional(),
+    Minutes: lenient(z.number()),
+    Outcome: lenient(z.string()),
+    Participant: lenient(z.number()),
+    Penalty: lenient(z.boolean()),
+    PlayerId: lenient(z.number()),
+    PlayerInId: lenient(z.number()),
+    PlayerOutId: lenient(z.number()),
+    StatusId: lenient(z.number()),
+    Type: lenient(z.string()),
+    RedCard: lenient(z.boolean()),
+    YellowCard: lenient(z.boolean()),
+    VAR: lenient(z.boolean()),
   })
   .passthrough();
 export type SoccerData = z.infer<typeof soccerDataSchema>;
@@ -82,7 +92,7 @@ export const playerDataSchema = z
   .object({
     normativeId: z.number(),
     preferredName: z.string(),
-    team: z.string().optional(),
+    team: lenient(z.string()),
   })
   .passthrough();
 export type PlayerData = z.infer<typeof playerDataSchema>;
@@ -90,7 +100,7 @@ export type PlayerData = z.infer<typeof playerDataSchema>;
 /** spec: PlayerLineupData. */
 export const playerLineupDataSchema = z
   .object({
-    starter: z.boolean().optional(),
+    starter: lenient(z.boolean()),
     player: playerDataSchema,
   })
   .passthrough();
@@ -101,7 +111,7 @@ export const lineupDataSchema = z
   .object({
     normativeId: z.number(),
     preferredName: z.string(),
-    lineups: z.array(playerLineupDataSchema).optional(),
+    lineups: lenient(z.array(playerLineupDataSchema)),
   })
   .passthrough();
 export type LineupData = z.infer<typeof lineupDataSchema>;
@@ -110,22 +120,23 @@ export type LineupData = z.infer<typeof lineupDataSchema>;
 
 export const soccerPossibleNeutralEventSchema = z
   .object({
-    RedCard: z.boolean().optional(),
-    YellowCard: z.boolean().optional(),
-    VAR: z.boolean().optional(),
+    RedCard: lenient(z.boolean()),
+    YellowCard: lenient(z.boolean()),
+    VAR: lenient(z.boolean()),
   })
   .passthrough();
 
 export const soccerPartiStateSchema = z
   .object({
-    PossibleEvent: z
-      .object({
-        Goal: z.boolean().optional(),
-        Penalty: z.boolean().optional(),
-        Corner: z.boolean().optional(),
-      })
-      .passthrough()
-      .optional(),
+    PossibleEvent: lenient(
+      z
+        .object({
+          Goal: lenient(z.boolean()),
+          Penalty: lenient(z.boolean()),
+          Corner: lenient(z.boolean()),
+        })
+        .passthrough(),
+    ),
   })
   .passthrough();
 
@@ -143,30 +154,30 @@ export const scoresRecordSchema = z
     seq: z.number(),
     ts: z.number(),
     action: z.string(),
-    id: z.number().optional(),
-    gameState: z.string().optional(),
-    startTime: z.number().optional(),
-    competitionId: z.number().optional(),
-    countryId: z.number().optional(),
-    sportId: z.number().optional(),
-    connectionId: z.number().optional(),
-    fixtureGroupId: z.number().optional(),
-    isTeam: z.boolean().optional(),
-    participant1Id: z.number().optional(),
-    participant2Id: z.number().optional(),
-    participant1IsHome: z.boolean().optional(),
-    participant: z.number().optional(),
-    confirmed: z.boolean().optional(),
-    coverageSecondaryData: z.boolean().optional(),
-    coverageType: z.string().optional(),
+    id: lenient(z.number()),
+    gameState: lenient(z.string()),
+    startTime: lenient(z.number()),
+    competitionId: lenient(z.number()),
+    countryId: lenient(z.number()),
+    sportId: lenient(z.number()),
+    connectionId: lenient(z.number()),
+    fixtureGroupId: lenient(z.number()),
+    isTeam: lenient(z.boolean()),
+    participant1Id: lenient(z.number()),
+    participant2Id: lenient(z.number()),
+    participant1IsHome: lenient(z.boolean()),
+    participant: lenient(z.number()),
+    confirmed: lenient(z.boolean()),
+    coverageSecondaryData: lenient(z.boolean()),
+    coverageType: lenient(z.string()),
     statusSoccerId: z.unknown().optional(),
-    scoreSoccer: soccerFixtureScoreSchema.optional(),
-    dataSoccer: soccerDataSchema.optional(),
-    stats: z.record(z.number()).optional(),
-    lineups: z.array(lineupDataSchema).optional(),
-    possibleEventSoccer: soccerPossibleNeutralEventSchema.optional(),
-    parti1StateSoccer: soccerPartiStateSchema.optional(),
-    parti2StateSoccer: soccerPartiStateSchema.optional(),
+    scoreSoccer: lenient(soccerFixtureScoreSchema),
+    dataSoccer: lenient(soccerDataSchema),
+    stats: lenient(z.record(z.number())),
+    lineups: lenient(z.array(lineupDataSchema)),
+    possibleEventSoccer: lenient(soccerPossibleNeutralEventSchema),
+    parti1StateSoccer: lenient(soccerPartiStateSchema),
+    parti2StateSoccer: lenient(soccerPartiStateSchema),
   })
   .passthrough();
 export type ScoresRecord = z.infer<typeof scoresRecordSchema>;
@@ -183,15 +194,15 @@ export const oddsRecordSchema = z
     MessageId: z.string(),
     Ts: z.number(),
     SuperOddsType: z.string(),
-    Bookmaker: z.string().optional(),
-    BookmakerId: z.number().optional(),
-    GameState: z.string().optional(),
-    InRunning: z.boolean().optional(),
-    MarketParameters: z.string().optional(),
-    MarketPeriod: z.string().optional(),
-    PriceNames: z.array(z.string()).optional(),
-    Prices: z.array(z.number()).optional(),
-    Pct: z.array(z.string()).optional(),
+    Bookmaker: lenient(z.string()),
+    BookmakerId: lenient(z.number()),
+    GameState: lenient(z.string()),
+    InRunning: lenient(z.boolean()),
+    MarketParameters: lenient(z.string()),
+    MarketPeriod: lenient(z.string()),
+    PriceNames: lenient(z.array(z.string())),
+    Prices: lenient(z.array(z.number())),
+    Pct: lenient(z.array(z.string())),
   })
   .passthrough();
 export type OddsRecord = z.infer<typeof oddsRecordSchema>;
@@ -207,11 +218,11 @@ export const fixtureRecordSchema = z
     Participant1: z.string(),
     Participant2Id: z.number(),
     Participant2: z.string(),
-    Ts: z.number().optional(),
-    Competition: z.string().optional(),
-    CompetitionId: z.number().optional(),
-    FixtureGroupId: z.number().optional(),
-    Participant1IsHome: z.boolean().optional(),
+    Ts: lenient(z.number()),
+    Competition: lenient(z.string()),
+    CompetitionId: lenient(z.number()),
+    FixtureGroupId: lenient(z.number()),
+    Participant1IsHome: lenient(z.boolean()),
   })
   .passthrough();
 export type FixtureRecord = z.infer<typeof fixtureRecordSchema>;
@@ -224,7 +235,7 @@ export type FixtureRecord = z.infer<typeof fixtureRecordSchema>;
  */
 export const statValidationResponseSchema = z
   .object({
-    ts: z.number().optional(),
+    ts: lenient(z.number()),
     statToProve: z.unknown().optional(),
     statsToProve: z.unknown().optional(),
     eventStatRoot: z.unknown().optional(),

@@ -86,13 +86,34 @@ describe('TxlineClient snapshots', () => {
     expect((error as TxlineApiError).message).toContain('/api/scores/snapshot/42');
   });
 
-  it('throws a descriptive error on unexpected response shape', async () => {
-    const { fetchImpl } = mockFetch(() => jsonResponse([{ FixtureId: 'not-a-number' }]));
+  it('throws a descriptive error when a snapshot body is not an array', async () => {
+    const { fetchImpl } = mockFetch(() => jsonResponse({ message: 'not an array' }));
     const error = await makeClient(fetchImpl)
       .oddsSnapshot(7)
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(TxlineApiError);
     expect((error as TxlineApiError).message).toContain('unexpected response shape');
+  });
+
+  it('skips malformed snapshot records instead of rejecting the response', async () => {
+    const { fetchImpl } = mockFetch(() =>
+      jsonResponse([{ FixtureId: 'not-a-number' }, oddsRecord()]),
+    );
+    const records = await makeClient(fetchImpl).oddsSnapshot(7);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.MessageId).toBe('msg-1');
+  });
+
+  it('accepts explicit nulls in optional odds fields (live devnet shape)', async () => {
+    // Observed 2026-07-03 on /api/odds/snapshot: GameState/MarketParameters
+    // arrive as JSON null; one such record must not zero out pricing.
+    const { fetchImpl } = mockFetch(() =>
+      jsonResponse([{ ...oddsRecord(), GameState: null, MarketParameters: null }]),
+    );
+    const records = await makeClient(fetchImpl).oddsSnapshot(7);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.GameState).toBeUndefined();
+    expect(records[0]?.MarketParameters).toBeUndefined();
   });
 });
 
