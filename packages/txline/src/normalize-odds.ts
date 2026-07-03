@@ -19,22 +19,54 @@ export type OddsMarketKind = '1x2' | 'totals';
 const normalizeToken = (value: string): string => value.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 const ONE_X_TWO_TYPE_ALIASES = new Set(
-  ['1X2', '3W', 'WDW', 'MR', 'MRES', 'MATCHRESULT', 'FT1X2', '1X2FT', 'MATCHODDS'].map(normalizeToken),
+  [
+    '1X2',
+    '3W',
+    'WDW',
+    'MR',
+    'MRES',
+    'MATCHRESULT',
+    'FT1X2',
+    '1X2FT',
+    'MATCHODDS',
+    // Devnet empirical (2026-07-03): the StablePrice match-result type.
+    '1X2_PARTICIPANT_RESULT',
+  ].map(normalizeToken),
 );
 const TOTALS_TYPE_ALIASES = new Set(
-  ['OU', 'OVERUNDER', 'TOTAL', 'TOTALS', 'TOTALGOALS', 'TG', 'GOALS', 'GOALSOU', 'TO'].map(
-    normalizeToken,
-  ),
+  [
+    'OU',
+    'OVERUNDER',
+    'TOTAL',
+    'TOTALS',
+    'TOTALGOALS',
+    'TG',
+    'GOALS',
+    'GOALSOU',
+    'TO',
+    // Devnet empirical: match total goals despite the "PARTICIPANT" in the
+    // name — records carry a single line ladder with no per-team selector.
+    'OVERUNDER_PARTICIPANT_GOALS',
+  ].map(normalizeToken),
 );
 
-const HOME_PRICE_NAMES = new Set(['1', 'HOME', 'H', 'P1']);
+/**
+ * Types we recognize but deliberately do not price (no domain market uses
+ * them). Classified as null WITHOUT the unknown-type log — the devnet feed
+ * publishes these on every fixture and the log otherwise floods every poll.
+ */
+const KNOWN_UNPRICED_TYPE_ALIASES = new Set(
+  ['AH', 'ASIANHANDICAP', 'HANDICAP', 'ASIANHANDICAP_PARTICIPANT_GOALS'].map(normalizeToken),
+);
+
+const HOME_PRICE_NAMES = new Set(['1', 'HOME', 'H', 'P1', 'PART1']);
 const DRAW_PRICE_NAMES = new Set(['X', 'DRAW', 'D']);
-const AWAY_PRICE_NAMES = new Set(['2', 'AWAY', 'A', 'P2']);
+const AWAY_PRICE_NAMES = new Set(['2', 'AWAY', 'A', 'P2', 'PART2']);
 const OVER_PRICE_NAMES = new Set(['OVER', 'O']);
 const UNDER_PRICE_NAMES = new Set(['UNDER', 'U']);
 
-function classifyByPriceNames(priceNames: string[] | undefined): OddsMarketKind | null {
-  if (priceNames === undefined) return null;
+function classifyByPriceNames(priceNames: string[] | null | undefined): OddsMarketKind | null {
+  if (priceNames == null) return null;
   const names = priceNames.map(normalizeToken);
   if (
     names.length === 3 &&
@@ -62,6 +94,7 @@ export function classifyOddsRecord(record: OddsRecord, logger: TxlineLogger = co
   const token = normalizeToken(record.SuperOddsType);
   if (ONE_X_TWO_TYPE_ALIASES.has(token)) return '1x2';
   if (TOTALS_TYPE_ALIASES.has(token)) return 'totals';
+  if (KNOWN_UNPRICED_TYPE_ALIASES.has(token)) return null;
   const structural = classifyByPriceNames(record.PriceNames);
   logger('unknown SuperOddsType', {
     superOddsType: record.SuperOddsType,
@@ -73,15 +106,30 @@ export function classifyOddsRecord(record: OddsRecord, logger: TxlineLogger = co
 // ── period filtering ──────────────────────────────────────────────────────
 
 /** MarketPeriod values that clearly denote a partial-match market. */
-const PARTIAL_MATCH_PERIOD_PATTERN = /^(1H|2H|H1|H2|HT|1ST|2ND|FIRSTHALF|SECONDHALF)/;
+const PARTIAL_MATCH_PERIOD_PATTERN = /^(1H|2H|H1|H2|HT|1ST|2ND|FIRSTHALF|SECONDHALF|HALF\d)/;
 
 /**
  * StablePrice 1X2 is a 90-minute market; we only price from full-match
  * periods. Unknown period strings are accepted with a log (rejecting them
  * could silently zero out all odds if TxLINE uses an unexpected label).
+ *
+ * Devnet empirical (2026-07-03): the wire uses a key=value grammar — absent
+ * period means full match, "half=1" means first half. Any "half=N" is
+ * partial; other key=value forms are unfamiliar-but-accepted like unknown
+ * plain tokens.
  */
-export function isFullMatchPeriod(marketPeriod: string | undefined, logger: TxlineLogger = consoleLogger): boolean {
-  if (marketPeriod === undefined || marketPeriod === '') return true;
+export function isFullMatchPeriod(
+  marketPeriod: string | null | undefined,
+  logger: TxlineLogger = consoleLogger,
+): boolean {
+  if (marketPeriod == null || marketPeriod === '') return true;
+  const equalsIndex = marketPeriod.indexOf('=');
+  if (equalsIndex !== -1) {
+    const key = marketPeriod.slice(0, equalsIndex).trim().toLowerCase();
+    if (key === 'half') return false;
+    logger('unfamiliar key=value MarketPeriod — treating as full match', { marketPeriod });
+    return true;
+  }
   const token = normalizeToken(marketPeriod);
   if (PARTIAL_MATCH_PERIOD_PATTERN.test(token)) return false;
   const KNOWN_FULL_MATCH_TOKENS = new Set(['M', 'FT', 'MATCH', 'FULL', 'FULLTIME', '90', 'REG', 'REGULAR']);
@@ -97,27 +145,27 @@ const SUSPENDED_GAME_STATE_PATTERN = /susp|otb|off.?the.?board|stop/i;
 
 /** True when the record's GameState marks the market off the board. */
 export function isOddsSuspended(record: OddsRecord): boolean {
-  return record.GameState !== undefined && SUSPENDED_GAME_STATE_PATTERN.test(record.GameState);
+  return typeof record.GameState === 'string' && SUSPENDED_GAME_STATE_PATTERN.test(record.GameState);
 }
 
 // ── Pct parsing ───────────────────────────────────────────────────────────
 
-function pctToProbability(pct: string | undefined): number | null {
-  if (pct === undefined || pct === 'NA') return null;
+function pctToProbability(pct: string | null | undefined): number | null {
+  if (pct == null || pct === 'NA') return null;
   const parsed = Number.parseFloat(pct);
   if (Number.isNaN(parsed)) return null;
   return parsed / PCT_TO_PROBABILITY_DIVISOR;
 }
 
-function indexOfName(names: string[] | undefined, aliases: Set<string>, fallbackIndex: number): number {
-  if (names === undefined) return fallbackIndex;
+function indexOfName(names: string[] | null | undefined, aliases: Set<string>, fallbackIndex: number): number {
+  if (names == null) return fallbackIndex;
   const index = names.findIndex((n) => aliases.has(normalizeToken(n)));
   return index === -1 ? fallbackIndex : index;
 }
 
-/** First decimal number inside MarketParameters (e.g. "2.5", "total=2.5"). */
-export function parseTotalsLine(marketParameters: string | undefined): number | null {
-  if (marketParameters === undefined) return null;
+/** First decimal number inside MarketParameters (e.g. "line=2.5", "2.5"). */
+export function parseTotalsLine(marketParameters: string | null | undefined): number | null {
+  if (marketParameters == null) return null;
   const match = marketParameters.match(/-?\d+(?:\.\d+)?/);
   if (match === null) return null;
   return Number.parseFloat(match[0]);
@@ -197,16 +245,34 @@ export function normalizeOdds(payload: unknown, options: NormalizeOddsOptions = 
 /** The most informative totals line is the one closest to even money. */
 const MAIN_LINE_TARGET_PROBABILITY = 0.5;
 
+/** Half-goal lines have no push outcome, so their Pct is unconditional. */
+const isHalfGoalLine = (line: number): boolean => Math.abs(line * 2 - Math.round(line * 2)) < 1e-9 && Math.round(line * 2) % 2 === 1;
+
 /**
  * Combines an odds snapshot (array of records, one per market line) into a
  * single OddsInputs: latest full-match 1X2 by Ts + the main totals line
- * (over-probability closest to 0.5, latest Ts breaking ties). Provenance is
+ * (over-probability closest to 0.5, latest Ts breaking ties). Half-goal
+ * lines are preferred over integer lines: integer-line Pcts are
+ * push-conditioned (P(over | no push)) and systematically overstate the
+ * unconditional over probability the Poisson inversion expects — an integer
+ * line is used only when no half-goal line has a usable Pct. Provenance is
  * pinned from the 1X2 record when present, else the totals record.
  * Returns null when nothing in the snapshot is usable.
  */
 export function combineOddsSnapshot(payloads: unknown[], options: NormalizeOddsOptions = {}): OddsInputs | null {
   let best1x2: OddsInputs | null = null;
-  let bestTotals: OddsInputs | null = null;
+  let bestHalfLine: OddsInputs | null = null;
+  let bestIntegerLine: OddsInputs | null = null;
+
+  const closerToEvenMoney = (candidate: OddsInputs, incumbent: OddsInputs | null): boolean => {
+    if (incumbent === null) return true;
+    const currentDistance = Math.abs((incumbent.totals?.overProb ?? 0) - MAIN_LINE_TARGET_PROBABILITY);
+    const candidateDistance = Math.abs((candidate.totals?.overProb ?? 0) - MAIN_LINE_TARGET_PROBABILITY);
+    return (
+      candidateDistance < currentDistance ||
+      (candidateDistance === currentDistance && (candidate.oddsTsMs ?? 0) > (incumbent.oddsTsMs ?? 0))
+    );
+  };
 
   for (const payload of payloads) {
     const inputs = normalizeOdds(payload, options);
@@ -214,21 +280,15 @@ export function combineOddsSnapshot(payloads: unknown[], options: NormalizeOddsO
     if (inputs.p1x2 !== null) {
       if (best1x2 === null || (inputs.oddsTsMs ?? 0) > (best1x2.oddsTsMs ?? 0)) best1x2 = inputs;
     } else if (inputs.totals !== null) {
-      if (bestTotals === null) {
-        bestTotals = inputs;
-      } else {
-        const current = Math.abs((bestTotals.totals?.overProb ?? 0) - MAIN_LINE_TARGET_PROBABILITY);
-        const candidate = Math.abs(inputs.totals.overProb - MAIN_LINE_TARGET_PROBABILITY);
-        if (
-          candidate < current ||
-          (candidate === current && (inputs.oddsTsMs ?? 0) > (bestTotals.oddsTsMs ?? 0))
-        ) {
-          bestTotals = inputs;
-        }
+      if (isHalfGoalLine(inputs.totals.line)) {
+        if (closerToEvenMoney(inputs, bestHalfLine)) bestHalfLine = inputs;
+      } else if (closerToEvenMoney(inputs, bestIntegerLine)) {
+        bestIntegerLine = inputs;
       }
     }
   }
 
+  const bestTotals = bestHalfLine ?? bestIntegerLine;
   if (best1x2 === null && bestTotals === null) return null;
   const pinSource = best1x2 ?? bestTotals;
   return {

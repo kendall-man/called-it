@@ -161,6 +161,12 @@ export interface PriceQuote {
   provenance: PriceProvenance;
   oddsMessageId: string | null;
   oddsTsMs: number | null;
+  /**
+   * Which inputs fell back to model priors (feed did not supply them).
+   * Diagnostic only — never persisted; absent on quotes rehydrated from
+   * storage.
+   */
+  usedDefaults?: { totals: boolean; p1x2: boolean };
 }
 
 // ── Compiler ──────────────────────────────────────────────────────────────

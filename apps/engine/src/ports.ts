@@ -331,9 +331,19 @@ export interface EventSourceLike {
   stop(): void;
 }
 
+/**
+ * Discriminated odds-fetch result so callers can tell a transient failure
+ * (retry may help) from a fixture the feed simply has no usable lines for
+ * (retry is pointless until the desk publishes).
+ */
+export type OddsFetchResult =
+  | { kind: 'ok'; odds: OddsInputs }
+  | { kind: 'no_odds' }
+  | { kind: 'transient' };
+
 export interface TxPort {
-  /** Latest odds snapshot, normalized; null when unavailable. */
-  fetchOdds(fixtureId: number): Promise<OddsInputs | null>;
+  /** Latest odds snapshot, normalized, with failure-reason taxonomy. */
+  fetchOdds(fixtureId: number): Promise<OddsFetchResult>;
   /** Fixtures snapshot mapped to upsert rows (defensive field mapping). */
   fetchFixtures(): Promise<FixtureUpsert[]>;
   /** Raw stat-validation payload (Merkle proof) for a settled stat. */

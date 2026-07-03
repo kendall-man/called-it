@@ -27,30 +27,79 @@ export function scoreSoccer(
   return { Participant1: p1, Participant2: p2 };
 }
 
-/** A synthesized Scores record; override any field per test. */
+/** Wire StatusId is numeric: 1-based ordinal of the spec's status oneOf (2 = H1). */
+export const WIRE_STATUS_H1 = 2;
+
+/**
+ * Older tests were written against the OpenAPI spec's camelCase Scores field
+ * names; the live wire (and this fixture) is PascalCase. Overrides in either
+ * spelling land on the wire key so both generations of tests compose.
+ */
+const SCORES_OVERRIDE_KEY_ALIASES: Readonly<Record<string, string>> = {
+  fixtureId: 'FixtureId',
+  gameState: 'GameState',
+  startTime: 'StartTime',
+  isTeam: 'IsTeam',
+  fixtureGroupId: 'FixtureGroupId',
+  competitionId: 'CompetitionId',
+  countryId: 'CountryId',
+  sportId: 'SportId',
+  participant1IsHome: 'Participant1IsHome',
+  participant1Id: 'Participant1Id',
+  participant2Id: 'Participant2Id',
+  action: 'Action',
+  id: 'Id',
+  ts: 'Ts',
+  connectionId: 'ConnectionId',
+  seq: 'Seq',
+  confirmed: 'Confirmed',
+  participant: 'Participant',
+  statusSoccerId: 'StatusId',
+  scoreSoccer: 'Score',
+  dataSoccer: 'Data',
+  stats: 'Stats',
+  lineups: 'Lineups',
+  possibleEventSoccer: 'PossibleEvent',
+  parti1StateSoccer: 'Parti1State',
+  parti2StateSoccer: 'Parti2State',
+  type: 'Type',
+  clock: 'Clock',
+};
+
+/**
+ * A synthesized Scores record in the observed wire shape (PascalCase keys,
+ * numeric StatusId, Data/Stats envelopes always present); override any field
+ * per test.
+ */
 export function scoresRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    fixtureId: FIXTURE_ID,
-    gameState: 'InPlay',
-    startTime: KICKOFF_MS,
-    isTeam: true,
-    fixtureGroupId: 1,
-    competitionId: 501,
-    countryId: 100,
-    sportId: 10,
-    participant1IsHome: true,
-    participant1Id: 111,
-    participant2Id: 222,
-    action: 'Insert',
-    id: 5000,
-    ts: KICKOFF_MS + 60_000,
-    connectionId: 42,
-    seq: 1,
-    confirmed: true,
-    statusSoccerId: 'H1',
-    scoreSoccer: scoreSoccer({ Total: period() }, { Total: period() }),
-    ...overrides,
+  const record: Record<string, unknown> = {
+    FixtureId: FIXTURE_ID,
+    GameState: 'scheduled',
+    StartTime: KICKOFF_MS,
+    IsTeam: true,
+    FixtureGroupId: 1,
+    CompetitionId: 501,
+    CountryId: 100,
+    SportId: 10,
+    Participant1IsHome: true,
+    Participant1Id: 111,
+    Participant2Id: 222,
+    Action: 'Insert',
+    Id: 5000,
+    Ts: KICKOFF_MS + 60_000,
+    ConnectionId: 42,
+    Seq: 1,
+    Confirmed: true,
+    StatusId: WIRE_STATUS_H1,
+    Type: 'Soccer',
+    Score: scoreSoccer({ Total: period() }, { Total: period() }),
+    Data: {},
+    Stats: {},
   };
+  for (const [key, value] of Object.entries(overrides)) {
+    record[SCORES_OVERRIDE_KEY_ALIASES[key] ?? key] = value;
+  }
+  return record;
 }
 
 /** A synthesized OddsPayload record; override any field per test. */

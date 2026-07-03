@@ -27,6 +27,13 @@ export type TemplateKey =
   | 'confirm_gate'
   | 'confirm_declined'
   | 'no_price'
+  | 'no_line'
+  | 'unpriceable'
+  | 'already_decided'
+  | 'prove_retry'
+  | 'hiccup'
+  | 'hold_on'
+  | 'budget_spent'
   | 'market_live'
   | 'pending_lineup_note'
   | 'lineup_activated'
@@ -97,7 +104,18 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   confirm_gate: (vars) =>
     `Here's the call: ${v(vars, 'terms')}. Data says ${v(vars, 'probabilityPct')}% — that's ×${v(vars, 'multiplier')} Rep if it lands. ${v(vars, 'claimer')}, is that your shout?`,
   confirm_declined: () => 'No harm — the call stays banter.',
-  no_price: () => "Can't get a clean number on that right now — give me a minute and try again.",
+  no_price: () =>
+    "Can't get a clean number on that right now — give it a moment and hit Run it again.",
+  no_line: () =>
+    "No line on this one yet — the numbers desk hasn't published for this match. Worth another go nearer kickoff.",
+  unpriceable: () =>
+    "Can't put a clean number on that one with the data I've got. If there's another option on the table, pick that — otherwise give me a different call.",
+  already_decided: () =>
+    "Data says that one's a done deal — no game in a sure thing. Pick a different option or give me a fresh call.",
+  prove_retry: () => 'The data desk wobbled mid-check — tap "Make him prove it" and I\'ll run it back.',
+  hiccup: () => 'Hiccup on my end — tap that one again.',
+  hold_on: () => "Easy, legend — I'm already on it.",
+  budget_spent: () => "I've done all the thinking I can in here for today — catch me tomorrow.",
   market_live: (vars) => `Locked in. ${v(vars, 'claimer')} is on the record — pick a side below.`,
   pending_lineup_note: () =>
     'Held until lineups drop — if the name is on the sheet this goes live, otherwise all Rep comes back.',

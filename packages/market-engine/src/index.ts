@@ -11,6 +11,7 @@ export {
   poissonCdf,
   poissonSurvival,
   lambdaFromTotalsLine,
+  MissingOddsInputError,
 } from './price.js';
 export { evaluateSpec, isPeriodComplete } from './evaluate.js';
 export {

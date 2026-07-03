@@ -71,21 +71,39 @@ export function poissonSurvival(k: number, lambda: number): number {
   return Math.max(0, 1 - poissonCdf(k - 1, lambda));
 }
 
-/**
- * Invert P(total >= floor(line)+1) = overProb to recover the expected total
- * goals implied by the quoted totals line. Monotone in lambda → bisection.
- */
-export function lambdaFromTotalsLine(line: number, overProb: number): number {
-  const kOver = Math.floor(line) + 1;
-  const target = Math.min(1 - PROB_EPSILON, Math.max(PROB_EPSILON, overProb));
+/** Fixed-point rounds to de-condition an integer line's push-adjusted Pct. */
+const PUSH_DECONDITION_ITERATIONS = 3;
+
+function bisectLambda(kOver: number, target: number): number {
+  const clamped = Math.min(1 - PROB_EPSILON, Math.max(PROB_EPSILON, target));
   let lo = LAMBDA_SEARCH_MIN;
   let hi = LAMBDA_SEARCH_MAX;
   for (let i = 0; i < BISECTION_ITERATIONS; i += 1) {
     const mid = (lo + hi) / 2;
-    if (poissonSurvival(kOver, mid) < target) lo = mid;
+    if (poissonSurvival(kOver, mid) < clamped) lo = mid;
     else hi = mid;
   }
   return (lo + hi) / 2;
+}
+
+/**
+ * Invert the quoted totals line to the expected total goals. Half-goal lines
+ * quote an unconditional over probability — one bisection. Integer lines
+ * push at exactly `line` goals, so their Pct is P(over | no push); treating
+ * it as unconditional overstates lambda ~15% on real feed data. De-condition
+ * by fixed point: uncond = cond * (1 - P(total = line)) at the current
+ * lambda estimate, then re-invert (converges in 2-3 rounds).
+ */
+export function lambdaFromTotalsLine(line: number, overProb: number): number {
+  const kOver = Math.floor(line) + 1;
+  let lambda = bisectLambda(kOver, overProb);
+  if (Number.isInteger(line)) {
+    for (let i = 0; i < PUSH_DECONDITION_ITERATIONS; i += 1) {
+      const unconditional = overProb * (1 - poissonPmf(line, lambda));
+      lambda = bisectLambda(kOver, unconditional);
+    }
+  }
+  return lambda;
 }
 
 // ── Context helpers ────────────────────────────────────────────────────────
@@ -181,7 +199,25 @@ function quote(
     provenance,
     oddsMessageId: odds.oddsMessageId,
     oddsTsMs: odds.oddsTsMs,
+    // Transparency for callers/logs: modelled quotes fell back to priors for
+    // whichever inputs the feed did not supply. Not persisted to the DB.
+    usedDefaults: { totals: odds.totals === null, p1x2: odds.p1x2 === null },
   };
+}
+
+/**
+ * Thrown when the feed simply has not published the odds input a claim type
+ * requires — an expected data gap, not an engine failure. Callers should
+ * treat it as "no price available" (retryable), distinct from real bugs.
+ */
+export class MissingOddsInputError extends Error {
+  readonly missingInput: 'p1x2';
+
+  constructor(claimType: MarketSpec['claimType']) {
+    super(`priceSpec: 1X2 probabilities required to price ${claimType}`);
+    this.name = 'MissingOddsInputError';
+    this.missingInput = 'p1x2';
+  }
 }
 
 function specParticipant(spec: MarketSpec): 1 | 2 {
@@ -198,9 +234,7 @@ function specParticipant(spec: MarketSpec): 1 | 2 {
 
 function priceWinner(spec: MarketSpec, odds: OddsInputs): PriceQuote {
   if (!odds.p1x2) {
-    throw new Error(
-      `priceSpec: 1X2 probabilities required to price ${spec.claimType}`,
-    );
+    throw new MissingOddsInputError(spec.claimType);
   }
   const participant = specParticipant(spec);
   const win = participant === 1 ? odds.p1x2.home : odds.p1x2.away;
@@ -328,11 +362,20 @@ function pricePlayerScoresN(
   odds: OddsInputs,
   ctx: CompileContext,
 ): PriceQuote {
-  const participant = specParticipant(spec);
+  // A player not yet bound to a side (pre-lineup) prices off the neutral
+  // team rate (total/2) so the pending_lineup mint path stays reachable;
+  // the reducer binds the real side when lineups land.
+  const participant = spec.entityRef.participant;
   const rates = deriveGoalRates(odds);
   const remaining = remainingFraction(ctx, spec);
+  const teamRate =
+    participant === null
+      ? rates.total / 2
+      : participant === 1
+        ? rates.p1
+        : rates.p2;
   const lambdaPlayer =
-    (participant === 1 ? rates.p1 : rates.p2) *
+    teamRate *
     PLAYER_TEAM_GOAL_SHARE *
     remaining *
     periodRateMultiplier(spec, rates);

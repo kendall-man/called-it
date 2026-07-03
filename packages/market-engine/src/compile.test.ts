@@ -284,6 +284,16 @@ describe('compileClaim — totals_ou', () => {
     expectReject(result, 'out_of_range');
   });
 
+  it('rejects "exactly N.5 goals" — eq needs an integer threshold', () => {
+    // An eq claim on a half-goal line is unwinnable (goal tallies are whole
+    // numbers); it must never compile into a mintable spec.
+    const result = compileClaim(
+      mkParse({ claimType: 'totals_ou', comparator: 'eq', threshold: 2.5 }),
+      mkCtx(),
+    );
+    expectReject(result, 'out_of_range');
+  });
+
   it('rejects lines outside the sane band', () => {
     expectReject(
       compileClaim(mkParse({ claimType: 'totals_ou', threshold: 0 }), mkCtx()),

@@ -5,7 +5,7 @@
  * every button tap resolves purely against the database (restart-safe).
  */
 
-import type { MarketSpec, PriceQuote, RawClaimParse } from '@calledit/market-engine';
+import type { CompileResult, MarketSpec, PriceQuote, RawClaimParse } from '@calledit/market-engine';
 import { TUNABLES } from '@calledit/market-engine';
 import type { ClaimRow, Deps, FixtureRow, GroupRow, MarketRow } from '../ports.js';
 import { buildCompileContext, readGoals } from './context.js';
@@ -25,6 +25,12 @@ export interface ParseEnvelope {
     oddsMessageId: string | null;
     oddsTsMs: number | null;
   };
+  /**
+   * tg message id of the most recent confirm-gate post. Tracked so an option
+   * switch can strip the superseded gate's keyboard — otherwise its confirm
+   * button would mint the NEW terms while displaying the old ones.
+   */
+  gateMessageId?: number;
 }
 
 export function readEnvelope(claim: ClaimRow): ParseEnvelope | null {
@@ -36,12 +42,17 @@ export function readEnvelope(claim: ClaimRow): ParseEnvelope | null {
 }
 
 export type ProveOutcome =
+  /** The compiler (or model) says no — a terminal, in-character decline. */
   | { kind: 'reject'; message: string }
+  /** Infrastructure blinked (LLM/DB) — the prove button stays a valid retry. */
+  | { kind: 'retryable' }
   | { kind: 'envelope'; envelope: ParseEnvelope };
 
 /**
  * Parse the quoted text with the agent, then let the deterministic compiler
- * decide (LLM proposes, code disposes). Never throws for model failures.
+ * decide (LLM proposes, code disposes). Never throws: infrastructure
+ * failures come back as 'retryable' so the caller can restore a live button
+ * instead of stranding the claim in 'clarifying'.
  */
 export async function proveClaim(deps: Deps, claim: ClaimRow): Promise<ProveOutcome> {
   let raw: RawClaimParse;
@@ -50,12 +61,19 @@ export async function proveClaim(deps: Deps, claim: ClaimRow): Promise<ProveOutc
     raw = await deps.agent.parse(claim.quoted_text, seedCtx);
   } catch (err) {
     deps.log.warn('parse_failed', { claimId: claim.id, error: String(err) });
-    return { kind: 'reject', message: "Couldn't pin that one down — give it to me one more time." };
+    return { kind: 'retryable' };
   }
   deps.log.info('parse', { claimId: claim.id, raw });
 
-  const ctx = await buildCompileContext(deps, raw.fixtureId);
-  const result = deps.engine.compileClaim(raw, ctx);
+  let result: CompileResult;
+  try {
+    const ctx = await buildCompileContext(deps, raw.fixtureId);
+    result = deps.engine.compileClaim(raw, ctx);
+  } catch (err) {
+    // buildCompileContext reads the DB — a one-off blip must not kill the claim.
+    deps.log.warn('compile_context_failed', { claimId: claim.id, error: String(err) });
+    return { kind: 'retryable' };
+  }
   deps.log.info('compile', { claimId: claim.id, resultKind: result.kind });
 
   switch (result.kind) {
@@ -94,13 +112,49 @@ export async function proveClaim(deps: Deps, claim: ClaimRow): Promise<ProveOutc
   }
 }
 
-/** Price a spec off the latest odds snapshot; null when no clean number exists. */
-export async function quoteSpec(deps: Deps, spec: MarketSpec): Promise<PriceQuote | null> {
+/**
+ * Pricing-failure taxonomy — three genuinely different situations that must
+ * not collapse into one "try again" message:
+ * - 'transient':   fetch/DB blinked — retrying the same button can work.
+ * - 'no_odds':     the feed has no usable line for this fixture (yet).
+ * - 'unpriceable': this spec cannot be priced from the published inputs —
+ *                  retrying is pointless; the user needs a different option.
+ */
+export type QuoteOutcome =
+  | { kind: 'ok'; quote: PriceQuote }
+  | { kind: 'transient' }
+  | { kind: 'no_odds' }
+  | { kind: 'unpriceable'; reason: string };
+
+/**
+ * The market-engine pricer throws a typed MissingOddsInputError when the feed
+ * has not published an input a claim type requires. Detected by name (not
+ * instanceof) so the engine stays decoupled from the sibling's class identity.
+ */
+function isMissingOddsInput(err: unknown): boolean {
+  return err instanceof Error && err.name === 'MissingOddsInputError';
+}
+
+/** Price a spec off the latest odds snapshot, reporting WHY when it can't. */
+export async function quoteSpec(deps: Deps, spec: MarketSpec): Promise<QuoteOutcome> {
+  const fetched = await deps.tx.fetchOdds(spec.fixtureId);
+  if (fetched.kind !== 'ok') {
+    deps.log.info('quote_unavailable', {
+      fixtureId: spec.fixtureId,
+      claimType: spec.claimType,
+      reason: fetched.kind,
+    });
+    return { kind: fetched.kind };
+  }
+  let ctx;
   try {
-    const odds = await deps.tx.fetchOdds(spec.fixtureId);
-    if (!odds) return null;
-    const ctx = await buildCompileContext(deps, spec.fixtureId);
-    const quote = deps.engine.priceSpec(spec, odds, ctx);
+    ctx = await buildCompileContext(deps, spec.fixtureId);
+  } catch (err) {
+    deps.log.warn('price_context_failed', { fixtureId: spec.fixtureId, error: String(err) });
+    return { kind: 'transient' };
+  }
+  try {
+    const quote = deps.engine.priceSpec(spec, fetched.odds, ctx);
     deps.log.info('price', {
       fixtureId: spec.fixtureId,
       claimType: spec.claimType,
@@ -108,11 +162,30 @@ export async function quoteSpec(deps: Deps, spec: MarketSpec): Promise<PriceQuot
       multiplier: quote.multiplier,
       provenance: quote.provenance,
     });
-    return quote;
+    return { kind: 'ok', quote };
   } catch (err) {
-    deps.log.warn('price_failed', { fixtureId: spec.fixtureId, error: String(err) });
-    return null;
+    // priceSpec is pure: a throw means this spec cannot be priced from the
+    // published inputs. A missing required input may still be published
+    // later, so it reads as "no line yet"; anything else is structural.
+    deps.log.warn('price_failed', {
+      fixtureId: spec.fixtureId,
+      claimType: spec.claimType,
+      error: String(err),
+    });
+    return isMissingOddsInput(err)
+      ? { kind: 'no_odds' }
+      : { kind: 'unpriceable', reason: String(err) };
   }
+}
+
+/**
+ * A quote at exactly 0 or 1 describes an already-decided (or impossible)
+ * claim: minting it would sell unwinnable ×25 backs or guaranteed-loss ×1.02
+ * doubts. Checked at the MINT decision points only — the settler deliberately
+ * uses honest degenerate reprices for its live card updates.
+ */
+export function isDegenerateQuote(probability: number): boolean {
+  return probability <= 0 || probability >= 1;
 }
 
 export type MintWindowCheck = { open: true } | { open: false; reason: string };

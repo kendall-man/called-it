@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   lambdaFromTotalsLine,
+  MissingOddsInputError,
   poissonCdf,
   poissonPmf,
   poissonSurvival,
@@ -52,6 +53,23 @@ describe('poisson helpers', () => {
     // Round-trips: P(X >= 3) at that rate is the quoted over probability.
     expect(poissonSurvival(3, lambda)).toBeCloseTo(0.6, 6);
   });
+
+  it('de-conditions integer-line push probabilities (live feed shape)', () => {
+    // Feed reality (devnet 2026-07-03): integer lines quote P(over | no push).
+    // At λ = 2.9406, line 3: conditional over = P(X>=4)/(1-P(X=3)) ≈ 0.43741.
+    // Naive inversion of 0.43741 as unconditional gives λ ≈ 3.38 (+15%);
+    // the fixed-point de-conditioning must land near the true rate.
+    const trueLambda = 2.9406;
+    const conditionalOver =
+      poissonSurvival(4, trueLambda) / (1 - poissonPmf(3, trueLambda));
+    const recovered = lambdaFromTotalsLine(3, conditionalOver);
+    expect(Math.abs(recovered - trueLambda)).toBeLessThan(0.02);
+    // Half-goal lines stay a plain unconditional inversion.
+    expect(lambdaFromTotalsLine(2.5, poissonSurvival(3, trueLambda))).toBeCloseTo(
+      trueLambda,
+      3,
+    );
+  });
 });
 
 describe('priceSpec — match_winner provenance (FT vs FT_90 rule)', () => {
@@ -90,14 +108,19 @@ describe('priceSpec — match_winner provenance (FT vs FT_90 rule)', () => {
     expect(home.probability + away.probability).toBeCloseTo(1, 8);
   });
 
-  it('throws a descriptive error without 1X2 input', () => {
-    expect(() =>
+  it('throws the typed MissingOddsInputError without 1X2 input', () => {
+    let thrown: unknown;
+    try {
       priceSpec(
         mkSpec({ claimType: 'match_winner', period: 'FT_90' }),
         mkOdds({ p1x2: null }),
         mkCtx(),
-      ),
-    ).toThrow(/1X2/);
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(MissingOddsInputError);
+    expect(String(thrown)).toMatch(/1X2/);
   });
 
   it('comeback prices like the win market for the anchored side', () => {
@@ -229,12 +252,29 @@ describe('priceSpec — independent-Poisson derived markets', () => {
     expect(quote.provenance).toBe('modelled');
   });
 
-  it('throws for a player not yet bound to a side', () => {
+  it('prices an unbound player off the neutral team rate (pending_lineup stays mintable)', () => {
+    const quote = priceSpec(
+      mkSpec({
+        claimType: 'player_scores_n',
+        entityRef: playerRef(null),
+        threshold: 1,
+      }),
+      mkOdds(),
+      mkCtx(),
+    );
+    // Neutral rate: half the implied total-goals lambda, striker share 0.3.
+    const lambdaTotal = lambdaFromTotalsLine(2.5, 0.6);
+    const lambdaPlayer = (lambdaTotal / 2) * 0.3;
+    expect(quote.probability).toBeCloseTo(1 - Math.exp(-lambdaPlayer), 4);
+    expect(quote.provenance).toBe('modelled');
+  });
+
+  it('still throws for a TEAM spec with a null participant (contract violation)', () => {
     expect(() =>
       priceSpec(
         mkSpec({
-          claimType: 'player_scores_n',
-          entityRef: playerRef(null),
+          claimType: 'team_scores_n',
+          entityRef: { kind: 'team', participant: null as unknown as 1, name: 'X' },
           threshold: 1,
         }),
         mkOdds(),

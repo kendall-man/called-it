@@ -107,13 +107,23 @@ export function createDeps(env: Env, log: Logger): Deps {
 
   const tx: TxPort = {
     fetchOdds: async (fixtureId) => {
+      let odds;
+      let recordCount = 0;
       try {
         const records = await client.oddsSnapshot(fixtureId);
-        return combineOddsSnapshot(records, { logger: txLogger });
+        recordCount = records.length;
+        odds = combineOddsSnapshot(records, { logger: txLogger });
       } catch (err) {
         log.warn('odds_snapshot_failed', { fixtureId, error: String(err) });
-        return null;
+        return { kind: 'transient' };
       }
+      if (!odds) {
+        // The fetch worked — the feed just has nothing usable for this
+        // fixture. Logged so inventory gaps are distinguishable from outages.
+        log.info('odds_snapshot_empty', { fixtureId, recordCount });
+        return { kind: 'no_odds' };
+      }
+      return { kind: 'ok', odds };
     },
     fetchFixtures: async () => {
       const records = await client.fixturesSnapshot();

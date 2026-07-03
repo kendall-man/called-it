@@ -18,6 +18,8 @@ export interface PostOptions {
 export interface Poster {
   post(chatId: number, text: string, options?: PostOptions): void;
   editCard(chatId: number, marketId: string, messageId: number, text: string, keyboard?: InlineKeyboard): void;
+  /** Best-effort removal of an inline keyboard from an earlier message. */
+  stripKeyboard(chatId: number, messageId: number): void;
 }
 
 export function createPoster(api: Api, queue: SendQueue, log: Logger): Poster {
@@ -32,6 +34,19 @@ export function createPoster(api: Api, queue: SendQueue, log: Logger): Poster {
           link_preview_options: { is_disabled: true },
         });
         if (options.onSent) await options.onSent(message.message_id);
+      });
+    },
+    stripKeyboard(chatId, messageId) {
+      queue.enqueue(chatId, async () => {
+        try {
+          await api.editMessageReplyMarkup(chatId, messageId);
+        } catch (err) {
+          // The message may be old or already keyboard-less — log the rest.
+          const detail = String(err);
+          if (!detail.includes('message is not modified')) {
+            log.warn('strip_keyboard_failed', { chatId, messageId, error: detail });
+          }
+        }
       });
     },
     editCard(chatId, marketId, messageId, text, keyboard) {

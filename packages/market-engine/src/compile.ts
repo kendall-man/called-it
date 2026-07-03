@@ -352,6 +352,10 @@ function compileTotals(
   ) {
     return reject('out_of_range');
   }
+  // "Exactly N.5 goals" can never happen — an eq claim needs a whole number.
+  if (comparator === 'eq' && !Number.isInteger(line)) {
+    return reject('out_of_range');
+  }
   return {
     kind: 'ok',
     spec: buildSpec({

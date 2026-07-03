@@ -342,8 +342,11 @@ export class Settler {
   private async reprice(market: MarketRow): Promise<void> {
     const fresh = await this.deps.db.getMarket(market.id);
     if (!fresh || fresh.status !== 'open') return;
-    const quote = await quoteSpec(this.deps, fresh.spec);
-    if (!quote) return;
+    // Any pricing failure (transient, no line, unpriceable) just skips this
+    // reprice tick — the card keeps its last good quote.
+    const outcome = await quoteSpec(this.deps, fresh.spec);
+    if (outcome.kind !== 'ok') return;
+    const quote = outcome.quote;
     const movePp = Math.abs(quote.probability - fresh.quote_probability) * 100;
     if (movePp < TUNABLES.REPRICE_TRIGGER_PP) return;
     await this.deps.db.setMarketQuote(market.id, {

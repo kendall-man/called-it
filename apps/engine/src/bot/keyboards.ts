@@ -23,6 +23,17 @@ export function optionsKeyboard(
   return keyboard;
 }
 
+/**
+ * Single-button retry after a pricing failure: re-quotes the STORED option
+ * spec via the option handler — no fresh LLM parse, no dead keyboard.
+ */
+export function retryQuoteKeyboard(claimId: string, optionKey: string): InlineKeyboard {
+  return new InlineKeyboard().text(
+    'Run it again 🔁',
+    encodeCallback({ t: 'option', claimId, key: optionKey }),
+  );
+}
+
 export function confirmKeyboard(claimId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("That's my shout ✅", encodeCallback({ t: 'confirm', claimId }))
