@@ -227,11 +227,13 @@ describe('devnet wire shapes (empirical 2026-07-03, synthetic values)', () => {
     expect(isFullMatchPeriod(null, silentLogger)).toBe(true);
   });
 
-  it('rejects extra-time periods (observed live: "et")', () => {
+  it('rejects extra-time and penalty periods (observed live: "et", "penalties")', () => {
     expect(normalize(wire1x2({ MarketPeriod: 'et' }))).toBeNull();
     expect(isFullMatchPeriod('et', silentLogger)).toBe(false);
     expect(isFullMatchPeriod('ET1', silentLogger)).toBe(false);
     expect(isFullMatchPeriod('AET', silentLogger)).toBe(false);
+    expect(isFullMatchPeriod('penalties', silentLogger)).toBe(false);
+    expect(isFullMatchPeriod('PEN', silentLogger)).toBe(false);
   });
 
   it('parses the "line=X" MarketParameters grammar', () => {
