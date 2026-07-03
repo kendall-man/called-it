@@ -105,8 +105,13 @@ export function classifyOddsRecord(record: OddsRecord, logger: TxlineLogger = co
 
 // ── period filtering ──────────────────────────────────────────────────────
 
-/** MarketPeriod values that clearly denote a partial-match market. */
-const PARTIAL_MATCH_PERIOD_PATTERN = /^(1H|2H|H1|H2|HT|1ST|2ND|FIRSTHALF|SECONDHALF|HALF\d)/;
+/**
+ * MarketPeriod values that clearly denote a partial-match market. "ET"
+ * (observed live 2026-07-03 when a friendly went to extra time) prices the
+ * extra-time segment only — not our 90-minute/full-match inputs.
+ */
+const PARTIAL_MATCH_PERIOD_PATTERN =
+  /^(1H|2H|H1|H2|HT|1ST|2ND|FIRSTHALF|SECONDHALF|HALF\d|ET|AET|OT|EXTRATIME)/;
 
 /**
  * StablePrice 1X2 is a 90-minute market; we only price from full-match
