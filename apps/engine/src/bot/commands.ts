@@ -44,8 +44,12 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
       });
       return;
     }
+    // The devnet-SOL row appears only while the wager module is live.
+    const wagerState = h.deps.wager
+      ? { enabled: await h.deps.wager.isGroupEnabled(group.id) }
+      : null;
     h.poster.post(ctx.chat.id, await h.say('settings_intro'), {
-      keyboard: settingsKeyboard(group.chattiness, group.web_enabled),
+      keyboard: settingsKeyboard(group.chattiness, group.web_enabled, wagerState),
     });
   });
 
@@ -132,4 +136,8 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
       claimTypeGuess: null,
     });
   });
+
+  // Wager commands (/wallet, /deposit, /withdraw, …) exist only while the
+  // module is live; the flag-off bot registers exactly the handlers above.
+  h.deps.wager?.registerCommands(bot);
 }

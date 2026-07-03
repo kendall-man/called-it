@@ -67,7 +67,12 @@ async function sweepUnpostedSettlements(
       if (!market) continue;
       inFlight.set(settlement.market_id, nowMs);
       const positions = await deps.db.positionsForMarket(market.id);
-      const winners = computeWinners(positions, settlement.outcome);
+      // sol receipts phrase amounts via the wager module inside postReceipt —
+      // computing Rep "winners" from lamport stakes would print nonsense.
+      const winners =
+        market.currency === 'sol'
+          ? new Map<number, number>()
+          : computeWinners(positions, settlement.outcome);
       deps.log.info('sweeper_reposting', { marketId: market.id, outcome: settlement.outcome });
       await settler.postReceipt(market, settlement.outcome, winners);
     }
@@ -82,8 +87,8 @@ async function hasCoveredFixtureToday(deps: Deps): Promise<boolean> {
   return fixtures.length > 0;
 }
 
-/** Top everyone up to the floor at the configured UTC hour on matchdays. */
-async function runMatchdayTopup(deps: Deps): Promise<void> {
+/** Top everyone up to the floor at the configured UTC hour on matchdays. Exported for the wager-gating isolation test. */
+export async function runMatchdayTopup(deps: Deps): Promise<void> {
   const dateKey = utcDayKey(deps.now());
   const groups = await deps.db.listGroups();
   for (const group of groups) {
@@ -140,6 +145,20 @@ export function startCrons(args: {
 
   // Boot-time kick so a fresh deploy is immediately useful.
   void syncFixtures(deps).then(() => supervisor.refresh());
+
+  // Wager crons (deposit watcher, withdrawal executor, solvency check) exist
+  // only while the module is live; flag-off deploys run exactly the timers below.
+  if (deps.wager) {
+    deps.wager.registerCrons({
+      every(intervalMs: number, task: () => void | Promise<void>): void {
+        timers.push(
+          setInterval(() => {
+            void task();
+          }, intervalMs),
+        );
+      },
+    });
+  }
 
   timers.push(
     setInterval(() => {

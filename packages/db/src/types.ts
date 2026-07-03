@@ -34,6 +34,9 @@ export type ClaimStatus =
 
 export type LedgerKind = 'stake' | 'payout' | 'refund' | 'topup' | 'seed';
 
+/** Stake currency for a market (markets.currency, migration 0002). */
+export type MarketCurrency = 'rep' | 'sol';
+
 export type PositionState = 'pending' | 'active' | 'void';
 
 export type PriceProvenance = 'market' | 'modelled';
@@ -138,6 +141,11 @@ export interface MarketRow {
   spec: MarketSpec;
   status: MarketStatus;
   is_replay: boolean;
+  /**
+   * Stake currency, stamped atomically at mint (migration 0002). Optional so
+   * pre-0002 databases and existing fixtures stay valid; absent means 'rep'.
+   */
+  currency?: MarketCurrency;
   price_provenance: PriceProvenance;
   quote_probability: number;
   quote_multiplier: number;
@@ -248,6 +256,8 @@ export interface MarketInsert {
   spec: MarketSpec;
   status: MarketStatus;
   is_replay: boolean;
+  /** Omitted = DB default 'rep'; wager groups stamp 'sol' atomically at mint. */
+  currency?: MarketCurrency;
   price_provenance: PriceProvenance;
   quote_probability: number;
   quote_multiplier: number;

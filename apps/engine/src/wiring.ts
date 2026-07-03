@@ -12,7 +12,7 @@ import {
   reduceMarket,
   type MatchEvent,
 } from '@calledit/market-engine';
-import { createEngineDb } from '@calledit/db';
+import { createEngineDb, createWagerDb } from '@calledit/db';
 import {
   classifyMessage,
   parseClaim,
@@ -29,7 +29,18 @@ import {
   normalizeScores,
   type TxlineLogger,
 } from '@calledit/txline';
-import { Connection, loadWallet, submitValidateStat } from '@calledit/solana';
+import {
+  broadcastRawTx,
+  buildSolTransfer,
+  Connection,
+  fetchIncomingTransfers,
+  getSigStatus,
+  isBlockheightExceeded,
+  loadWallet,
+  submitValidateStat,
+  withRetry,
+  type Keypair,
+} from '@calledit/solana';
 import type {
   AgentPort,
   Deps,
@@ -39,6 +50,7 @@ import type {
   ProofSubmitter,
   TxPort,
 } from './ports.js';
+import type { WagerModule, WagerModuleDeps, WagerPoster } from './wager/module.js';
 import type { Env } from './env.js';
 import type { Logger } from './log.js';
 import { mapFixtureRecord } from './ingest/fixtureMap.js';
@@ -46,7 +58,12 @@ import { mapStatValidationToParams } from './proofs/mapping.js';
 
 // ── Dependency construction ───────────────────────────────────────────────
 
-export function createDeps(env: Env, log: Logger): Deps {
+export async function createDeps(
+  env: Env,
+  log: Logger,
+  /** Rate-limited chat poster — required only when wager mode is enabled. */
+  wagerPoster?: WagerPoster,
+): Promise<Deps> {
   const db = createEngineDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY) as unknown as EngineDb;
 
   const engine: EnginePort = { compileClaim, priceSpec, reduceMarket, checkDebounce };
@@ -170,8 +187,178 @@ export function createDeps(env: Env, log: Logger): Deps {
   };
 
   const proofSubmitter: ProofSubmitter | null = buildProofSubmitter(env, log);
+  const wager: WagerModule | null = await buildWagerModule(env, log, db, wagerPoster);
 
-  return { db, agent, engine, tx, proofSubmitter, env, log, now: () => Date.now() };
+  return { db, agent, engine, tx, proofSubmitter, wager, env, log, now: () => Date.now() };
+}
+
+// ── Wager module construction (nullable degrade, like the proof submitter) ──
+
+type WagerModuleDb = WagerModuleDeps['db'];
+type WagerChainPort = WagerModuleDeps['chain'];
+
+/**
+ * The dynamic import keeps ./wager/module.js completely unreachable at
+ * runtime unless BOTH gates pass, so a flag-off deploy never loads a byte of
+ * wager code. Uses the DEDICATED wager treasury keypair; the TxL-holding
+ * SOLANA_KEYPAIR_B58 must never touch wager flows (sponsor terms) — env.ts
+ * refuses to boot if the two are the same key.
+ */
+async function buildWagerModule(
+  env: Env,
+  log: Logger,
+  engineDb: EngineDb,
+  poster: WagerPoster | undefined,
+): Promise<WagerModule | null> {
+  if (env.WAGER_MODE_ENABLED !== 'true') return null;
+  const treasurySecret = env.WAGER_TREASURY_KEYPAIR_B58;
+  if (!treasurySecret) {
+    log.warn('wager_module_disabled', { reason: 'WAGER_TREASURY_KEYPAIR_B58 not set' });
+    return null;
+  }
+  if (!poster) {
+    // Programming error, not configuration: main.ts must construct the poster
+    // before deps when the flag is on. Fail loud rather than run silent.
+    throw new Error('wager module requires a poster — pass one to createDeps');
+  }
+  const treasury = loadWallet(treasurySecret);
+  // Long-lived Connection, constructed once per process for the module.
+  const connection = new Connection(env.SOLANA_RPC_URL, 'confirmed');
+  const { createWagerModule } = await import('./wager/module.js');
+  return createWagerModule({
+    db: buildWagerModuleDb(env, engineDb),
+    chain: buildWagerChain(connection, treasury),
+    poster,
+    log,
+    now: () => Date.now(),
+    opsChatId: parseOpsChatId(env, log),
+  });
+}
+
+/**
+ * The module's WagerDb port = packages/db's wager facade plus the handful of
+ * SHARED-table reads (positions, cursors, user names) served by the engine
+ * facade, so neither package grows a dependency on the other.
+ */
+function buildWagerModuleDb(env: Env, engineDb: EngineDb): WagerModuleDb {
+  const wagerDb = createWagerDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  // Migration 0002 ships no advisory-lock RPC, so cron singleton guarding is
+  // in-process (the engine is one Node process). Rolling-deploy overlap can
+  // double-run a tick; every money movement stays idempotent via unique keys,
+  // so the worst case is a duplicated chat line — cosmetic, not monetary.
+  const heldCronLocks = new Set<string>();
+  return {
+    ...wagerDb,
+    // Port wants Promise<void>; the facade reports {updated}/{inserted}.
+    async markWithdrawalSubmitted(id, tx) {
+      await wagerDb.markWithdrawalSubmitted(id, tx);
+    },
+    async markWithdrawalConfirmed(id) {
+      await wagerDb.markWithdrawalConfirmed(id);
+    },
+    async markWithdrawalFailed(id, error) {
+      await wagerDb.markWithdrawalFailed(id, error);
+    },
+    async insertSettlementApplied(marketId) {
+      await wagerDb.insertSettlementApplied(marketId);
+    },
+    // Shared tables — engine facade owns these.
+    positionsForMarket: (marketId) => engineDb.positionsForMarket(marketId),
+    setPositionStates: (ids, state) => engineDb.setPositionStates(ids, state),
+    getCursor: (streamName) => engineDb.getCursor(streamName),
+    setCursor: (streamName, value) => engineDb.setCursor(streamName, value),
+    getUserName: async (userId) => (await engineDb.getUser(userId))?.display_name ?? null,
+    async tryCronLock(name) {
+      if (heldCronLocks.has(name)) return false;
+      heldCronLocks.add(name);
+      return true;
+    },
+    async releaseCronLock(name) {
+      heldCronLocks.delete(name);
+    },
+  };
+}
+
+/** Binds packages/solana's pure chain I/O to the module's WagerChain port. */
+function buildWagerChain(connection: Connection, treasury: Keypair): WagerChainPort {
+  const treasuryAddress = treasury.publicKey.toBase58();
+  // Retry-wrapped Connection facets for the calls transfer.ts does not retry
+  // itself (fetchIncomingTransfers applies withRetry internally).
+  const retryRpc = {
+    sendRawTransaction: (raw: Buffer, options?: { skipPreflight?: boolean }) =>
+      withRetry(() => connection.sendRawTransaction(raw, options)),
+    getSignatureStatuses: (sigs: string[], config?: { searchTransactionHistory?: boolean }) =>
+      withRetry(() =>
+        connection.getSignatureStatuses(sigs, {
+          searchTransactionHistory: config?.searchTransactionHistory ?? false,
+        }),
+      ),
+    getBlockHeight: (commitment?: 'confirmed' | 'finalized') =>
+      withRetry(() => connection.getBlockHeight(commitment)),
+  };
+  return {
+    treasuryPubkey: () => treasuryAddress,
+    async treasuryBalanceLamports() {
+      try {
+        const lamports = await withRetry(() =>
+          connection.getBalance(treasury.publicKey, 'confirmed'),
+        );
+        return { ok: true, lamports: BigInt(lamports) };
+      } catch (err) {
+        return { ok: false, error: `getBalance: ${String(err)}` };
+      }
+    },
+    async buildTransfer({ to, lamports }) {
+      let latest: { blockhash: string; lastValidBlockHeight: number };
+      try {
+        latest = await withRetry(() => connection.getLatestBlockhash('finalized'));
+      } catch (err) {
+        return { ok: false, error: `getLatestBlockhash: ${String(err)}` };
+      }
+      const built = buildSolTransfer({
+        from: treasury,
+        to,
+        lamports,
+        recentBlockhash: latest.blockhash,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      });
+      // buildSolTransfer is pure — same inputs fail the same way forever.
+      if (!built.ok) return { ok: false, error: built.error, permanent: true };
+      return {
+        ok: true,
+        sig: built.sig,
+        rawTxB64: built.rawTxB64,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      };
+    },
+    broadcastRawTx: (rawTxB64) => broadcastRawTx(retryRpc, rawTxB64),
+    getSigStatus: (sig) => getSigStatus(retryRpc, sig),
+    isBlockheightExceeded: (lastValidBlockHeight) =>
+      isBlockheightExceeded(retryRpc, lastValidBlockHeight),
+    fetchIncomingTransfers: ({ untilSig }) =>
+      fetchIncomingTransfers(connection, treasuryAddress, { untilSig: untilSig ?? undefined }),
+    async requestAirdrop(lamports) {
+      try {
+        const sig = await withRetry(() =>
+          connection.requestAirdrop(treasury.publicKey, Number(lamports)),
+        );
+        return { ok: true, sig };
+      } catch (err) {
+        return { ok: false, error: `requestAirdrop: ${String(err)}` };
+      }
+    },
+  };
+}
+
+function parseOpsChatId(env: Env, log: Logger): number | null {
+  const raw = env.WAGER_OPS_CHAT_ID;
+  if (raw === undefined || raw.trim() === '') return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isSafeInteger(parsed)) {
+    log.warn('wager_ops_chat_invalid', { raw });
+    return null;
+  }
+  return parsed;
 }
 
 function buildProofSubmitter(env: Env, log: Logger): ProofSubmitter | null {

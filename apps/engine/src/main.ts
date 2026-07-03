@@ -53,7 +53,6 @@ async function main(): Promise<void> {
   loadDotEnv();
   const log = createLogger({ app: 'calledit-engine' });
   const env = loadEnv();
-  const deps = createDeps(env, log);
 
   const queue = new SendQueue({
     ratePerMinute: ENGINE.SEND_RATE_PER_MINUTE,
@@ -64,8 +63,12 @@ async function main(): Promise<void> {
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
   bot.api.config.use(autoRetry());
 
-  const say = createSay(deps.agent, log);
+  // The poster exists before deps so the wager module (when enabled) can post
+  // deposit/withdrawal notifications through the same rate-limited queue.
   const poster = createPoster(bot.api, queue, log);
+  const deps = await createDeps(env, log, poster);
+
+  const say = createSay(deps.agent, log);
   const proofWorker = new ProofWorker(deps);
   const settler = new Settler(deps, poster, say, proofWorker);
   const supervisor = new IngestSupervisor(deps, settler);
@@ -99,6 +102,7 @@ async function main(): Promise<void> {
   log.info('engine_up', {
     webBaseUrl: env.WEB_BASE_URL,
     proofSubmitter: deps.proofSubmitter !== null,
+    wagerModule: deps.wager !== null,
   });
 
   let shuttingDown = false;

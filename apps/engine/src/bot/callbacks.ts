@@ -13,10 +13,10 @@ import { decodeCallback, type CallbackAction } from './callbackData.js';
 import { displayName, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
 import {
   confirmKeyboard,
+  marketStakeKeyboard,
   optionsKeyboard,
   retryQuoteKeyboard,
   settingsKeyboard,
-  stakeKeyboard,
 } from './keyboards.js';
 import { describeTerms, formatMultiplier, formatProbabilityPct, statusLine } from './cards.js';
 import {
@@ -415,7 +415,7 @@ async function handleConfirm(h: HandlerCtx, ctx: Context, claimId: string): Prom
   const pendingNote =
     market.status === 'pending_lineup' ? `\n${await h.say('pending_lineup_note')}` : '';
   h.poster.post(claim.group_id, `${garnish}${pendingNote}\n\n${card.text}`, {
-    keyboard: stakeKeyboard(market.id),
+    keyboard: marketStakeKeyboard(h.deps, market),
     onSent: async (messageId) => {
       await h.deps.db.setMarketCardMessage(market.id, messageId);
     },
@@ -450,6 +450,52 @@ async function handleDecline(h: HandlerCtx, ctx: Context, claimId: string): Prom
   await answer(ctx, await h.say('confirm_declined'));
 }
 
+/** Re-render the market card tally after a placed tap (collapsed per tunables). */
+async function refreshStakeCard(h: HandlerCtx, chatId: number, marketId: string): Promise<void> {
+  const fresh = await h.deps.db.getMarket(marketId);
+  if (fresh && fresh.card_tg_message_id !== null) {
+    const card = await composeClaimCard(h.deps, fresh);
+    if (card && card.messageId !== null) {
+      h.poster.editCard(chatId, fresh.id, card.messageId, card.text, marketStakeKeyboard(h.deps, fresh));
+    }
+  }
+}
+
+/**
+ * Everything after the shared market/status/timing checks for a sol market:
+ * one delegation into the wager module, which owns funds, presets, and copy.
+ */
+async function delegateSolStake(
+  h: HandlerCtx,
+  ctx: Context,
+  action: Extract<CallbackAction, { t: 'stake' }>,
+  market: MarketRow,
+  chatId: number,
+  inPlay: boolean,
+): Promise<void> {
+  const wager = h.deps.wager;
+  const from = ctx.from;
+  if (!wager || !from) {
+    // A sol market exists but the module is off (flag flipped with live
+    // markets) — never fall through to the Rep path, which would move Rep
+    // against a SOL-denominated market.
+    await stale(h, ctx);
+    return;
+  }
+  await ensureUserSeen(h, chatId, from);
+  const result = await wager.handleStakeTap({
+    market,
+    userId: from.id,
+    userName: displayName(from),
+    side: action.side,
+    presetIndex: action.presetIndex,
+    inPlay,
+    nowMs: h.deps.now(),
+  });
+  await answer(ctx, result.reply);
+  if (result.placed) await refreshStakeCard(h, chatId, market.id);
+}
+
 async function handleStake(
   h: HandlerCtx,
   ctx: Context,
@@ -468,6 +514,22 @@ async function handleStake(
   }
   if (market.status !== 'open' && market.status !== 'pending_lineup') {
     await answer(ctx, `${statusLine(market.status)}.`);
+    return;
+  }
+  if (market.currency === 'sol') {
+    // Early delegate — BEFORE any Rep preset/balance logic. The in-play
+    // cutoff mirrors the Rep check below so both currencies share game rules.
+    const fixture = await h.deps.db.getFixture(market.fixture_id);
+    const inPlay = fixture !== null && fixture.phase !== 'NS';
+    if (
+      inPlay &&
+      fixture.minute !== null &&
+      fixture.minute >= TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE
+    ) {
+      await answer(ctx, await h.say('window_closed'));
+      return;
+    }
+    await delegateSolStake(h, ctx, action, market, chatId, inPlay);
     return;
   }
   const stakeAmount = TUNABLES.PRESET_STAKES[action.presetIndex];
@@ -545,13 +607,16 @@ async function handleStake(
     }),
   );
   // Refresh the card tally (collapsed per tunables).
-  const fresh = await h.deps.db.getMarket(market.id);
-  if (fresh && fresh.card_tg_message_id !== null) {
-    const card = await composeClaimCard(h.deps, fresh);
-    if (card && card.messageId !== null) {
-      h.poster.editCard(chatId, fresh.id, card.messageId, card.text, stakeKeyboard(fresh.id));
-    }
-  }
+  await refreshStakeCard(h, chatId, market.id);
+}
+
+/** Settings-row state for the devnet-SOL toggle; null (no row) whenever the module is off. */
+async function wagerSettingsState(
+  h: HandlerCtx,
+  groupId: number,
+): Promise<{ enabled: boolean } | null> {
+  if (!h.deps.wager) return null;
+  return { enabled: await h.deps.wager.isGroupEnabled(groupId) };
 }
 
 async function handleChattiness(
@@ -581,7 +646,11 @@ async function handleChattiness(
   await answer(ctx, await h.say('settings_updated', { summary }));
   try {
     await ctx.editMessageReplyMarkup({
-      reply_markup: settingsKeyboard(mode, group?.web_enabled ?? true),
+      reply_markup: settingsKeyboard(
+        mode,
+        group?.web_enabled ?? true,
+        await wagerSettingsState(h, chatId),
+      ),
     });
   } catch {
     // fine — the settings message may be old
@@ -610,7 +679,57 @@ async function handleWeb(h: HandlerCtx, ctx: Context, enabled: boolean): Promise
   );
   try {
     await ctx.editMessageReplyMarkup({
-      reply_markup: settingsKeyboard(group?.chattiness ?? 'nudge', enabled),
+      reply_markup: settingsKeyboard(
+        group?.chattiness ?? 'nudge',
+        enabled,
+        await wagerSettingsState(h, chatId),
+      ),
+    });
+  } catch {
+    // fine
+  }
+}
+
+/**
+ * Admin toggle for per-group devnet-SOL mode — reachable only from a settings
+ * keyboard rendered while the wager module was live; mirrors handleWeb's
+ * admin gate. Currency is stamped at mint, so flipping this never changes a
+ * live market.
+ */
+async function handleWagerToggle(h: HandlerCtx, ctx: Context, enabled: boolean): Promise<void> {
+  const chatId = ctx.chat?.id;
+  const from = ctx.from;
+  if (chatId === undefined || !from) {
+    await stale(h, ctx);
+    return;
+  }
+  const wager = h.deps.wager;
+  if (!wager) {
+    // Button from a deploy that had the module on — the flag is off now.
+    await stale(h, ctx);
+    return;
+  }
+  const admin = await isGroupAdmin(h, () => ctx.api.getChatMember(chatId, from.id));
+  if (!admin) {
+    await answer(ctx, await h.say('admin_only'));
+    return;
+  }
+  // The returned explainer is wager copy (module-scoped) — post it to the
+  // group so members learn what the toggle means; the toast stays neutral.
+  const explainer = await wager.setGroupEnabled(chatId, enabled, from.id);
+  const group = await h.deps.db.getGroup(chatId);
+  await answer(
+    ctx,
+    await h.say('settings_updated', {
+      summary: enabled ? 'devnet SOL mode is on' : 'devnet SOL mode is off',
+    }),
+  );
+  if (explainer.length > 0) h.poster.post(chatId, explainer);
+  try {
+    await ctx.editMessageReplyMarkup({
+      reply_markup: settingsKeyboard(group?.chattiness ?? 'nudge', group?.web_enabled ?? true, {
+        enabled,
+      }),
     });
   } catch {
     // fine
@@ -650,6 +769,9 @@ export async function dispatchCallback(
       break;
     case 'web':
       await handleWeb(h, ctx, action.enabled);
+      break;
+    case 'wager':
+      await handleWagerToggle(h, ctx, action.enabled);
       break;
   }
 }

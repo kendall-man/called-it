@@ -29,6 +29,9 @@ import type {
 import type { Chattiness } from './localTypes.js';
 import type { Env } from './env.js';
 import type { Logger } from './log.js';
+// Type-only on purpose: the wager module must stay unreachable at runtime
+// from any file outside wager/ except wiring.ts's gated dynamic import.
+import type { WagerModule } from './wager/module.js';
 
 // ── Row shapes (matching migrations/0001_init.sql) ────────────────────────
 
@@ -115,6 +118,11 @@ export interface MarketRow {
   odds_ts: number | null;
   card_tg_message_id: number | null;
   created_at: string;
+  /**
+   * Stamped atomically at mint (migration 0002). Optional so rows from a
+   * pre-0002 database keep working: absent reads as the Rep path everywhere.
+   */
+  currency?: 'rep' | 'sol';
 }
 
 export interface PositionRow {
@@ -215,6 +223,8 @@ export interface EngineDb {
     quote_multiplier: number;
     odds_message_id: string | null;
     odds_ts: number | null;
+    /** Omitted entirely when wager mode is off — the insert stays main-identical. */
+    currency?: 'rep' | 'sol';
   }): Promise<MarketRow>;
   getMarket(id: string): Promise<MarketRow | null>;
   updateMarketStatus(id: string, status: MarketStatus): Promise<void>;
@@ -386,6 +396,11 @@ export interface Deps {
   tx: TxPort;
   /** null when SOLANA_KEYPAIR_B58 is absent — proofs degrade honestly. */
   proofSubmitter: ProofSubmitter | null;
+  /**
+   * null unless WAGER_MODE_ENABLED === 'true' AND WAGER_TREASURY_KEYPAIR_B58
+   * is set — every seam short-circuits to exact main behavior on null.
+   */
+  wager: WagerModule | null;
   env: Env;
   log: Logger;
   now(): number;
