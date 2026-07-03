@@ -72,7 +72,9 @@ Prereqs: Node ≥ 22, pnpm 10.
 3. **Supabase** — create a free project at supabase.com, open the SQL editor, paste and
    run `packages/db/migrations/0001_init.sql`. Copy the project URL, `service_role` key
    (engine) and `anon` key (web) into `.env`.
-4. **Anthropic** — create an API key at console.anthropic.com → `ANTHROPIC_API_KEY`.
+4. **GLM (Z.ai)** — create an API key at [z.ai](https://z.ai) → `GLM_API_KEY`. The
+   agent drives GLM through its Anthropic-compatible endpoint (`GLM_BASE_URL`,
+   default `https://api.z.ai/api/anthropic`).
 5. **Solana devnet wallet** — any devnet keypair (`solana-keygen new`), base58 secret
    into `SOLANA_KEYPAIR_B58`. The bootstrap script airdrops devnet SOL itself.
 6. **TxLINE activation** (devnet, free World Cup tier):

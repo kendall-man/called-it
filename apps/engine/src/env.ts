@@ -7,7 +7,8 @@ import { z } from 'zod';
  */
 const EnvSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(10, 'BotFather token required'),
-  ANTHROPIC_API_KEY: z.string().min(1, 'Anthropic key required for the agent'),
+  GLM_API_KEY: z.string().min(1, 'GLM (Z.ai) key required for the agent'),
+  GLM_BASE_URL: z.string().url().default('https://api.z.ai/api/anthropic'),
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   TXLINE_API_BASE: z.string().url(),

@@ -16,7 +16,7 @@ import {
   type ModelToolDefinition,
   type ModelToolResultBlock,
   type ModelToolUseBlock,
-  createAnthropicClient,
+  createModelClient,
 } from './client.js';
 import { CLAIM_TYPE_VALUES } from './claim-taxonomy.js';
 import {
@@ -57,7 +57,7 @@ export interface ParseToolExecutors {
 
 export interface ParseOptions {
   executors: ParseToolExecutors;
-  /** Injectable for tests; defaults to a real Anthropic client. */
+  /** Injectable for tests; defaults to a real model client (GLM). */
   client?: AgentModelClient;
   model?: string;
   maxTokens?: number;
@@ -151,6 +151,22 @@ const rawClaimParseSchema = z
     }),
   );
 
+/**
+ * Some models (notably GLM) serialise a JSON null as the string "null" in
+ * tool-call inputs. Both the tool's input_schema and rawClaimParseSchema treat
+ * null/absent as "unstated", so fold the literal strings back to real null
+ * before validation. No legitimate value in the closed taxonomy is the string
+ * "null" or "undefined", so this cannot mask a real parse.
+ */
+function coerceModelNulls(input: unknown): unknown {
+  if (input === null || typeof input !== 'object') return input;
+  const coerced: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    coerced[key] = value === 'null' || value === 'undefined' ? null : value;
+  }
+  return coerced;
+}
+
 // ── Prompt assembly ───────────────────────────────────────────────────────
 
 export const PARSE_SYSTEM_PROMPT = [
@@ -221,7 +237,7 @@ export async function parseClaim(
   ctx: CompileContext,
   opts: ParseOptions,
 ): Promise<RawClaimParse> {
-  const client = opts.client ?? createAnthropicClient();
+  const client = opts.client ?? createModelClient();
   const maxRounds = opts.maxToolRounds ?? MAX_PARSE_TOOL_ROUNDS;
 
   const messages: ModelMessageParam[] = [
@@ -253,7 +269,7 @@ export async function parseClaim(
 
     const submit = toolUses.find((block) => block.name === SUBMIT_PARSE_TOOL);
     if (submit) {
-      const validated = rawClaimParseSchema.safeParse(submit.input ?? {});
+      const validated = rawClaimParseSchema.safeParse(coerceModelNulls(submit.input) ?? {});
       if (!validated.success) {
         throw new AgentResponseFormatError(
           `submit_parse input failed validation: ${validated.error.message}`,

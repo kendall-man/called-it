@@ -11,7 +11,7 @@ import { z } from 'zod';
 import type { ClaimType } from '@calledit/market-engine';
 import {
   type AgentModelClient,
-  createAnthropicClient,
+  createModelClient,
   responseText,
 } from './client.js';
 import { CLAIM_TYPE_VALUES, isClaimType } from './claim-taxonomy.js';
@@ -31,7 +31,7 @@ export interface ClassifyResult {
 }
 
 export interface ClassifyOptions {
-  /** Injectable for tests; defaults to a real Anthropic client. */
+  /** Injectable for tests; defaults to a real model client (GLM). */
   client?: AgentModelClient;
   model?: string;
   maxTokens?: number;
@@ -89,7 +89,7 @@ export async function classifyMessage(
   entityHints: EntityHints,
   opts: ClassifyOptions = {},
 ): Promise<ClassifyResult> {
-  const client = opts.client ?? createAnthropicClient();
+  const client = opts.client ?? createModelClient();
   const userPrompt = [
     `Message: ${JSON.stringify(text)}`,
     `Teams playing soon: ${entityHints.teamNames.join(', ') || '(none known)'}`,

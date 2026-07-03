@@ -3,8 +3,12 @@
  *
  * Everything in this package talks to the model through this interface so
  * tests can inject scripted fakes (no live API in CI) and the engine can
- * inject one shared real client. `createAnthropicClient` adapts the official
- * SDK to it for live use.
+ * inject one shared real client. `createModelClient` adapts the official
+ * Anthropic SDK for live use, pointed at GLM (Z.ai) by default.
+ *
+ * GLM speaks the Anthropic Messages wire format — system/messages/tools/
+ * tool_choice in, `tool_use` content blocks out — so the SDK drives it
+ * unchanged once its base URL is repointed.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -65,12 +69,24 @@ export interface AgentModelClient {
 }
 
 /**
- * Wrap the official SDK client in the narrow AgentModelClient surface.
- * Reads ANTHROPIC_API_KEY from the environment when no key is passed.
+ * GLM (Z.ai) Anthropic-compatible endpoint. The SDK appends `/v1/messages`.
+ * Override per-deploy with GLM_BASE_URL (e.g. the open.bigmodel.cn mirror).
+ */
+export const DEFAULT_MODEL_BASE_URL = 'https://api.z.ai/api/anthropic';
+
+/**
+ * Wrap the official Anthropic SDK in the narrow AgentModelClient surface,
+ * pointed at GLM by default. Key and base URL each resolve independently:
+ * explicit option → GLM_* env var → (key only) legacy ANTHROPIC_API_KEY →
+ * (base URL only) the built-in GLM default.
  * Never constructed in CI — tests inject fakes instead.
  */
-export function createAnthropicClient(options: { apiKey?: string } = {}): AgentModelClient {
-  const sdk = new Anthropic(options.apiKey !== undefined ? { apiKey: options.apiKey } : {});
+export function createModelClient(
+  options: { apiKey?: string; baseURL?: string } = {},
+): AgentModelClient {
+  const apiKey = options.apiKey ?? process.env.GLM_API_KEY ?? process.env.ANTHROPIC_API_KEY;
+  const baseURL = options.baseURL ?? process.env.GLM_BASE_URL ?? DEFAULT_MODEL_BASE_URL;
+  const sdk = new Anthropic({ baseURL, ...(apiKey !== undefined ? { apiKey } : {}) });
   return {
     messages: {
       async create(request: ModelRequest): Promise<ModelResponse> {

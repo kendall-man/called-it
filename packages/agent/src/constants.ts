@@ -4,11 +4,11 @@
  * only this package cares about.
  */
 
-/** Fast classifier model — exact ID pinned by CONTRACTS.md. */
-export const CLASSIFIER_MODEL = 'claude-haiku-4-5-20251001';
+/** Fast classifier model — runs on every candidate message, so cost/latency first. */
+export const CLASSIFIER_MODEL = 'glm-4.5-air';
 
-/** Structuring/parse model — exact ID pinned by CONTRACTS.md. */
-export const PARSER_MODEL = 'claude-sonnet-5';
+/** Structuring/parse model — the flagship; drives forced tool-use rounds. */
+export const PARSER_MODEL = 'glm-4.6';
 
 /** Persona garnish reuses the cheap classifier-tier model. */
 export const PERSONA_GARNISH_MODEL = CLASSIFIER_MODEL;

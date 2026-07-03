@@ -97,6 +97,42 @@ describe('parseClaim tool loop', () => {
     });
   });
 
+  it('coerces model-stringified "null" fields to real nulls (GLM quirk)', async () => {
+    // GLM sometimes emits the string "null" for unstated enum fields instead
+    // of a JSON null; the boundary coercion must fold these back before zod.
+    const client = makeScriptedClient([
+      {
+        content: [
+          toolUseBlock(SUBMIT_PARSE_TOOL, {
+            claimType: 'match_winner',
+            fixtureId: 9101,
+            entityName: 'France',
+            entityKind: 'team',
+            comparator: 'null',
+            threshold: null,
+            period: 'null',
+            unresolved: 'null',
+          }),
+        ],
+        stop_reason: 'tool_use',
+      },
+    ]);
+    const result = await parseClaim('france win this easy', ctx, {
+      client,
+      executors: makeGoldenExecutors(),
+    });
+    expect(result).toEqual({
+      claimType: 'match_winner',
+      fixtureId: 9101,
+      entityName: 'France',
+      entityKind: 'team',
+      comparator: null,
+      threshold: null,
+      period: null,
+      unresolved: null,
+    });
+  });
+
   it('rejects a submit_parse with an out-of-taxonomy claim type', async () => {
     const client = makeScriptedClient([
       {

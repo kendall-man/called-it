@@ -17,7 +17,8 @@ export {
 export { AgentError, AgentParseError, AgentResponseFormatError } from './errors.js';
 
 export {
-  createAnthropicClient,
+  createModelClient,
+  DEFAULT_MODEL_BASE_URL,
   responseText,
   type AgentModelClient,
   type ModelContentBlock,

@@ -5,6 +5,9 @@
  * environment with zod and fails loudly on misconfiguration.
  */
 
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
 import { run } from '@grammyjs/runner';
@@ -25,7 +28,29 @@ import { Settler } from './settle/settler.js';
 import { IngestSupervisor } from './ingest/supervisor.js';
 import { startCrons } from './cron/index.js';
 
+/**
+ * Load the repo-root `.env` into process.env for local/dev runs. Production
+ * hosts (Railway/Fly) inject env vars directly and ship no file, so a missing
+ * `.env` is not an error. Walks up from this module so it resolves whether run
+ * from `src` (tsx) or `dist` (node) and regardless of the caller's cwd. Values
+ * already present in the environment win, so platform overrides are respected.
+ */
+function loadDotEnv(): void {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let depth = 0; depth < 6; depth += 1) {
+    const candidate = resolve(dir, '.env');
+    if (existsSync(candidate)) {
+      process.loadEnvFile(candidate);
+      return;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return;
+    dir = parent;
+  }
+}
+
 async function main(): Promise<void> {
+  loadDotEnv();
   const log = createLogger({ app: 'calledit-engine' });
   const env = loadEnv();
   const deps = createDeps(env, log);

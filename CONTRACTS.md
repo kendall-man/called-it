@@ -73,9 +73,9 @@ commit any real feed data), cursor resume, replay diffing.
 ## packages/agent
 Exports from `src/index.ts`:
 - `classifyMessage(text, entityHints, opts): Promise<{isClaim, confidence, claimTypeGuess}>`
-  — model `claude-haiku-4-5-20251001`, strict JSON; `opts.client` injectable for tests.
+  — model `glm-4.5-air`, strict JSON; `opts.client` injectable for tests.
 - `parseClaim(text, ctx: CompileContext, opts): Promise<RawClaimParse>` — model
-  `claude-sonnet-5`, tool-use with grounded tools whose executors are injected:
+  `glm-4.6`, tool-use with grounded tools whose executors are injected:
   `{ searchFixtures, resolvePlayer, getMarketMenu }`; forced tool use then final JSON.
 - `prefilter(text, entities: {teamNames: string[], playerNames: string[]}): boolean`
   — deterministic regex/dictionary gate that kills >95% of messages (claim verbs,

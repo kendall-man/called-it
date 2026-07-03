@@ -7,13 +7,13 @@
  * forced tool use, executor wiring, validation, null-normalization — and
  * asserts RawClaimParse equality against expectations.
  *
- * Live mode (AGENT_LIVE=1, needs ANTHROPIC_API_KEY): the same expectations
+ * Live mode (AGENT_LIVE=1, needs GLM_API_KEY): the same expectations
  * run against the real models; this gates prompt changes.
  */
 
 import { describe, expect, it } from 'vitest';
 import { classifyMessage } from './classify.js';
-import { createAnthropicClient } from './client.js';
+import { createModelClient } from './client.js';
 import {
   goldenEntities,
   goldenSet,
@@ -101,7 +101,7 @@ const LIVE = process.env.AGENT_LIVE === '1';
 const LIVE_TEST_TIMEOUT_MS = 90_000;
 
 describe.runIf(LIVE)('golden harness — LIVE models (AGENT_LIVE=1)', () => {
-  const client = LIVE ? createAnthropicClient() : undefined;
+  const client = LIVE ? createModelClient() : undefined;
 
   it.each(claims.map((f) => [f.text, f] as const))(
     'live parse: %s',
