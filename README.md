@@ -85,6 +85,10 @@ Prereqs: Node ≥ 22, pnpm 10.
    Paste the printed `TXLINE_GUEST_JWT` / `TXLINE_API_TOKEN` into `.env`.
 7. **Run**
    ```bash
+   # Next.js reads env from the app dir, not the repo root — copy the public
+   # values through first (the service_role key must NOT go in this file):
+   grep '^NEXT_PUBLIC_' .env > apps/web/.env.local
+
    pnpm --filter @calledit/engine dev   # the bot + ingest + settlement
    pnpm --filter @calledit/web dev      # http://localhost:3000
    ```
