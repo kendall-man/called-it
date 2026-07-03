@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.next/
+.turbo/
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo
+.DS_Store
+coverage/
+# NEVER commit TxLINE data or credentials (hackathon data license)
+recordings/
+*.jsonl.txline
+txline-credentials.json
+wallet.json
+
+# personal tooling — not part of the project
+.claude/
