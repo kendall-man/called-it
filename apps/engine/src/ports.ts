@@ -339,6 +339,9 @@ export interface EnginePort {
 export interface EventSourceLike {
   start(onEvent: (event: MatchEvent) => Promise<void>): void;
   stop(): void;
+  /** Replay sources report their virtual clock so mid-replay mints price off
+   *  the same point-in-time odds; live sources omit it (always current). */
+  currentAsOfMs?(): number | null;
 }
 
 /**
@@ -352,8 +355,11 @@ export type OddsFetchResult =
   | { kind: 'transient' };
 
 export interface TxPort {
-  /** Latest odds snapshot, normalized, with failure-reason taxonomy. */
-  fetchOdds(fixtureId: number): Promise<OddsFetchResult>;
+  /**
+   * Odds snapshot, normalized, with failure-reason taxonomy. `asOfMs` pins a
+   * point-in-time snapshot (replay pricing); omitted → the latest live book.
+   */
+  fetchOdds(fixtureId: number, asOfMs?: number): Promise<OddsFetchResult>;
   /** Fixtures snapshot mapped to upsert rows (defensive field mapping). */
   fetchFixtures(): Promise<FixtureUpsert[]>;
   /** Raw stat-validation payload (Merkle proof) for a settled stat. */

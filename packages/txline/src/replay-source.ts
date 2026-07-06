@@ -119,6 +119,16 @@ export class ReplaySource implements MatchEventSource {
   }
 
   /**
+   * The virtual clock's current position (unix ms), or null before the first
+   * tick. Lets the engine price a market minted mid-replay from the same
+   * point-in-time `asOf` odds the replay is emitting events for — instead of
+   * the (empty, post-match) live snapshot.
+   */
+  currentAsOfMs(): number | null {
+    return this.virtualNowMs;
+  }
+
+  /**
    * Advances the virtual clock one tick and returns the newly-visible events.
    * Exposed so the engine (and tests) can drive replay deterministically.
    */

@@ -78,6 +78,20 @@ export class IngestSupervisor {
     return this.replays.get(groupId)?.fixtureId ?? null;
   }
 
+  /**
+   * Virtual clock (unix ms) of any active replay for this fixture, or null.
+   * Lets odds pricing pin the replay's point-in-time snapshot instead of the
+   * empty post-match live book.
+   */
+  replayAsOf(fixtureId: number): number | null {
+    for (const replay of this.replays.values()) {
+      if (replay.fixtureId === fixtureId) {
+        return replay.source.currentAsOfMs?.() ?? null;
+      }
+    }
+    return null;
+  }
+
   stopAll(): void {
     for (const source of this.liveSources.values()) source.stop();
     this.liveSources.clear();
