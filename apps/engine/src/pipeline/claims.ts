@@ -135,9 +135,17 @@ function isMissingOddsInput(err: unknown): boolean {
   return err instanceof Error && err.name === 'MissingOddsInputError';
 }
 
-/** Price a spec off the latest odds snapshot, reporting WHY when it can't. */
-export async function quoteSpec(deps: Deps, spec: MarketSpec): Promise<QuoteOutcome> {
-  const fetched = await deps.tx.fetchOdds(spec.fixtureId);
+/**
+ * Price a spec off the odds snapshot, reporting WHY when it can't. `asOfMs`
+ * pins the replay's point-in-time book so a mid-replay mint prices off the
+ * odds that existed then, not the (empty) post-match live snapshot.
+ */
+export async function quoteSpec(
+  deps: Deps,
+  spec: MarketSpec,
+  asOfMs?: number,
+): Promise<QuoteOutcome> {
+  const fetched = await deps.tx.fetchOdds(spec.fixtureId, asOfMs);
   if (fetched.kind !== 'ok') {
     deps.log.info('quote_unavailable', {
       fixtureId: spec.fixtureId,

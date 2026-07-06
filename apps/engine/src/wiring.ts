@@ -106,11 +106,11 @@ export function createDeps(env: Env, log: Logger): Deps {
   };
 
   const tx: TxPort = {
-    fetchOdds: async (fixtureId) => {
+    fetchOdds: async (fixtureId, asOfMs) => {
       let odds;
       let recordCount = 0;
       try {
-        const records = await client.oddsSnapshot(fixtureId);
+        const records = await client.oddsSnapshot(fixtureId, asOfMs);
         recordCount = records.length;
         odds = combineOddsSnapshot(records, { logger: txLogger });
       } catch (err) {

@@ -147,6 +147,16 @@ function quoteFailureCopyKey(kind: 'transient' | 'no_odds' | 'unpriceable'): Tem
   }
 }
 
+/**
+ * When this group is mid-replay of the claim's fixture, the replay's virtual
+ * clock — so pricing pins the point-in-time odds book instead of the empty
+ * post-match live snapshot. Undefined for live claims (latest book).
+ */
+function replayAsOfMs(h: HandlerCtx, groupId: number, fixtureId: number): number | undefined {
+  if (h.supervisor.replayFixture(groupId) !== fixtureId) return undefined;
+  return h.supervisor.replayAsOf(fixtureId) ?? undefined;
+}
+
 /** Quote the picked spec, stash it, and post the "That's my shout" gate. */
 async function presentConfirmGate(
   h: HandlerCtx,
@@ -160,7 +170,11 @@ async function presentConfirmGate(
     await stale(h, ctx);
     return;
   }
-  const outcome = await quoteSpec(h.deps, option.spec);
+  const outcome = await quoteSpec(
+    h.deps,
+    option.spec,
+    replayAsOfMs(h, claim.group_id, option.spec.fixtureId),
+  );
   if (outcome.kind !== 'ok') {
     // Pricing failed — but the claim is NOT dead. Keep it in its current
     // pickable status (the keyboard the user is looking at stays live),
@@ -391,7 +405,7 @@ async function handleConfirm(h: HandlerCtx, ctx: Context, claimId: string): Prom
   }
 
   // Re-price at the confirm moment; fall back to the gate quote if odds blink.
-  const freshOutcome = await quoteSpec(h.deps, spec);
+  const freshOutcome = await quoteSpec(h.deps, spec, replayAsOfMs(h, claim.group_id, spec.fixtureId));
   const quote =
     freshOutcome.kind === 'ok'
       ? {
