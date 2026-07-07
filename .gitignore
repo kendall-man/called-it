@@ -16,3 +16,6 @@ wallet.json
 
 # personal tooling — not part of the project
 .claude/
+
+# Vercel CLI local project link
+.vercel
