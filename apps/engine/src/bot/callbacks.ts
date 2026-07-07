@@ -89,6 +89,38 @@ async function withClaimLock(
   }
 }
 
+/**
+ * Per-(market, user) in-process mutex for staking. dispatchCallback runs
+ * callback queries concurrently, so two stakes on the same market by the same
+ * user (a double-tap now, a tap + a text once the NL layer lands) can
+ * interleave between the one-side/cap/balance reads and the insert — a TOCTOU
+ * that double-stakes, bypasses the cap, and can drive a balance negative.
+ * Single Node process, so a Set guards the section (the production hardening
+ * is a DB unique/exclusion constraint; the deployed schema has none to lean
+ * on — same tradeoff as withClaimLock).
+ */
+const inFlightStakes = new Set<string>();
+
+async function withStakeLock(
+  h: HandlerCtx,
+  ctx: Context,
+  marketId: string,
+  userId: number,
+  task: () => Promise<void>,
+): Promise<void> {
+  const key = `${marketId}:${userId}`;
+  if (inFlightStakes.has(key)) {
+    await answer(ctx, await h.say('hold_on'));
+    return;
+  }
+  inFlightStakes.add(key);
+  try {
+    await task();
+  } finally {
+    inFlightStakes.delete(key);
+  }
+}
+
 async function loadClaimForChat(
   h: HandlerCtx,
   ctx: Context,
@@ -547,7 +579,12 @@ async function handleStake(
     return;
   }
   const stakeAmount = TUNABLES.PRESET_STAKES[action.presetIndex];
-  if (stakeAmount === undefined) {
+  // Positive-integer invariant. Presets always satisfy it; this is the guard
+  // that stops a future arbitrary-amount (conversational) path from feeding a
+  // negative/zero/NaN/fractional stake — `postLedger({ amount: -stakeAmount })`
+  // would CREDIT Rep on a negative stake, and the cap/balance checks (which
+  // use `>`/`<`) pass NaN silently.
+  if (stakeAmount === undefined || !Number.isInteger(stakeAmount) || stakeAmount <= 0) {
     await stale(h, ctx);
     return;
   }
@@ -775,9 +812,17 @@ export async function dispatchCallback(
     case 'decline':
       await withClaimLock(h, ctx, action.claimId, () => handleDecline(h, ctx, action.claimId));
       break;
-    case 'stake':
-      await handleStake(h, ctx, action);
+    case 'stake': {
+      // Serialize per (market, user) so the one-side/cap/balance reads and the
+      // position insert can't interleave with a concurrent tap/text.
+      const userId = ctx.from?.id;
+      if (userId === undefined) {
+        await handleStake(h, ctx, action);
+      } else {
+        await withStakeLock(h, ctx, action.marketId, userId, () => handleStake(h, ctx, action));
+      }
       break;
+    }
     case 'chattiness':
       await handleChattiness(h, ctx, action.mode);
       break;
