@@ -6,7 +6,16 @@
  * The TxL mint is TOKEN-2022 — all ATA derivations here use
  * TOKEN_2022_PROGRAM_ID; legacy SPL helpers would derive the wrong address.
  */
-import { AnchorProvider, BN, Program, Wallet, type Idl } from '@coral-xyz/anchor';
+// @coral-xyz/anchor is CommonJS; under native Node ESM (the built `node
+// dist/main.js` that runs in production) a named import of its runtime values
+// throws "Named export 'BN' not found". Default-import the module object and
+// destructure — the values live on module.exports. (tsx/vitest tolerate the
+// named form, so this only bites the production build.)
+import type { Idl, Program as AnchorProgram } from '@coral-xyz/anchor';
+import anchorPkg from '@coral-xyz/anchor';
+// The default (module.exports) carries the runtime values; cast to the module
+// namespace type so they're typed without a named import that breaks at runtime.
+const { AnchorProvider, BN, Program, Wallet } = anchorPkg as typeof import('@coral-xyz/anchor');
 import {
   PublicKey,
   SystemProgram,
@@ -61,7 +70,7 @@ function createTxoracleProgram(
   connection: Connection,
   wallet: Keypair,
   programId: PublicKey,
-): Program {
+): AnchorProgram {
   const provider = new AnchorProvider(connection, new Wallet(wallet), {
     commitment: 'confirmed',
   });
@@ -71,7 +80,7 @@ function createTxoracleProgram(
   return new Program(idl as Idl, provider);
 }
 
-function method(program: Program, name: string, args: readonly unknown[]): MethodsBuilder {
+function method(program: AnchorProgram, name: string, args: readonly unknown[]): MethodsBuilder {
   const methods = program.methods as unknown as Record<
     string,
     ((...callArgs: unknown[]) => MethodsBuilder) | undefined
@@ -117,7 +126,7 @@ export function deriveSubscribeAccounts(
 }
 
 function subscribeBuilder(
-  program: Program,
+  program: AnchorProgram,
   wallet: Keypair,
   txlMint: PublicKey,
   serviceLevelId: number,
