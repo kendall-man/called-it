@@ -99,6 +99,10 @@ export async function executeStake(deps: Deps, cmd: StakeCommand): Promise<Stake
 async function stakeLocked(deps: Deps, cmd: StakeCommand): Promise<StakeOutcome> {
   const market = await deps.db.getMarket(cmd.marketId);
   if (!market || market.group_id !== cmd.groupId) return { kind: 'unavailable' };
+  // This core moves REP only. SOL markets belong to the wager module (its own
+  // funds, DB advisory locks, and copy) — never let a Rep debit ride a
+  // SOL-denominated book, whichever transport asked.
+  if (market.currency === 'sol') return { kind: 'unavailable' };
   if (market.status !== 'open' && market.status !== 'pending_lineup') {
     return { kind: 'closed', status: market.status };
   }

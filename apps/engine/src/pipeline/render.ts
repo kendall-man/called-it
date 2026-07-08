@@ -41,6 +41,9 @@ export async function composeClaimCard(deps: Deps, market: MarketRow): Promise<C
   if (!claim || !group) return null;
   const claimer = await deps.db.getUser(claim.claimer_user_id);
   const { back, doubt } = tally(positions);
+  // Footer exists only for sol markets with the wager module live; Rep cards
+  // (and any card while the flag is off) render byte-identical to main.
+  const footer = market.currency === 'sol' ? deps.wager?.cardFooter() : undefined;
   const text = claimCardText({
     quotedText: claim.quoted_text,
     claimerName: claimer?.display_name ?? 'the claimer',
@@ -54,6 +57,7 @@ export async function composeClaimCard(deps: Deps, market: MarketRow): Promise<C
     isReplay: market.is_replay,
     receiptUrl: receiptUrl(deps, market.id),
     tableUrl: tableUrl(deps, group.slug),
+    ...(footer !== undefined ? { footer } : {}),
   });
   return { chatId: market.group_id, messageId: market.card_tg_message_id, text };
 }

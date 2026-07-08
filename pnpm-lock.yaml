@@ -28,7 +28,7 @@ importers:
         version: 7.0.17(zod@4.4.3)
       eve:
         specifier: ^0.22.0
-        version: 0.22.0(ai@7.0.17(zod@4.4.3))(jiti@2.7.0)(microsandbox@0.6.6)(rollup@4.62.2)(vite@5.4.21(@types/node@24.13.3)(lightningcss@1.32.0))
+        version: 0.22.0(ai@7.0.17(zod@4.4.3))(jiti@2.7.0)(rollup@4.62.2)(vite@5.4.21(@types/node@24.13.3)(lightningcss@1.32.0))
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -36,9 +36,6 @@ importers:
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
-      microsandbox:
-        specifier: ^0.6.6
-        version: 0.6.6
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -1186,38 +1183,6 @@ packages:
     resolution: {integrity: sha512-8yI84VJiEVW4zxZpLUmxXmjzQ7O2St9X/ymzlBETDHTURPWG3LmvbSiibq+7dqAJmyoUfxZnSfXeM4HCM8s4XQ==}
     engines: {node: '>=22.0.0'}
 
-  '@superradcompany/microsandbox-darwin-arm64@0.6.6':
-    resolution: {integrity: sha512-rw7cg0G9mj1c9/14K/K6PMg78H11rGRA5tDzRbx67kAeoKWpAJnFsIYLvOCHcD+6aM0Xdxote90FVVlt1Kknjw==}
-    engines: {node: '>= 22'}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@superradcompany/microsandbox-linux-arm64-gnu@0.6.6':
-    resolution: {integrity: sha512-y4CdSPkSOtCwBNbG8Yhkahxg9yh/jpp4cBMOItCOj0JshU7luE2r4+6ceIrPNAkb8sF0fX7tNTXMDK4fJA8iFA==}
-    engines: {node: '>= 22'}
-    cpu: [arm64]
-    os: [linux]
-    libc: [glibc]
-
-  '@superradcompany/microsandbox-linux-x64-gnu@0.6.6':
-    resolution: {integrity: sha512-9yo6/G454L8ebzZP1qMxjIXRD3zJqQ68w2p9Ust7B7MOj5hr+VyuVZ0kYjSJAc4GSI0fno2xQe5z2tp5ynk78A==}
-    engines: {node: '>= 22'}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@superradcompany/microsandbox-win32-arm64-msvc@0.6.6':
-    resolution: {integrity: sha512-q22t1DVlB8FR90adjBxTf0i//f3yzm7QYsKbsar29zoUAHC/24h6R4LE6YfIDWtPKB8jvTSpCeMehFoyXyLN1Q==}
-    engines: {node: '>= 22'}
-    cpu: [arm64]
-    os: [win32]
-
-  '@superradcompany/microsandbox-win32-x64-msvc@0.6.6':
-    resolution: {integrity: sha512-m2ir3DNw+Sc7i2DEg1kgY9bFmFHCFt2KamnXzJMUL9qtkE2n11GqIUhQJtKXwcWyM7nH0AxooMmnbx7UDMG8Ww==}
-    engines: {node: '>= 22'}
-    cpu: [x64]
-    os: [win32]
-
   '@swc/helpers@0.5.15':
     resolution: {integrity: sha512-JQ5TuMi45Owi4/BIMAJBoSQoOJu12oOk/gADqlcUL9JEdHB8vyjUSsxqeNXnmXHjYKMi2WcYtezGEEhqUI/E2g==}
 
@@ -1935,11 +1900,6 @@ packages:
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
-
-  microsandbox@0.6.6:
-    resolution: {integrity: sha512-KF1HcZH61qw3QUEDQouIbtaS6LcrKIYf5fJOyauje+8sqzUcjcMZVqwngligNhEyLCH1+TtHnZbIOp9Ndf7k7g==}
-    engines: {node: '>= 22'}
-    hasBin: true
 
   mime-db@1.52.0:
     resolution: {integrity: sha512-sPU4uV7dYlvtWJxwwxHD0PuihVNiE7TyAbQ5SWxDCB9mUYvOgroQOwYQQOKPJ8CIbE+1ETVlOoK1UC2nU3gYvg==}
@@ -3207,21 +3167,6 @@ snapshots:
       '@supabase/realtime-js': 2.110.0
       '@supabase/storage-js': 2.110.0
 
-  '@superradcompany/microsandbox-darwin-arm64@0.6.6':
-    optional: true
-
-  '@superradcompany/microsandbox-linux-arm64-gnu@0.6.6':
-    optional: true
-
-  '@superradcompany/microsandbox-linux-x64-gnu@0.6.6':
-    optional: true
-
-  '@superradcompany/microsandbox-win32-arm64-msvc@0.6.6':
-    optional: true
-
-  '@superradcompany/microsandbox-win32-x64-msvc@0.6.6':
-    optional: true
-
   '@swc/helpers@0.5.15':
     dependencies:
       tslib: 2.8.1
@@ -3688,12 +3633,10 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
 
-  eve@0.22.0(ai@7.0.17(zod@4.4.3))(jiti@2.7.0)(microsandbox@0.6.6)(rollup@4.62.2)(vite@5.4.21(@types/node@24.13.3)(lightningcss@1.32.0)):
+  eve@0.22.0(ai@7.0.17(zod@4.4.3))(jiti@2.7.0)(rollup@4.62.2)(vite@5.4.21(@types/node@24.13.3)(lightningcss@1.32.0)):
     dependencies:
       ai: 7.0.17(zod@4.4.3)
       nitro: 3.0.260610-beta(jiti@2.7.0)(rollup@4.62.2)(vite@5.4.21(@types/node@24.13.3)(lightningcss@1.32.0))
-    optionalDependencies:
-      microsandbox: 0.6.6
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
@@ -3925,14 +3868,6 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.5.5
 
   math-intrinsics@1.1.0: {}
-
-  microsandbox@0.6.6:
-    optionalDependencies:
-      '@superradcompany/microsandbox-darwin-arm64': 0.6.6
-      '@superradcompany/microsandbox-linux-arm64-gnu': 0.6.6
-      '@superradcompany/microsandbox-linux-x64-gnu': 0.6.6
-      '@superradcompany/microsandbox-win32-arm64-msvc': 0.6.6
-      '@superradcompany/microsandbox-win32-x64-msvc': 0.6.6
 
   mime-db@1.52.0: {}
 

@@ -106,6 +106,8 @@ export interface ClaimCardInput {
   isReplay: boolean;
   receiptUrl: string;
   tableUrl: string;
+  /** Set only for sol markets (wager module cardFooter) — Rep cards never carry one. */
+  footer?: string;
 }
 
 export function claimCardText(input: ClaimCardInput): string {
@@ -123,6 +125,7 @@ export function claimCardText(input: ClaimCardInput): string {
     `Receipt: ${input.receiptUrl}`,
     `Table: ${input.tableUrl}`,
   ];
+  if (input.footer !== undefined && input.footer.length > 0) lines.push('', input.footer);
   return lines.join('\n');
 }
 

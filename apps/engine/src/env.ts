@@ -35,6 +35,30 @@ const EnvSchema = z.object({
    * getUpdates return 409) and requires ENGINE_API_TOKEN.
    */
   TELEGRAM_INGRESS: z.enum(['poll', 'webhook']).default('poll'),
+  /** Wager-mode master switch — anything but the literal 'true' means OFF. */
+  WAGER_MODE_ENABLED: z.string().default('false'),
+  /**
+   * Dedicated plain-SOL treasury for wager mode. NEVER the TxL-holding
+   * SOLANA_KEYPAIR_B58 (sponsor terms: TxL is never wagering collateral).
+   * Absent → the wager module degrades to null exactly like the flag being off.
+   */
+  WAGER_TREASURY_KEYPAIR_B58: z.string().optional(),
+  /** Optional ops chat for wager solvency alerts. */
+  WAGER_OPS_CHAT_ID: z.string().optional(),
+}).superRefine((env, ctx) => {
+  // Sponsor terms: TxL is never wagering collateral. The wager treasury must
+  // be its own plain-SOL keypair — refuse to boot on reuse of the TxL wallet.
+  if (
+    env.WAGER_TREASURY_KEYPAIR_B58 !== undefined &&
+    env.WAGER_TREASURY_KEYPAIR_B58 === env.SOLANA_KEYPAIR_B58
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['WAGER_TREASURY_KEYPAIR_B58'],
+      message: 'must be a dedicated keypair — reusing SOLANA_KEYPAIR_B58 (the TxL wallet) is forbidden',
+    });
+  }
+
 });
 
 export type Env = z.infer<typeof EnvSchema>;

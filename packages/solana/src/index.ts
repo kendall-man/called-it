@@ -31,6 +31,41 @@ export { TXORACLE_IDL } from './txoracle-idl.js';
 export * from './verify.js';
 export { base58Decode, base58Encode, bytesToHex, hexToBytes } from './codecs.js';
 
+// Wager-mode chain I/O (pure, no DB knowledge; never-throw result objects).
+export {
+  broadcastRawTx,
+  buildSolTransfer,
+  getSigStatus,
+  isBlockheightExceeded,
+  resolveResubmitAction,
+  type BlockheightExceededResult,
+  type BlockHeightRpc,
+  type BroadcastResult,
+  type BroadcastRpc,
+  type BuildSolTransferParams,
+  type BuildSolTransferResult,
+  type ConfirmationLevel,
+  type ResubmitAction,
+  type SignatureStatusLike,
+  type SigStatusKnown,
+  type SigStatusResult,
+  type SigStatusRpc,
+} from './transfer.js';
+export {
+  DEPOSIT_COMMITMENT,
+  fetchIncomingTransfers,
+  PARSED_TX_BATCH_SIZE,
+  SIGNATURE_PAGE_LIMIT,
+  type DepositScanRpc,
+  type FetchIncomingTransfersOptions,
+  type FetchIncomingTransfersResult,
+  type IncomingTransfer,
+  type ParsedInstructionLike,
+  type ParsedTransactionLike,
+  type SignatureInfoLike,
+} from './deposits.js';
+export { isRateLimitError, withRetry, type WithRetryOptions } from './rpc.js';
+
 // Re-exported web3.js essentials so repo-root scripts (which have no direct
 // node_modules access to web3.js under pnpm) can drive devnet through us.
 export {

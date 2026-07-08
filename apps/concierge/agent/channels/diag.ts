@@ -74,6 +74,7 @@ export default defineChannel({
       if (!authorized(req)) return new Response('nope', { status: 401 });
       const session = await send('In one short sentence: are you alive and which tools can you see?', {
         auth: null,
+        continuationToken: `diag-${crypto.randomUUID()}`,
       });
       return Response.json({ sessionId: session.id });
     }),
@@ -81,7 +82,7 @@ export default defineChannel({
       if (!authorized(req)) return new Response('nope', { status: 401 });
       const session = getSession(params.sessionId ?? '');
       const stream = await session.getEventStream();
-      return new Response(stream as unknown as BodyInit, {
+      return new Response(stream as unknown as ReadableStream, {
         headers: { 'content-type': 'application/x-ndjson; charset=utf-8' },
       });
     }),

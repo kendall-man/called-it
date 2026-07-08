@@ -248,6 +248,11 @@ export async function createMarketFromClaim(deps: Deps, args: CreateMarketArgs):
     spec.claimType === 'player_scores_n' &&
     (spec.entityRef.kind !== 'player' || spec.entityRef.participant === null) &&
     fixture.phase === 'NS';
+  // Currency is stamped atomically in the SAME insert (no crash window that
+  // could mint a Rep market in a SOL group). With the module null the key is
+  // omitted entirely so the insert stays byte-identical to main and works
+  // against a pre-0002 schema.
+  const currency = await deps.wager?.currencyForMint(claim.group_id);
   const market = await deps.db.insertMarket({
     claim_id: claim.id,
     group_id: claim.group_id,
@@ -260,6 +265,7 @@ export async function createMarketFromClaim(deps: Deps, args: CreateMarketArgs):
     quote_multiplier: quote.multiplier,
     odds_message_id: quote.oddsMessageId,
     odds_ts: quote.oddsTsMs,
+    ...(currency !== undefined ? { currency } : {}),
   });
   await deps.db.updateClaim(claim.id, { status: 'confirmed' });
   deps.log.info('market_minted', {

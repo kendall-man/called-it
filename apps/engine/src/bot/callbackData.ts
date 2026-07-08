@@ -23,7 +23,9 @@ export type CallbackAction =
   /** /settings chattiness pick. */
   | { t: 'chattiness'; mode: Chattiness }
   /** /settings web-pages toggle. */
-  | { t: 'web'; enabled: boolean };
+  | { t: 'web'; enabled: boolean }
+  /** /settings devnet-SOL toggle (admin, only offered when the wager module is live). */
+  | { t: 'wager'; enabled: boolean };
 
 const MODE_TO_CODE: Record<Chattiness, string> = {
   nudge: 'n',
@@ -61,6 +63,9 @@ export function encodeCallback(action: CallbackAction): string {
       break;
     case 'web':
       data = `sw:${action.enabled ? '1' : '0'}`;
+      break;
+    case 'wager':
+      data = `wg:${action.enabled ? '1' : '0'}`;
       break;
   }
   if (Buffer.byteLength(data, 'utf8') > CALLBACK_DATA_MAX_BYTES) {
@@ -127,6 +132,12 @@ export function decodeCallback(data: string): CallbackAction | null {
       const flag = parts[1];
       return parts.length === 2 && (flag === '0' || flag === '1')
         ? { t: 'web', enabled: flag === '1' }
+        : null;
+    }
+    case 'wg': {
+      const flag = parts[1];
+      return parts.length === 2 && (flag === '0' || flag === '1')
+        ? { t: 'wager', enabled: flag === '1' }
         : null;
     }
     default:

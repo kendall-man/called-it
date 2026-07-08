@@ -20,7 +20,7 @@ import { executeStake } from '../pipeline/stake.js';
 import { buildCompileContext } from '../pipeline/context.js';
 import { quoteSpec, type QuoteOutcome } from '../pipeline/claims.js';
 import { composeClaimCard } from '../pipeline/render.js';
-import { stakeKeyboard } from '../bot/keyboards.js';
+import { marketStakeKeyboard } from '../bot/keyboards.js';
 import { describeTerms } from '../bot/cards.js';
 
 const JSON_BODY_LIMIT_BYTES = 64 * 1024;
@@ -210,6 +210,8 @@ async function handleWallet(
       positions.push({
         marketId: market.id,
         terms: describeTerms(market.spec),
+        // SOL-market stakes are lamports, Rep stakes are Rep — never sum across.
+        currency: market.currency ?? 'rep',
         side: p.side,
         stake: p.stake,
         lockedMultiplier: p.locked_multiplier,
@@ -317,7 +319,7 @@ async function handleApiStake(
     if (fresh && fresh.card_tg_message_id !== null) {
       const card = await composeClaimCard(deps, fresh);
       if (card && card.messageId !== null) {
-        poster.editCard(body.chatId, fresh.id, card.messageId, card.text, stakeKeyboard(fresh.id));
+        poster.editCard(body.chatId, fresh.id, card.messageId, card.text, marketStakeKeyboard(deps, fresh));
       }
     }
     sendJson(res, 200, {
@@ -344,6 +346,7 @@ async function marketSummary(deps: Deps, market: MarketRow, webBaseUrl?: string)
   return {
     marketId: market.id,
     terms: describeTerms(market.spec),
+    currency: market.currency ?? 'rep',
     status: market.status,
     fixtureId: market.fixture_id,
     isReplay: market.is_replay,

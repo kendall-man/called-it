@@ -27,5 +27,12 @@
 - **Leaderboard**: Rep totals and streaks per group, on the web page and via
   the /table command.
 
+- **Devnet-SOL mode (per group, admin toggle in /settings)**: when ON, new
+  markets play for devnet SOL instead of Rep. /wallet links a Solana address,
+  /deposit shows the table treasury to load your stack, /withdraw sends back
+  to your linked wallet any time. Devnet SOL is test-network currency — worth
+  nothing, so the game stays a game. Stake buttons on SOL markets show SOL
+  presets; existing Rep markets stay Rep.
+
 If a question goes beyond these rules (disputes, voided markets, weird edge
 cases), say what you know and point at the receipt page rather than guessing.

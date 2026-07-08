@@ -26,7 +26,7 @@ import type { Say } from '../bot/copy.js';
 import { describeTerms, formatMultiplier, receiptCardText } from '../bot/cards.js';
 import { composeClaimCard, receiptUrl } from '../pipeline/render.js';
 import { quoteSpec } from '../pipeline/claims.js';
-import { stakeKeyboard } from '../bot/keyboards.js';
+import { marketStakeKeyboard } from '../bot/keyboards.js';
 import { statKeyForSpec } from './statKeys.js';
 import type { ProofWorker } from '../proofs/worker.js';
 
@@ -206,40 +206,54 @@ export class Settler {
     });
     this.deps.log.info('settled', { marketId: market.id, outcome, decidingSeq, tier });
 
-    const positions = await this.deps.db.positionsForMarket(market.id);
+    if (market.currency === 'sol') {
+      // Money moves ONLY through the wager module for sol markets. Its
+      // applySettlement is idempotent (per-position/per-user keys plus the
+      // wager_settlements_applied marker); if the module is off — flag
+      // flipped with live sol markets — the wager sweeper re-applies it once
+      // re-enabled, so nothing here may fall back to the Rep ledger.
+      if (this.deps.wager) {
+        await this.deps.wager.applySettlement(market.id);
+      } else {
+        this.deps.log.warn('wager_settlement_deferred', { marketId: market.id, outcome });
+      }
+      await this.postReceipt(market, outcome, new Map(), voidReason);
+    } else {
+      const positions = await this.deps.db.positionsForMarket(market.id);
 
-    // Refund still-pending taps (their anti-snipe window never cleared) and
-    // everyone on a void.
-    const refundIds: string[] = [];
-    for (const position of positions) {
-      if (position.state === 'void') continue;
-      const refundable = outcome === 'void' || position.state === 'pending';
-      if (!refundable) continue;
-      await this.deps.db.postLedger({
-        group_id: market.group_id,
-        user_id: position.user_id,
-        market_id: market.id,
-        kind: 'refund',
-        amount: position.stake,
-        idempotency_key: `refund:${position.id}`,
-      });
-      if (position.state === 'pending') refundIds.push(position.id);
+      // Refund still-pending taps (their anti-snipe window never cleared) and
+      // everyone on a void.
+      const refundIds: string[] = [];
+      for (const position of positions) {
+        if (position.state === 'void') continue;
+        const refundable = outcome === 'void' || position.state === 'pending';
+        if (!refundable) continue;
+        await this.deps.db.postLedger({
+          group_id: market.group_id,
+          user_id: position.user_id,
+          market_id: market.id,
+          kind: 'refund',
+          amount: position.stake,
+          idempotency_key: `refund:${position.id}`,
+        });
+        if (position.state === 'pending') refundIds.push(position.id);
+      }
+      if (refundIds.length > 0) await this.deps.db.setPositionStates(refundIds, 'void');
+
+      const winners = computeWinners(positions, outcome);
+      for (const [userId, amount] of winners) {
+        await this.deps.db.postLedger({
+          group_id: market.group_id,
+          user_id: userId,
+          market_id: market.id,
+          kind: 'payout',
+          amount,
+          idempotency_key: `payout:${market.id}:${userId}`,
+        });
+      }
+
+      await this.postReceipt(market, outcome, winners, voidReason);
     }
-    if (refundIds.length > 0) await this.deps.db.setPositionStates(refundIds, 'void');
-
-    const winners = computeWinners(positions, outcome);
-    for (const [userId, amount] of winners) {
-      await this.deps.db.postLedger({
-        group_id: market.group_id,
-        user_id: userId,
-        market_id: market.id,
-        kind: 'payout',
-        amount,
-        idempotency_key: `payout:${market.id}:${userId}`,
-      });
-    }
-
-    await this.postReceipt(market, outcome, winners, voidReason);
 
     if (tier === 'chain_proven' && outcome !== 'void' && this.proofWorker && decidingSeq !== null) {
       const statKey = statKeyForSpec(market.spec);
@@ -272,12 +286,16 @@ export class Settler {
       const user = await this.deps.db.getUser(userId);
       payoutParts.push(`${user?.display_name ?? 'A winner'} collects ${amount} Rep`);
     }
+    // sol markets take their receipt line from the wager module (the only
+    // place SOL amounts are allowed to be phrased); Rep copy is unchanged.
     const payoutsLine =
-      outcome === 'void'
-        ? 'All Rep returned.'
-        : payoutParts.length > 0
-          ? `${payoutParts.join(' · ')}.`
-          : 'No Rep changed hands.';
+      market.currency === 'sol'
+        ? await this.solPayoutsLine(market.id, outcome)
+        : outcome === 'void'
+          ? 'All Rep returned.'
+          : payoutParts.length > 0
+            ? `${payoutParts.join(' · ')}.`
+            : 'No Rep changed hands.';
 
     const totalPayout = [...winners.values()].reduce((sum, amount) => sum + amount, 0);
     const garnishKey =
@@ -313,6 +331,11 @@ export class Settler {
     await this.refreshCard(market.id);
   }
 
+  private async solPayoutsLine(marketId: string, outcome: SettlementOutcome): Promise<string> {
+    if (!this.deps.wager) return '';
+    return this.deps.wager.settlementPayoutsLine(marketId, outcome);
+  }
+
   private async voidPositions(market: MarketRow, positionIds: string[]): Promise<void> {
     if (positionIds.length === 0) return;
     await this.deps.db.setPositionStates(positionIds, 'void');
@@ -320,14 +343,18 @@ export class Settler {
     const affected = positions.filter((p) => positionIds.includes(p.id));
     const names: string[] = [];
     for (const position of affected) {
-      await this.deps.db.postLedger({
-        group_id: market.group_id,
-        user_id: position.user_id,
-        market_id: market.id,
-        kind: 'refund',
-        amount: position.stake,
-        idempotency_key: `refund:${position.id}`,
-      });
+      // sol stakes live in the wager ledger — their delay-snipe refunds are
+      // reconciled by the wager module at settlement, never posted as Rep.
+      if (market.currency !== 'sol') {
+        await this.deps.db.postLedger({
+          group_id: market.group_id,
+          user_id: position.user_id,
+          market_id: market.id,
+          kind: 'refund',
+          amount: position.stake,
+          idempotency_key: `refund:${position.id}`,
+        });
+      }
       const user = await this.deps.db.getUser(position.user_id);
       if (user && !names.includes(user.display_name)) names.push(user.display_name);
     }
@@ -367,7 +394,7 @@ export class Settler {
     if (!card || card.messageId === null) return;
     const keyboard =
       market.status === 'open' || market.status === 'pending_lineup'
-        ? stakeKeyboard(market.id)
+        ? marketStakeKeyboard(this.deps, market)
         : undefined;
     this.poster.editCard(card.chatId, market.id, card.messageId, card.text, keyboard);
   }

@@ -7,6 +7,7 @@ import { InlineKeyboard } from 'grammy';
 import { TUNABLES } from '@calledit/market-engine';
 import { encodeCallback } from './callbackData.js';
 import type { Chattiness } from '../localTypes.js';
+import type { Deps, MarketRow } from '../ports.js';
 
 export function nudgeKeyboard(claimId: string): InlineKeyboard {
   return new InlineKeyboard().text('Make him prove it 🎯', encodeCallback({ t: 'prove', claimId }));
@@ -41,21 +42,40 @@ export function confirmKeyboard(claimId: string): InlineKeyboard {
     .text('Not mine ❌', encodeCallback({ t: 'decline', claimId }));
 }
 
-export function stakeKeyboard(marketId: string): InlineKeyboard {
+export function stakeKeyboard(
+  marketId: string,
+  presetLabels?: readonly [string, string, string],
+): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   TUNABLES.PRESET_STAKES.forEach((amount, index) => {
-    keyboard.text(`⚡ Back ${amount}`, encodeCallback({ t: 'stake', marketId, side: 'back', presetIndex: index }));
+    keyboard.text(`⚡ Back ${presetLabels?.[index] ?? amount}`, encodeCallback({ t: 'stake', marketId, side: 'back', presetIndex: index }));
   });
   keyboard.row();
   TUNABLES.PRESET_STAKES.forEach((amount, index) => {
-    keyboard.text(`🛑 Doubt ${amount}`, encodeCallback({ t: 'stake', marketId, side: 'doubt', presetIndex: index }));
+    keyboard.text(`🛑 Doubt ${presetLabels?.[index] ?? amount}`, encodeCallback({ t: 'stake', marketId, side: 'doubt', presetIndex: index }));
   });
   return keyboard;
 }
 
-export function settingsKeyboard(current: Chattiness, webEnabled: boolean): InlineKeyboard {
+/**
+ * Stake keyboard for a specific market row: sol markets get the wager
+ * module's preset labels; every other market keeps the main-identical Rep
+ * presets. Callback data encoding is unchanged in both cases.
+ */
+export function marketStakeKeyboard(deps: Deps, market: MarketRow): InlineKeyboard {
+  const labels =
+    market.currency === 'sol' ? deps.wager?.presetLabels() : undefined;
+  return stakeKeyboard(market.id, labels);
+}
+
+export function settingsKeyboard(
+  current: Chattiness,
+  webEnabled: boolean,
+  /** Only ever non-null when the wager module is live — flag-off keyboards are main-identical. */
+  wagerState?: { enabled: boolean } | null,
+): InlineKeyboard {
   const mark = (mode: Chattiness, label: string) => (current === mode ? `• ${label} •` : label);
-  return new InlineKeyboard()
+  const keyboard = new InlineKeyboard()
     .text(mark('nudge', 'Priced nudges'), encodeCallback({ t: 'chattiness', mode: 'nudge' }))
     .row()
     .text(mark('react_only', 'React only 👀'), encodeCallback({ t: 'chattiness', mode: 'react_only' }))
@@ -66,4 +86,15 @@ export function settingsKeyboard(current: Chattiness, webEnabled: boolean): Inli
       webEnabled ? 'Web pages: ON — tap to hide' : 'Web pages: OFF — tap to show',
       encodeCallback({ t: 'web', enabled: !webEnabled }),
     );
+  if (wagerState) {
+    keyboard
+      .row()
+      .text(
+        wagerState.enabled
+          ? 'Devnet SOL: ON — tap to switch off'
+          : 'Devnet SOL: OFF — tap to switch on',
+        encodeCallback({ t: 'wager', enabled: !wagerState.enabled }),
+      );
+  }
+  return keyboard;
 }
