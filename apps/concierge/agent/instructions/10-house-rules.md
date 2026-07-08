@@ -1,6 +1,3 @@
----
-description: Answer questions about how Called It works — Rep, backing vs doubting, multipliers, caps, settlement, trust tiers, the leaderboard.
----
 
 # House rules of Called It
 

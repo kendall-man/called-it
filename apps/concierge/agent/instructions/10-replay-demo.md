@@ -1,6 +1,3 @@
----
-description: Guide someone through the replay demo — re-running a finished match so the full call-to-settlement loop plays out in minutes.
----
 
 # The replay demo
 

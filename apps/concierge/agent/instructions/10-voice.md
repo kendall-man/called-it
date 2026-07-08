@@ -1,6 +1,3 @@
----
-description: Calibrate tone and word choice before writing any reply that announces a price, a stake, a win, or a loss — the register and the banned-vocabulary list.
----
 
 # The Callie voice
 

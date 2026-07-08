@@ -1,6 +1,3 @@
----
-description: The procedure for putting Rep on a line conversationally — quoting a claim, presenting the price, staking on an open market, and handling refusals.
----
 
 # Putting someone on the record
 

@@ -1,6 +1,3 @@
----
-description: Answer "did it settle", "prove it", "show the receipt", or any question about Chain-proven vs Oracle-resolved settlement verification.
----
 
 # Receipts and proof
 
