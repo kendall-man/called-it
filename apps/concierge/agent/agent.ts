@@ -1,0 +1,44 @@
+/**
+ * Callie — the Called It concierge. Runtime config.
+ *
+ * Model: GLM (Z.ai) through its Anthropic-compatible endpoint, the same
+ * provider the engine uses, so the two surfaces share one cost profile.
+ * Validated 2026-07-08: `createAnthropic({ baseURL: <GLM>/v1 })("glm-4.6")`
+ * returns clean completions through the AI SDK. To fall back to the Vercel
+ * AI Gateway swap `model` for the string "anthropic/claude-sonnet-5".
+ */
+
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { defineAgent } from 'eve';
+
+const GLM_DEFAULT_BASE_URL = 'https://api.z.ai/api/anthropic';
+const PARSER_MODEL = 'glm-4.6';
+
+// Session token ceilings — the concierge answers short Telegram turns; a
+// session that burns past these is a runaway, not a conversation (NL-spec R1).
+const MAX_INPUT_TOKENS_PER_SESSION = 300_000;
+const MAX_OUTPUT_TOKENS_PER_SESSION = 10_000;
+
+const glmApiKey = process.env.GLM_API_KEY;
+
+const glm = createAnthropic({
+  // The AI SDK provider appends /v1/messages relative to this base.
+  baseURL: `${process.env.GLM_BASE_URL ?? GLM_DEFAULT_BASE_URL}/v1`,
+  // Missing key fails at the first model call with the provider's own error.
+  ...(glmApiKey ? { apiKey: glmApiKey } : {}),
+});
+
+export default defineAgent({
+  model: glm(PARSER_MODEL),
+  // GLM is not in the AI Gateway catalog, so eve cannot look up its context
+  // window — supply it verbatim (glm-4.6 has a 200K window) or the build fails
+  // compiling compaction.
+  modelContextWindowTokens: 200_000,
+  limits: {
+    maxInputTokensPerSession: MAX_INPUT_TOKENS_PER_SESSION,
+    maxOutputTokensPerSession: MAX_OUTPUT_TOKENS_PER_SESSION,
+    // No delegation: the concierge is a single conversational surface (the
+    // `agent` built-in cannot be disabled via disableTool, so cap depth).
+    maxSubagentDepth: 0,
+  },
+});

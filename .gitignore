@@ -19,3 +19,8 @@ wallet.json
 
 # Vercel CLI local project link
 .vercel
+
+# eve compiled artifacts
+.eve
+.output
+.workflow-data
