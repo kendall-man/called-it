@@ -133,6 +133,44 @@ describe('parseClaim tool loop', () => {
     });
   });
 
+  it('coerces GLM type drift: stringified numbers and gt/lt comparators (observed live)', async () => {
+    // Live 2026-07-08: GLM emitted threshold as the string "2" and comparator
+    // "gt" — both outside the schema. The boundary must fold them: numeric
+    // strings become numbers, and gt N ≡ gte N+1 (lt N ≡ lte N-1) for the
+    // integer stats in the taxonomy.
+    const client = makeScriptedClient([
+      {
+        content: [
+          toolUseBlock(SUBMIT_PARSE_TOOL, {
+            claimType: 'team_scores_n',
+            fixtureId: '9101',
+            entityName: 'France',
+            entityKind: 'team',
+            comparator: 'gt',
+            threshold: '2',
+            period: 'FT_90',
+            unresolved: null,
+          }),
+        ],
+        stop_reason: 'tool_use',
+      },
+    ]);
+    const result = await parseClaim('france score more than 2 today', ctx, {
+      client,
+      executors: makeGoldenExecutors(),
+    });
+    expect(result).toEqual({
+      claimType: 'team_scores_n',
+      fixtureId: 9101,
+      entityName: 'France',
+      entityKind: 'team',
+      comparator: 'gte',
+      threshold: 3,
+      period: 'FT_90',
+      unresolved: null,
+    });
+  });
+
   it('rejects a submit_parse with an out-of-taxonomy claim type', async () => {
     const client = makeScriptedClient([
       {

@@ -164,6 +164,26 @@ function coerceModelNulls(input: unknown): unknown {
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     coerced[key] = value === 'null' || value === 'undefined' ? null : value;
   }
+  // GLM type drift, observed live (2026-07-08): numeric fields arrive as
+  // strings ("2" for threshold, fixture ids quoted) and comparator sometimes
+  // comes back as the strict form ("gt"/"lt") the closed taxonomy doesn't
+  // admit. Fold both at the boundary — LLM proposes, code disposes.
+  for (const key of ['threshold', 'fixtureId'] as const) {
+    const value = coerced[key];
+    if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) {
+      coerced[key] = Number(value);
+    }
+  }
+  const comparator = coerced['comparator'];
+  const threshold = coerced['threshold'];
+  if (comparator === 'gt' && typeof threshold === 'number' && Number.isInteger(threshold)) {
+    // strictly-more-than N ≡ at-least N+1 for integer stats
+    coerced['comparator'] = 'gte';
+    coerced['threshold'] = threshold + 1;
+  } else if (comparator === 'lt' && typeof threshold === 'number' && Number.isInteger(threshold)) {
+    coerced['comparator'] = 'lte';
+    coerced['threshold'] = threshold - 1;
+  }
   return coerced;
 }
 
