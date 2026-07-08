@@ -96,12 +96,35 @@ async function main(): Promise<void> {
   });
 
   const crons = startCrons({ deps, poster, say, settler, supervisor });
-  const apiServer = startEngineApi({ deps, poster, env, log });
-  const runner = run(bot);
+  const webhookIngress = env.TELEGRAM_INGRESS === 'webhook';
+  if (webhookIngress && !env.ENGINE_API_TOKEN) {
+    throw new Error('TELEGRAM_INGRESS=webhook requires ENGINE_API_TOKEN (updates arrive via the API)');
+  }
+  const apiServer = startEngineApi({
+    deps,
+    poster,
+    env,
+    log,
+    ...(webhookIngress
+      ? {
+          handleTelegramUpdate: (update: Record<string, unknown>) =>
+            bot.handleUpdate(update as unknown as Parameters<typeof bot.handleUpdate>[0]),
+        }
+      : {}),
+  });
+  // Webhook ingress: the concierge owns getUpdates' replacement (the webhook)
+  // and forwards; polling here would 409 against the registered webhook.
+  let runner: ReturnType<typeof run> | null = null;
+  if (webhookIngress) {
+    await bot.init(); // handleUpdate needs botInfo, which run() normally fetches
+  } else {
+    runner = run(bot);
+  }
   log.info('engine_up', {
     webBaseUrl: env.WEB_BASE_URL,
     proofSubmitter: deps.proofSubmitter !== null,
     api: apiServer !== null,
+    ingress: env.TELEGRAM_INGRESS,
   });
 
   let shuttingDown = false;
@@ -113,7 +136,7 @@ async function main(): Promise<void> {
     supervisor.stopAll();
     proofWorker.stop();
     apiServer?.close();
-    if (runner.isRunning()) await runner.stop();
+    if (runner?.isRunning()) await runner.stop();
     await queue.idle().catch(() => undefined);
     queue.stop();
     process.exit(0);

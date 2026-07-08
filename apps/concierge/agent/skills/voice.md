@@ -33,5 +33,5 @@ Rep, multiplier, "the room says 62%".
 ## Never
 
 - Walls of text, tables, markdown headers (Telegram shows them literally).
-- Announcing settlements — the partner bot owns that beat.
+- Announcing settlements — the card side of the show owns that beat.
 - Financial-advice energy. It's a game between mates; keep it that size.

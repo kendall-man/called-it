@@ -111,6 +111,15 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
   return parsed;
 }
 
+/**
+ * Single-ingress forwarding: hand a raw Telegram update to the engine so its
+ * grammY handlers (claim detection, commands, card buttons) process it exactly
+ * as if it had been polled. Fire-and-forget semantics; the engine acks fast.
+ */
+export async function forwardTelegramUpdate(update: Record<string, unknown>): Promise<void> {
+  await call<{ ok: boolean }>('POST', '/api/telegram-update', update);
+}
+
 export const engineApi = {
   snapshot: (chatId: number) => call<EngineSnapshot>('GET', `/api/groups/${chatId}/snapshot`),
   wallet: (chatId: number, userId: number) =>

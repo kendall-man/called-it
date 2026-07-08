@@ -50,6 +50,13 @@ export interface EngineApiOptions {
   poster: Poster;
   env: Env;
   log: Logger;
+  /**
+   * Webhook-ingress mode: the concierge owns the Telegram webhook and
+   * forwards every update the agent doesn't handle (plain group chatter,
+   * commands, card-button callback queries) here; this feeds them into the
+   * existing grammY handlers via bot.handleUpdate.
+   */
+  handleTelegramUpdate?: (update: Record<string, unknown>) => Promise<void>;
 }
 
 /** Starts the API when ENGINE_API_TOKEN is configured; otherwise a no-op. */
@@ -139,6 +146,23 @@ async function route(
       return;
     }
     await handleApiStake(options, body.data, res);
+    return;
+  }
+  if (req.method === 'POST' && path === '/api/telegram-update') {
+    if (!options.handleTelegramUpdate) {
+      sendJson(res, 409, { error: 'not_webhook_ingress' });
+      return;
+    }
+    const update = await readJson(req);
+    if (!update || typeof update !== 'object') {
+      sendJson(res, 400, { error: 'bad_request' });
+      return;
+    }
+    // Ack immediately; processing is fire-and-forget like a polled update.
+    sendJson(res, 200, { ok: true });
+    void options.handleTelegramUpdate(update as Record<string, unknown>).catch((err) => {
+      options.log.error('forwarded_update_failed', { error: String(err) });
+    });
     return;
   }
   sendJson(res, 404, { error: 'not_found' });

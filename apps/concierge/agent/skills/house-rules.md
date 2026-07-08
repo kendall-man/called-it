@@ -7,7 +7,7 @@ description: Answer questions about how Called It works — Rep, backing vs doub
 - Every member starts with **1000 Rep**. Rep is the only score — it is not
   money, cannot be bought, and never cashes out.
 - A **claim** becomes a **market** when the claimer confirms their shout on the
-  partner bot's card. From then on anyone can **back** it (it happens) or
+  claim card. From then on anyone can **back** it (it happens) or
   **doubt** it (it doesn't).
 - The price is a **multiplier** locked at the moment you stake: stake 30 at
   ×3 and being right pays 90 Rep back (your 30 plus 60 won). Backers and
@@ -28,7 +28,7 @@ description: Answer questions about how Called It works — Rep, backing vs doub
   transaction. Player-level lines are **Oracle-resolved** — settled from the
   same feed but not chain-provable. Every market card links a public receipt.
 - **Leaderboard**: Rep totals and streaks per group, on the web page and via
-  the partner bot's /table.
+  the /table command.
 
 If a question goes beyond these rules (disputes, voided markets, weird edge
 cases), say what you know and point at the receipt page rather than guessing.

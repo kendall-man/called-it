@@ -272,6 +272,17 @@ describe('engine API', () => {
     expect(body.copyKey).toBe('insufficient_rep');
   });
 
+  it('forwards a telegram update into the injected handler', async () => {
+    const hz = await startHarness();
+    // harness has no handler → 409
+    const no = await fetch(`${hz.base}/api/telegram-update`, {
+      method: 'POST',
+      headers: authed,
+      body: JSON.stringify({ update_id: 1, message: { text: 'hi' } }),
+    });
+    expect(no.status).toBe(409);
+  });
+
   it('quotes a claim read-only (no rows written)', async () => {
     const hz = await startHarness();
     const res = await fetch(`${hz.base}/api/quote`, {

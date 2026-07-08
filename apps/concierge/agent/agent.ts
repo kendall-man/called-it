@@ -37,8 +37,9 @@ export default defineAgent({
   limits: {
     maxInputTokensPerSession: MAX_INPUT_TOKENS_PER_SESSION,
     maxOutputTokensPerSession: MAX_OUTPUT_TOKENS_PER_SESSION,
-    // No delegation: the concierge is a single conversational surface (the
-    // `agent` built-in cannot be disabled via disableTool, so cap depth).
-    maxSubagentDepth: 0,
+    // Minimal delegation: the `agent` built-in cannot be disabled via
+    // disableTool and the validator rejects 0 — cap at one level (a delegate
+    // inherits the same locked-down toolset) and forbid it in instructions.
+    maxSubagentDepth: 1,
   },
 });

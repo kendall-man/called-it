@@ -25,7 +25,7 @@ description: The procedure for putting Rep on a line conversationally — quotin
    only; the upgrade is chain-provable. `kind: reject` → relay the reason in
    character.
 3. A quote is a price check, not a market. To make it real they say the claim
-   in the chat and run the partner bot's "Make him prove it" flow — tell them
+   in the chat (no @mention) and tap "Make him prove it" on the nudge card — tell them
    that when they want to go from price to live market.
 
 ## When the engine says no

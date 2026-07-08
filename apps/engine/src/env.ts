@@ -27,6 +27,14 @@ const EnvSchema = z.object({
   ENGINE_API_TOKEN: z.string().min(24, 'use a long random token').optional(),
   /** HTTP port for the engine API (Railway injects PORT). */
   PORT: z.coerce.number().int().positive().default(8790),
+  /**
+   * How Telegram updates reach this process. 'poll' long-polls getUpdates
+   * (default, standalone). 'webhook' means the concierge owns the bot's
+   * webhook and forwards non-conversational updates to POST
+   * /api/telegram-update — the engine must NOT poll (setWebhook makes
+   * getUpdates return 409) and requires ENGINE_API_TOKEN.
+   */
+  TELEGRAM_INGRESS: z.enum(['poll', 'webhook']).default('poll'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

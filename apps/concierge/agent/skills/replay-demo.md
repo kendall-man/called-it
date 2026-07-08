@@ -9,12 +9,12 @@ claims price off the odds as they stood at that moment of the match, the
 match fast-forwards, and settlement + on-chain proof fire exactly as live.
 It's how the loop gets demoed without waiting for a real kickoff.
 
-## How to run one (it's the partner bot's command, not yours)
+## How to run one (a chat command, not one of your tools)
 
-1. A group **admin** sends `/replay <fixtureId>` to the partner bot.
+1. A group **admin** sends `/replay <fixtureId>` in the chat.
    `list_todays_matches` can help find fixture ids; already-finished fixtures
    (phase F) that were replayed before won't re-price — pick a fresh one.
-2. The partner bot confirms the replay started. From then it's a live match as
+2. The card side confirms the replay started. From then it's a live match as
    far as everything is concerned.
 3. **Timing matters**: the replay compresses ~90 minutes into a few minutes.
    Claims + stakes need to happen in the first couple of minutes, before the
