@@ -84,6 +84,8 @@ async function startHarness(opts: { balance?: number } = {}): Promise<ApiHarness
     ],
     fixturesBetween: async () => [FIXTURE],
     playersForFixture: async () => [],
+    getUser: async (id: number) =>
+      id === USER_ID ? { id, display_name: 'Dee Real Name', username: 'dee' } : null,
     upsertUser: async () => undefined,
     ensureMembership: async () => ({ created: false }),
     positionsForMarket: async (marketId: string) =>

@@ -271,10 +271,18 @@ async function handleApiStake(
   res: ServerResponse,
 ) {
   const { deps, poster } = options;
+  // The concierge only knows the Telegram username; if the engine has already
+  // seen this user (button taps carry the real name) keep the stored name so
+  // the API's upsert can't degrade it.
+  const known = await deps.db.getUser(body.userId);
   const outcome = await executeStake(deps, {
     groupId: body.chatId,
     marketId: body.marketId,
-    user: { id: body.userId, displayName: body.displayName, username: body.username },
+    user: {
+      id: body.userId,
+      displayName: known?.display_name ?? body.displayName,
+      username: body.username ?? known?.username ?? null,
+    },
     side: body.side,
     amount: body.amount,
     idempotencyKey: body.idempotencyKey,
