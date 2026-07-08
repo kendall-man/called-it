@@ -1,78 +1,22 @@
 /**
  * Passive claim detection (the product's identity):
- * message → deterministic prefilter → classifier → priced nudge (high
- * confidence, nudge mode) or silent 👀 (medium), gated on the group's
+ * message → deterministic prefilter → classifier → immediate priced offer
+ * (high confidence, nudge mode) or silent 👀 (medium), gated on the group's
  * chattiness AND the bot's admin status (the per-group consent lever).
- * Trigger paths (@mention, "book it" reply) bypass the classifier.
+ * Trigger paths (@mention, "book it" reply) bypass the classifier and always
+ * post their result.
  */
 
 import type { Bot } from 'grammy';
-import type { User } from 'grammy/types';
 import { TUNABLES } from '@calledit/market-engine';
-import type { GroupRow } from '../ports.js';
-import { displayName, ensureChatContext, ensureUserSeen, type HandlerCtx } from './context.js';
-import { nudgeKeyboard } from './keyboards.js';
-import { formatMultiplier } from './cards.js';
-import { guessNudgeProbability } from '../pipeline/nudgePrice.js';
-
-const NUDGE_QUOTE_MAX_CHARS = 90;
-
-function clampMultiplier(probability: number): number {
-  return Math.min(TUNABLES.MULTIPLIER_MAX, Math.max(TUNABLES.MULTIPLIER_MIN, 1 / probability));
-}
-
-const BOOK_IT_RE = /^book\s*it\W*$/i;
+import { ensureChatContext, ensureUserSeen, type HandlerCtx } from './context.js';
+import { offerClaim } from '../pipeline/offer.js';
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export interface NudgeArgs {
-  chatId: number;
-  group: GroupRow;
-  text: string;
-  claimer: User;
-  sourceMessageId: number;
-  confidence: number | null;
-  claimTypeGuess: string | null;
-}
-
-/** Insert the claim row and post the (best-effort priced) nudge. */
-export async function nudgeClaim(h: HandlerCtx, args: NudgeArgs): Promise<void> {
-  const expiresAt = new Date(h.deps.now() + TUNABLES.UNCONFIRMED_CLAIM_TTL_MS).toISOString();
-  const claim = await h.deps.db.insertClaim({
-    group_id: args.chatId,
-    claimer_user_id: args.claimer.id,
-    tg_message_id: args.sourceMessageId,
-    quoted_text: args.text,
-    status: 'nudged',
-    classifier_confidence: args.confidence,
-    expires_at: expiresAt,
-  });
-  h.deps.log.info('nudged', {
-    claimId: claim.id,
-    groupId: args.chatId,
-    confidence: args.confidence,
-  });
-  const price = await guessNudgeProbability(h.deps, args.text, args.claimTypeGuess);
-  const claimerName = displayName(args.claimer);
-  const quote =
-    args.text.length > NUDGE_QUOTE_MAX_CHARS
-      ? `${args.text.slice(0, NUDGE_QUOTE_MAX_CHARS - 1)}…`
-      : args.text;
-  const line = price
-    ? await h.say('nudge_priced', {
-        claimer: claimerName,
-        probabilityPct: price.probabilityPct,
-        quote,
-        multiplier: formatMultiplier(clampMultiplier(price.probability)).replace('×', ''),
-      })
-    : await h.say('nudge_unpriced', { claimer: claimerName });
-  h.poster.post(args.chatId, line, {
-    replyToMessageId: args.sourceMessageId,
-    keyboard: nudgeKeyboard(claim.id),
-  });
-}
+const BOOK_IT_RE = /^book\s*it\W*$/i;
 
 export function registerDetection(bot: Bot, h: HandlerCtx): void {
   bot.on('message:text', async (ctx) => {
@@ -92,25 +36,25 @@ export function registerDetection(bot: Bot, h: HandlerCtx): void {
       const stripped = text.replace(mentionRe, ' ').replace(/\s+/g, ' ').trim();
       const mentionReply = ctx.message.reply_to_message;
       if (stripped.length > 0) {
-        await nudgeClaim(h, {
+        await offerClaim(h, {
           chatId: chat.id,
           group,
           text: stripped,
           claimer: from,
           sourceMessageId: ctx.message.message_id,
           confidence: null,
-          claimTypeGuess: null,
+          announce: true,
         });
       } else if (mentionReply?.text && mentionReply.from && !mentionReply.from.is_bot) {
         await ensureUserSeen(h, chat.id, mentionReply.from);
-        await nudgeClaim(h, {
+        await offerClaim(h, {
           chatId: chat.id,
           group,
           text: mentionReply.text,
           claimer: mentionReply.from,
           sourceMessageId: mentionReply.message_id,
           confidence: null,
-          claimTypeGuess: null,
+          announce: true,
         });
       }
       return;
@@ -121,14 +65,14 @@ export function registerDetection(bot: Bot, h: HandlerCtx): void {
     if (replyTarget && BOOK_IT_RE.test(text.trim())) {
       if (group.is_admin && replyTarget.text && replyTarget.from && !replyTarget.from.is_bot) {
         await ensureUserSeen(h, chat.id, replyTarget.from);
-        await nudgeClaim(h, {
+        await offerClaim(h, {
           chatId: chat.id,
           group,
           text: replyTarget.text,
           claimer: replyTarget.from,
           sourceMessageId: replyTarget.message_id,
           confidence: null,
-          claimTypeGuess: null,
+          announce: true,
         });
       }
       return;
@@ -159,14 +103,16 @@ export function registerDetection(bot: Bot, h: HandlerCtx): void {
     if (!result.isClaim) return;
 
     if (result.confidence >= TUNABLES.CLASSIFIER_NUDGE_THRESHOLD && group.chattiness === 'nudge') {
-      await nudgeClaim(h, {
+      // High confidence: parse + price + offer immediately. Silent on parse
+      // failures (this was auto-detected, not an explicit ask).
+      await offerClaim(h, {
         chatId: chat.id,
         group,
         text,
         claimer: from,
         sourceMessageId: ctx.message.message_id,
         confidence: result.confidence,
-        claimTypeGuess: result.claimTypeGuess,
+        announce: false,
       });
       return;
     }

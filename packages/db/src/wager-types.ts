@@ -28,12 +28,7 @@ export type WagerLedgerKind =
 export type WagerWithdrawalState = 'debited' | 'submitted' | 'confirmed' | 'failed';
 
 /** Typed rejection codes returned by the wager_stake RPC. */
-export type WagerStakeErrorCode =
-  | 'insufficient'
-  | 'wrong_side'
-  | 'cap'
-  | 'liability_cap'
-  | 'paused';
+export type WagerStakeErrorCode = 'insufficient' | 'wrong_side' | 'cap' | 'paused';
 
 /** Typed rejection codes returned by the wager_request_withdrawal RPC. */
 export type WagerWithdrawErrorCode = 'no_wallet' | 'insufficient';
@@ -156,30 +151,21 @@ export interface WagerStakeInput {
   market_id: string;
   side: PositionSide;
   lamports: bigint;
-  /** Locked multiplier, quantized to mult_milli inside the RPC. */
+  /** Locked multiplier, stored on the position for display. */
   multiplier: number;
   state: 'pending' | 'active';
   placed_at_ms: number;
+  /** Client idempotency key for at-least-once callers (concierge/API). */
+  idempotency_key?: string;
 }
 
 export type WagerStakeResult =
   | { ok: true; position_id: string }
+  /** A prior stake with the same client idempotency key already landed. */
+  | { ok: true; duplicate: true }
   | { ok: false; code: WagerStakeErrorCode };
 
 export type WagerWithdrawResult =
   | { ok: true; withdrawal_id: string }
   | { ok: false; code: WagerWithdrawErrorCode };
 
-// ── Read projections ───────────────────────────────────────────────────────
-
-/**
- * Position projection for worst-case liability math (solvency cron and the
- * mirror of the wager_stake liability check). `stake` is a raw positions.stake
- * value, still a JS number — worstCaseLiabilityLamports asserts it.
- */
-export interface LiabilityPosition {
-  side: PositionSide;
-  stake: number;
-  locked_multiplier: number;
-  state: PositionState;
-}

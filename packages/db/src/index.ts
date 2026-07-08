@@ -49,14 +49,12 @@ export {
   stakePayoutLamports,
   WAGER_MULT_SCALE,
   wagerDbFromClient,
-  worstCaseLiabilityLamports,
   type WagerDb,
   type WagerDbClient,
   type WagerFilterBuilder,
   type WagerTableBuilder,
 } from './wager-db.js';
 export type {
-  LiabilityPosition,
   WagerDepositInsert,
   WagerDepositRow,
   WagerGroupRow,

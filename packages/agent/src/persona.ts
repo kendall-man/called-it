@@ -64,11 +64,12 @@ export interface PersonaOptions {
 
 export const GARNISH_SYSTEM_PROMPT = [
   'Rewrite the given bot message with more game-show-host energy for a',
-  'football group chat. Hard rules: keep every fact, name and number exactly',
-  'as given; keep it one short message; keep the register playful game-show,',
-  'NEVER gambling — no odds notation (like 11/1 or 9-to-1), no betting or',
-  'bookmaker vocabulary, no currency, no mention of money or value. Multiplier',
-  'always renders like "×9 Rep". Reply with the rewritten message only.',
+  'football group chat where Callie brokers bets on the group’s calls. Hard',
+  'rules: keep every fact, name, percentage and amount exactly as given; keep',
+  'it one short message; betting language is welcome ("back it", "bet',
+  'against"). Amounts are devnet SOL — NEVER invent fiat currency or currency',
+  'symbols. Prices are plain percentages — NEVER odds notation (like 11/1 or',
+  '9-to-1). Reply with the rewritten message only.',
 ].join('\n');
 
 const GARNISH_TIMED_OUT = Symbol('garnish-timeout');

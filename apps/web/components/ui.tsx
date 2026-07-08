@@ -96,7 +96,7 @@ export function PageShell({
       </header>
       <main className="flex flex-1 flex-col gap-4">{children}</main>
       <footer className="mt-10 space-y-1 text-center text-xs text-fog/80">
-        <p>Played for Rep and forfeits — never money.</p>
+        <p>Played in devnet SOL — test tokens, not real money.</p>
         <p>Match data by TxLINE · proofs on Solana devnet.</p>
       </footer>
     </div>

@@ -39,14 +39,14 @@ describe('buildTimeline', () => {
     expect(steps[1]?.state).toBe('current');
   });
 
-  it('ends a voided market with Rep returned', () => {
+  it('ends a voided market with stakes returned', () => {
     const steps = buildTimeline({
       status: 'voided',
       createdAt: CREATED_AT,
       settledAt: null,
       outcome: null,
     });
-    expect(steps[2]?.label).toContain('Rep returned');
+    expect(steps[2]?.label).toContain('stakes returned');
     expect(steps[2]?.state).toBe('done');
   });
 });

@@ -17,8 +17,8 @@ It's how the loop gets demoed without waiting for a real kickoff.
    Claims + stakes need to happen in the first couple of minutes, before the
    virtual match gets deep into the second half (in-play cutoff applies on the
    virtual clock).
-4. At virtual full-time it settles, Rep pays out, and the receipt page flips
-   Chain-proven — same as live.
+4. At virtual full-time it settles, SOL pays out to the winners, and the receipt
+   page flips Chain-proven — same as live.
 
 ## Your role during a replay
 

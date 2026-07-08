@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createSolvencyMonitor, worstCaseLiabilityLamports } from './solvency.js';
-import { SOLVENCY_PAUSE_REASON_PREFIX, WAGER_TUNABLES } from './constants.js';
+import { createSolvencyMonitor, escrowedLamports } from './solvency.js';
+import { SOLVENCY_PAUSE_REASON_PREFIX } from './constants.js';
 import { makeFakeDeps } from './fakes.js';
 import type { WagerPositionRow } from './port.js';
 
@@ -17,83 +17,60 @@ function position(overrides: Partial<WagerPositionRow>): WagerPositionRow {
   };
 }
 
-describe('worstCaseLiabilityLamports', () => {
+describe('escrowedLamports', () => {
   it('is zero with no positions', () => {
-    expect(worstCaseLiabilityLamports([])).toBe(0n);
+    expect(escrowedLamports([])).toBe(0n);
   });
 
-  it('takes the worse side payout minus ALL stakes', () => {
-    const worst = worstCaseLiabilityLamports([
-      position({ id: 'a', side: 'back', stake: 100, locked_multiplier: 2 }), // pays 200
-      position({ id: 'b', side: 'doubt', stake: 50, locked_multiplier: 3 }), // pays 150
+  it('sums non-void stakes (pending counts — it may activate)', () => {
+    const total = escrowedLamports([
+      position({ id: 'a', stake: 100 }),
+      position({ id: 'b', stake: 50, state: 'pending' }),
+      position({ id: 'c', stake: 999, state: 'void' }),
     ]);
-    // max(200, 150) − (100 + 50) = 50
-    expect(worst).toBe(50n);
+    expect(total).toBe(150n);
   });
 
-  it('the doubt side can be the worst case', () => {
-    const worst = worstCaseLiabilityLamports([
-      position({ id: 'a', side: 'back', stake: 100, locked_multiplier: 1.5 }), // pays 150
-      position({ id: 'b', side: 'doubt', stake: 100, locked_multiplier: 5 }), // pays 500
-    ]);
-    expect(worst).toBe(500n - 200n);
-  });
-
-  it('floors at zero when stakes cover every outcome', () => {
-    const worst = worstCaseLiabilityLamports([
-      position({ id: 'a', side: 'back', stake: 100, locked_multiplier: 1.02 }), // pays 102
-      position({ id: 'b', side: 'doubt', stake: 100, locked_multiplier: 1.5 }), // pays 150
-    ]);
-    // max(102, 150) − 200 < 0 → 0
-    expect(worst).toBe(0n);
-  });
-
-  it('counts pending positions (they may activate) and ignores void ones', () => {
-    const withPending = worstCaseLiabilityLamports([
-      position({ id: 'a', side: 'back', stake: 100, locked_multiplier: 3, state: 'pending' }),
-    ]);
-    expect(withPending).toBe(200n);
-    const withVoid = worstCaseLiabilityLamports([
-      position({ id: 'a', side: 'back', stake: 100, locked_multiplier: 3, state: 'void' }),
-    ]);
-    expect(withVoid).toBe(0n);
-  });
-
-  it('uses the same milli-quantized payout as settlement', () => {
-    const worst = worstCaseLiabilityLamports([
-      position({ id: 'a', side: 'back', stake: 33_333_333, locked_multiplier: 1.333 }),
-    ]);
-    expect(worst).toBe(44_433_332n - 33_333_333n);
+  it('rejects unsafe stake integers loudly', () => {
+    expect(() => escrowedLamports([position({ stake: 2 ** 53 })])).toThrow(/safe integer/);
   });
 });
 
 describe('solvency monitor', () => {
-  it('healthy book: leaves the breaker alone and asks for nothing', async () => {
+  it('healthy book: leaves the breaker alone and posts nothing', async () => {
     const { deps, db, chain, poster } = makeFakeDeps({ opsChatId: 777 });
     db.seedBalance(1, 1_000_000_000n);
     chain.treasuryLamports = 10_000_000_000n;
     await createSolvencyMonitor(deps).tick();
     expect(db.status.paused).toBe(false);
-    expect(chain.airdrops).toHaveLength(0);
     expect(poster.posts).toHaveLength(0);
   });
 
-  it('violation: persists the pause, requests an airdrop, alerts ops', async () => {
+  it('violation: persists the pause and alerts ops (no auto-airdrop)', async () => {
     const { deps, db, chain, poster } = makeFakeDeps({ opsChatId: 777 });
-    db.seedBalance(1, 2_000_000_000n); // treasury owes 2 SOL
-    chain.treasuryLamports = 1_000_000_000n; // holds 1 SOL
+    db.seedBalance(1, 2_000_000_000n); // ledger owes 2 SOL
+    chain.treasuryLamports = 1_000_000_000n; // holds only 1 SOL
     db.openSolMarkets = ['m1'];
-    db.seedPosition({ market_id: 'm1', user_id: 1, side: 'back', stake: 100_000_000, locked_multiplier: 3 });
+    db.seedPosition({ market_id: 'm1', user_id: 1, side: 'back', stake: 100_000_000 });
 
     await createSolvencyMonitor(deps).tick();
 
+    // required = ledger 2 SOL + escrow 0.1 SOL + fee buffer > treasury 1 SOL.
     expect(db.status.paused).toBe(true);
     expect(db.status.reason).toMatch(new RegExp(`^${SOLVENCY_PAUSE_REASON_PREFIX}`));
-    expect(chain.airdrops).toHaveLength(1);
-    expect(chain.airdrops[0]).toBeLessThanOrEqual(WAGER_TUNABLES.MAX_AIRDROP_REQUEST_LAMPORTS);
-    expect(chain.airdrops[0]).toBeGreaterThan(0n);
     expect(poster.posts).toHaveLength(1);
     expect(poster.posts[0]?.chatId).toBe(777);
+  });
+
+  it('counts escrowed open-market stakes toward the required coverage', async () => {
+    const { deps, db, chain } = makeFakeDeps();
+    db.seedBalance(1, 0n); // no ledger balance...
+    db.openSolMarkets = ['m1'];
+    // ...but 5 SOL is escrowed in an open market and owed back on settlement.
+    db.seedPosition({ market_id: 'm1', user_id: 1, side: 'back', stake: 5_000_000_000 });
+    chain.treasuryLamports = 1_000_000_000n; // only 1 SOL on hand
+    await createSolvencyMonitor(deps).tick();
+    expect(db.status.paused).toBe(true);
   });
 
   it('recovery: clears its own pause once the treasury covers the book again', async () => {
@@ -124,15 +101,5 @@ describe('solvency monitor', () => {
     await createSolvencyMonitor(deps).tick();
     expect(db.status.paused).toBe(false);
     expect(poster.posts).toHaveLength(0);
-  });
-
-  it('airdrop failure still pauses and still alerts ops', async () => {
-    const { deps, db, chain, poster } = makeFakeDeps({ opsChatId: 777 });
-    db.seedBalance(1, 2_000_000_000n);
-    chain.treasuryLamports = 0n;
-    chain.airdropFails = true;
-    await createSolvencyMonitor(deps).tick();
-    expect(db.status.paused).toBe(true);
-    expect(poster.posts).toHaveLength(1);
   });
 });

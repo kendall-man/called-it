@@ -10,37 +10,40 @@ const REQUEST_TIMEOUT_MS = 15_000;
 export interface EngineMarket {
   marketId: string;
   terms: string;
+  currency: 'sol';
   status: string;
   fixtureId: number;
   isReplay: boolean;
   trustTier: 'chain_proven' | 'oracle_resolved';
   probability: number;
-  backMultiplier: number;
   backers: number;
   doubters: number;
+  /** For/Against pots, lamports as decimal strings and human SOL. */
+  forLamports: string;
+  againstLamports: string;
+  forSol: string;
+  againstSol: string;
+  /** 0..100 — matched fraction of the total staked pot. */
+  matchedPct: number;
   receiptUrl?: string;
 }
 
 export interface EngineSnapshot {
   group: { id: number; title: string };
   markets: EngineMarket[];
-  leaderboard: Array<{
-    rank: number;
-    userId: number;
-    displayName: string;
-    rep: number;
-    streak: number;
-  }>;
 }
 
 export interface EngineWallet {
-  balance: number;
+  /** null until the member links a devnet wallet with /wallet. */
+  linkedWallet: string | null;
+  balanceLamports: string;
+  balanceSol: string;
   positions: Array<{
     marketId: string;
     terms: string;
     side: 'back' | 'doubt';
-    stake: number;
-    lockedMultiplier: number;
+    stakeLamports: string;
+    stakeSol: string;
     state: string;
   }>;
 }
@@ -65,12 +68,11 @@ export interface EngineQuote {
 }
 
 export type EngineStakeResult =
-  | { kind: 'ok'; positionId: string; state: string; lockedMultiplier: number }
-  | { kind: 'duplicate' }
-  | { kind: 'busy' }
-  | { kind: 'unavailable' }
-  | { kind: 'closed'; status: string }
-  | { kind: 'rejected'; copyKey: string; vars: Record<string, string | number> };
+  /** 200: the stake reached the wager desk; `reply` explains it (placed,
+   * idempotent replay, insufficient balance, paused, …). Relay `reply`. */
+  | { placed: boolean; reply: string }
+  /** 404/409/503: the market was unknown, closed, or the desk is down. */
+  | { error: string; status?: string };
 
 export interface EngineFixture {
   fixtureId: number;

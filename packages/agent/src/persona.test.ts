@@ -57,29 +57,29 @@ describe('template bank', () => {
 
 describe('deny-list guard', () => {
   it.each([
+    // Odds NOTATION stays banned (we speak in plain percentages).
     ['11/1 shot if you ask me', 'odds_fraction'],
     ['pays 9-to-1 tonight', 'odds_spoken'],
     ['that is 9 to 1 territory', 'odds_spoken'],
     ['in at @ 2.5', 'odds_at_price'],
+    // FIAT currency stays banned (amounts are devnet SOL).
     ['loser sends $20', 'currency_symbol'],
     ['a tenner says... £10 on it', 'currency_symbol'],
-    ['20 quid on france', 'currency_word'],
-    ['place your wager now', 'bookie_vocabulary'],
-    ['stake 50 on it', 'bookie_vocabulary'],
-    ['the odds are great', 'bookie_vocabulary'],
-    ['add it to the betting slip', 'bookie_vocabulary'],
-    ['what a parlay', 'bookie_vocabulary'],
+    ['20 dollars on france', 'currency_word'],
   ] as const)('flags %j', (text, expectedName) => {
     expect(violatesDenyList(text)?.name).toBe(expectedName);
   });
 
   it.each([
+    // Betting language is welcome now — the product owns it.
+    'back it or bet against, your call',
+    'stake 0.05 SOL and you are matched',
+    'the odds are great', // the WORD "odds" is fine; only odds NOTATION is banned
     'calls locked — VAR is having a look',
-    '50 Rep on the line at ×9',
-    'paid out at ×12 Rep, take a bow',
+    '0.05 SOL on the line at ×9',
     'the call lands, receipts for everyone',
     'kickoff at 18:00, morning slate coming',
-  ])('passes clean game-show copy: %j', (text) => {
+  ])('passes clean broker copy: %j', (text) => {
     expect(violatesDenyList(text)).toBeNull();
   });
 });
@@ -108,8 +108,8 @@ describe('persona garnish', () => {
   it('falls back when garnish drops a number from the template', async () => {
     const client = makeTextClient('Dec backs it big time. Locked!');
     const out = await persona('back_ack', vars, { client, budget: budgeted() });
+    // The template carries the stake amount; a garnish that drops it falls back.
     expect(out).toContain('50');
-    expect(out).toContain('9');
   });
 
   it('falls back when the model errors', async () => {

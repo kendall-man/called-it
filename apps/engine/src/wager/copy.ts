@@ -28,10 +28,9 @@ export const WAGER_COPY = {
   pickALane: (): string => "You can't back it and doubt it — pick a lane. Your SOL agrees.",
   capReached: (capLamports: bigint): string =>
     `You're maxed on this call — ${formatSolAmount(capLamports)} is the ceiling per market.`,
-  fullyLoaded: (): string =>
-    "This call is fully loaded — the house can't cover another stake on it. Catch the next one.",
   stakePlaced: (name: string, sideLabel: string, lamports: bigint, multiplier: string): string =>
-    `${name} is in — ${sideLabel} with ${formatSolAmount(lamports)} at ×${multiplier}. Real devnet SOL on the line.`,
+    `${name} is in — ${sideLabel} with ${formatSolAmount(lamports)} at up to ×${multiplier}. Real devnet SOL on the line.`,
+  stakeReplayed: (): string => "Already got that one — your SOL's on it.",
   staleTap: (): string => 'That ship has sailed.',
 
   // ── /wallet ──────────────────────────────────────────────────────────────
@@ -92,16 +91,6 @@ export const WAGER_COPY = {
   withdrawFailed: (name: string, lamports: bigint): string =>
     `${name}'s cashout didn't make it onto the chain — ${formatSolAmount(lamports)} is back on the stack. Give it another go.`,
 
-  // ── group toggle explainers ──────────────────────────────────────────────
-  wagerModeEnabled: (): string =>
-    [
-      'Wager mode is ON — new calls in here play for real devnet SOL.',
-      'Get set: /wallet <address> to link, /deposit to load your stack, /withdraw to cash out any time.',
-      'Devnet only — the SOL is worthless by design, but the mechanics are real: stakes leave your stack the moment you tap.',
-    ].join('\n'),
-  wagerModeDisabled: (): string =>
-    'Wager mode is OFF — new calls in here are back to Rep. SOL stacks stay put; /withdraw whenever you like. Calls already live keep their stakes.',
-
   // ── card & receipt furniture ─────────────────────────────────────────────
   cardFooter: (): string =>
     '⚠️ Real devnet SOL on the line — /deposit to load, /withdraw to cash out.',
@@ -112,20 +101,12 @@ export const WAGER_COPY = {
   payoutsLine: (parts: string[]): string => `${parts.join(' · ')}. (devnet)`,
 
   // ── ops alerts (WAGER_OPS_CHAT_ID) ───────────────────────────────────────
-  opsSolvencyAlert: (
-    treasuryLamports: bigint,
-    requiredLamports: bigint,
-    airdropNote: string,
-  ): string =>
+  opsSolvencyAlert: (treasuryLamports: bigint, requiredLamports: bigint): string =>
     [
       'WAGER OPS — solvency breaker tripped. New stakes are paused.',
-      `Treasury holds ${formatSolAmount(treasuryLamports)}; covering deposits, open calls and the fee buffer needs ${formatSolAmount(requiredLamports)}.`,
-      airdropNote,
+      `Treasury holds ${formatSolAmount(treasuryLamports)}; covering deposits, open stakes and the fee buffer needs ${formatSolAmount(requiredLamports)}.`,
+      'Top the devnet treasury up from a faucet — the breaker clears itself once covered.',
     ].join('\n'),
-  opsAirdropRequested: (lamports: bigint): string =>
-    `Devnet airdrop requested for ${formatSolAmount(lamports)} — breaker clears itself once the float covers the book.`,
-  opsAirdropFailed: (error: string): string =>
-    `Devnet airdrop failed (${error}) — top the treasury up manually; the breaker clears itself once covered.`,
   opsSolvencyRecovered: (): string =>
     'WAGER OPS — treasury covers the book again. Breaker cleared, stakes are back on.',
 } as const;

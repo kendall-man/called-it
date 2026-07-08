@@ -42,22 +42,6 @@ function toEnginePosition(row: PositionRow): Position {
   };
 }
 
-/** Winning Rep per user (payout = stake × locked multiplier, aggregated). */
-export function computeWinners(
-  positions: PositionRow[],
-  outcome: SettlementOutcome,
-): Map<number, number> {
-  const winners = new Map<number, number>();
-  if (outcome === 'void') return winners;
-  const winningSide = outcome === 'claim_won' ? 'back' : 'doubt';
-  for (const position of positions) {
-    if (position.state !== 'active' || position.side !== winningSide) continue;
-    const amount = Math.round(position.stake * position.locked_multiplier);
-    winners.set(position.user_id, (winners.get(position.user_id) ?? 0) + amount);
-  }
-  return winners;
-}
-
 export class Settler {
   private readonly states = new Map<string, MarketState>();
 
@@ -206,54 +190,16 @@ export class Settler {
     });
     this.deps.log.info('settled', { marketId: market.id, outcome, decidingSeq, tier });
 
-    if (market.currency === 'sol') {
-      // Money moves ONLY through the wager module for sol markets. Its
-      // applySettlement is idempotent (per-position/per-user keys plus the
-      // wager_settlements_applied marker); if the module is off — flag
-      // flipped with live sol markets — the wager sweeper re-applies it once
-      // re-enabled, so nothing here may fall back to the Rep ledger.
-      if (this.deps.wager) {
-        await this.deps.wager.applySettlement(market.id);
-      } else {
-        this.deps.log.warn('wager_settlement_deferred', { marketId: market.id, outcome });
-      }
-      await this.postReceipt(market, outcome, new Map(), voidReason);
+    // Money moves ONLY through the wager module (every market is SOL). Its
+    // applySettlement is idempotent (per-position/per-user keys plus the
+    // wager_settlements_applied marker); if the module is somehow off, the
+    // wager sweeper re-applies it once re-enabled.
+    if (this.deps.wager) {
+      await this.deps.wager.applySettlement(market.id);
     } else {
-      const positions = await this.deps.db.positionsForMarket(market.id);
-
-      // Refund still-pending taps (their anti-snipe window never cleared) and
-      // everyone on a void.
-      const refundIds: string[] = [];
-      for (const position of positions) {
-        if (position.state === 'void') continue;
-        const refundable = outcome === 'void' || position.state === 'pending';
-        if (!refundable) continue;
-        await this.deps.db.postLedger({
-          group_id: market.group_id,
-          user_id: position.user_id,
-          market_id: market.id,
-          kind: 'refund',
-          amount: position.stake,
-          idempotency_key: `refund:${position.id}`,
-        });
-        if (position.state === 'pending') refundIds.push(position.id);
-      }
-      if (refundIds.length > 0) await this.deps.db.setPositionStates(refundIds, 'void');
-
-      const winners = computeWinners(positions, outcome);
-      for (const [userId, amount] of winners) {
-        await this.deps.db.postLedger({
-          group_id: market.group_id,
-          user_id: userId,
-          market_id: market.id,
-          kind: 'payout',
-          amount,
-          idempotency_key: `payout:${market.id}:${userId}`,
-        });
-      }
-
-      await this.postReceipt(market, outcome, winners, voidReason);
+      this.deps.log.warn('wager_settlement_deferred', { marketId: market.id, outcome });
     }
+    await this.postReceipt(market, outcome, voidReason);
 
     if (tier === 'chain_proven' && outcome !== 'void' && this.proofWorker && decidingSeq !== null) {
       const statKey = statKeyForSpec(market.spec);
@@ -274,30 +220,15 @@ export class Settler {
   async postReceipt(
     market: MarketRow,
     outcome: SettlementOutcome,
-    winners: Map<number, number>,
     voidReason?: string,
   ): Promise<void> {
     const claim = await this.deps.db.getClaim(market.claim_id);
     const claimer = claim ? await this.deps.db.getUser(claim.claimer_user_id) : null;
     const claimerName = claimer?.display_name ?? 'the claimer';
 
-    const payoutParts: string[] = [];
-    for (const [userId, amount] of winners) {
-      const user = await this.deps.db.getUser(userId);
-      payoutParts.push(`${user?.display_name ?? 'A winner'} collects ${amount} Rep`);
-    }
-    // sol markets take their receipt line from the wager module (the only
-    // place SOL amounts are allowed to be phrased); Rep copy is unchanged.
-    const payoutsLine =
-      market.currency === 'sol'
-        ? await this.solPayoutsLine(market.id, outcome)
-        : outcome === 'void'
-          ? 'All Rep returned.'
-          : payoutParts.length > 0
-            ? `${payoutParts.join(' · ')}.`
-            : 'No Rep changed hands.';
-
-    const totalPayout = [...winners.values()].reduce((sum, amount) => sum + amount, 0);
+    // Every market is SOL — the wager module owns the (only) place SOL amounts
+    // are phrased.
+    const payoutsLine = await this.solPayoutsLine(market.id, outcome);
     const garnishKey =
       outcome === 'claim_won' ? 'settle_won' : outcome === 'claim_lost' ? 'settle_lost' : 'void_market';
     const garnish = await this.say(garnishKey, {
@@ -306,7 +237,6 @@ export class Settler {
       reason: voidReason ?? 'the match got away from us',
       terms: describeTerms(market.spec),
       multiplier: formatMultiplier(market.quote_multiplier).replace('×', ''),
-      payout: totalPayout,
       url: receiptUrl(this.deps, market.id),
     });
 
@@ -316,7 +246,6 @@ export class Settler {
       spec: market.spec,
       outcome,
       probability: market.quote_probability,
-      multiplier: market.quote_multiplier,
       provenance: market.price_provenance,
       payoutsLine,
       isReplay: market.is_replay,
@@ -369,6 +298,10 @@ export class Settler {
   private async reprice(market: MarketRow): Promise<void> {
     const fresh = await this.deps.db.getMarket(market.id);
     if (!fresh || fresh.status !== 'open') return;
+    // A sol market's mint quote LOCKS the FOR↔AGAINST settlement ratio
+    // (wager/pot.ts). Repricing it would settle the pot at a different ratio
+    // than it was staked against — never touch a live sol quote.
+    if (fresh.currency === 'sol') return;
     // Any pricing failure (transient, no line, unpriceable) just skips this
     // reprice tick — the card keeps its last good quote.
     const outcome = await quoteSpec(this.deps, fresh.spec);

@@ -2,16 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { FALLBACK_TEMPLATES, renderFallback, type TemplateKey } from './copy.js';
 
 /**
- * Persona-vocabulary guard (PRD testing priority 4): consumer copy is
- * game-show register — never sportsbook. The agent package guards its own
- * output; this suite guards the engine's local fallbacks.
+ * Consumer-copy guard: the product owns betting language now, so only two bans
+ * remain — FIAT currency (amounts are devnet SOL) and odds NOTATION (prices are
+ * plain percentages). The agent package guards its own output; this suite
+ * guards the engine's local fallbacks.
  */
 const DENY_PATTERNS: Array<{ name: string; re: RegExp }> = [
   { name: 'currency symbols', re: /[$£€¥]/ },
+  { name: 'fiat currency words', re: /\b(dollars?|euros?|pounds?|usd|gbp|eur)\b/i },
   { name: 'fractional odds notation', re: /\b\d+\s*\/\s*\d+\b/ },
   { name: '"N-to-1" odds phrasing', re: /\b\d+\s*-?\s*to\s*-?\s*\d+\b/i },
-  { name: 'bookie vocabulary', re: /\b(odds|bet|bets|betting|wager|bookie|bookmaker|punt|parlay|accumulator|bankroll|slip|payout odds)\b/i },
-  { name: 'stake vocabulary', re: /\b(stake|stakes|staking|staked)\b/i },
 ];
 
 const SAMPLE_VARS = {
@@ -59,9 +59,10 @@ describe('fallback copy bank', () => {
     }
   });
 
-  it('speaks in Rep and game-show register where it matters', () => {
+  it('speaks the broker/SOL register where it matters', () => {
     expect(renderFallback('var_freeze')).toMatch(/calls locked/i);
-    expect(renderFallback('stake_locked', SAMPLE_VARS)).toMatch(/Rep/);
-    expect(renderFallback('confirm_gate', SAMPLE_VARS)).toMatch(/×9 Rep/);
+    expect(renderFallback('offer_live', SAMPLE_VARS)).toMatch(/back it|bet against/i);
+    expect(renderFallback('intro', SAMPLE_VARS)).toMatch(/devnet SOL/i);
+    expect(renderFallback('void_market', SAMPLE_VARS)).not.toMatch(/\bRep\b/);
   });
 });

@@ -1,8 +1,9 @@
 /**
- * Behavior tests for the staking money path (handleStake via dispatchCallback).
- * The path had zero coverage; these pin the guards a conversational-amount
- * refactor must not regress — and the per-(market,user) lock that stops a
- * concurrent double-stake from bypassing the cap / going negative.
+ * Behavior tests for the SOL stake path (handleStake via dispatchCallback).
+ * Every market is a SOL market now: handleStake resolves the preset index to
+ * lamports and delegates to the wager module (which owns funds, gates, copy).
+ * These pin the callback-level behavior — preset→lamports, non-sol/closed
+ * guards, the in-play cutoff, and the card refresh on a placed bet.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -11,90 +12,91 @@ import { TUNABLES } from '@calledit/market-engine';
 import { dispatchCallback } from './callbacks.js';
 import { renderFallback } from './copy.js';
 import type { HandlerCtx } from './context.js';
-import type { EngineDb, FixtureRow, LedgerEntry, MarketRow, PositionRow } from '../ports.js';
+import type { EngineDb, FixtureRow, MarketRow } from '../ports.js';
 import { LlmBudget } from './budget.js';
+import { createWagerModule } from '../wager/module.js';
+import { makeFakeDeps, type FakeWagerDb } from '../wager/fakes.js';
 
 const NOW = Date.parse('2026-07-06T18:00:00.000Z');
 const CHAT_ID = -100999;
 const USER_A = 8001;
-const MARKET_ID = 'mkt-stake-1';
+const MARKET_ID = 'a1111111-1111-4111-8111-111111111111';
 const FIXTURE_ID = 77;
 
-const PRESET_25 = 0; // TUNABLES.PRESET_STAKES = [25, 50, 100]
-const PRESET_50 = 1;
-const PRESET_100 = 2;
+const PRESET_01 = 0; // 0.01 SOL = 10_000_000 lamports
+const PRESET_05 = 1; // 0.05 SOL = 50_000_000
+const PRESET_10 = 2; // 0.1 SOL = 100_000_000
 
-const NS_FIXTURE: FixtureRow = {
-  fixture_id: FIXTURE_ID,
-  p1_name: 'Brazil',
-  p2_name: 'Norway',
-  competition_id: null,
-  p1_id: null,
-  p2_id: null,
-  kickoff_at: new Date(NOW + 3_600_000).toISOString(),
-  phase: 'NS',
-  minute: null,
-  last_seq: 0,
-  score: {},
-  coverage_unreliable: false,
-} as unknown as FixtureRow;
+function fixtureAt(phase: string, minute: number | null): FixtureRow {
+  return {
+    fixture_id: FIXTURE_ID,
+    p1_name: 'Brazil',
+    p2_name: 'Norway',
+    competition_id: null,
+    p1_id: null,
+    p2_id: null,
+    kickoff_at: new Date(NOW + 3_600_000).toISOString(),
+    phase,
+    minute,
+    last_seq: 0,
+    score: {},
+    coverage_unreliable: false,
+  } as unknown as FixtureRow;
+}
 
-const MARKET: MarketRow = {
-  id: MARKET_ID,
-  claim_id: 'claim-1',
-  group_id: CHAT_ID,
-  fixture_id: FIXTURE_ID,
-  spec: { claimType: 'match_winner' } as MarketRow['spec'],
-  status: 'open',
-  is_replay: false,
-  price_provenance: 'market',
-  quote_probability: 0.5,
-  quote_multiplier: 2,
-  odds_message_id: 'om-1',
-  odds_ts: NOW - 1000,
-  card_tg_message_id: null,
-  created_at: new Date(NOW).toISOString(),
-};
+function market(overrides: Partial<MarketRow> = {}): MarketRow {
+  return {
+    id: MARKET_ID,
+    claim_id: 'claim-1',
+    group_id: CHAT_ID,
+    fixture_id: FIXTURE_ID,
+    spec: { claimType: 'match_winner' } as MarketRow['spec'],
+    status: 'open',
+    is_replay: false,
+    price_provenance: 'market',
+    quote_probability: 0.5,
+    quote_multiplier: 2,
+    odds_message_id: 'om-1',
+    odds_ts: NOW - 1000,
+    card_tg_message_id: null, // null ⇒ refreshStakeCard is a no-op
+    created_at: new Date(NOW).toISOString(),
+    currency: 'sol',
+    ...overrides,
+  } as MarketRow;
+}
 
 interface StakeHarness {
   h: HandlerCtx;
-  positions: PositionRow[];
-  ledger: LedgerEntry[];
+  wagerDb: FakeWagerDb;
 }
 
-function makeStakeHarness(opts: { startingBalance?: number; seedPositions?: PositionRow[] } = {}): StakeHarness {
-  const positions: PositionRow[] = [...(opts.seedPositions ?? [])];
-  const ledger: LedgerEntry[] = [];
-  const startingBalance = opts.startingBalance ?? TUNABLES.STARTING_BALANCE;
-  let seq = positions.length;
+function makeHarness(
+  opts: { marketRow?: MarketRow; fixture?: FixtureRow; balanceLamports?: bigint; link?: boolean } = {},
+): StakeHarness {
+  const wagerBundle = makeFakeDeps({ now: () => NOW });
+  const wager = createWagerModule(wagerBundle.deps);
+  if (opts.link ?? true) wagerBundle.db.seedLink(USER_A, 'Wa11etPubkey1111111111111111111111111111');
+  wagerBundle.db.seedBalance(USER_A, opts.balanceLamports ?? 1_000_000_000n); // default 1 SOL
+  wagerBundle.db.seedMarketProbability(MARKET_ID, 0.5);
 
+  const theMarket = opts.marketRow ?? market();
+  const theFixture = opts.fixture ?? fixtureAt('NS', null);
   const db = {
-    getMarket: async (id: string) => (id === MARKET_ID ? { ...MARKET } : null),
-    getFixture: async () => NS_FIXTURE,
+    getMarket: async (id: string) => (id === theMarket.id ? { ...theMarket } : null),
+    getFixture: async () => theFixture,
     getUser: async (id: number) => ({ id, display_name: `U${id}`, username: null }),
     upsertUser: async () => undefined,
     ensureMembership: async () => ({ created: false }),
-    positionsForMarket: async (marketId: string) =>
-      positions.filter((p) => p.market_id === marketId).map((p) => ({ ...p })),
-    insertPosition: async (input: Omit<PositionRow, 'id'>) => {
-      seq += 1;
-      const row: PositionRow = { ...input, id: `pos-${seq}` };
-      positions.push(row);
-      return row;
-    },
-    postLedger: async (entry: LedgerEntry) => {
-      if (ledger.some((e) => e.idempotency_key === entry.idempotency_key)) return { inserted: false };
-      ledger.push(entry);
-      return { inserted: true };
-    },
-    balance: async (_g: number, userId: number) =>
-      startingBalance + ledger.filter((e) => e.user_id === userId).reduce((s, e) => s + e.amount, 0),
+    getClaim: async () => null,
+    getGroup: async () => ({ id: CHAT_ID, slug: 'g', title: 'G', web_enabled: true }),
+    positionsForMarket: async () => [],
     setMarketCardMessage: async () => undefined,
   } as unknown as EngineDb;
 
   const h = {
     deps: {
       db,
+      wager,
       log: { info: () => undefined, warn: () => undefined, error: () => undefined },
       now: () => NOW,
       env: { WEB_BASE_URL: 'https://web.test' },
@@ -105,7 +107,7 @@ function makeStakeHarness(opts: { startingBalance?: number; seedPositions?: Posi
     budget: new LlmBudget(1000, () => NOW),
   } as unknown as HandlerCtx;
 
-  return { h, positions, ledger };
+  return { h, wagerDb: wagerBundle.db };
 }
 
 function stakeCtx(userId: number): { ctx: Context; toasts: string[] } {
@@ -123,62 +125,67 @@ function stakeCtx(userId: number): { ctx: Context; toasts: string[] } {
 const stake = (side: 'back' | 'doubt', presetIndex: number) =>
   ({ t: 'stake', marketId: MARKET_ID, side, presetIndex }) as const;
 
-describe('handleStake — money path', () => {
-  it('places one position and debits the stake', async () => {
-    const hz = makeStakeHarness();
-    const { ctx } = stakeCtx(USER_A);
-    await dispatchCallback(hz.h, ctx, stake('back', PRESET_50));
-    expect(hz.positions).toHaveLength(1);
-    expect(hz.positions[0]).toMatchObject({ side: 'back', stake: 50, user_id: USER_A });
-    // ledger debit is the NEGATION of the stake
-    expect(hz.ledger.filter((e) => e.kind === 'stake')).toHaveLength(1);
-    expect(hz.ledger.find((e) => e.kind === 'stake')?.amount).toBe(-50);
-  });
-
-  it('serializes concurrent double-stakes → exactly one position (the lock)', async () => {
-    const hz = makeStakeHarness();
-    const a = stakeCtx(USER_A);
-    const b = stakeCtx(USER_A);
-    await Promise.all([
-      dispatchCallback(hz.h, a.ctx, stake('back', PRESET_100)),
-      dispatchCallback(hz.h, b.ctx, stake('back', PRESET_100)),
-    ]);
-    // Without the lock both would insert (cap bypassed, balance overdrawn).
-    expect(hz.positions).toHaveLength(1);
-    const heldOff = [...a.toasts, ...b.toasts].some((t) => t === renderFallback('hold_on'));
-    expect(heldOff).toBe(true);
-  });
-
-  it('rejects the opposite side when already staked — pick a lane', async () => {
-    const hz = makeStakeHarness({
-      seedPositions: [
-        { id: 'pos-0', market_id: MARKET_ID, user_id: USER_A, side: 'back', stake: 25, locked_multiplier: 2, state: 'active', placed_at_ms: NOW },
-      ],
-    });
+describe('handleStake — SOL delegate', () => {
+  it('resolves the preset index to lamports and places one position', async () => {
+    const hz = makeHarness();
     const { ctx, toasts } = stakeCtx(USER_A);
-    await dispatchCallback(hz.h, ctx, stake('doubt', PRESET_25));
-    expect(hz.positions).toHaveLength(1); // no new position
-    expect(toasts.some((t) => t.includes('lane'))).toBe(true);
+    await dispatchCallback(hz.h, ctx, stake('back', PRESET_05));
+    expect(hz.wagerDb.positions).toHaveLength(1);
+    // 0.05 SOL preset → 50_000_000 lamports (stored as a JS number on the row).
+    expect(hz.wagerDb.positions[0]).toMatchObject({ side: 'back', stake: 50_000_000, user_id: USER_A });
+    expect(toasts).toHaveLength(1);
   });
 
-  it('rejects a stake that would exceed the per-market cap', async () => {
-    const hz = makeStakeHarness({
-      seedPositions: [
-        { id: 'pos-0', market_id: MARKET_ID, user_id: USER_A, side: 'back', stake: 25, locked_multiplier: 2, state: 'active', placed_at_ms: NOW },
-      ],
-    });
-    const { ctx, toasts } = stakeCtx(USER_A);
-    // 25 committed + 100 preset = 125 > cap(100)
-    await dispatchCallback(hz.h, ctx, stake('back', PRESET_100));
-    expect(hz.positions).toHaveLength(1);
-    expect(toasts.some((t) => t.toLowerCase().includes('maxed') || t.toLowerCase().includes('ceiling'))).toBe(true);
+  it('maps each preset index to the right lamport amount', async () => {
+    for (const [index, lamports] of [
+      [PRESET_01, 10_000_000],
+      [PRESET_05, 50_000_000],
+      [PRESET_10, 100_000_000],
+    ] as const) {
+      const hz = makeHarness();
+      const { ctx } = stakeCtx(USER_A);
+      await dispatchCallback(hz.h, ctx, stake('back', index));
+      expect(hz.wagerDb.positions[0]?.stake).toBe(lamports);
+    }
   });
 
-  it('rejects a stake beyond the balance', async () => {
-    const hz = makeStakeHarness({ startingBalance: 10 });
+  it('treats a non-SOL market as a stale tap (no Rep path exists)', async () => {
+    const hz = makeHarness({ marketRow: market({ currency: 'rep' }) });
     const { ctx, toasts } = stakeCtx(USER_A);
-    await dispatchCallback(hz.h, ctx, stake('back', PRESET_25));
-    expect(hz.positions).toHaveLength(0);
-    expect(toasts.some((t) => t.toLowerCase().includes('rep'))).toBe(true);
+    await dispatchCallback(hz.h, ctx, stake('back', PRESET_05));
+    expect(hz.wagerDb.positions).toHaveLength(0);
+    expect(toasts).toContain(renderFallback('stale'));
+  });
+
+  it('refuses a stake once the match is past the in-play cutoff', async () => {
+    const hz = makeHarness({ fixture: fixtureAt('2H', TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE) });
+    const { ctx, toasts } = stakeCtx(USER_A);
+    await dispatchCallback(hz.h, ctx, stake('back', PRESET_05));
+    expect(hz.wagerDb.positions).toHaveLength(0);
+    expect(toasts).toContain(renderFallback('window_closed'));
+  });
+
+  it('reports a closed market with its status line', async () => {
+    const hz = makeHarness({ marketRow: market({ status: 'settled' }) });
+    const { ctx, toasts } = stakeCtx(USER_A);
+    await dispatchCallback(hz.h, ctx, stake('back', PRESET_05));
+    expect(hz.wagerDb.positions).toHaveLength(0);
+    expect(toasts.some((t) => t.toLowerCase().includes('settled'))).toBe(true);
+  });
+
+  it('onboards an unlinked member instead of placing a bet', async () => {
+    const hz = makeHarness({ link: false });
+    const { ctx, toasts } = stakeCtx(USER_A);
+    await dispatchCallback(hz.h, ctx, stake('back', PRESET_05));
+    expect(hz.wagerDb.positions).toHaveLength(0);
+    expect(toasts.some((t) => t.toLowerCase().includes('/wallet'))).toBe(true);
+  });
+
+  it('relays an insufficient-balance refusal from the wager desk', async () => {
+    const hz = makeHarness({ balanceLamports: 1_000_000n }); // 0.001 SOL < 0.05 preset
+    const { ctx, toasts } = stakeCtx(USER_A);
+    await dispatchCallback(hz.h, ctx, stake('back', PRESET_05));
+    expect(hz.wagerDb.positions).toHaveLength(0);
+    expect(toasts.some((t) => t.toLowerCase().includes('sol'))).toBe(true);
   });
 });

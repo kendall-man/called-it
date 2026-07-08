@@ -35,6 +35,8 @@ export type TemplateKey =
   | 'hold_on'
   | 'budget_spent'
   | 'market_live'
+  | 'offer_live'
+  | 'offer_taken'
   | 'pending_lineup_note'
   | 'lineup_activated'
   | 'var_freeze'
@@ -80,15 +82,16 @@ function v(vars: CopyVars, key: string, fallback = ''): string {
  */
 export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string> = {
   intro: (vars) =>
-    `Evening, legends — I'm Called It. Someone makes a big shout, I put a number on it, and the group decides if they have to prove it. Rep only, never money. Make me a group admin to switch on always-on detection (that's how I see messages) — or just reply /bookit to any claim. Receipts and the table live at ${v(vars, 'webUrl', 'the web link')}.`,
+    `Evening, legends — I'm Called It, the broker for your hot takes. Someone makes a big shout, I price it off the live feed and offer a bet: back it or bet against it in devnet SOL. The feed settles it and posts a public receipt. Get set with /wallet to link, /deposit to load your stack, /withdraw to cash out. Devnet SOL only — test tokens, not real money. Receipts live at ${v(vars, 'webUrl', 'the web link')}.`,
   help: () =>
     [
       'How this works:',
-      '• Someone makes a call — I price it. Tap "Make him prove it" to put it on the record.',
-      '• The claimer locks terms with "That\'s my shout", then anyone can Back or Doubt with Rep.',
-      '• I settle from the official data feed and post the receipt.',
+      '• Someone makes a call — I price it off the feed and post an offer card straight away.',
+      '• Back it (it happens) or bet against it, in devnet SOL. Your stake is matched against the other side at the feed price.',
+      '• I settle from the official data feed the moment the stat lands, and post a provable receipt.',
       '',
-      'Commands: /bookit (reply to a claim) · /table · /settings (admins) · /replay <fixtureId> (admins) · /help',
+      'Get set: /wallet <address> · /deposit · /withdraw',
+      'Commands: /bookit (reply to a claim) · /settings (admins) · /replay <fixtureId> (admins) · /help',
     ].join('\n'),
   dm_start: (vars) =>
     `I live in group chats — add me to yours and the banter starts pricing itself. ${v(vars, 'addLink')}`,
@@ -112,13 +115,17 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     "Can't put a clean number on that one with the data I've got. If there's another option on the table, pick that — otherwise give me a different call.",
   already_decided: () =>
     "Data says that one's a done deal — no game in a sure thing. Pick a different option or give me a fresh call.",
-  prove_retry: () => 'The data desk wobbled mid-check — tap "Make him prove it" and I\'ll run it back.',
+  prove_retry: () => 'The data desk wobbled mid-check — tap "Run it back" and I\'ll price it again.',
   hiccup: () => 'Hiccup on my end — tap that one again.',
   hold_on: () => "Easy, legend — I'm already on it.",
   budget_spent: () => "I've done all the thinking I can in here for today — catch me tomorrow.",
   market_live: (vars) => `Locked in. ${v(vars, 'claimer')} is on the record — pick a side below.`,
+  offer_live: (vars) =>
+    `🎙 ${v(vars, 'claimer', 'someone')}'s call is on the board. Back it or bet against below — the feed settles it.`,
+  offer_taken: () =>
+    "Too late to pull it — there's already money on this one. It rides to the final whistle now.",
   pending_lineup_note: () =>
-    'Held until lineups drop — if the name is on the sheet this goes live, otherwise all Rep comes back.',
+    'Held until lineups drop — if the name is on the sheet this goes live, otherwise all SOL comes back.',
   lineup_activated: () => 'Lineups are in — the call is live. Pick a side.',
   var_freeze: () => 'VAR check — calls locked. Nobody breathe.',
   calls_unlocked: () => "We're back — calls open again.",
@@ -129,9 +136,9 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   settle_lost: (vars) =>
     `Not this time — the call goes down. ${v(vars, 'payouts', '')}`,
   void_market: (vars) =>
-    `Call off — ${v(vars, 'reason', 'the match got away from us')}. Everyone's Rep is back where it started.`,
+    `Call off — ${v(vars, 'reason', 'the match got away from us')}. Every SOL stake is back where it started.`,
   after_the_moment: (vars) =>
-    `After the moment — no Rep moved. ${v(vars, 'names', 'Those taps')} came in once the pitch already knew; Rep returned.`,
+    `After the moment — no SOL moved. ${v(vars, 'names', 'Those taps')} came in once the pitch already knew; their SOL returned.`,
   positions_activated: () => 'Window cleared — those calls are locked in at their price.',
   pick_a_lane: () => "You can't back it and doubt it. Pick a lane.",
   insufficient_rep: (vars) => `Not enough Rep on your card — you're holding ${v(vars, 'balance')}.`,
@@ -228,26 +235,25 @@ const AGENT_TEMPLATE_MAP: Partial<Record<TemplateKey, (vars: CopyVars) => AgentM
     agentVars: { market: v(vars, 'market', 'the call') },
   }),
   settle_won: (vars) =>
-    has(vars, ['claimer', 'terms', 'multiplier', 'payout', 'url'])
+    has(vars, ['claimer', 'terms', 'payouts', 'url'])
       ? {
           agentKey: 'settlement_receipt_won',
           agentVars: {
             claimer: v(vars, 'claimer'),
             terms: v(vars, 'terms'),
-            multiplier: v(vars, 'multiplier'),
-            payout: v(vars, 'payout'),
+            payouts: v(vars, 'payouts'),
             url: v(vars, 'url'),
           },
         }
       : null,
   settle_lost: (vars) =>
-    has(vars, ['claimer', 'terms', 'payout', 'url'])
+    has(vars, ['claimer', 'terms', 'payouts', 'url'])
       ? {
           agentKey: 'settlement_receipt_lost',
           agentVars: {
             claimer: v(vars, 'claimer'),
             terms: v(vars, 'terms'),
-            payout: v(vars, 'payout'),
+            payouts: v(vars, 'payouts'),
             url: v(vars, 'url'),
           },
         }

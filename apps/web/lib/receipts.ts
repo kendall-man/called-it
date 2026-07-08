@@ -17,6 +17,7 @@ export type ReceiptOutcome = 'claim_won' | 'claim_lost' | 'void';
 export type ReceiptTier = 'chain_proven' | 'oracle_resolved';
 export type ProofStatus = 'pending' | 'verified' | 'failed' | 'unavailable';
 export type PriceProvenance = 'market' | 'modelled';
+export type ReceiptCurrency = 'rep' | 'sol';
 
 export interface PublicReceipt {
   marketId: string;
@@ -26,6 +27,8 @@ export interface PublicReceipt {
   /** Compiled MarketSpec jsonb — parse with parseMarketSpec before rendering. */
   spec: unknown;
   status: ReceiptStatus;
+  /** Betting denomination. New markets are 'sol' (devnet); legacy rows read 'rep'. */
+  currency: ReceiptCurrency;
   isReplay: boolean;
   priceProvenance: PriceProvenance;
   quoteProbability: number;
@@ -45,12 +48,6 @@ export interface PublicReceipt {
    * web deploy.
    */
   merkleProof: unknown;
-}
-
-export interface LeaderboardEntry {
-  displayName: string;
-  points: number;
-  streak: number;
 }
 
 export interface EvidenceFact {
@@ -96,6 +93,7 @@ const OUTCOMES: readonly ReceiptOutcome[] = ['claim_won', 'claim_lost', 'void'];
 const TIERS: readonly ReceiptTier[] = ['chain_proven', 'oracle_resolved'];
 const PROOF_STATUSES: readonly ProofStatus[] = ['pending', 'verified', 'failed', 'unavailable'];
 const PROVENANCES: readonly PriceProvenance[] = ['market', 'modelled'];
+const CURRENCIES: readonly ReceiptCurrency[] = ['rep', 'sol'];
 
 /** Null when the row is missing required columns — treat as not-found, never crash the page. */
 export function receiptFromRow(row: Record<string, unknown>): PublicReceipt | null {
@@ -124,6 +122,7 @@ export function receiptFromRow(row: Record<string, unknown>): PublicReceipt | nu
     claimerName: str(row.claimer_name) ?? 'Someone',
     spec: row.spec,
     status,
+    currency: oneOf(row.currency, CURRENCIES) ?? 'rep',
     isReplay: row.is_replay === true,
     priceProvenance,
     quoteProbability,
@@ -185,11 +184,4 @@ export function evidenceFromRow(row: Record<string, unknown>): EvidenceFact | nu
     playerName: str(row.player_name),
     goalType: str(row.goal_type),
   };
-}
-
-export function leaderboardEntryFromRow(row: Record<string, unknown>): LeaderboardEntry | null {
-  const displayName = str(row.display_name);
-  const points = num(row.points_cached);
-  if (!displayName || points === null) return null;
-  return { displayName, points, streak: num(row.streak) ?? 0 };
 }

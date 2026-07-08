@@ -8,6 +8,7 @@ import type { WagerMarketRow, WagerStakeErrorCode, WagerStakeTapArgs } from './p
 
 const USER = 5;
 const WALLET = 'WalletPubkey11111111111111111111111111111111';
+const [PRESET_SMALL, PRESET_MID] = WAGER_TUNABLES.PRESET_STAKES_LAMPORTS;
 
 function market(overrides: Partial<WagerMarketRow> = {}): WagerMarketRow {
   return {
@@ -25,25 +26,34 @@ function tap(overrides: Partial<WagerStakeTapArgs> = {}): WagerStakeTapArgs {
     userId: overrides.userId ?? USER,
     userName: overrides.userName ?? 'Nia',
     side: overrides.side ?? 'back',
-    presetIndex: overrides.presetIndex ?? 0,
+    lamports: overrides.lamports ?? PRESET_SMALL,
     inPlay: overrides.inPlay ?? false,
     nowMs: overrides.nowMs ?? 1_000,
+    ...(overrides.idempotencyKey !== undefined ? { idempotencyKey: overrides.idempotencyKey } : {}),
   };
 }
 
-describe('multiplier lock parity with the Rep path', () => {
+describe('multiplier lock', () => {
   it('wagerDoubtMultiplier matches pipeline/claims doubtMultiplier exactly', () => {
     for (let percent = 1; percent <= 99; percent += 1) {
       const probability = percent / 100;
       expect(wagerDoubtMultiplier(probability)).toBe(doubtMultiplier(probability));
     }
-    // clamp edges
     expect(wagerDoubtMultiplier(1)).toBe(doubtMultiplier(1));
     expect(wagerDoubtMultiplier(0)).toBe(doubtMultiplier(0));
   });
 });
 
 describe('handleStakeTap gates', () => {
+  it('non-positive lamports → stale copy, no RPC call', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.seedLink(USER, WALLET);
+    const result = await handleStakeTap(deps, tap({ lamports: 0n }));
+    expect(result.placed).toBe(false);
+    expect(result.reply).toBe(WAGER_COPY.staleTap());
+    expect(db.lastStakeArgs).toBeNull();
+  });
+
   it('unlinked wallet → onboarding copy, no RPC call', async () => {
     const { deps, db } = makeFakeDeps();
     const result = await handleStakeTap(deps, tap());
@@ -61,27 +71,18 @@ describe('handleStakeTap gates', () => {
     expect(result.reply).toBe(WAGER_COPY.paused());
     expect(db.lastStakeArgs).toBeNull();
   });
-
-  it('unknown preset index → stale copy', async () => {
-    const { deps, db } = makeFakeDeps();
-    db.seedLink(USER, WALLET);
-    db.seedBalance(USER, 1_000_000_000n);
-    const result = await handleStakeTap(deps, tap({ presetIndex: 9 }));
-    expect(result.placed).toBe(false);
-    expect(result.reply).toBe(WAGER_COPY.staleTap());
-  });
 });
 
 describe('handleStakeTap placement', () => {
-  it('resolves the preset, locks the back multiplier, escrows via the RPC', async () => {
+  it('escrows the exact lamports, locks the back multiplier', async () => {
     const { deps, db } = makeFakeDeps();
     db.seedLink(USER, WALLET);
     db.seedBalance(USER, 1_000_000_000n);
 
-    const result = await handleStakeTap(deps, tap({ presetIndex: 1, side: 'back' }));
+    const result = await handleStakeTap(deps, tap({ lamports: PRESET_MID, side: 'back' }));
 
     expect(result.placed).toBe(true);
-    expect(db.lastStakeArgs?.lamports).toBe(WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[1]);
+    expect(db.lastStakeArgs?.lamports).toBe(PRESET_MID);
     expect(db.lastStakeArgs?.multiplier).toBe(2.2); // quote_multiplier as-is
     expect(db.lastStakeArgs?.state).toBe('active'); // pre-kickoff
     expect(db.lastStakeArgs?.placed_at_ms).toBe(1_000);
@@ -89,13 +90,11 @@ describe('handleStakeTap placement', () => {
     expect(result.reply).toContain('Nia');
   });
 
-  it('locks the doubt multiplier from the quoted probability, Rep-identically', async () => {
+  it('locks the doubt multiplier from the quoted probability', async () => {
     const { deps, db } = makeFakeDeps();
     db.seedLink(USER, WALLET);
     db.seedBalance(USER, 1_000_000_000n);
-
     await handleStakeTap(deps, tap({ side: 'doubt' }));
-
     expect(db.lastStakeArgs?.multiplier).toBe(doubtMultiplier(0.4));
   });
 
@@ -105,6 +104,22 @@ describe('handleStakeTap placement', () => {
     db.seedBalance(USER, 1_000_000_000n);
     await handleStakeTap(deps, tap({ inPlay: true }));
     expect(db.lastStakeArgs?.state).toBe('pending');
+  });
+
+  it('forwards the client idempotency key and reports a replay without re-staking', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.seedLink(USER, WALLET);
+    db.seedBalance(USER, 1_000_000_000n);
+
+    const first = await handleStakeTap(deps, tap({ idempotencyKey: 'call-abc' }));
+    expect(first.placed).toBe(true);
+    expect(db.lastStakeArgs?.idempotency_key).toBe('call-abc');
+
+    const positionsAfterFirst = db.positions.length;
+    const replay = await handleStakeTap(deps, tap({ idempotencyKey: 'call-abc' }));
+    expect(replay.placed).toBe(false);
+    expect(replay.reply).toBe(WAGER_COPY.stakeReplayed());
+    expect(db.positions.length).toBe(positionsAfterFirst); // no second position
   });
 
   it('remembers the group for deposit/cashout notifications', async () => {
@@ -121,7 +136,6 @@ describe('typed RPC errors map to distinct copy', () => {
     ['insufficient', WAGER_COPY.insufficient(0n)],
     ['wrong_side', WAGER_COPY.pickALane()],
     ['cap', WAGER_COPY.capReached(WAGER_TUNABLES.PER_MARKET_STAKE_CAP_LAMPORTS)],
-    ['liability_cap', WAGER_COPY.fullyLoaded()],
     ['paused', WAGER_COPY.paused()],
   ];
 
@@ -141,7 +155,7 @@ describe('typed RPC errors map to distinct copy', () => {
 });
 
 describe('multiplierLabel', () => {
-  it('mirrors the Rep display rule (one decimal under 10, integers above)', () => {
+  it('one decimal under 10, integers above', () => {
     expect(multiplierLabel(2.25)).toBe('2.3');
     expect(multiplierLabel(2)).toBe('2');
     expect(multiplierLabel(14.6)).toBe('15');

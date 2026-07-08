@@ -1,4 +1,4 @@
-/** Consumer-facing number/date formatting. Game-show register: "×9 Rep", never odds notation. */
+/** Consumer-facing number/date formatting. Game-show register: "×9 back", never odds notation. */
 
 const REP_FORMAT = new Intl.NumberFormat('en-US');
 

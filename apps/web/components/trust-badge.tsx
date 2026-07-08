@@ -99,7 +99,7 @@ function deriveView(snapshot: TrustSnapshot, specTier: ReceiptTier | null): Badg
   const tier = snapshot.tier ?? specTier;
 
   if (snapshot.status === 'voided') {
-    return { tone: 'neutral', label: 'No verdict — call voided', sub: 'All Rep returned.' };
+    return { tone: 'neutral', label: 'No verdict — call voided', sub: 'Every stake returned.' };
   }
   if (!settled) {
     if (!tier) return { tone: 'neutral', label: 'Awaiting the final whistle', sub: null };

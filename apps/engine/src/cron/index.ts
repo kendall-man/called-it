@@ -1,7 +1,8 @@
 /**
- * setInterval ticks: fixtures snapshot sync (15 min), matchday top-up,
- * morning slate for nudge-mode groups, unconfirmed-claim TTL expiry, and the
- * settlement sweeper (at-least-once chat delivery for receipts).
+ * setInterval ticks: fixtures snapshot sync (15 min), morning slate for
+ * nudge-mode groups, unconfirmed-claim TTL expiry, the kickoff void sweep
+ * (abandoned zero-bet offer markets), and the settlement sweeper
+ * (at-least-once chat delivery for receipts).
  */
 
 import { TUNABLES } from '@calledit/market-engine';
@@ -11,7 +12,7 @@ import type { Poster } from '../bot/poster.js';
 import type { Say } from '../bot/copy.js';
 import type { Settler } from '../settle/settler.js';
 import type { IngestSupervisor } from '../ingest/supervisor.js';
-import { computeWinners } from '../settle/settler.js';
+import { voidAbandonedMarket } from '../pipeline/void.js';
 
 export interface CronHandles {
   stop(): void;
@@ -66,49 +67,36 @@ async function sweepUnpostedSettlements(
       const market: MarketRow | null = await deps.db.getMarket(settlement.market_id);
       if (!market) continue;
       inFlight.set(settlement.market_id, nowMs);
-      const positions = await deps.db.positionsForMarket(market.id);
-      // sol receipts phrase amounts via the wager module inside postReceipt —
-      // computing Rep "winners" from lamport stakes would print nonsense.
-      const winners =
-        market.currency === 'sol'
-          ? new Map<number, number>()
-          : computeWinners(positions, settlement.outcome);
       deps.log.info('sweeper_reposting', { marketId: market.id, outcome: settlement.outcome });
-      await settler.postReceipt(market, settlement.outcome, winners);
+      await settler.postReceipt(market, settlement.outcome);
     }
   } catch (err) {
     deps.log.warn('sweeper_failed', { error: String(err) });
   }
 }
 
-async function hasCoveredFixtureToday(deps: Deps): Promise<boolean> {
-  const { fromMs, toMs } = utcDayBounds(deps.now());
-  const fixtures = await deps.db.fixturesBetween(fromMs, toMs).catch(() => []);
-  return fixtures.length > 0;
-}
-
-/** Top everyone up to the floor at the configured UTC hour on matchdays. Exported for the wager-gating isolation test. */
-export async function runMatchdayTopup(deps: Deps): Promise<void> {
-  const dateKey = utcDayKey(deps.now());
-  const groups = await deps.db.listGroups();
-  for (const group of groups) {
-    const memberships = await deps.db.listMemberships(group.id).catch(() => []);
-    for (const membership of memberships) {
-      const balance = await deps.db
-        .balance(group.id, membership.user_id)
-        .catch(() => membership.points_cached);
-      if (balance >= TUNABLES.MATCHDAY_TOPUP_FLOOR) continue;
-      await deps.db.postLedger({
-        group_id: group.id,
-        user_id: membership.user_id,
-        market_id: null,
-        kind: 'topup',
-        amount: TUNABLES.MATCHDAY_TOPUP_FLOOR - balance,
-        idempotency_key: `topup:${group.id}:${membership.user_id}:${dateKey}`,
-      });
+/**
+ * Void offer markets that nobody bet on once their fixture kicks off — "no one
+ * showed, so the SOL never moved". Replay markets are exempt (they run on a
+ * virtual clock and settle themselves).
+ */
+async function voidAbandonedMarkets(deps: Deps): Promise<void> {
+  try {
+    const groups = await deps.db.listGroups();
+    for (const group of groups) {
+      const openMarkets = await deps.db.openMarketsForGroup(group.id);
+      for (const market of openMarkets) {
+        if (market.is_replay) continue;
+        const fixture = await deps.db.getFixture(market.fixture_id);
+        if (!fixture || fixture.phase === 'NS') continue; // not kicked off yet
+        const positions = await deps.db.positionsForMarket(market.id);
+        if (positions.some((position) => position.state !== 'void')) continue; // someone bet
+        await voidAbandonedMarket(deps, market);
+      }
     }
+  } catch (err) {
+    deps.log.warn('void_sweep_failed', { error: String(err) });
   }
-  deps.log.info('matchday_topup_done', { dateKey, groups: groups.length });
 }
 
 /** Today's fixtures posted to nudge-mode groups. */
@@ -140,7 +128,6 @@ export function startCrons(args: {
   const { deps, poster, say, settler, supervisor } = args;
   const timers: Array<ReturnType<typeof setInterval>> = [];
   const sweeperInFlight = new Map<string, number>();
-  let topupDoneFor = '';
   let slateDoneFor = '';
 
   // Boot-time kick so a fresh deploy is immediately useful.
@@ -183,18 +170,11 @@ export function startCrons(args: {
       void (async () => {
         await expireClaims(deps);
         await sweepUnpostedSettlements(deps, settler, sweeperInFlight);
+        await voidAbandonedMarkets(deps);
 
         const nowMs = deps.now();
         const hour = new Date(nowMs).getUTCHours();
         const dateKey = utcDayKey(nowMs);
-        if (hour === TUNABLES.MATCHDAY_TOPUP_HOUR_UTC && topupDoneFor !== dateKey) {
-          if (await hasCoveredFixtureToday(deps)) {
-            topupDoneFor = dateKey;
-            await runMatchdayTopup(deps).catch((err) =>
-              deps.log.warn('topup_failed', { error: String(err) }),
-            );
-          }
-        }
         if (hour === TUNABLES.MORNING_SLATE_HOUR_UTC && slateDoneFor !== dateKey) {
           slateDoneFor = dateKey;
           await runMorningSlate(deps, poster, say).catch((err) =>
