@@ -102,6 +102,8 @@ export interface EngineDb {
   // ledger
   /** Idempotent append; inserted=false when the idempotency key already exists. */
   postLedger(entry: LedgerEntry): Promise<{ inserted: boolean }>;
+  /** Existence check for an idempotency key (API stake replay dedup). */
+  hasLedgerEntry(idempotencyKey: string): Promise<boolean>;
 
   // claims
   insertClaim(input: ClaimInsert): Promise<ClaimRow>;
@@ -316,6 +318,18 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
           .select('id'),
       );
       return { inserted: rows.length > 0 };
+    },
+
+    async hasLedgerEntry(idempotencyKey) {
+      const rows = unwrapRows<Array<{ id: number }>>(
+        'hasLedgerEntry',
+        await client
+          .from('ledger_entries')
+          .select('id')
+          .eq('idempotency_key', idempotencyKey)
+          .limit(1),
+      );
+      return rows.length > 0;
     },
 
     // ── claims ─────────────────────────────────────────────────────────────

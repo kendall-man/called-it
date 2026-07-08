@@ -27,6 +27,7 @@ import { ProofWorker } from './proofs/worker.js';
 import { Settler } from './settle/settler.js';
 import { IngestSupervisor } from './ingest/supervisor.js';
 import { startCrons } from './cron/index.js';
+import { startEngineApi } from './api/server.js';
 
 /**
  * Load the repo-root `.env` into process.env for local/dev runs. Production
@@ -95,10 +96,12 @@ async function main(): Promise<void> {
   });
 
   const crons = startCrons({ deps, poster, say, settler, supervisor });
+  const apiServer = startEngineApi({ deps, poster, env, log });
   const runner = run(bot);
   log.info('engine_up', {
     webBaseUrl: env.WEB_BASE_URL,
     proofSubmitter: deps.proofSubmitter !== null,
+    api: apiServer !== null,
   });
 
   let shuttingDown = false;
@@ -109,6 +112,7 @@ async function main(): Promise<void> {
     crons.stop();
     supervisor.stopAll();
     proofWorker.stop();
+    apiServer?.close();
     if (runner.isRunning()) await runner.stop();
     await queue.idle().catch(() => undefined);
     queue.stop();

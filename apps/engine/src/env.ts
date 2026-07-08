@@ -20,6 +20,13 @@ const EnvSchema = z.object({
   TXORACLE_PROGRAM_ID: z.string().min(32),
   TXL_MINT: z.string().min(32),
   WEB_BASE_URL: z.string().url(),
+  /**
+   * Optional: bearer token for the engine's HTTP API (the concierge agent's
+   * integration surface). Absent → the API never starts listening.
+   */
+  ENGINE_API_TOKEN: z.string().min(24, 'use a long random token').optional(),
+  /** HTTP port for the engine API (Railway injects PORT). */
+  PORT: z.coerce.number().int().positive().default(8790),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

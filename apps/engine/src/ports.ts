@@ -183,6 +183,13 @@ export interface EngineDb {
   // ledger
   /** Idempotent append; inserted=false when the idempotency key already exists. */
   postLedger(entry: LedgerEntry): Promise<{ inserted: boolean }>;
+  /**
+   * Existence check for an idempotency key. The API stake path uses it to
+   * dedupe replays (eve re-runs interrupted steps) BEFORE inserting a
+   * position — race-free because the check runs inside the per-(market,user)
+   * stake lock and this engine is the single DB writer.
+   */
+  hasLedgerEntry(idempotencyKey: string): Promise<boolean>;
 
   // claims
   insertClaim(input: {

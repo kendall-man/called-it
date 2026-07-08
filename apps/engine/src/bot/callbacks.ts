@@ -22,13 +22,13 @@ import { describeTerms, formatMultiplier, formatProbabilityPct, statusLine } fro
 import {
   checkMintWindow,
   createMarketFromClaim,
-  doubtMultiplier,
   isDegenerateQuote,
   proveClaim,
   quoteSpec,
   readEnvelope,
   type ParseEnvelope,
 } from '../pipeline/claims.js';
+import { executeStake } from '../pipeline/stake.js';
 import { composeClaimCard } from '../pipeline/render.js';
 import { renderFallback, type TemplateKey } from './copy.js';
 
@@ -86,38 +86,6 @@ async function withClaimLock(
     await task();
   } finally {
     inFlightClaims.delete(claimId);
-  }
-}
-
-/**
- * Per-(market, user) in-process mutex for staking. dispatchCallback runs
- * callback queries concurrently, so two stakes on the same market by the same
- * user (a double-tap now, a tap + a text once the NL layer lands) can
- * interleave between the one-side/cap/balance reads and the insert — a TOCTOU
- * that double-stakes, bypasses the cap, and can drive a balance negative.
- * Single Node process, so a Set guards the section (the production hardening
- * is a DB unique/exclusion constraint; the deployed schema has none to lean
- * on — same tradeoff as withClaimLock).
- */
-const inFlightStakes = new Set<string>();
-
-async function withStakeLock(
-  h: HandlerCtx,
-  ctx: Context,
-  marketId: string,
-  userId: number,
-  task: () => Promise<void>,
-): Promise<void> {
-  const key = `${marketId}:${userId}`;
-  if (inFlightStakes.has(key)) {
-    await answer(ctx, await h.say('hold_on'));
-    return;
-  }
-  inFlightStakes.add(key);
-  try {
-    await task();
-  } finally {
-    inFlightStakes.delete(key);
   }
 }
 
@@ -507,96 +475,48 @@ async function handleStake(
     await stale(h, ctx);
     return;
   }
-  const market: MarketRow | null = await h.deps.db.getMarket(action.marketId);
-  if (!market || market.group_id !== chatId) {
-    await stale(h, ctx);
-    return;
-  }
-  if (market.status !== 'open' && market.status !== 'pending_lineup') {
-    await answer(ctx, `${statusLine(market.status)}.`);
-    return;
-  }
   const stakeAmount = TUNABLES.PRESET_STAKES[action.presetIndex];
-  // Positive-integer invariant. Presets always satisfy it; this is the guard
-  // that stops a future arbitrary-amount (conversational) path from feeding a
-  // negative/zero/NaN/fractional stake — `postLedger({ amount: -stakeAmount })`
-  // would CREDIT Rep on a negative stake, and the cap/balance checks (which
-  // use `>`/`<`) pass NaN silently.
-  if (stakeAmount === undefined || !Number.isInteger(stakeAmount) || stakeAmount <= 0) {
+  if (stakeAmount === undefined) {
     await stale(h, ctx);
     return;
   }
-  const fixture = await h.deps.db.getFixture(market.fixture_id);
-  const inPlay = fixture !== null && fixture.phase !== 'NS';
-  if (
-    inPlay &&
-    fixture.minute !== null &&
-    fixture.minute >= TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE
-  ) {
-    await answer(ctx, await h.say('window_closed'));
-    return;
-  }
-
-  await ensureUserSeen(h, chatId, from);
-  const positions = await h.deps.db.positionsForMarket(market.id);
-  const mine = positions.filter((p) => p.user_id === from.id && p.state !== 'void');
-  if (mine.some((p) => p.side !== action.side)) {
-    await answer(ctx, await h.say('pick_a_lane', { user: displayName(from) }));
-    return;
-  }
-  const committed = mine.reduce((sum, p) => sum + p.stake, 0);
-  if (committed + stakeAmount > TUNABLES.PER_MARKET_STAKE_CAP) {
-    await answer(ctx, await h.say('cap_reached', { cap: TUNABLES.PER_MARKET_STAKE_CAP }));
-    return;
-  }
-  const balance = await h.deps.db.balance(chatId, from.id);
-  if (balance < stakeAmount) {
-    await answer(ctx, await h.say('insufficient_rep', { balance, user: displayName(from) }));
-    return;
-  }
-
-  const lockedMultiplier =
-    action.side === 'back' ? market.quote_multiplier : doubtMultiplier(market.quote_probability);
-  const position = await h.deps.db.insertPosition({
-    market_id: market.id,
-    user_id: from.id,
+  // All guards + the per-(market,user) lock live in executeStake — shared with
+  // the engine HTTP API so buttons and the concierge cannot diverge.
+  const outcome = await executeStake(h.deps, {
+    groupId: chatId,
+    marketId: action.marketId,
+    user: { id: from.id, displayName: displayName(from), username: from.username ?? null },
     side: action.side,
-    stake: stakeAmount,
-    locked_multiplier: lockedMultiplier,
-    locked_odds_message_id: market.odds_message_id,
-    locked_odds_ts: market.odds_ts,
-    // Pre-kickoff taps activate immediately; in-play taps ride the
-    // delay-arbitrage pending window (PENDING_TAP_WINDOW_MS in the engine).
-    state: inPlay ? 'pending' : 'active',
-    placed_at_ms: h.deps.now(),
+    amount: stakeAmount,
   });
-  await h.deps.db.postLedger({
-    group_id: chatId,
-    user_id: from.id,
-    market_id: market.id,
-    kind: 'stake',
-    amount: -stakeAmount,
-    idempotency_key: `stake:${position.id}`,
-  });
-  h.deps.log.info('position_placed', {
-    marketId: market.id,
-    positionId: position.id,
-    userId: from.id,
-    side: action.side,
-    stake: stakeAmount,
-    state: position.state,
-  });
+  switch (outcome.kind) {
+    case 'busy':
+      await answer(ctx, await h.say('hold_on'));
+      return;
+    case 'unavailable':
+    case 'duplicate': // unreachable on the button path (no idempotency key)
+      await stale(h, ctx);
+      return;
+    case 'closed':
+      await answer(ctx, `${statusLine(outcome.status)}.`);
+      return;
+    case 'rejected':
+      await answer(ctx, await h.say(outcome.copyKey, outcome.vars));
+      return;
+    case 'ok':
+      break;
+  }
   await answer(
     ctx,
     await h.say('stake_locked', {
       name: displayName(from),
       side: action.side === 'back' ? 'Backing' : 'Doubting',
       stake: stakeAmount,
-      multiplier: multiplierBare(lockedMultiplier),
+      multiplier: multiplierBare(outcome.lockedMultiplier),
     }),
   );
   // Refresh the card tally (collapsed per tunables).
-  const fresh = await h.deps.db.getMarket(market.id);
+  const fresh = await h.deps.db.getMarket(action.marketId);
   if (fresh && fresh.card_tg_message_id !== null) {
     const card = await composeClaimCard(h.deps, fresh);
     if (card && card.messageId !== null) {
@@ -693,17 +613,10 @@ export async function dispatchCallback(
     case 'decline':
       await withClaimLock(h, ctx, action.claimId, () => handleDecline(h, ctx, action.claimId));
       break;
-    case 'stake': {
-      // Serialize per (market, user) so the one-side/cap/balance reads and the
-      // position insert can't interleave with a concurrent tap/text.
-      const userId = ctx.from?.id;
-      if (userId === undefined) {
-        await handleStake(h, ctx, action);
-      } else {
-        await withStakeLock(h, ctx, action.marketId, userId, () => handleStake(h, ctx, action));
-      }
+    case 'stake':
+      // Per-(market,user) serialization happens inside executeStake.
+      await handleStake(h, ctx, action);
       break;
-    }
     case 'chattiness':
       await handleChattiness(h, ctx, action.mode);
       break;

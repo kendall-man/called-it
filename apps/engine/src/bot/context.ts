@@ -4,8 +4,8 @@
  */
 
 import type { User } from 'grammy/types';
-import { TUNABLES } from '@calledit/market-engine';
 import type { Deps, GroupRow } from '../ports.js';
+import { ensureMemberSeen } from '../pipeline/stake.js';
 import type { SendQueue } from './sendQueue.js';
 import type { Poster } from './poster.js';
 import type { Say } from './copy.js';
@@ -29,23 +29,11 @@ export function displayName(user: Pick<User, 'first_name' | 'last_name'>): strin
 
 /** Upsert the user + membership; seed the starting balance on first touch. */
 export async function ensureUserSeen(h: HandlerCtx, groupId: number, user: User): Promise<void> {
-  await h.deps.db.upsertUser({
+  await ensureMemberSeen(h.deps, groupId, {
     id: user.id,
-    display_name: displayName(user),
+    displayName: displayName(user),
     username: user.username ?? null,
   });
-  const { created } = await h.deps.db.ensureMembership(groupId, user.id);
-  if (created) {
-    await h.deps.db.postLedger({
-      group_id: groupId,
-      user_id: user.id,
-      market_id: null,
-      kind: 'seed',
-      amount: TUNABLES.STARTING_BALANCE,
-      idempotency_key: `seed:${groupId}:${user.id}`,
-    });
-    h.deps.log.info('member_seeded', { groupId, userId: user.id });
-  }
 }
 
 /** Upsert the group row and (when present) the acting user. */
