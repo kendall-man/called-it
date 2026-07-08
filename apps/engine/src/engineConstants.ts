@@ -25,8 +25,6 @@ export const ENGINE = {
   PROOF_MAX_ATTEMPTS: 5,
   /** Crude per-group daily LLM budget (PRD story 51 degradation guard). */
   MAX_LLM_CALLS_PER_GROUP_PER_DAY: 300,
-  /** Leaderboard length for /table. */
-  TABLE_SIZE: 10,
 } as const;
 
 export const DEVNET_EXPLORER_TX_BASE = 'https://explorer.solana.com/tx/';

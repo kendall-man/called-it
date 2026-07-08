@@ -50,23 +50,33 @@ async function invoke(
 }
 
 describe('module surface', () => {
-  it('currencyForMint follows the per-group flag', async () => {
-    const { deps, db } = makeFakeDeps();
-    const module = createWagerModule(deps);
-    expect(await module.currencyForMint(GROUP)).toBe('rep');
-    await db.setGroupEnabled(GROUP, true);
-    expect(await module.currencyForMint(GROUP)).toBe('sol');
+  it('currencyForMint is always sol (SOL-only product)', async () => {
+    const { deps } = makeFakeDeps();
+    expect(await createWagerModule(deps).currencyForMint(GROUP)).toBe('sol');
   });
 
-  it('setGroupEnabled flips the flag and returns the explainer copy', async () => {
+  it('presetLamports maps an index to lamports; out-of-range → null', () => {
     const { deps } = makeFakeDeps();
     const module = createWagerModule(deps);
-    const onLine = await module.setGroupEnabled(GROUP, true, USER);
-    expect(onLine).toBe(WAGER_COPY.wagerModeEnabled());
-    expect(await module.isGroupEnabled(GROUP)).toBe(true);
-    const offLine = await module.setGroupEnabled(GROUP, false, USER);
-    expect(offLine).toBe(WAGER_COPY.wagerModeDisabled());
-    expect(await module.isGroupEnabled(GROUP)).toBe(false);
+    expect(module.presetLamports(0)).toBe(WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0]);
+    expect(module.presetLamports(2)).toBe(WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[2]);
+    expect(module.presetLamports(9)).toBeNull();
+  });
+
+  it('walletSummary returns the user-global balance and linked pubkey', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.seedLink(USER, VALID_PUBKEY);
+    db.seedBalance(USER, 50_000_000n);
+    const summary = await createWagerModule(deps).walletSummary(USER);
+    expect(summary.balanceLamports).toBe(50_000_000n);
+    expect(summary.pubkey).toBe(VALID_PUBKEY);
+  });
+
+  it('walletSummary reports a null pubkey when the user has no wallet', async () => {
+    const { deps } = makeFakeDeps();
+    const summary = await createWagerModule(deps).walletSummary(USER);
+    expect(summary.pubkey).toBeNull();
+    expect(summary.balanceLamports).toBe(0n);
   });
 
   it('presetLabels renders the three presets as exact SOL', () => {

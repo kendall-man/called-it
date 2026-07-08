@@ -1,15 +1,13 @@
 /**
- * Commands: /start /help /settings /table /replay /bookit.
+ * Commands: /start /help /settings /replay /bookit.
  * /bookit and @mention are the consent-free trigger path (privacy mode ON
  * delivers commands and replies in every group).
  */
 
 import type { Bot } from 'grammy';
-import { ENGINE } from '../engineConstants.js';
 import { ensureChatContext, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
-import { nudgeClaim } from './detection.js';
 import { settingsKeyboard } from './keyboards.js';
-import { formatRep } from './cards.js';
+import { offerClaim } from '../pipeline/offer.js';
 import { tableUrl } from '../pipeline/render.js';
 
 function isGroup(chatType: string): boolean {
@@ -44,31 +42,9 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
       });
       return;
     }
-    // The devnet-SOL row appears only while the wager module is live.
-    const wagerState = h.deps.wager
-      ? { enabled: await h.deps.wager.isGroupEnabled(group.id) }
-      : null;
     h.poster.post(ctx.chat.id, await h.say('settings_intro'), {
-      keyboard: settingsKeyboard(group.chattiness, group.web_enabled, wagerState),
+      keyboard: settingsKeyboard(group.chattiness, group.web_enabled),
     });
-  });
-
-  bot.command('table', async (ctx) => {
-    if (!isGroup(ctx.chat.type)) return;
-    const group = await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', ctx.from);
-    const rows = await h.deps.db.leaderboard(group.id, ENGINE.TABLE_SIZE);
-    const header = await h.say('table_header', { groupTitle: group.title || 'this group' });
-    const body =
-      rows.length === 0
-        ? 'No calls on the record yet — someone make a shout.'
-        : rows
-            .map(
-              (row, index) =>
-                `${index + 1}. ${row.display_name} — ${formatRep(row.points_cached)} Rep · streak ${row.streak}`,
-            )
-            .join('\n');
-    const link = group.web_enabled ? `\n\nFull table: ${tableUrl(h.deps, group.slug)}` : '';
-    h.poster.post(ctx.chat.id, `🏆 ${header}\n${body}${link}`);
   });
 
   bot.command('replay', async (ctx) => {
@@ -97,8 +73,20 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
       h.poster.post(ctx.chat.id, await h.say('replay_blocked_active'), { replyToMessageId: replyTo });
       return;
     }
+    // Only a non-replay market with real money on it blocks a replay — the
+    // broker auto-mints offer markets from banter, and an untouched zero-bet
+    // one must never brick a demo.
     const openMarkets = await h.deps.db.openMarketsForGroup(group.id);
-    if (openMarkets.some((market) => !market.is_replay)) {
+    let liveBetInPlay = false;
+    for (const market of openMarkets) {
+      if (market.is_replay) continue;
+      const positions = await h.deps.db.positionsForMarket(market.id);
+      if (positions.some((position) => position.state !== 'void')) {
+        liveBetInPlay = true;
+        break;
+      }
+    }
+    if (liveBetInPlay) {
       h.poster.post(ctx.chat.id, await h.say('replay_blocked_live'), { replyToMessageId: replyTo });
       return;
     }
@@ -126,14 +114,14 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
       return;
     }
     await ensureUserSeen(h, ctx.chat.id, target.from);
-    await nudgeClaim(h, {
+    await offerClaim(h, {
       chatId: ctx.chat.id,
       group,
       text: target.text,
       claimer: target.from,
       sourceMessageId: target.message_id,
       confidence: null,
-      claimTypeGuess: null,
+      announce: true,
     });
   });
 

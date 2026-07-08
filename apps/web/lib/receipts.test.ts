@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   dedupeReceipts,
   evidenceFromRow,
-  leaderboardEntryFromRow,
   pickBestReceiptRow,
   receiptFromRow,
   type PublicReceipt,
@@ -46,6 +45,14 @@ describe('receiptFromRow', () => {
     expect(receipt.evidenceSeqs).toEqual([880, 900]);
     expect(receipt.tier).toBe('chain_proven');
     expect(receipt.proofStatus).toBe('pending');
+    expect(receipt.currency).toBe('rep');
+  });
+
+  it('maps the market currency, defaulting to rep for legacy or invalid rows', () => {
+    expect(mustMap(viewRow({ currency: 'sol' })).currency).toBe('sol');
+    expect(mustMap(viewRow({ currency: 'rep' })).currency).toBe('rep');
+    expect(mustMap(viewRow({ currency: 'doubloons' })).currency).toBe('rep');
+    expect(mustMap(viewRow({ currency: undefined })).currency).toBe('rep');
   });
 
   it('tolerates an unsettled market (all settlement columns null)', () => {
@@ -126,17 +133,5 @@ describe('evidenceFromRow', () => {
 
   it('rejects rows without identity columns', () => {
     expect(evidenceFromRow({ seq: 900, kind: 'goal' })).toBeNull();
-  });
-});
-
-describe('leaderboardEntryFromRow', () => {
-  it('maps and defaults streak', () => {
-    expect(
-      leaderboardEntryFromRow({ display_name: 'Chris', points_cached: 1250, streak: null }),
-    ).toEqual({ displayName: 'Chris', points: 1250, streak: 0 });
-  });
-
-  it('rejects incomplete rows', () => {
-    expect(leaderboardEntryFromRow({ display_name: 'Chris' })).toBeNull();
   });
 });

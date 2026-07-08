@@ -337,16 +337,6 @@ function buildWagerChain(connection: Connection, treasury: Keypair): WagerChainP
       isBlockheightExceeded(retryRpc, lastValidBlockHeight),
     fetchIncomingTransfers: ({ untilSig }) =>
       fetchIncomingTransfers(connection, treasuryAddress, { untilSig: untilSig ?? undefined }),
-    async requestAirdrop(lamports) {
-      try {
-        const sig = await withRetry(() =>
-          connection.requestAirdrop(treasury.publicKey, Number(lamports)),
-        );
-        return { ok: true, sig };
-      } catch (err) {
-        return { ok: false, error: `requestAirdrop: ${String(err)}` };
-      }
-    },
   };
 }
 

@@ -61,6 +61,7 @@ export class FakeWagerDb implements WagerDb {
   readonly withdrawals = new Map<string, WagerWithdrawalRow>();
   readonly positions: WagerPositionRow[] = [];
   readonly settlements = new Map<string, WagerSettlementOutcome>();
+  readonly marketProbabilities = new Map<string, number>();
   readonly applied = new Set<string>();
   readonly groupsEnabled = new Map<number, boolean>();
   readonly cursors = new Map<string, string>();
@@ -140,6 +141,14 @@ export class FakeWagerDb implements WagerDb {
     this.lastStakeArgs = args;
     this.trace.push(`db.wagerStake:${args.market_id}`);
     if (this.stakeResult) return this.stakeResult;
+    // At-least-once dedup: a prior stake with the same client key already landed.
+    const ledgerKey =
+      args.idempotency_key !== undefined
+        ? `wager:stake:api:${args.idempotency_key}`
+        : undefined;
+    if (ledgerKey !== undefined && this.ledgerKeys.has(ledgerKey)) {
+      return { ok: true, duplicate: true };
+    }
     if (this.status.paused) return { ok: false, code: 'paused' };
     const balance = await this.balanceLamports(args.user_id);
     if (balance < args.lamports) return { ok: false, code: 'insufficient' };
@@ -160,7 +169,7 @@ export class FakeWagerDb implements WagerDb {
       market_id: args.market_id,
       kind: 'stake',
       lamports: -args.lamports,
-      idempotency_key: `wager:stake:${positionId}`,
+      idempotency_key: ledgerKey ?? `wager:stake:${positionId}`,
     });
     return { ok: true, position_id: positionId };
   }
@@ -268,6 +277,10 @@ export class FakeWagerDb implements WagerDb {
     }
   }
 
+  async getMarketProbability(marketId: string): Promise<number | null> {
+    return this.marketProbabilities.get(marketId) ?? null;
+  }
+
   async getSettlementOutcome(marketId: string): Promise<WagerSettlementOutcome | null> {
     return this.settlements.get(marketId) ?? null;
   }
@@ -340,6 +353,10 @@ export class FakeWagerDb implements WagerDb {
     });
   }
 
+  seedMarketProbability(marketId: string, probability: number): void {
+    this.marketProbabilities.set(marketId, probability);
+  }
+
   seedPosition(position: Partial<WagerPositionRow> & { market_id: string }): WagerPositionRow {
     const row: WagerPositionRow = {
       id: position.id ?? freshId('pos'),
@@ -387,8 +404,6 @@ export class FakeWagerChain implements WagerChain {
   buildFails: { error: string; permanent?: boolean } | null = null;
   broadcastFails = false;
   readonly broadcasts: string[] = [];
-  readonly airdrops: bigint[] = [];
-  airdropFails = false;
   sigStatuses = new Map<string, WagerSigStatus>();
   blockheightExceeded = false;
   private buildCount = 0;
@@ -439,14 +454,6 @@ export class FakeWagerChain implements WagerChain {
 
   async fetchIncomingTransfers(): Promise<WagerDepositScan> {
     return this.scan;
-  }
-
-  async requestAirdrop(
-    lamports: bigint,
-  ): Promise<{ ok: true; sig: string } | { ok: false; error: string }> {
-    if (this.airdropFails) return { ok: false, error: 'faucet rate limit' };
-    this.airdrops.push(lamports);
-    return { ok: true, sig: 'airdrop-sig' };
   }
 
   setScanTransfers(transfers: WagerIncomingTransfer[]): void {

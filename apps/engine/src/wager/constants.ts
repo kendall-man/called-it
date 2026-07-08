@@ -9,15 +9,12 @@ export const WAGER_TUNABLES = {
   PRESET_STAKES_LAMPORTS: [10_000_000n, 50_000_000n, 100_000_000n] as const,
   /** Per-user, per-market total stake ceiling (matches the largest preset). */
   PER_MARKET_STAKE_CAP_LAMPORTS: 100_000_000n,
-  /** Worst-case payout-minus-stakes ceiling per market (RPC-enforced). */
-  MAX_MARKET_LIABILITY_LAMPORTS: 2_000_000_000n,
   /** Transfers below this are stored but never credited (dust defense). */
   MIN_DEPOSIT_LAMPORTS: 1_000_000n,
   MIN_WITHDRAWAL_LAMPORTS: 10_000_000n,
   /**
-   * Multiplier fixed-point scale: mult_milli = round(multiplier × MULT_SCALE),
-   * payout = floor(stake × mult_milli / MULT_SCALE) in bigint. The SQL in
-   * migration 0002 must use the same scale — asserted by constants.test.ts.
+   * Fixed-point scale for the peer-matched ratio: R_milli = round((1−p)/p ×
+   * MULT_SCALE), all pot math floor-divided in bigint (see wager/pot.ts).
    */
   MULT_SCALE: 1000,
   /** Treasury headroom for network fees (withdrawal fees are house-absorbed). */
@@ -27,10 +24,6 @@ export const WAGER_TUNABLES = {
   SOLVENCY_POLL_MS: 5 * 60_000,
   SETTLEMENT_SWEEP_MS: 60_000,
   DEPOSIT_COMMITMENT: 'finalized',
-  /** Airdrop top-ups aim the treasury at this float. */
-  FLOAT_TARGET_LAMPORTS: 5_000_000_000n,
-  /** Devnet faucet per-request ceiling — larger asks get rate-limited. */
-  MAX_AIRDROP_REQUEST_LAMPORTS: 2_000_000_000n,
 } as const;
 
 /**
@@ -41,6 +34,8 @@ export const WAGER_TUNABLES = {
  */
 export const WAGER_KEYS = {
   stake: (positionId: string) => `wager:stake:${positionId}`,
+  /** Client-supplied idempotency key for API/concierge stakes (at-least-once). */
+  apiStake: (key: string) => `wager:stake:api:${key}`,
   deposit: (txSig: string, ixIndex: number) => `wager:deposit:${txSig}:${ixIndex}`,
   refund: (positionId: string) => `wager:refund:${positionId}`,
   payout: (marketId: string, userId: number) => `wager:payout:${marketId}:${userId}`,

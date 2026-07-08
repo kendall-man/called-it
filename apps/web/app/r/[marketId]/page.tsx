@@ -30,7 +30,7 @@ const OUTCOME_BANNER: Record<
 > = {
   claim_won: { className: 'bg-pitch-500 text-night-950', label: 'Called it ✓' },
   claim_lost: { className: 'bg-siren-500 text-night-950', label: 'Didn’t land' },
-  void: { className: 'bg-night-700 text-chalk', label: 'Void — all Rep returned' },
+  void: { className: 'bg-night-700 text-chalk', label: 'Void — stakes returned' },
 };
 
 export default async function ReceiptPage({
@@ -126,7 +126,7 @@ export default async function ReceiptPage({
           <div>
             <p className="display-type text-5xl text-chalk">
               {formatMultiplier(receipt.quoteMultiplier)}
-              <span className="ml-2 text-2xl text-pitch-400">Rep</span>
+              <span className="ml-2 text-2xl text-pitch-400">back</span>
             </p>
             <p className="mt-1 text-sm text-fog">
               Data said {formatProbabilityPct(receipt.quoteProbability)} when the call was made
@@ -137,7 +137,8 @@ export default async function ReceiptPage({
           </Badge>
         </div>
         <p className="mt-3 text-xs leading-relaxed text-fog">
-          {provenance.blurb} Every backer and doubter locked their own multiplier at tap time.
+          {provenance.blurb} Backers and doubters each locked their own multiplier at tap time, in
+          devnet SOL — test tokens, not real money.
         </p>
       </Card>
 
@@ -184,7 +185,7 @@ export default async function ReceiptPage({
           href={`/g/${receipt.groupSlug}`}
           className="display-type inline-block rounded-xl border border-line bg-night-800 px-5 py-2.5 text-sm text-chalk transition-colors hover:border-pitch-500/50"
         >
-          See this group’s table →
+          See this group’s record →
         </Link>
       </div>
     </PageShell>

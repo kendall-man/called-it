@@ -4,7 +4,7 @@ import { engineApi, telegramIdentity, NOT_TELEGRAM } from '../lib/engine-api.js'
 
 export default defineTool({
   description:
-    "What's happening in this group right now: every open call with its terms, price, and back/doubt counts, plus the Rep leaderboard. Use before answering 'what's open', 'any action?', or anything needing a marketId.",
+    "What's happening in this group right now: every open call with its terms, feed price, For/Against SOL pots, and matched %. Use before answering 'what's open', 'any action?', or anything needing a marketId.",
   inputSchema: z.object({}),
   async execute(_input, ctx) {
     const id = telegramIdentity(ctx.session);

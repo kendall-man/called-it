@@ -188,13 +188,14 @@ export function mkOdds(overrides: Partial<OddsInputs> = {}): OddsInputs {
 }
 
 /**
- * Consumer-copy deny list (compliance): no bookie vocabulary, no odds
- * notation, no currency symbols in anything a group member could read.
+ * Consumer-copy deny list (compliance): the product owns betting language now,
+ * so only odds NOTATION and FIAT currency stay banned — amounts are devnet SOL,
+ * prices are plain percentages.
  */
 export const DENIED_COPY_PATTERNS: readonly RegExp[] = [
   /[$£€¥]/u,
-  /\b(bet|bets|betting|wager|wagers|odds|bookie|bookmaker|parlay|acca|stake|stakes|staking)\b/i,
-  /\b\d+\s*[/-]\s*\d+\b/, // "11/1", "9-1" odds notation
+  /\b(dollars?|euros?|pounds?|usd|gbp|eur)\b/i,
+  /\b\d+\s*\/\s*\d+\b/, // "11/1" fractional odds notation
   /\b\d+\s*-?\s*to\s*-?\s*\d+\b/i, // "9 to 1"
 ];
 

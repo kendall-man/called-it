@@ -3,13 +3,6 @@
  * Values are the PRD v1.1 initial values; tuning is a one-line edit here.
  */
 export const TUNABLES = {
-  /** Rep economy */
-  STARTING_BALANCE: 1_000,
-  MATCHDAY_TOPUP_FLOOR: 250,
-  MATCHDAY_TOPUP_HOUR_UTC: 8,
-  PRESET_STAKES: [25, 50, 100] as const,
-  PER_MARKET_STAKE_CAP: 100,
-
   /** Pricing */
   MULTIPLIER_MIN: 1.02,
   MULTIPLIER_MAX: 25,

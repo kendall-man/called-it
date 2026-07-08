@@ -1,8 +1,8 @@
 /**
  * Engine HTTP API — the integration surface for the eve concierge agent
  * ("LLM proposes, code disposes" across process boundaries). Read routes
- * mirror what the group already sees; the one mutating route (stake) goes
- * through the same executeStake core + per-(market,user) lock as the buttons.
+ * mirror what the group already sees; the one mutating route (stake) routes
+ * through the wager module, exactly like a Back/Against button.
  *
  * Deliberately node:http with zero new dependencies: seven routes do not
  * justify a framework, and the engine stays the single DB writer.
@@ -16,17 +16,20 @@ import type { Env } from '../env.js';
 import type { Logger } from '../log.js';
 import type { Poster } from '../bot/poster.js';
 import { LlmBudget } from '../bot/budget.js';
-import { executeStake } from '../pipeline/stake.js';
+import { ensureMemberSeen } from '../pipeline/stake.js';
 import { buildCompileContext } from '../pipeline/context.js';
 import { quoteSpec, type QuoteOutcome } from '../pipeline/claims.js';
 import { composeClaimCard } from '../pipeline/render.js';
 import { marketStakeKeyboard } from '../bot/keyboards.js';
 import { describeTerms } from '../bot/cards.js';
+import { computePots } from '../wager/pot.js';
+import { formatSol, LAMPORTS_PER_SOL } from '../wager/format.js';
 
 const JSON_BODY_LIMIT_BYTES = 64 * 1024;
 const FIXTURES_WINDOW_HOURS_DEFAULT = 48;
 const FIXTURES_WINDOW_HOURS_MAX = 24 * 7;
-const LEADERBOARD_LIMIT = 10;
+/** Per-market stake ceiling in SOL — mirrors the wager module's lamport cap. */
+const MAX_STAKE_SOL = 0.1;
 
 const StakeBody = z.object({
   chatId: z.number().int(),
@@ -35,7 +38,8 @@ const StakeBody = z.object({
   displayName: z.string().min(1).max(80),
   username: z.string().max(64).nullable().default(null),
   side: z.enum(['back', 'doubt']),
-  amount: z.number(),
+  /** Devnet SOL, e.g. 0.05. Converted to lamports at the boundary. */
+  amount: z.number().positive().max(MAX_STAKE_SOL),
   /** Required: the concierge's tool steps re-run on interruption. */
   idempotencyKey: z.string().min(8).max(128),
 });
@@ -178,17 +182,9 @@ async function handleSnapshot(options: EngineApiOptions, chatId: number, res: Se
     return;
   }
   const markets = await deps.db.openMarketsForGroup(chatId);
-  const leaderboard = await deps.db.leaderboard(chatId, LEADERBOARD_LIMIT);
   sendJson(res, 200, {
     group: { id: group.id, title: group.title },
     markets: await Promise.all(markets.map((m) => marketSummary(deps, m))),
-    leaderboard: leaderboard.map((row, index) => ({
-      rank: index + 1,
-      userId: row.user_id,
-      displayName: row.display_name,
-      rep: row.points_cached,
-      streak: row.streak,
-    })),
   });
 }
 
@@ -199,7 +195,12 @@ async function handleWallet(
   res: ServerResponse,
 ) {
   const { deps } = options;
-  const balance = await deps.db.balance(chatId, userId);
+  const wager = deps.wager;
+  if (!wager) {
+    sendJson(res, 503, { error: 'wager_unavailable' });
+    return;
+  }
+  const { balanceLamports, pubkey } = await wager.walletSummary(userId);
   const open = await deps.db.openMarketsForGroup(chatId);
   const positions: Array<Record<string, unknown>> = [];
   for (const market of open) {
@@ -207,19 +208,23 @@ async function handleWallet(
       (p) => p.user_id === userId && p.state !== 'void',
     );
     for (const p of mine) {
+      const stakeLamports = BigInt(p.stake);
       positions.push({
         marketId: market.id,
         terms: describeTerms(market.spec),
-        // SOL-market stakes are lamports, Rep stakes are Rep — never sum across.
-        currency: market.currency ?? 'rep',
         side: p.side,
-        stake: p.stake,
-        lockedMultiplier: p.locked_multiplier,
+        stakeLamports: stakeLamports.toString(),
+        stakeSol: formatSol(stakeLamports),
         state: p.state,
       });
     }
   }
-  sendJson(res, 200, { balance, positions });
+  sendJson(res, 200, {
+    linkedWallet: pubkey,
+    balanceLamports: balanceLamports.toString(),
+    balanceSol: formatSol(balanceLamports),
+    positions,
+  });
 }
 
 async function handleMarket(options: EngineApiOptions, marketId: string, res: ServerResponse) {
@@ -297,23 +302,46 @@ async function handleApiStake(
   res: ServerResponse,
 ) {
   const { deps, poster } = options;
-  // The concierge only knows the Telegram username; if the engine has already
-  // seen this user (button taps carry the real name) keep the stored name so
-  // the API's upsert can't degrade it.
+  const wager = deps.wager;
+  if (!wager) {
+    sendJson(res, 503, { error: 'wager_unavailable' });
+    return;
+  }
+  const market = await deps.db.getMarket(body.marketId);
+  if (!market || market.group_id !== body.chatId || market.currency !== 'sol') {
+    sendJson(res, 404, { error: 'unknown_market' });
+    return;
+  }
+  if (market.status !== 'open' && market.status !== 'pending_lineup') {
+    sendJson(res, 409, { error: 'closed', status: market.status });
+    return;
+  }
+  const lamports = BigInt(Math.round(body.amount * Number(LAMPORTS_PER_SOL)));
+
+  // The concierge only knows the Telegram username; keep any stored real name
+  // (button taps carry it) so the API's upsert can't degrade it.
   const known = await deps.db.getUser(body.userId);
-  const outcome = await executeStake(deps, {
-    groupId: body.chatId,
-    marketId: body.marketId,
-    user: {
-      id: body.userId,
-      displayName: known?.display_name ?? body.displayName,
-      username: body.username ?? known?.username ?? null,
-    },
+  const userName = known?.display_name ?? body.displayName;
+  await ensureMemberSeen(deps, body.chatId, {
+    id: body.userId,
+    displayName: userName,
+    username: body.username ?? known?.username ?? null,
+  });
+
+  const fixture = await deps.db.getFixture(market.fixture_id);
+  const inPlay = fixture !== null && fixture.phase !== 'NS';
+  const result = await wager.handleStakeTap({
+    market,
+    userId: body.userId,
+    userName,
     side: body.side,
-    amount: body.amount,
+    lamports,
+    inPlay,
+    nowMs: deps.now(),
     idempotencyKey: body.idempotencyKey,
   });
-  if (outcome.kind === 'ok') {
+
+  if (result.placed) {
     // Same group-visible side effect as a button tap: refresh the card tally.
     const fresh = await deps.db.getMarket(body.marketId);
     if (fresh && fresh.card_tg_message_id !== null) {
@@ -322,20 +350,10 @@ async function handleApiStake(
         poster.editCard(body.chatId, fresh.id, card.messageId, card.text, marketStakeKeyboard(deps, fresh));
       }
     }
-    sendJson(res, 200, {
-      kind: 'ok',
-      positionId: outcome.position.id,
-      state: outcome.position.state,
-      lockedMultiplier: outcome.lockedMultiplier,
-    });
-    return;
   }
-  const status =
-    outcome.kind === 'busy' ? 409
-    : outcome.kind === 'duplicate' ? 200
-    : outcome.kind === 'unavailable' ? 404
-    : 422;
-  sendJson(res, status, outcome);
+  // Every outcome that reached the wager module is a 200 — `reply` explains it
+  // (placed, idempotent replay, insufficient balance, paused, …).
+  sendJson(res, 200, { placed: result.placed, reply: result.reply });
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -343,18 +361,24 @@ async function handleApiStake(
 async function marketSummary(deps: Deps, market: MarketRow, webBaseUrl?: string) {
   const positions = await deps.db.positionsForMarket(market.id);
   const live = positions.filter((p) => p.state !== 'void');
+  // Card-consistent pots: non-void positions at the market's locked probability.
+  const pots = computePots(live, market.quote_probability);
   return {
     marketId: market.id,
     terms: describeTerms(market.spec),
-    currency: market.currency ?? 'rep',
+    currency: 'sol',
     status: market.status,
     fixtureId: market.fixture_id,
     isReplay: market.is_replay,
     trustTier: market.spec.trustTier,
     probability: market.quote_probability,
-    backMultiplier: market.quote_multiplier,
     backers: live.filter((p) => p.side === 'back').length,
     doubters: live.filter((p) => p.side === 'doubt').length,
+    forLamports: pots.forLamports.toString(),
+    againstLamports: pots.againstLamports.toString(),
+    forSol: formatSol(pots.forLamports),
+    againstSol: formatSol(pots.againstLamports),
+    matchedPct: pots.matchedPct,
     ...(webBaseUrl ? { receiptUrl: `${webBaseUrl}/r/${market.id}` } : {}),
   };
 }

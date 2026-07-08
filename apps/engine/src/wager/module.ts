@@ -165,8 +165,9 @@ export function createWagerModule(deps: WagerModuleDeps): WagerModule {
   }
 
   return {
-    async currencyForMint(groupId) {
-      return (await deps.db.isGroupEnabled(groupId)) ? 'sol' : 'rep';
+    async currencyForMint() {
+      // SOL-only product: every market is a SOL market.
+      return 'sol';
     },
 
     handleStakeTap: (args) => handleStakeTap(deps, args),
@@ -183,13 +184,17 @@ export function createWagerModule(deps: WagerModuleDeps): WagerModule {
       return [formatSolAmount(first), formatSolAmount(second), formatSolAmount(third)];
     },
 
-    async setGroupEnabled(groupId, enabled, byUserId) {
-      await deps.db.setGroupEnabled(groupId, enabled, byUserId);
-      deps.log.info('wager_group_toggled', { groupId, enabled, byUserId });
-      return enabled ? WAGER_COPY.wagerModeEnabled() : WAGER_COPY.wagerModeDisabled();
+    presetLamports(index) {
+      return WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[index] ?? null;
     },
 
-    isGroupEnabled: (groupId) => deps.db.isGroupEnabled(groupId),
+    async walletSummary(userId) {
+      const [balanceLamports, link] = await Promise.all([
+        deps.db.balanceLamports(userId),
+        deps.db.getWalletLink(userId),
+      ]);
+      return { balanceLamports, pubkey: link?.pubkey ?? null };
+    },
 
     registerCommands(bot: WagerBotLike) {
       bot.command('wallet', handleWalletCommand);

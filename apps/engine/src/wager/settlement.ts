@@ -1,81 +1,52 @@
 /**
- * Idempotent SOL settlement: a pure function of settlements + positions, safe
- * to run N times. Mirrors the Rep settle() money moves (refund still-pending
- * and everyone-on-void, pay winners) with bigint lamports and floor payouts
- * at MULT_SCALE, then stamps wager_settlements_applied. A sweeper cron
- * re-runs any settled/voided sol market missing the stamp, closing the
- * settle() crash window for SOL without touching Rep's.
+ * Idempotent peer-matched SOL settlement: a pure function of the settlement
+ * outcome + the market's locked probability + positions, safe to run N times.
+ * The treasury only escrowed the stakes; winners are paid from the opposing
+ * pot (see wager/pot.ts settlementCredits), so payouts can never exceed escrow.
+ * A sweeper cron re-runs any settled/voided sol market missing the marker,
+ * closing the settle() crash window.
  */
 
-import { WAGER_KEYS, WAGER_TUNABLES } from './constants.js';
+import { WAGER_KEYS } from './constants.js';
 import { WAGER_COPY } from './copy.js';
-import { assertSafeLamports } from './format.js';
-import type {
-  WagerModuleDeps,
-  WagerPositionRow,
-  WagerSettlementOutcome,
-} from './port.js';
-
-const MULT_SCALE_BIGINT = BigInt(WAGER_TUNABLES.MULT_SCALE);
-
-/**
- * Payout quantization: multiplier → milli-units by round, then bigint
- * floor division. Must match the SQL in migration 0002's wager_stake
- * liability math (same MULT_SCALE — asserted in constants.test.ts).
- */
-export function payoutLamports(stakeLamports: bigint, lockedMultiplier: number): bigint {
-  const multMilli = BigInt(Math.round(lockedMultiplier * WAGER_TUNABLES.MULT_SCALE));
-  return (stakeLamports * multMilli) / MULT_SCALE_BIGINT; // non-negative ⇒ floor
-}
-
-/** Winning lamports per user — active positions on the winning side only. */
-export function computeWinnersLamports(
-  positions: WagerPositionRow[],
-  outcome: WagerSettlementOutcome,
-): Map<number, bigint> {
-  const winners = new Map<number, bigint>();
-  if (outcome === 'void') return winners;
-  const winningSide = outcome === 'claim_won' ? 'back' : 'doubt';
-  for (const position of positions) {
-    if (position.state !== 'active' || position.side !== winningSide) continue;
-    const stake = assertSafeLamports(position.stake, `position ${position.id}`);
-    const amount = payoutLamports(stake, position.locked_multiplier);
-    winners.set(position.user_id, (winners.get(position.user_id) ?? 0n) + amount);
-  }
-  return winners;
-}
+import { settlementCredits } from './pot.js';
+import type { WagerModuleDeps, WagerSettlementOutcome } from './port.js';
 
 export async function applySettlement(deps: WagerModuleDeps, marketId: string): Promise<void> {
   if (await deps.db.hasSettlementApplied(marketId)) return;
   const outcome = await deps.db.getSettlementOutcome(marketId);
   if (outcome === null) return; // not settled yet — the sweeper will be back
 
-  const positions = await deps.db.positionsForMarket(marketId);
+  const probability = await deps.db.getMarketProbability(marketId);
+  if (probability === null) {
+    // Market vanished mid-settlement — never guess the ratio; the sweeper retries.
+    deps.log.error('wager_settlement_no_market', { marketId });
+    return;
+  }
 
-  // Refund still-pending taps (anti-snipe window never cleared), everyone on
-  // a void — the Rep rules — AND already-voided positions: unlike Rep, sol
-  // stakes are deliberately NOT refunded at void_positions effect time (the
-  // seam must never post lamports as Rep), so this is their only refund path.
-  // The per-position idempotency key makes re-runs and overlaps safe.
-  const pendingIds: string[] = [];
-  for (const position of positions) {
-    const refundable =
-      outcome === 'void' || position.state === 'pending' || position.state === 'void';
-    if (!refundable) continue;
+  const positions = await deps.db.positionsForMarket(marketId);
+  const { refunds, payouts, voidedPendingIds, pots } = settlementCredits(
+    positions,
+    outcome,
+    probability,
+  );
+
+  // Per-position refunds (full for pending/void, unmatched remainder for
+  // losers). Idempotency key is per-position so re-runs and overlaps dedupe.
+  for (const refund of refunds) {
     await deps.db.postWagerLedger({
-      user_id: position.user_id,
+      user_id: refund.userId,
       group_id: null,
       market_id: marketId,
       kind: 'refund',
-      lamports: assertSafeLamports(position.stake, `position ${position.id}`),
-      idempotency_key: WAGER_KEYS.refund(position.id),
+      lamports: refund.lamports,
+      idempotency_key: WAGER_KEYS.refund(refund.positionId),
     });
-    if (position.state === 'pending') pendingIds.push(position.id);
   }
-  if (pendingIds.length > 0) await deps.db.setPositionStates(pendingIds, 'void');
+  if (voidedPendingIds.length > 0) await deps.db.setPositionStates(voidedPendingIds, 'void');
 
-  const winners = computeWinnersLamports(positions, outcome);
-  for (const [userId, lamports] of winners) {
+  // Per-user winnings (own stake back + pro-rata share of the forfeited pot).
+  for (const [userId, lamports] of payouts) {
     await deps.db.postWagerLedger({
       user_id: userId,
       group_id: null,
@@ -90,8 +61,9 @@ export async function applySettlement(deps: WagerModuleDeps, marketId: string): 
   deps.log.info('wager_settlement_applied', {
     marketId,
     outcome,
-    winners: winners.size,
-    refunds: pendingIds.length,
+    payouts: payouts.size,
+    refunds: refunds.length,
+    matchedFor: pots.matchedFor.toString(),
   });
 }
 
@@ -102,11 +74,14 @@ export async function settlementPayoutsLine(
   outcome: WagerSettlementOutcome,
 ): Promise<string> {
   if (outcome === 'void') return WAGER_COPY.payoutsLineVoid();
+  const probability = await deps.db.getMarketProbability(marketId);
+  if (probability === null) return WAGER_COPY.payoutsLineNone();
   const positions = await deps.db.positionsForMarket(marketId);
-  const winners = computeWinnersLamports(positions, outcome);
-  if (winners.size === 0) return WAGER_COPY.payoutsLineNone();
+  const { payouts, pots } = settlementCredits(positions, outcome, probability);
+  // Nothing matched (one side empty) ⇒ everyone got their SOL back, no winners.
+  if (pots.matchedFor === 0n || payouts.size === 0) return WAGER_COPY.payoutsLineNone();
   const parts: string[] = [];
-  for (const [userId, lamports] of winners) {
+  for (const [userId, lamports] of payouts) {
     const name = (await deps.db.getUserName(userId)) ?? 'A winner';
     parts.push(WAGER_COPY.payoutPart(name, lamports));
   }

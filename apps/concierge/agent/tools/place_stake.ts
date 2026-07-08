@@ -3,25 +3,26 @@ import { z } from 'zod';
 import { engineApi, telegramIdentity, NOT_TELEGRAM } from '../lib/engine-api.js';
 
 /**
- * Stakes at or above this pause for an inline-keyboard confirm (Telegram
- * renders the approval natively). Below it, a clean explicit ask goes straight
- * through — points product, so ceremony only where a misparse would sting.
- * 100 is the per-market cap, so this catches exactly the all-in moves.
+ * Real devnet SOL changes hands, so every stake pauses for a native Telegram
+ * inline-keyboard confirm — a misparse here costs the member their stack. 0.1
+ * SOL is the per-market cap; a stake there is the biggest a member can make.
  */
-const CONFIRM_AT_OR_ABOVE = 100;
+const MAX_STAKE_SOL = 0.1;
 
 export default defineTool({
   description:
-    'Put Rep on an open market for the member speaking: back it (they say it happens) or doubt it. Only on an explicit ask with a clear side and amount. The stake locks the current multiplier. Guards (balance, per-market cap, one-side rule, kickoff cutoff) are enforced downstream — relay any refusal honestly.',
+    "Place a devnet-SOL bet on an open market for the member speaking: back it (they say it happens) or bet against it. Only on an explicit ask with a clear side and amount in SOL. Guards (balance, per-market cap, one-side rule, kickoff cutoff) are enforced downstream — relay the returned reply honestly.",
   inputSchema: z.object({
     marketId: z.string().uuid().describe('From get_group_snapshot or quote flow — never invented.'),
-    side: z.enum(['back', 'doubt']),
-    amount: z.number().int().positive().max(1000).describe('Whole Rep, exactly as the member asked.'),
+    side: z.enum(['back', 'doubt']).describe("'back' = it happens, 'doubt' = bet against."),
+    amount: z
+      .number()
+      .positive()
+      .max(MAX_STAKE_SOL)
+      .describe('Devnet SOL, e.g. 0.05, exactly as the member asked. Max 0.1 per market.'),
   }),
-  approval: ({ toolInput }) =>
-    ((toolInput as { amount?: number } | undefined)?.amount ?? 0) >= CONFIRM_AT_OR_ABOVE
-      ? 'user-approval'
-      : 'not-applicable',
+  // Real money on devnet — always confirm the exact side and amount.
+  approval: () => 'user-approval',
   async execute({ marketId, side, amount }, ctx) {
     const id = telegramIdentity(ctx.session);
     if (!id) return NOT_TELEGRAM;

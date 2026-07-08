@@ -26,7 +26,6 @@ import { createClient } from '@supabase/supabase-js';
 import type { MarketStatus, SettlementOutcome } from '@calledit/market-engine';
 import { assertOk, DbError, unwrapMaybe, unwrapRows, type PgResult } from './errors.js';
 import type {
-  LiabilityPosition,
   WagerDepositInsert,
   WagerDepositRow,
   WagerLedgerEntry,
@@ -73,28 +72,6 @@ export function multMilli(multiplier: number): bigint {
  */
 export function stakePayoutLamports(stakeLamports: bigint, multMilliValue: bigint): bigint {
   return (stakeLamports * multMilliValue) / BigInt(WAGER_MULT_SCALE);
-}
-
-/**
- * Worst-case treasury exposure for one market over non-void positions:
- * max over sides of Σ payout, minus Σ all stakes escrowed in the pool.
- * Negative means the pool covers every outcome. Mirrors the liability check
- * inside the wager_stake SQL exactly (same rounding, same integer division).
- */
-export function worstCaseLiabilityLamports(positions: readonly LiabilityPosition[]): bigint {
-  let backPayout = 0n;
-  let doubtPayout = 0n;
-  let totalStakes = 0n;
-  for (const position of positions) {
-    if (position.state === 'void') continue;
-    const stake = lamportsFromDb('worstCaseLiabilityLamports', position.stake);
-    const payout = stakePayoutLamports(stake, multMilli(position.locked_multiplier));
-    if (position.side === 'back') backPayout += payout;
-    else doubtPayout += payout;
-    totalStakes += stake;
-  }
-  const maxPayout = backPayout > doubtPayout ? backPayout : doubtPayout;
-  return maxPayout - totalStakes;
 }
 
 // ── Safe-integer boundary asserts (bigint ↔ PostgREST number) ──────────────
@@ -239,7 +216,6 @@ const STAKE_ERROR_CODES: ReadonlySet<string> = new Set<WagerStakeErrorCode>([
   'insufficient',
   'wrong_side',
   'cap',
-  'liability_cap',
   'paused',
 ]);
 
@@ -258,12 +234,14 @@ function parseRpcOutcome<C extends string>(
   payload: unknown,
   idField: string,
   codes: ReadonlySet<string>,
-): { ok: true; id: string } | { ok: false; code: C } {
+): { ok: true; id: string } | { ok: true; duplicate: true } | { ok: false; code: C } {
   if (typeof payload !== 'object' || payload === null) {
     throw new DbError(op, { message: `malformed RPC payload: ${JSON.stringify(payload)}` });
   }
   const record = payload as Record<string, unknown>;
   if (record.ok === true) {
+    // Idempotent-replay signal (wager_stake only) — no id to return.
+    if (record.duplicate === true) return { ok: true, duplicate: true };
     const id = record[idField];
     if (typeof id !== 'string') {
       throw new DbError(op, { message: `RPC ok payload missing ${idField}` });
@@ -334,6 +312,8 @@ export interface WagerDb {
   markWithdrawalFailed(id: string, error: string): Promise<void>;
 
   // settlements (money-movement marker, separate from settlements.posted_at)
+  /** Feed-locked probability of the market (the peer-match ratio input). */
+  getMarketProbability(marketId: string): Promise<number | null>;
   getSettlementOutcome(marketId: string): Promise<SettlementOutcome | null>;
   hasSettlementApplied(marketId: string): Promise<boolean>;
   /** Upsert-ignore on market_id; duplicates no-op. */
@@ -584,6 +564,14 @@ export function wagerDbFromClient(client: WagerDbClient): WagerDb {
 
     // ── settlements (money-movement marker) ────────────────────────────────
 
+    async getMarketProbability(marketId) {
+      const row = await maybeRow<{ quote_probability: number }>(
+        'getMarketProbability',
+        client.from('markets').select('quote_probability').eq('id', marketId).maybeSingle(),
+      );
+      return row?.quote_probability ?? null;
+    },
+
     async getSettlementOutcome(marketId) {
       const row = await maybeRow<{ outcome: SettlementOutcome }>(
         'getSettlementOutcome',
@@ -690,6 +678,7 @@ export function wagerDbFromClient(client: WagerDbClient): WagerDb {
         p_multiplier: args.multiplier,
         p_state: args.state,
         p_placed_at_ms: args.placed_at_ms,
+        p_idempotency_key: args.idempotency_key ?? null,
       });
       const payload = unwrapRows<unknown>('wager_stake', result);
       const outcome = parseRpcOutcome<WagerStakeErrorCode>(
@@ -698,7 +687,10 @@ export function wagerDbFromClient(client: WagerDbClient): WagerDb {
         'position_id',
         STAKE_ERROR_CODES,
       );
-      return outcome.ok ? { ok: true, position_id: outcome.id } : outcome;
+      if (!outcome.ok) return outcome;
+      return 'duplicate' in outcome
+        ? { ok: true, duplicate: true }
+        : { ok: true, position_id: outcome.id };
     },
 
     async requestWithdrawal(args) {
@@ -713,7 +705,12 @@ export function wagerDbFromClient(client: WagerDbClient): WagerDb {
         'withdrawal_id',
         WITHDRAW_ERROR_CODES,
       );
-      return outcome.ok ? { ok: true, withdrawal_id: outcome.id } : outcome;
+      if (!outcome.ok) return outcome;
+      if ('duplicate' in outcome) {
+        // The withdrawal RPC has no idempotent-replay path; a duplicate here is drift.
+        throw new DbError('wager_request_withdrawal', { message: 'unexpected duplicate outcome' });
+      }
+      return { ok: true, withdrawal_id: outcome.id };
     },
   };
 }

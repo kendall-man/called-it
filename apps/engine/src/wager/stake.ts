@@ -41,8 +41,6 @@ function copyForStakeError(code: WagerStakeErrorCode, balanceLamports: bigint): 
       return WAGER_COPY.pickALane();
     case 'cap':
       return WAGER_COPY.capReached(WAGER_TUNABLES.PER_MARKET_STAKE_CAP_LAMPORTS);
-    case 'liability_cap':
-      return WAGER_COPY.fullyLoaded();
     case 'paused':
       return WAGER_COPY.paused();
   }
@@ -52,10 +50,12 @@ export async function handleStakeTap(
   deps: WagerModuleDeps,
   args: WagerStakeTapArgs,
 ): Promise<{ reply: string; placed: boolean }> {
-  const { market, userId, userName, side, presetIndex, inPlay, nowMs } = args;
+  const { market, userId, userName, side, lamports, inPlay, nowMs, idempotencyKey } = args;
 
-  // Gate 1: a linked wallet is the wager-mode onboarding handle — without it
-  // the user has no way to have funded (or to ever cash out) a stack.
+  if (lamports <= 0n) return { reply: WAGER_COPY.staleTap(), placed: false };
+
+  // Gate 1: a linked wallet is the onboarding handle — without it the user has
+  // no way to have funded (or to ever cash out) a stack.
   const link = await deps.db.getWalletLink(userId);
   if (!link) return { reply: WAGER_COPY.unlinkedOnboarding(), placed: false };
 
@@ -65,10 +65,7 @@ export async function handleStakeTap(
   const status = await deps.db.getWagerStatus();
   if (status.paused) return { reply: WAGER_COPY.paused(), placed: false };
 
-  const lamports = WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[presetIndex];
-  if (lamports === undefined) return { reply: WAGER_COPY.staleTap(), placed: false };
-
-  // Multiplier lock — identical rule to the Rep path.
+  // Multiplier lock — back gets the quoted multiplier, doubt its complement.
   const lockedMultiplier =
     side === 'back' ? market.quote_multiplier : wagerDoubtMultiplier(market.quote_probability);
 
@@ -79,10 +76,11 @@ export async function handleStakeTap(
     side,
     lamports,
     multiplier: lockedMultiplier,
-    // Pre-kickoff taps activate immediately; in-play taps ride the same
-    // delay-arbitrage pending window as Rep (reducer sees the shared row).
+    // Pre-kickoff taps activate immediately; in-play taps ride the
+    // delay-arbitrage pending window (reducer sees the shared row).
     state: inPlay ? 'pending' : 'active',
     placed_at_ms: nowMs,
+    ...(idempotencyKey !== undefined ? { idempotency_key: idempotencyKey } : {}),
   });
 
   if (!result.ok) {
@@ -97,6 +95,12 @@ export async function handleStakeTap(
       code: result.code,
     });
     return { reply: copyForStakeError(result.code, balance), placed: false };
+  }
+
+  if ('duplicate' in result) {
+    // At-least-once replay of the same client key — the original stake stands.
+    deps.log.info('wager_stake_duplicate', { marketId: market.id, userId, side });
+    return { reply: WAGER_COPY.stakeReplayed(), placed: false };
   }
 
   // Deposit-credited and cashout notifications route to the last group the

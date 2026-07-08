@@ -14,12 +14,11 @@ import {
   stakePayoutLamports,
   WAGER_MULT_SCALE,
   wagerDbFromClient,
-  worstCaseLiabilityLamports,
   type WagerDbClient,
   type WagerFilterBuilder,
   type WagerTableBuilder,
 } from './wager-db.js';
-import type { LiabilityPosition, WagerLedgerEntry, WagerStakeInput } from './wager-types.js';
+import type { WagerLedgerEntry, WagerStakeInput } from './wager-types.js';
 
 // ── In-memory supabase fake (structural WagerDbClient) ─────────────────────
 
@@ -305,45 +304,6 @@ describe('liability math', () => {
     expect(stakePayoutLamports(1n, 999n)).toBe(0n);
   });
 
-  const position = (overrides: Partial<LiabilityPosition>): LiabilityPosition => ({
-    side: 'back',
-    stake: 10_000_000,
-    locked_multiplier: 1.6,
-    state: 'active',
-    ...overrides,
-  });
-
-  it('worst case is max side payout minus the whole escrowed pool', () => {
-    expect(worstCaseLiabilityLamports([])).toBe(0n);
-    // Single back 0.01 SOL @1.6 → payout 16M against 10M staked.
-    expect(worstCaseLiabilityLamports([position({})])).toBe(6_000_000n);
-    // Opposing doubt @2.0 raises the pool and the doubt payout.
-    expect(
-      worstCaseLiabilityLamports([
-        position({}),
-        position({ side: 'doubt', locked_multiplier: 2.0 }),
-      ]),
-    ).toBe(0n); // max(16M, 20M) − 20M
-  });
-
-  it('excludes void positions and can go negative when the pool covers all', () => {
-    expect(
-      worstCaseLiabilityLamports([
-        position({}),
-        position({ side: 'doubt', locked_multiplier: 2.0, stake: 50_000_000, state: 'void' }),
-      ]),
-    ).toBe(6_000_000n);
-    expect(
-      worstCaseLiabilityLamports([
-        position({}),
-        position({ side: 'doubt', locked_multiplier: 1.2 }),
-      ]),
-    ).toBe(-4_000_000n); // max(16M, 12M) − 20M
-  });
-
-  it('rejects unsafe stakes instead of computing with corrupted numbers', () => {
-    expect(() => worstCaseLiabilityLamports([position({ stake: UNSAFE_INTEGER })])).toThrow(DbError);
-  });
 });
 
 describe('assertSafeInteger', () => {
@@ -674,13 +634,24 @@ describe('security-definer RPCs', () => {
           p_multiplier: 1.6,
           p_state: 'pending',
           p_placed_at_ms: 1_751_630_000_000,
+          p_idempotency_key: null, // absent on the button path
         },
       },
     ]);
   });
 
+  it('forwards the client idempotency key and maps a duplicate reply', async () => {
+    const { db, fake } = makeHarness();
+    fake.onRpc('wager_stake', () => ({ data: { ok: true, duplicate: true }, error: null }));
+    expect(await db.wagerStake({ ...stakeInput, idempotency_key: 'call-9' })).toEqual({
+      ok: true,
+      duplicate: true,
+    });
+    expect(fake.rpcCalls[0]?.args.p_idempotency_key).toBe('call-9');
+  });
+
   it('maps every typed stake rejection code', async () => {
-    const codes = ['insufficient', 'wrong_side', 'cap', 'liability_cap', 'paused'] as const;
+    const codes = ['insufficient', 'wrong_side', 'cap', 'paused'] as const;
     for (const code of codes) {
       const { db, fake } = makeHarness();
       fake.onRpc('wager_stake', () => ({ data: { ok: false, code }, error: null }));

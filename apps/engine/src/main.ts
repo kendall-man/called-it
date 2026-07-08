@@ -64,10 +64,19 @@ async function main(): Promise<void> {
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
   bot.api.config.use(autoRetry());
 
-  // The poster exists before deps so the wager module (when enabled) can post
-  // deposit/withdrawal notifications through the same rate-limited queue.
+  // The poster exists before deps so the wager module can post deposit/
+  // withdrawal notifications through the same rate-limited queue.
   const poster = createPoster(bot.api, queue, log);
   const deps = await createDeps(env, log, poster);
+
+  // The wager module is the product now — SOL is the only currency. A boot with
+  // it unwired (missing treasury keypair / flag) would silently mint nothing
+  // and take no bets, so fail loud instead of limping.
+  if (deps.wager === null) {
+    throw new Error(
+      'wager module is required: set WAGER_MODE_ENABLED=true and a valid WAGER_TREASURY_KEYPAIR_B58',
+    );
+  }
 
   const say = createSay(deps.agent, log);
   const proofWorker = new ProofWorker(deps);

@@ -3,7 +3,7 @@ import { Badge, Card, PageShell, SectionTitle } from '@/components/ui';
 
 export const metadata: Metadata = {
   description:
-    'An agentic bot for your group chat that prices big match-night claims on the spot, settles them from verified data, and keeps the receipts forever.',
+    'Callie books the bets your group already argues about — prices each match-night call off the live feed, matches it in devnet SOL, and settles it from verified data with a receipt anyone can check on Solana.',
 };
 
 /**
@@ -17,17 +17,17 @@ const LOOP_STEPS = [
   {
     step: '01',
     title: 'Make the call',
-    body: 'Someone talks big in the chat — “Mbappé scores twice today”. The bot prices it on the spot: Data says 9%. Anyone want to make him prove it?',
+    body: 'Someone talks big in the chat — “Mbappé scores twice today”. Callie prices it on the spot: data says 9%. Anyone want to make him prove it?',
   },
   {
     step: '02',
-    title: 'Back it or doubt it',
-    body: 'One tap and your Rep is on the line at ×9 — the multiplier locks the second you commit. VAR check? Calls locked until it clears.',
+    title: 'Back it or bet against it',
+    body: 'One tap and you’re matched — back the call or bet against it, your devnet SOL riding at ×9. The multiplier locks the second you commit. VAR check? Calls freeze until it clears.',
   },
   {
     step: '03',
     title: 'Keep the receipt',
-    body: 'The moment the deciding stat confirms, it settles — no arguments. The receipt lives on a public page with the evidence and a proof anyone can check on Solana.',
+    body: 'The moment the deciding stat confirms, it settles and the pot pays out — no arguments. The receipt lives on a public page with the evidence and a proof anyone can check on Solana.',
   },
 ] as const;
 
@@ -43,9 +43,10 @@ export default function LandingPage() {
           Called <span className="text-pitch-400">It</span>
         </h1>
         <p className="mt-4 max-w-md text-base leading-relaxed text-fog">
-          The bot that lives in your group chat and turns match-night claims into priced calls —
-          settled from cryptographically verified match data seconds after the moment, with
-          receipts that never let anyone forget.
+          Callie books the bets your group already argues about. She prices each match-night call
+          off the live feed, matches whoever backs it against whoever doubts it in devnet SOL, and
+          settles it from verified match data seconds after the moment — with a receipt anyone can
+          check on Solana.
         </p>
       </div>
 
@@ -95,7 +96,7 @@ export default function LandingPage() {
       </div>
 
       <p className="mt-1 text-center text-xs text-fog/80">
-        Rep is the group’s points tally — it can’t be bought, sold, or cashed out.
+        Every pot is devnet SOL — test tokens, not real money.
       </p>
     </PageShell>
   );

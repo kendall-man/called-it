@@ -1,8 +1,9 @@
 /**
- * Persona output guard — the compliance/judging requirement from the PRD:
- * game-show register, never sportsbook. Any consumer-facing string that trips
- * one of these patterns is rejected and the deterministic template ships
- * instead.
+ * Persona output guard. The product now owns betting language ("bet / stake /
+ * against" are fine), but two bans remain: odds NOTATION (we speak in plain
+ * percentages, never "11/1" or "@2.5") and FIAT currency (amounts are devnet
+ * SOL, never dollars/euros/$). Any consumer-facing string that trips a pattern
+ * is rejected and the deterministic template ships instead.
  */
 
 export interface DenyListPattern {
@@ -33,12 +34,7 @@ export const DENY_LIST_PATTERNS: readonly DenyListPattern[] = [
   },
   {
     name: 'currency_word',
-    pattern: /\b(?:dollars?|bucks?|quid|euros?|pounds?|usd|gbp|eur|cash|money)\b/i,
-  },
-  {
-    name: 'bookie_vocabulary',
-    pattern:
-      /\b(?:bet|bets|betting|bettor|wager|wagers|wagered|wagering|bookie|bookies|bookmaker|bookmakers|sportsbook|bet\s*slip|betting\s*slip|parlay|accumulator|acca|punt|punts|punter|punters|stake|stakes|staked|staking|odds|moneyline|handicap|bankroll|payout\s*odds)\b/i,
+    pattern: /\b(?:dollars?|bucks?|quid|euros?|pounds?|usd|gbp|eur)\b/i,
   },
 ];
 

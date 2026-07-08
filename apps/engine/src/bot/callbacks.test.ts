@@ -1,9 +1,11 @@
 /**
- * Behavior tests for the claim-flow callback handlers, exercised through
- * dispatchCallback with an in-memory DB and a recording poster. Focus areas
- * (from the audited defects): pricing failure must not kill the flow, the
- * per-claim lock must make double-taps mint exactly one market, the TTL must
- * slide on interaction, and superseded confirm gates must lose their buttons.
+ * Behavior tests for the claim-flow callback handlers under the broker pivot,
+ * exercised through dispatchCallback with an in-memory DB, a stubbed wager
+ * module, and a recording poster. The flow collapsed to: option-pick prices +
+ * mints immediately (no confirm gate); the "prove" button is now just a
+ * re-parse retry; decline kills a pre-mint claim or voids a zero-bet market.
+ * Focus areas: pricing failure keeps the flow alive, the per-claim lock mints
+ * exactly one market, degenerate quotes refuse, and the TTL slides.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -14,7 +16,7 @@ import { dispatchCallback } from './callbacks.js';
 import { renderFallback } from './copy.js';
 import type { HandlerCtx } from './context.js';
 import type { PostOptions } from './poster.js';
-import { readEnvelope, type ParseEnvelope } from '../pipeline/claims.js';
+import { type ParseEnvelope } from '../pipeline/claims.js';
 import type {
   ClaimRow,
   Deps,
@@ -29,6 +31,7 @@ import { LlmBudget } from './budget.js';
 const NOW = Date.parse('2026-07-03T18:00:00.000Z');
 const CHAT_ID = -100123;
 const CLAIMER_ID = 7001;
+const OTHER_ID = 7002;
 const CLAIM_ID = 'a3bb189e-8bf9-3888-9912-ace4e6543002';
 const FIXTURE_ID = 42;
 const FUTURE_ISO = new Date(NOW + 60 * 60_000).toISOString();
@@ -111,9 +114,9 @@ interface RecordedPost {
 interface Harness {
   h: HandlerCtx;
   posts: RecordedPost[];
-  strips: number[];
   patches: Array<Record<string, unknown>>;
   markets: MarketRow[];
+  settlements: Array<Record<string, unknown>>;
   getClaim: () => ClaimRow;
   parseCalls: () => number;
 }
@@ -125,27 +128,28 @@ interface HarnessConfig {
   parse?: () => unknown;
   fixture?: FixtureRow | null;
   llmBudget?: number;
+  positions?: Array<{ state: string }>;
 }
 
 function makeHarness(config: HarnessConfig): Harness {
   let claim = { ...config.claim };
   const posts: RecordedPost[] = [];
-  const strips: number[] = [];
   const patches: Array<Record<string, unknown>> = [];
   const markets: MarketRow[] = [];
+  const settlements: Array<Record<string, unknown>> = [];
   let parseCount = 0;
 
   const db = {
     getClaim: async (id: string) => (id === claim.id ? { ...claim } : null),
     getGroup: async (id: number) => (id === CHAT_ID ? GROUP : null),
     getUser: async (id: number) =>
-      id === CLAIMER_ID ? { id, display_name: 'Dee', username: 'dee' } : null,
+      id === CLAIMER_ID ? { id, display_name: 'Dee', username: 'dee' } : { id, display_name: `U${id}`, username: null },
     updateClaim: async (_id: string, patch: Record<string, unknown>) => {
       patches.push(patch);
       claim = { ...claim, ...patch } as ClaimRow;
     },
     getFixture: async () => (config.fixture === undefined ? FIXTURE : config.fixture),
-    openMarketsForGroup: async () => markets.filter((m) => m.status === 'open'),
+    openMarketsForGroup: async () => markets.filter((m) => m.status === 'open' || m.status === 'pending_lineup'),
     insertMarket: async (input: Record<string, unknown>) => {
       const market = {
         ...input,
@@ -156,13 +160,28 @@ function makeHarness(config: HarnessConfig): Harness {
       markets.push(market);
       return market;
     },
+    updateMarketStatus: async (id: string, status: MarketRow['status']) => {
+      const m = markets.find((x) => x.id === id);
+      if (m) m.status = status;
+    },
+    insertSettlement: async (input: Record<string, unknown>) => {
+      settlements.push(input);
+    },
     setMarketCardMessage: async () => undefined,
-    positionsForMarket: async () => [],
+    positionsForMarket: async () => (config.positions ?? []) as never,
     playersForFixture: async () => [],
   } as unknown as EngineDb;
 
+  const wager = {
+    currencyForMint: async () => 'sol' as const,
+    cardFooter: () => '⚠️ devnet SOL — /deposit to load, /withdraw to cash out.',
+    presetLabels: () => ['0.01 SOL', '0.05 SOL', '0.1 SOL'] as [string, string, string],
+    applySettlement: async () => undefined,
+  };
+
   const deps = {
     db,
+    wager,
     agent: {
       parse: async () => {
         parseCount += 1;
@@ -191,17 +210,22 @@ function makeHarness(config: HarnessConfig): Harness {
         posts.push({ chatId, text, options });
       },
       editCard: () => undefined,
-      stripKeyboard: (_chatId: number, messageId: number) => {
-        strips.push(messageId);
-      },
+      stripKeyboard: () => undefined,
     },
-    say: async (key: Parameters<typeof renderFallback>[0], vars = {}) =>
-      renderFallback(key, vars),
+    say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
     supervisor: { replayFixture: () => null },
     budget: new LlmBudget(config.llmBudget ?? 1000, () => NOW),
   } as unknown as HandlerCtx;
 
-  return { h, posts, strips, patches, markets, getClaim: () => claim, parseCalls: () => parseCount };
+  return {
+    h,
+    posts,
+    patches,
+    markets,
+    settlements,
+    getClaim: () => claim,
+    parseCalls: () => parseCount,
+  };
 }
 
 function oddsInputs() {
@@ -233,8 +257,21 @@ function keyboardData(post: RecordedPost): string[] {
   });
 }
 
-describe('pricing failure keeps the flow alive (finding: price failure resets claim)', () => {
-  it('keeps a clarifying claim pickable, posts a retry button, and the retry re-prices without an LLM parse', async () => {
+describe('option pick prices and mints (broker offer flow)', () => {
+  it('mints one SOL market and posts an offer card with stake + decline buttons', async () => {
+    const harness = makeHarness({ claim: claimRow('clarifying', clarifyEnvelope()) });
+    await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
+
+    expect(harness.markets).toHaveLength(1);
+    expect(harness.markets[0]).toMatchObject({ currency: 'sol', quote_probability: 0.6 });
+    expect(harness.getClaim().status).toBe('confirmed');
+    const offer = harness.posts.at(-1)!;
+    const buttons = keyboardData(offer);
+    expect(buttons.some((d) => d.startsWith('st:'))).toBe(true); // stake buttons
+    expect(buttons).toContain(`nx:${CLAIM_ID}`); // decline
+  });
+
+  it('keeps a clarifying claim pickable on a transient price failure, then mints on retry — no LLM parse', async () => {
     let fetchCalls = 0;
     const harness = makeHarness({
       claim: claimRow('clarifying', clarifyEnvelope()),
@@ -246,34 +283,23 @@ describe('pricing failure keeps the flow alive (finding: price failure resets cl
       },
     });
 
-    const first = fakeCtx();
-    await dispatchCallback(harness.h, first.ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
-
-    // Status must NOT be reset to 'nudged' — the options keyboard stays live.
+    await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
     expect(harness.getClaim().status).toBe('clarifying');
-    expect(harness.patches.some((patch) => patch.status === 'nudged')).toBe(false);
-    // The failure post carries transient copy and a Run-it-again button for the SAME option.
-    const failurePost = harness.posts.at(-1);
-    expect(failurePost?.text).toBe(renderFallback('no_price'));
-    expect(keyboardData(failurePost!)).toContain(`op:${CLAIM_ID}:0`);
-    // The tap extended the TTL.
+    expect(harness.markets).toHaveLength(0);
+    const failure = harness.posts.at(-1)!;
+    expect(failure.text).toBe(renderFallback('no_price'));
+    expect(keyboardData(failure)).toContain(`op:${CLAIM_ID}:0`);
     expect(harness.patches.at(-1)?.expires_at).toBe(
       new Date(NOW + TUNABLES.UNCONFIRMED_CLAIM_TTL_MS).toISOString(),
     );
 
-    // Retry the SAME button: now the odds are back and the gate must appear.
-    const second = fakeCtx();
-    await dispatchCallback(harness.h, second.ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
-
-    expect(harness.getClaim().status).toBe('awaiting_confirm');
-    const envelope = readEnvelope(harness.getClaim());
-    expect(envelope?.chosen).toEqual(spec({ period: 'FT_90' }));
-    expect(harness.posts.at(-1)?.text).toContain('is that your shout?');
-    // The whole loop cost zero LLM parses.
+    await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
+    expect(harness.markets).toHaveLength(1);
+    expect(harness.getClaim().status).toBe('confirmed');
     expect(harness.parseCalls()).toBe(0);
   });
 
-  it('distinguishes no-odds from transient and skips the retry button when the spec is unpriceable', async () => {
+  it('distinguishes no-odds from transient and skips the retry button when unpriceable', async () => {
     const noOdds = makeHarness({
       claim: claimRow('clarifying', clarifyEnvelope()),
       fetchOdds: () => ({ kind: 'no_odds' }) as const,
@@ -288,15 +314,11 @@ describe('pricing failure keeps the flow alive (finding: price failure resets cl
         throw new Error('player not yet bound to a side');
       },
     });
-    await dispatchCallback(unpriceable.h, fakeCtx().ctx, {
-      t: 'option',
-      claimId: CLAIM_ID,
-      key: '0',
-    });
+    await dispatchCallback(unpriceable.h, fakeCtx().ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
     expect(unpriceable.posts.at(-1)?.text).toBe(renderFallback('unpriceable'));
-    // Retrying an unpriceable spec is futile — no retry button.
     expect(unpriceable.posts.at(-1)?.options.keyboard).toBeUndefined();
     expect(unpriceable.getClaim().status).toBe('clarifying');
+    expect(unpriceable.markets).toHaveLength(0);
   });
 
   it('maps the typed missing-input pricer error to the honest no-line copy', async () => {
@@ -311,67 +333,64 @@ describe('pricing failure keeps the flow alive (finding: price failure resets cl
     await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
     expect(harness.posts.at(-1)?.text).toBe(renderFallback('no_line'));
   });
+
+  it('refuses to mint a degenerate (already-decided) quote', async () => {
+    const harness = makeHarness({
+      claim: claimRow('clarifying', clarifyEnvelope()),
+      priceSpec: () => ({ ...QUOTE, probability: 1 }),
+    });
+    await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
+    expect(harness.markets).toHaveLength(0);
+    expect(harness.posts.at(-1)?.text).toBe(renderFallback('already_decided'));
+    expect(harness.getClaim().status).toBe('clarifying');
+  });
+
+  it('only the claimer can pick the terms', async () => {
+    const harness = makeHarness({ claim: claimRow('clarifying', clarifyEnvelope()) });
+    const other = fakeCtx(OTHER_ID);
+    await dispatchCallback(harness.h, other.ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
+    expect(harness.markets).toHaveLength(0);
+    expect(other.toasts.some((t) => t.toLowerCase().includes('dee'))).toBe(true);
+  });
 });
 
-describe('confirm double-tap (finding: two markets for one claim)', () => {
-  function confirmedEnvelope(): ParseEnvelope {
-    return {
-      ...clarifyEnvelope(),
-      chosen: spec({ period: 'FT_90' }),
-      quote: {
-        probability: QUOTE.probability,
-        multiplier: QUOTE.multiplier,
-        provenance: QUOTE.provenance,
-        oddsMessageId: QUOTE.oddsMessageId,
-        oddsTsMs: QUOTE.oddsTsMs,
-      },
-      gateMessageId: 888,
-    };
-  }
-
-  it('mints exactly one market for two concurrent confirm taps', async () => {
-    const harness = makeHarness({ claim: claimRow('awaiting_confirm', confirmedEnvelope()) });
+describe('one market per claim (finding: two markets for one claim)', () => {
+  it('mints exactly one market for two concurrent option taps', async () => {
+    const harness = makeHarness({ claim: claimRow('clarifying', clarifyEnvelope()) });
     const tapA = fakeCtx();
     const tapB = fakeCtx();
     await Promise.all([
-      dispatchCallback(harness.h, tapA.ctx, { t: 'confirm', claimId: CLAIM_ID }),
-      dispatchCallback(harness.h, tapB.ctx, { t: 'confirm', claimId: CLAIM_ID }),
+      dispatchCallback(harness.h, tapA.ctx, { t: 'option', claimId: CLAIM_ID, key: '0' }),
+      dispatchCallback(harness.h, tapB.ctx, { t: 'option', claimId: CLAIM_ID, key: '0' }),
     ]);
-
     expect(harness.markets).toHaveLength(1);
     expect(harness.getClaim().status).toBe('confirmed');
-    // The loser of the race gets the in-flight toast, not a false 'Locked'.
     expect([...tapA.toasts, ...tapB.toasts]).toContain(renderFallback('hold_on'));
-    // The winning tap was acked only after the mint.
-    expect([...tapA.toasts, ...tapB.toasts]).toContain('Locked. 🎙');
-    // The minted gate's keyboard was retired.
-    expect(harness.strips).toContain(888);
   });
 
-  it('answers stale (no second market) for a confirm tap after the mint', async () => {
-    const harness = makeHarness({ claim: claimRow('awaiting_confirm', confirmedEnvelope()) });
-    await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'confirm', claimId: CLAIM_ID });
+  it('answers stale (no second market) for an option tap after the mint', async () => {
+    const harness = makeHarness({ claim: claimRow('clarifying', clarifyEnvelope()) });
+    await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
     const late = fakeCtx();
-    await dispatchCallback(harness.h, late.ctx, { t: 'confirm', claimId: CLAIM_ID });
+    await dispatchCallback(harness.h, late.ctx, { t: 'option', claimId: CLAIM_ID, key: '1' });
     expect(harness.markets).toHaveLength(1);
     expect(late.toasts).toContain(renderFallback('stale'));
   });
 
-  it('treats a fixture-lookup miss as transient instead of expiring the claim', async () => {
+  it('treats a fixture-lookup miss as transient (retry, no mint, claim survives)', async () => {
     const harness = makeHarness({
-      claim: claimRow('awaiting_confirm', confirmedEnvelope()),
+      claim: claimRow('clarifying', clarifyEnvelope()),
       fixture: null,
     });
-    const tap = fakeCtx();
-    await dispatchCallback(harness.h, tap.ctx, { t: 'confirm', claimId: CLAIM_ID });
+    await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
     expect(harness.markets).toHaveLength(0);
-    expect(harness.getClaim().status).toBe('awaiting_confirm');
+    expect(harness.getClaim().status).toBe('clarifying');
     expect(harness.patches.some((patch) => patch.status === 'expired')).toBe(false);
-    expect(tap.toasts).toContain(renderFallback('hiccup'));
+    expect(harness.posts.at(-1)?.text).toBe(renderFallback('hiccup'));
   });
 });
 
-describe('prove flow (findings: double parse, stranded clarifying, TTL)', () => {
+describe('prove = re-parse retry (findings: double parse, stranded clarifying, TTL)', () => {
   it('runs a single LLM parse for two concurrent prove taps', async () => {
     const harness = makeHarness({
       claim: claimRow('nudged'),
@@ -397,9 +416,10 @@ describe('prove flow (findings: double parse, stranded clarifying, TTL)', () => 
       },
     });
     await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'prove', claimId: CLAIM_ID });
-    // Not stranded in 'clarifying', not falsely 'declined' — back to 'nudged'.
     expect(harness.getClaim().status).toBe('nudged');
-    expect(harness.posts.at(-1)?.text).toBe(renderFallback('prove_retry'));
+    const retry = harness.posts.at(-1)!;
+    expect(retry.text).toBe(renderFallback('prove_retry'));
+    expect(keyboardData(retry)).toContain(`pv:${CLAIM_ID}`);
   });
 
   it('meters the prove parse behind the LLM budget', async () => {
@@ -411,7 +431,7 @@ describe('prove flow (findings: double parse, stranded clarifying, TTL)', () => 
     expect(tap.toasts).toContain(renderFallback('budget_spent'));
   });
 
-  it('extends the TTL on the prove tap and again at the confirm gate', async () => {
+  it('mints straight from a successful prove re-parse and extends the TTL', async () => {
     const extendedIso = new Date(NOW + TUNABLES.UNCONFIRMED_CLAIM_TTL_MS).toISOString();
     const rawParse = {
       claimType: 'match_winner',
@@ -428,28 +448,59 @@ describe('prove flow (findings: double parse, stranded clarifying, TTL)', () => 
 
     const clarifyingPatch = harness.patches.find((patch) => patch.status === 'clarifying');
     expect(clarifyingPatch?.expires_at).toBe(extendedIso);
-    const gatePatch = harness.patches.find((patch) => patch.status === 'awaiting_confirm');
-    expect(gatePatch?.expires_at).toBe(extendedIso);
+    expect(harness.markets).toHaveLength(1);
+    expect(harness.getClaim().status).toBe('confirmed');
   });
 });
 
-describe('confirm-gate switching (finding: old gate mints new terms)', () => {
-  it('strips the superseded gate keyboard when the claimer switches options', async () => {
+describe('decline — pre-mint kill, post-mint void', () => {
+  it('kills a pre-mint claim for the claimer', async () => {
     const harness = makeHarness({ claim: claimRow('clarifying', clarifyEnvelope()) });
+    const tap = fakeCtx();
+    await dispatchCallback(harness.h, tap.ctx, { t: 'decline', claimId: CLAIM_ID });
+    expect(harness.getClaim().status).toBe('declined');
+    expect(tap.toasts).toContain(renderFallback('confirm_declined'));
+  });
 
-    await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
-    const gateA = harness.posts.at(-1)!;
-    expect(gateA.text).toContain('is that your shout?');
-    await gateA.options.onSent?.(111);
-    expect(readEnvelope(harness.getClaim())?.gateMessageId).toBe(111);
+  it('voids a minted market that no one bet on', async () => {
+    const harness = makeHarness({ claim: claimRow('confirmed') });
+    // Seed a minted, unbet market for this claim.
+    harness.markets.push({
+      id: 'market-1',
+      claim_id: CLAIM_ID,
+      group_id: CHAT_ID,
+      status: 'open',
+      currency: 'sol',
+      spec: spec(),
+    } as unknown as MarketRow);
+    const tap = fakeCtx();
+    await dispatchCallback(harness.h, tap.ctx, { t: 'decline', claimId: CLAIM_ID });
+    expect(harness.markets[0]?.status).toBe('voided');
+    expect(harness.settlements.at(-1)).toMatchObject({ outcome: 'void' });
+    expect(tap.toasts).toContain(renderFallback('confirm_declined'));
+  });
 
-    await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'option', claimId: CLAIM_ID, key: '1' });
-    // The old gate's confirm/decline buttons were removed.
-    expect(harness.strips).toContain(111);
-    const gateB = harness.posts.at(-1)!;
-    await gateB.options.onSent?.(222);
-    const envelope = readEnvelope(harness.getClaim());
-    expect(envelope?.gateMessageId).toBe(222);
-    expect(envelope?.chosen).toEqual(spec({ period: 'FT' }));
+  it('refuses to void once real SOL is on the offer', async () => {
+    const harness = makeHarness({ claim: claimRow('confirmed'), positions: [{ state: 'active' }] });
+    harness.markets.push({
+      id: 'market-1',
+      claim_id: CLAIM_ID,
+      group_id: CHAT_ID,
+      status: 'open',
+      currency: 'sol',
+      spec: spec(),
+    } as unknown as MarketRow);
+    const tap = fakeCtx();
+    await dispatchCallback(harness.h, tap.ctx, { t: 'decline', claimId: CLAIM_ID });
+    expect(harness.markets[0]?.status).toBe('open');
+    expect(tap.toasts).toContain(renderFallback('offer_taken'));
+  });
+
+  it('lets only the claimer decline', async () => {
+    const harness = makeHarness({ claim: claimRow('clarifying', clarifyEnvelope()) });
+    const other = fakeCtx(OTHER_ID);
+    await dispatchCallback(harness.h, other.ctx, { t: 'decline', claimId: CLAIM_ID });
+    expect(harness.getClaim().status).toBe('clarifying');
+    expect(other.toasts.some((t) => t.toLowerCase().includes('dee'))).toBe(true);
   });
 });

@@ -104,15 +104,12 @@ export interface WagerWithdrawalRow {
   error: string | null;
 }
 
-export type WagerStakeErrorCode =
-  | 'insufficient'
-  | 'wrong_side'
-  | 'cap'
-  | 'liability_cap'
-  | 'paused';
+export type WagerStakeErrorCode = 'insufficient' | 'wrong_side' | 'cap' | 'paused';
 
 export type WagerStakeResult =
   | { ok: true; position_id: string }
+  /** A prior stake with the same client idempotency key already landed. */
+  | { ok: true; duplicate: true }
   | { ok: false; code: WagerStakeErrorCode };
 
 export type WagerWithdrawErrorCode = 'insufficient' | 'no_wallet';
@@ -132,10 +129,6 @@ export interface WagerStatusRow {
  * Number.isSafeInteger asserts.
  */
 export interface WagerDb {
-  // group opt-in
-  setGroupEnabled(groupId: number, enabled: boolean, byUserId: number): Promise<void>;
-  isGroupEnabled(groupId: number): Promise<boolean>;
-
   // wallet links
   getWalletLink(userId: number): Promise<WagerWalletLinkRow | null>;
   getWalletLinkByPubkey(pubkey: string): Promise<WagerWalletLinkRow | null>;
@@ -159,6 +152,8 @@ export interface WagerDb {
     multiplier: number;
     state: 'pending' | 'active';
     placed_at_ms: number;
+    /** Client idempotency key for at-least-once callers (concierge/API). */
+    idempotency_key?: string;
   }): Promise<WagerStakeResult>;
   /** dest_pubkey is resolved from the wallet link INSIDE the function. */
   requestWithdrawal(args: { user_id: number; lamports: bigint }): Promise<WagerWithdrawResult>;
@@ -187,6 +182,8 @@ export interface WagerDb {
   // shared markets/positions/settlements — sol paths only
   positionsForMarket(marketId: string): Promise<WagerPositionRow[]>;
   setPositionStates(ids: string[], state: WagerPositionState): Promise<void>;
+  /** Feed-locked probability of the market (the settlement/pot ratio input). */
+  getMarketProbability(marketId: string): Promise<number | null>;
   getSettlementOutcome(marketId: string): Promise<WagerSettlementOutcome | null>;
   hasSettlementApplied(marketId: string): Promise<boolean>;
   insertSettlementApplied(marketId: string): Promise<void>;
@@ -265,8 +262,6 @@ export type WagerBalanceResult =
   | { ok: true; lamports: bigint }
   | { ok: false; error: string };
 
-export type WagerAirdropResult = { ok: true; sig: string } | { ok: false; error: string };
-
 export interface WagerChain {
   /** The dedicated wager treasury address (safe to show in chat). */
   treasuryPubkey(): string;
@@ -282,8 +277,6 @@ export interface WagerChain {
   isBlockheightExceeded(lastValidBlockHeight: number): Promise<WagerBlockheightCheck>;
   /** Incoming system transfers to the treasury newer than the cursor sig. */
   fetchIncomingTransfers(args: { untilSig: string | null }): Promise<WagerDepositScan>;
-  /** Devnet float top-up. Rate-limit failures are expected — warn, don't throw. */
-  requestAirdrop(lamports: bigint): Promise<WagerAirdropResult>;
 }
 
 // ── Engine seams (structural subsets of Poster / Logger / grammy Bot) ─────
@@ -323,15 +316,18 @@ export interface WagerStakeTapArgs {
   userId: number;
   userName: string;
   side: WagerPositionSide;
-  presetIndex: number;
+  /** Exact stake in lamports — the caller resolves presets to lamports. */
+  lamports: bigint;
   inPlay: boolean;
   nowMs: number;
+  /** At-least-once dedup key (concierge/API); omitted on button taps. */
+  idempotencyKey?: string;
 }
 
 export interface WagerModule {
-  /** 'sol' when the group has wager mode on — stamped atomically at mint. */
+  /** Always 'sol' now — every market is a SOL market. Stamped atomically at mint. */
   currencyForMint(groupId: number): Promise<WagerCurrency>;
-  /** The sol-market branch of handleStake; reply is the callback-answer text. */
+  /** The stake path shared by buttons and the API; reply is the answer text. */
   handleStakeTap(args: WagerStakeTapArgs): Promise<{ reply: string; placed: boolean }>;
   /** Idempotent money movement for a settled/voided sol market. */
   applySettlement(marketId: string): Promise<void>;
@@ -339,13 +335,10 @@ export interface WagerModule {
   settlementPayoutsLine(marketId: string, outcome: WagerSettlementOutcome): Promise<string>;
   cardFooter(): string;
   presetLabels(): [string, string, string];
-  /**
-   * Flips the per-group flag and returns the group-facing toggle explainer —
-   * ALL wager copy lives in wager/copy.ts, so the line must flow out through
-   * the module surface rather than be composed at the seam.
-   */
-  setGroupEnabled(groupId: number, enabled: boolean, byUserId: number): Promise<string>;
-  isGroupEnabled(groupId: number): Promise<boolean>;
+  /** Preset button index → lamports (out-of-range → null). */
+  presetLamports(index: number): bigint | null;
+  /** User-global SOL balance (lamports) + linked wallet, for the API wallet route. */
+  walletSummary(userId: number): Promise<{ balanceLamports: bigint; pubkey: string | null }>;
   registerCommands(bot: WagerBotLike): void;
   registerCrons(registry: WagerCronRegistry): void;
 }

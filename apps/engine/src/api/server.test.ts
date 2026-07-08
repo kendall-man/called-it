@@ -1,22 +1,24 @@
 /**
  * Behavior tests for the engine HTTP API — the concierge integration surface.
- * Focus: auth, the stake money path over HTTP (guards + idempotent replay),
- * and the read-only quote flow with a scripted parser.
+ * Focus: auth, the SOL stake path over HTTP (routed through the wager module,
+ * idempotent replay), the wallet/snapshot reads, and the read-only quote flow.
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Server } from 'node:http';
-import { TUNABLES } from '@calledit/market-engine';
 import { startEngineApi } from './server.js';
-import type { Deps, EngineDb, FixtureRow, LedgerEntry, MarketRow, PositionRow } from '../ports.js';
+import type { Deps, EngineDb, FixtureRow, MarketRow } from '../ports.js';
 import type { Env } from '../env.js';
 import type { Poster } from '../bot/poster.js';
+import { createWagerModule } from '../wager/module.js';
+import { makeFakeDeps, type FakeWagerDb } from '../wager/fakes.js';
 
 const NOW = Date.parse('2026-07-08T12:00:00.000Z');
 const CHAT_ID = -100555;
 const USER_ID = 9001;
 const MARKET_ID = '11111111-2222-4333-8444-555555555555';
 const TOKEN = 'test-engine-api-token-0123456789';
+const PUBKEY = 'Wa11etPubkey1111111111111111111111111111';
 
 const FIXTURE: FixtureRow = {
   fixture_id: 42,
@@ -51,13 +53,13 @@ const MARKET: MarketRow = {
   odds_message_id: 'om-1',
   odds_ts: NOW - 1000,
   card_tg_message_id: null,
+  currency: 'sol',
   created_at: new Date(NOW).toISOString(),
 };
 
 interface ApiHarness {
   base: string;
-  positions: PositionRow[];
-  ledger: LedgerEntry[];
+  wagerDb: FakeWagerDb;
 }
 
 let activeServer: Server | null = null;
@@ -67,47 +69,34 @@ afterEach(() => {
   activeServer = null;
 });
 
-async function startHarness(opts: { balance?: number } = {}): Promise<ApiHarness> {
-  const positions: PositionRow[] = [];
-  const ledger: LedgerEntry[] = [];
-  let seq = 0;
-  const startingBalance = opts.balance ?? TUNABLES.STARTING_BALANCE;
+async function startHarness(
+  opts: { balanceLamports?: bigint; link?: boolean; market?: MarketRow } = {},
+): Promise<ApiHarness> {
+  const wagerBundle = makeFakeDeps({ now: () => NOW });
+  const wager = createWagerModule(wagerBundle.deps);
+  if (opts.link ?? true) wagerBundle.db.seedLink(USER_ID, PUBKEY);
+  wagerBundle.db.seedBalance(USER_ID, opts.balanceLamports ?? 1_000_000_000n); // 1 SOL
+  wagerBundle.db.seedMarketProbability(MARKET_ID, 0.5);
 
+  const theMarket = opts.market ?? MARKET;
   const db = {
     getGroup: async (id: number) =>
-      id === CHAT_ID ? { id, title: 'Test Group', chattiness: 'normal', web_enabled: true, slug: 'slug' } : null,
-    getMarket: async (id: string) => (id === MARKET_ID ? { ...MARKET } : null),
+      id === CHAT_ID ? { id, title: 'Test Group', chattiness: 'nudge', web_enabled: true, slug: 'slug' } : null,
+    getMarket: async (id: string) => (id === theMarket.id ? { ...theMarket } : null),
     getFixture: async () => FIXTURE,
-    openMarketsForGroup: async () => [{ ...MARKET }],
-    leaderboard: async () => [
-      { user_id: USER_ID, display_name: 'Dee', points_cached: 120, streak: 2 },
-    ],
+    openMarketsForGroup: async () => [{ ...theMarket }],
     fixturesBetween: async () => [FIXTURE],
     playersForFixture: async () => [],
     getUser: async (id: number) =>
       id === USER_ID ? { id, display_name: 'Dee Real Name', username: 'dee' } : null,
     upsertUser: async () => undefined,
     ensureMembership: async () => ({ created: false }),
-    positionsForMarket: async (marketId: string) =>
-      positions.filter((p) => p.market_id === marketId).map((p) => ({ ...p })),
-    insertPosition: async (input: Omit<PositionRow, 'id'>) => {
-      seq += 1;
-      const row: PositionRow = { ...input, id: `pos-${seq}` };
-      positions.push(row);
-      return row;
-    },
-    postLedger: async (entry: LedgerEntry) => {
-      if (ledger.some((e) => e.idempotency_key === entry.idempotency_key)) return { inserted: false };
-      ledger.push(entry);
-      return { inserted: true };
-    },
-    hasLedgerEntry: async (key: string) => ledger.some((e) => e.idempotency_key === key),
-    balance: async (_g: number, userId: number) =>
-      startingBalance + ledger.filter((e) => e.user_id === userId).reduce((s, e) => s + e.amount, 0),
+    positionsForMarket: async () => [],
   } as unknown as EngineDb;
 
   const deps = {
     db,
+    wager,
     agent: {
       parse: async () => ({
         claimType: 'match_winner',
@@ -149,10 +138,23 @@ async function startHarness(opts: { balance?: number } = {}): Promise<ApiHarness
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('no port');
-  return { base: `http://127.0.0.1:${address.port}`, positions, ledger };
+  return { base: `http://127.0.0.1:${address.port}`, wagerDb: wagerBundle.db };
 }
 
 const authed = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
+
+function stakeBody(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    chatId: CHAT_ID,
+    marketId: MARKET_ID,
+    userId: USER_ID,
+    displayName: 'Dee',
+    side: 'back',
+    amount: 0.05,
+    idempotencyKey: 'call-abc-123',
+    ...overrides,
+  });
+}
 
 describe('engine API', () => {
   it('starts only when a token is configured', () => {
@@ -173,108 +175,95 @@ describe('engine API', () => {
       headers: { authorization: 'Bearer nope' },
     });
     expect(wrong.status).toBe(401);
-    // health stays public for platform checks
     const health = await fetch(`${hz.base}/api/health`);
     expect(health.status).toBe(200);
   });
 
-  it('serves the group snapshot with markets and leaderboard', async () => {
+  it('serves the group snapshot with SOL markets and pots (no leaderboard)', async () => {
     const hz = await startHarness();
     const res = await fetch(`${hz.base}/api/groups/${CHAT_ID}/snapshot`, { headers: authed });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { markets: unknown[]; leaderboard: Array<{ rep: number }> };
+    const body = (await res.json()) as {
+      markets: Array<{ currency: string; matchedPct: number; forSol: string }>;
+      leaderboard?: unknown;
+    };
     expect(body.markets).toHaveLength(1);
-    expect(body.leaderboard[0]?.rep).toBe(120);
+    expect(body.markets[0]?.currency).toBe('sol');
+    expect(body.markets[0]).toHaveProperty('matchedPct');
+    expect(body.markets[0]).toHaveProperty('forSol');
+    expect(body.leaderboard).toBeUndefined();
   });
 
-  it('places a stake over HTTP and debits the ledger', async () => {
+  it('returns the wallet as a SOL stack with the linked pubkey', async () => {
     const hz = await startHarness();
-    const res = await fetch(`${hz.base}/api/stake`, {
-      method: 'POST',
-      headers: authed,
-      body: JSON.stringify({
-        chatId: CHAT_ID,
-        marketId: MARKET_ID,
-        userId: USER_ID,
-        displayName: 'Dee',
-        side: 'back',
-        amount: 30,
-        idempotencyKey: 'call-abc-123',
-      }),
-    });
+    const res = await fetch(`${hz.base}/api/groups/${CHAT_ID}/users/${USER_ID}/wallet`, { headers: authed });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { kind: string };
-    expect(body.kind).toBe('ok');
-    expect(hz.positions).toHaveLength(1);
-    expect(hz.positions[0]).toMatchObject({ stake: 30, side: 'back', user_id: USER_ID });
-    expect(hz.ledger.find((e) => e.kind === 'stake')?.amount).toBe(-30);
-    expect(hz.ledger.find((e) => e.kind === 'stake')?.idempotency_key).toBe('stake-api:call-abc-123');
+    const body = (await res.json()) as { linkedWallet: string; balanceSol: string; balanceLamports: string };
+    expect(body.linkedWallet).toBe(PUBKEY);
+    expect(body.balanceLamports).toBe('1000000000');
+    expect(body.balanceSol).toBe('1');
   });
 
-  it('replaying the same idempotency key changes nothing (eve step re-run)', async () => {
+  it('places a SOL bet over HTTP and escrows it in the wager ledger', async () => {
     const hz = await startHarness();
-    const stakeBody = JSON.stringify({
-      chatId: CHAT_ID,
-      marketId: MARKET_ID,
-      userId: USER_ID,
-      displayName: 'Dee',
-      side: 'back',
-      amount: 30,
-      idempotencyKey: 'call-dup-1',
-    });
-    const first = await fetch(`${hz.base}/api/stake`, { method: 'POST', headers: authed, body: stakeBody });
+    const res = await fetch(`${hz.base}/api/stake`, { method: 'POST', headers: authed, body: stakeBody() });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { placed: boolean; reply: string };
+    expect(body.placed).toBe(true);
+    expect(hz.wagerDb.positions).toHaveLength(1);
+    // 0.05 SOL → 50_000_000 lamports.
+    expect(hz.wagerDb.positions[0]).toMatchObject({ stake: 50_000_000, side: 'back', user_id: USER_ID });
+    expect(hz.wagerDb.ledger.find((e) => e.kind === 'stake')?.lamports).toBe(-50_000_000n);
+  });
+
+  it('replaying the same idempotency key never double-stakes (eve step re-run)', async () => {
+    const hz = await startHarness();
+    const first = await fetch(`${hz.base}/api/stake`, { method: 'POST', headers: authed, body: stakeBody({ idempotencyKey: 'call-dup-1' }) });
     expect(first.status).toBe(200);
-    const second = await fetch(`${hz.base}/api/stake`, { method: 'POST', headers: authed, body: stakeBody });
+    expect(((await first.json()) as { placed: boolean }).placed).toBe(true);
+    const second = await fetch(`${hz.base}/api/stake`, { method: 'POST', headers: authed, body: stakeBody({ idempotencyKey: 'call-dup-1' }) });
     expect(second.status).toBe(200);
-    expect(((await second.json()) as { kind: string }).kind).toBe('duplicate');
-    expect(hz.positions).toHaveLength(1); // no double-stake
+    expect(((await second.json()) as { placed: boolean }).placed).toBe(false);
+    expect(hz.wagerDb.positions).toHaveLength(1); // no double-stake
   });
 
-  it('rejects negative and fractional amounts', async () => {
+  it('rejects negative, zero, and over-cap amounts at the schema (400)', async () => {
     const hz = await startHarness();
-    for (const amount of [-50, 2.5, 0]) {
+    for (const amount of [-0.05, 0, 0.5]) {
       const res = await fetch(`${hz.base}/api/stake`, {
         method: 'POST',
         headers: authed,
-        body: JSON.stringify({
-          chatId: CHAT_ID,
-          marketId: MARKET_ID,
-          userId: USER_ID,
-          displayName: 'Dee',
-          side: 'back',
-          amount,
-          idempotencyKey: `call-neg-${amount}`,
-        }),
+        body: stakeBody({ amount, idempotencyKey: `call-bad-${amount}` }),
       });
-      expect(res.status).toBe(404); // 'unavailable' — same class as unknown market
+      expect(res.status).toBe(400);
     }
-    expect(hz.positions).toHaveLength(0);
-    expect(hz.ledger).toHaveLength(0); // and definitely no Rep credit
+    expect(hz.wagerDb.positions).toHaveLength(0);
   });
 
-  it('surfaces guard rejections as 422 with the copy key', async () => {
-    const hz = await startHarness({ balance: 10 });
-    const res = await fetch(`${hz.base}/api/stake`, {
+  it('relays an insufficient-balance refusal as 200 { placed:false }', async () => {
+    const hz = await startHarness({ balanceLamports: 1_000_000n }); // 0.001 SOL
+    const res = await fetch(`${hz.base}/api/stake`, { method: 'POST', headers: authed, body: stakeBody({ idempotencyKey: 'call-poor-1' }) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { placed: boolean; reply: string };
+    expect(body.placed).toBe(false);
+    expect(body.reply.toLowerCase()).toContain('sol');
+    expect(hz.wagerDb.positions).toHaveLength(0);
+  });
+
+  it('404s an unknown market and 409s a closed one', async () => {
+    const hz = await startHarness({ market: { ...MARKET, status: 'settled' } });
+    const unknown = await fetch(`${hz.base}/api/stake`, {
       method: 'POST',
       headers: authed,
-      body: JSON.stringify({
-        chatId: CHAT_ID,
-        marketId: MARKET_ID,
-        userId: USER_ID,
-        displayName: 'Dee',
-        side: 'back',
-        amount: 30,
-        idempotencyKey: 'call-poor-1',
-      }),
+      body: stakeBody({ marketId: '99999999-2222-4333-8444-555555555555', idempotencyKey: 'call-unk-1' }),
     });
-    expect(res.status).toBe(422);
-    const body = (await res.json()) as { kind: string; copyKey: string };
-    expect(body.copyKey).toBe('insufficient_rep');
+    expect(unknown.status).toBe(404);
+    const closed = await fetch(`${hz.base}/api/stake`, { method: 'POST', headers: authed, body: stakeBody({ idempotencyKey: 'call-closed-1' }) });
+    expect(closed.status).toBe(409);
   });
 
   it('forwards a telegram update into the injected handler', async () => {
     const hz = await startHarness();
-    // harness has no handler → 409
     const no = await fetch(`${hz.base}/api/telegram-update`, {
       method: 'POST',
       headers: authed,
@@ -298,7 +287,6 @@ describe('engine API', () => {
     expect(body.kind).toBe('ok');
     expect(body.options[0]?.quote.kind).toBe('ok');
     expect(body.options[0]?.quote.backMultiplier).toBe(2);
-    expect(hz.positions).toHaveLength(0);
-    expect(hz.ledger).toHaveLength(0);
+    expect(hz.wagerDb.positions).toHaveLength(0);
   });
 });

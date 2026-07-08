@@ -10,22 +10,18 @@ import type { Chattiness } from '../localTypes.js';
 export const CALLBACK_DATA_MAX_BYTES = 64;
 
 export type CallbackAction =
-  /** "Make him prove it" on a nudge. */
+  /** Retry the parse after an infrastructure blip ("Run it back"). */
   | { t: 'prove'; claimId: string }
   /** Clarify / counter-offer option pick; key indexes the stored candidates. */
   | { t: 'option'; claimId: string; key: string }
-  /** "That's my shout" confirm gate. */
-  | { t: 'confirm'; claimId: string }
-  /** Claimer walks away from the confirm gate. */
+  /** Claimer walks away from an unbet offer. */
   | { t: 'decline'; claimId: string }
-  /** Back/Doubt stake tap with a preset index into TUNABLES.PRESET_STAKES. */
+  /** Back/Doubt stake tap with a preset index into the SOL presets. */
   | { t: 'stake'; marketId: string; side: 'back' | 'doubt'; presetIndex: number }
   /** /settings chattiness pick. */
   | { t: 'chattiness'; mode: Chattiness }
   /** /settings web-pages toggle. */
-  | { t: 'web'; enabled: boolean }
-  /** /settings devnet-SOL toggle (admin, only offered when the wager module is live). */
-  | { t: 'wager'; enabled: boolean };
+  | { t: 'web'; enabled: boolean };
 
 const MODE_TO_CODE: Record<Chattiness, string> = {
   nudge: 'n',
@@ -49,9 +45,6 @@ export function encodeCallback(action: CallbackAction): string {
     case 'option':
       data = `op:${action.claimId}:${action.key}`;
       break;
-    case 'confirm':
-      data = `cf:${action.claimId}`;
-      break;
     case 'decline':
       data = `nx:${action.claimId}`;
       break;
@@ -63,9 +56,6 @@ export function encodeCallback(action: CallbackAction): string {
       break;
     case 'web':
       data = `sw:${action.enabled ? '1' : '0'}`;
-      break;
-    case 'wager':
-      data = `wg:${action.enabled ? '1' : '0'}`;
       break;
   }
   if (Buffer.byteLength(data, 'utf8') > CALLBACK_DATA_MAX_BYTES) {
@@ -83,12 +73,6 @@ export function decodeCallback(data: string): CallbackAction | null {
       const claimId = parts[1];
       return parts.length === 2 && claimId !== undefined && UUID_RE.test(claimId)
         ? { t: 'prove', claimId }
-        : null;
-    }
-    case 'cf': {
-      const claimId = parts[1];
-      return parts.length === 2 && claimId !== undefined && UUID_RE.test(claimId)
-        ? { t: 'confirm', claimId }
         : null;
     }
     case 'nx': {
@@ -132,12 +116,6 @@ export function decodeCallback(data: string): CallbackAction | null {
       const flag = parts[1];
       return parts.length === 2 && (flag === '0' || flag === '1')
         ? { t: 'web', enabled: flag === '1' }
-        : null;
-    }
-    case 'wg': {
-      const flag = parts[1];
-      return parts.length === 2 && (flag === '0' || flag === '1')
-        ? { t: 'wager', enabled: flag === '1' }
         : null;
     }
     default:

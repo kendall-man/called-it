@@ -24,7 +24,7 @@ export interface TimelineInput {
 
 const LIVE_STEP_COPY: Record<Exclude<ReceiptStatus, 'settled' | 'voided'>, [string, string]> = {
   pending_lineup: ['Waiting on lineups', 'Named a player — the call activates when the teamsheet drops'],
-  open: ['Calls open', 'Rep on the line — every multiplier locked at tap time'],
+  open: ['Calls open', 'Stakes matched in devnet SOL — every multiplier locked at tap time'],
   frozen: ['Calls locked', 'Drama on the pitch — nobody moves until it clears'],
   settling: ['Moment of truth', 'Deciding stat confirmed — sealing the result'],
 };
@@ -32,7 +32,7 @@ const LIVE_STEP_COPY: Record<Exclude<ReceiptStatus, 'settled' | 'voided'>, [stri
 const OUTCOME_COPY: Record<ReceiptOutcome, string> = {
   claim_won: 'Settled — called it',
   claim_lost: 'Settled — didn’t land',
-  void: 'Settled — void, all Rep returned',
+  void: 'Settled — void, stakes returned',
 };
 
 export function buildTimeline(input: TimelineInput): TimelineStep[] {
@@ -64,8 +64,8 @@ export function buildTimeline(input: TimelineInput): TimelineStep[] {
       { key: 'live', label: 'Calls locked', detail: null, state: 'done', at: null },
       {
         key: 'settled',
-        label: 'Voided — all Rep returned',
-        detail: 'The match had other plans; nobody loses a point',
+        label: 'Voided — stakes returned',
+        detail: 'The match had other plans; every stake comes back',
         state: 'done',
         at: input.settledAt,
       },

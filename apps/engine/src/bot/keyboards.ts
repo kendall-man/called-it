@@ -4,13 +4,20 @@
  */
 
 import { InlineKeyboard } from 'grammy';
-import { TUNABLES } from '@calledit/market-engine';
 import { encodeCallback } from './callbackData.js';
 import type { Chattiness } from '../localTypes.js';
 import type { Deps, MarketRow } from '../ports.js';
 
-export function nudgeKeyboard(claimId: string): InlineKeyboard {
-  return new InlineKeyboard().text('Make him prove it 🎯', encodeCallback({ t: 'prove', claimId }));
+/** SOL amounts shown when the wager module can't be reached (it always can now). */
+const DEFAULT_PRESET_LABELS: readonly [string, string, string] = ['0.01 SOL', '0.05 SOL', '0.1 SOL'];
+
+/**
+ * Single-button retry after an infrastructure blip during the parse: re-runs
+ * the claim through the parser with no re-detection. Its `t:'prove'` guard
+ * already accepts the 'nudged' status offerClaim leaves behind.
+ */
+export function retryParseKeyboard(claimId: string): InlineKeyboard {
+  return new InlineKeyboard().text('Run it back 🔁', encodeCallback({ t: 'prove', claimId }));
 }
 
 export function optionsKeyboard(
@@ -35,48 +42,45 @@ export function retryQuoteKeyboard(claimId: string, optionKey: string): InlineKe
   );
 }
 
-export function confirmKeyboard(claimId: string): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("That's my shout ✅", encodeCallback({ t: 'confirm', claimId }))
-    .row()
-    .text('Not mine ❌', encodeCallback({ t: 'decline', claimId }));
-}
-
+/** Back / Bet-against rows with the three SOL preset amounts. */
 export function stakeKeyboard(
   marketId: string,
-  presetLabels?: readonly [string, string, string],
+  presetLabels: readonly [string, string, string],
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  TUNABLES.PRESET_STAKES.forEach((amount, index) => {
-    keyboard.text(`⚡ Back ${presetLabels?.[index] ?? amount}`, encodeCallback({ t: 'stake', marketId, side: 'back', presetIndex: index }));
+  presetLabels.forEach((label, index) => {
+    keyboard.text(
+      `⚡ Back ${label}`,
+      encodeCallback({ t: 'stake', marketId, side: 'back', presetIndex: index }),
+    );
   });
   keyboard.row();
-  TUNABLES.PRESET_STAKES.forEach((amount, index) => {
-    keyboard.text(`🛑 Doubt ${presetLabels?.[index] ?? amount}`, encodeCallback({ t: 'stake', marketId, side: 'doubt', presetIndex: index }));
+  presetLabels.forEach((label, index) => {
+    keyboard.text(
+      `🛑 Against ${label}`,
+      encodeCallback({ t: 'stake', marketId, side: 'doubt', presetIndex: index }),
+    );
   });
   return keyboard;
 }
 
-/**
- * Stake keyboard for a specific market row: sol markets get the wager
- * module's preset labels; every other market keeps the main-identical Rep
- * presets. Callback data encoding is unchanged in both cases.
- */
+/** Stake keyboard for a market row: labels come from the wager preset amounts. */
 export function marketStakeKeyboard(deps: Deps, market: MarketRow): InlineKeyboard {
-  const labels =
-    market.currency === 'sol' ? deps.wager?.presetLabels() : undefined;
+  const labels = deps.wager?.presetLabels() ?? DEFAULT_PRESET_LABELS;
   return stakeKeyboard(market.id, labels);
 }
 
-export function settingsKeyboard(
-  current: Chattiness,
-  webEnabled: boolean,
-  /** Only ever non-null when the wager module is live — flag-off keyboards are main-identical. */
-  wagerState?: { enabled: boolean } | null,
-): InlineKeyboard {
+/** The offer card keyboard: both stake sides plus the claimer's "not mine" out. */
+export function offerKeyboard(deps: Deps, market: MarketRow, claimId: string): InlineKeyboard {
+  const keyboard = marketStakeKeyboard(deps, market);
+  keyboard.row().text('Not mine ❌', encodeCallback({ t: 'decline', claimId }));
+  return keyboard;
+}
+
+export function settingsKeyboard(current: Chattiness, webEnabled: boolean): InlineKeyboard {
   const mark = (mode: Chattiness, label: string) => (current === mode ? `• ${label} •` : label);
-  const keyboard = new InlineKeyboard()
-    .text(mark('nudge', 'Priced nudges'), encodeCallback({ t: 'chattiness', mode: 'nudge' }))
+  return new InlineKeyboard()
+    .text(mark('nudge', 'Auto-offer bets'), encodeCallback({ t: 'chattiness', mode: 'nudge' }))
     .row()
     .text(mark('react_only', 'React only 👀'), encodeCallback({ t: 'chattiness', mode: 'react_only' }))
     .row()
@@ -86,15 +90,4 @@ export function settingsKeyboard(
       webEnabled ? 'Web pages: ON — tap to hide' : 'Web pages: OFF — tap to show',
       encodeCallback({ t: 'web', enabled: !webEnabled }),
     );
-  if (wagerState) {
-    keyboard
-      .row()
-      .text(
-        wagerState.enabled
-          ? 'Devnet SOL: ON — tap to switch off'
-          : 'Devnet SOL: OFF — tap to switch on',
-        encodeCallback({ t: 'wager', enabled: !wagerState.enabled }),
-      );
-  }
-  return keyboard;
 }
