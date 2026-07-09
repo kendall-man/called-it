@@ -4,6 +4,7 @@ Branch: codex/direct-onboarding
 Base HEAD: 55ef15c
 Commit subject: fix(txline): reject ambiguous market periods
 Follow-up commit subject: fix(txline): avoid duplicate replay period diagnostics
+Size-gate commit subject: test(txline): split odds normalization coverage
 
 Scope
 - Task 3 changed the odds normalizer/tests, the replay call site/test, and this evidence pair only.
@@ -46,6 +47,21 @@ Final verification
   exit 0; tsc -p tsconfig.json.
 - The optional Bun no-excuse checker could not run because Bun is not installed. A diff-only prohibited-pattern scan found no any annotations, disallowed assertions, ts-ignore directives, ts-expect-error directives, or non-null assertions; tsc passed.
 
+Size-gate follow-up
+- Characterization before splitting: 6 files passed; 201 tests passed.
+- Baseline normalize-odds.test.ts: 397 non-comment lines before this split and 298 before Task 3.
+- Assertion preservation: 106 expect calls before and after; 37 it/it.each declarations before and after.
+- packages/txline/src/normalize-odds.ts: 250 non-comment lines.
+- packages/txline/src/normalize-odds.test.ts: 166 non-comment lines; focused 18/18 passed.
+- packages/txline/src/normalize-odds-period.test.ts: 121 non-comment lines; focused 47/47 passed.
+- packages/txline/src/normalize-odds-devnet.test.ts: 127 non-comment lines; focused 10/10 passed.
+- packages/txline/src/replay-source.ts: 183 non-comment lines.
+- packages/txline/src/replay-source.test.ts: 221 non-comment lines.
+- Replay plus period run 1: 2 files passed; 55/55 tests passed.
+- Replay plus period run 2: 2 files passed; 55/55 tests passed.
+- Full post-split suite: 8 files passed; 201/201 tests passed.
+- Post-split typecheck and build: exit 0.
+
 Manual QA
 - Runtime: Node v26.4.0 against freshly built packages/txline/dist.
 - Driver inputs allowed: null, empty, ft, and trimmed REGULAR.
@@ -57,6 +73,7 @@ Manual QA
 - Observed: rawLeakCount=0. The driver was repeated after the final build and produced identical output.
 - Built ReplaySource.stepOnce probe, rejected-only: eventCount=0, diagnosticCount=1, unsupportedPeriodCount=1, oddsPins=[], rawLeakCount=0.
 - Built ReplaySource.stepOnce probe, rejected-plus-valid: diagnosticCount=1 and oddsPins=["valid"], proving filtered valid odds are retained.
+- Post-split built probe reproduced the same rejected-only and rejected-plus-valid counts with diagnosticShapeValid=true and rawLeakCount=0.
 - Redacted runtime records: .omo/evidence/task-3-called-it-direct-onboarding-remediation.logs.jsonl
 
 Runtime hypotheses
@@ -80,9 +97,9 @@ Review gate
 - Code quality: PASS. Untrusted payloads remain Zod-parsed, period outcomes are a readonly discriminated union, and branching is exhaustive.
 - Security: PASS. Rejection diagnostics contain only a fixed event, typed reason, truncated SHA-256 fingerprint, and capped normalized length.
 - Context and integration: PASS. ReplaySource reuses its already filtered records for suspension and combination; live ingestion and engine wiring remain unchanged.
-- Structural note: normalize-odds.test.ts was already 298 pure lines before this task. It remains the plan-owned acceptance file rather than being split outside scope.
+- Structure: PASS. Every touched Task 3 TypeScript production/test file is at or below 250 non-comment lines; each split file owns one behavior surface.
 
 Cleanup receipt
 - No temporary source files, debugger statements, debug processes, env overrides, or scratch scripts were created.
 - Generated dist output is ignored and absent from the commit scope.
-- Follow-up staging is restricted to replay-source.ts, replay-source.test.ts, and this exact evidence pair.
+- Size-gate follow-up staging is restricted to the three split odds test files and this exact evidence pair.
