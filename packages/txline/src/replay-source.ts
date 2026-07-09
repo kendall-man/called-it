@@ -174,7 +174,7 @@ export class ReplaySource implements MatchEventSource {
     }
     this.oddsSuspended = suspendedNow;
 
-    const inputs = combineOddsSnapshot(oddsRecords, { logger: this.logger });
+    const inputs = combineOddsSnapshot(trackedOdds, { logger: this.logger });
     if (
       inputs !== null &&
       inputs.oddsMessageId !== null &&

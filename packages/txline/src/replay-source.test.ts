@@ -130,6 +130,26 @@ describe('ReplaySource.stepOnce — snapshot diffing', () => {
     await expect(source.stepOnce()).rejects.toThrow(/cannot resolve kickoff/);
   });
 
+  it('logs one rejection and emits no event for one unsupported odds period', async () => {
+    const logger = vi.fn();
+    const source = new ReplaySource({
+      client: snapshotClient([], [oddsRecord({ MarketPeriod: 'period=FT', Ts: KICKOFF_MS })]),
+      fixtureId: FIXTURE_ID,
+      speed: 30,
+      startMs: KICKOFF_MS,
+      logger,
+    });
+
+    const result = await source.stepOnce();
+
+    expect(result.events).toEqual([]);
+    expect(logger).toHaveBeenCalledOnce();
+    expect(logger).toHaveBeenCalledWith(
+      'odds period rejected',
+      expect.objectContaining({ reason: 'unsupported_period' }),
+    );
+  });
+
   it('stops at the max virtual duration when no terminal phase arrives', async () => {
     const neverEnding = [SCORES_HISTORY[0] as Record<string, unknown>];
     const source = new ReplaySource({

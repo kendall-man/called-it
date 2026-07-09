@@ -3,9 +3,10 @@ Worktree: /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
 Branch: codex/direct-onboarding
 Base HEAD: 55ef15c
 Commit subject: fix(txline): reject ambiguous market periods
+Follow-up commit subject: fix(txline): avoid duplicate replay period diagnostics
 
 Scope
-- Changed only packages/txline/src/normalize-odds.ts, its requested test file, and this evidence pair.
+- Task 3 changed the odds normalizer/tests, the replay call site/test, and this evidence pair only.
 - No schema or engine wiring was required. Existing TxlineLogger injection already forwards the fixed event and bounded fields to the engine logger.
 - Unrelated dirty-worktree files were not edited, reverted, or staged.
 
@@ -23,9 +24,22 @@ Red -> green record
    npx -y pnpm@10.33.0 --filter @calledit/txline exec vitest run src/normalize-odds.test.ts
    exit 0; 1 file passed; 75 tests passed.
 
+Independent verifier follow-up red -> green
+1. Replay behavior red:
+   npx -y pnpm@10.33.0 --filter @calledit/txline exec vitest run src/replay-source.test.ts
+   exit 1; one rejected record emitted zero events but called the logger twice; 1 failed, 7 passed.
+2. Minimal call-site fix:
+   ReplaySource now passes its already classified/full-match trackedOdds to combineOddsSnapshot.
+3. Replay behavior green:
+   same focused replay command
+   exit 0; 1 file passed; 8 tests passed. Existing valid odds pins remained m1 and m2.
+
 Final verification
-- npx -y pnpm@10.33.0 --filter @calledit/txline test -- normalize-odds.test.ts
-  exit 0; 6 files passed; 200 tests passed.
+- npx -y pnpm@10.33.0 --filter @calledit/txline exec vitest run src/replay-source.test.ts src/normalize-odds.test.ts
+  run 1 exit 0; 2 files passed; 83 tests passed.
+  run 2 exit 0; 2 files passed; 83 tests passed.
+- npx -y pnpm@10.33.0 --filter @calledit/txline test
+  exit 0; 6 files passed; 201 tests passed.
 - npx -y pnpm@10.33.0 --filter @calledit/txline typecheck
   exit 0; tsc -p tsconfig.json --noEmit.
 - npx -y pnpm@10.33.0 --filter @calledit/txline build
@@ -41,6 +55,8 @@ Manual QA
 - Observed: 103/103 malformed inputs returned typed unsupported_period and emitted exactly 103 diagnostics.
 - Observed: every diagnostic had only fixed message, reason, 12-hex periodHash, and periodLength capped at 128.
 - Observed: rawLeakCount=0. The driver was repeated after the final build and produced identical output.
+- Built ReplaySource.stepOnce probe, rejected-only: eventCount=0, diagnosticCount=1, unsupportedPeriodCount=1, oddsPins=[], rawLeakCount=0.
+- Built ReplaySource.stepOnce probe, rejected-plus-valid: diagnosticCount=1 and oddsPins=["valid"], proving filtered valid odds are retained.
 - Redacted runtime records: .omo/evidence/task-3-called-it-direct-onboarding-remediation.logs.jsonl
 
 Runtime hypotheses
@@ -48,24 +64,25 @@ Runtime hypotheses
 - H2 exact normalization might deny intended aliases. Refuted: null, empty, lower-case ft, and whitespace-trimmed REGULAR all emitted odds.
 - H3 diagnostics might leak raw text or drift from rejection counts. Refuted: 103 typed rejections, 103 diagnostics, fixed diagnostic schema, rawLeakCount=0.
 - H4 stale dist output might hide source behavior. Refuted: build ran immediately before the dist driver; repeated output was identical.
+- H5 ReplaySource might classify a rejected period twice or drop valid tracked odds. Refuted: the built stepOnce probe emitted one diagnostic per rejected record and retained the valid odds pin.
 
 Adversarial receipt
 - malformed_input: PASS. Named forbidden markers, compound/prefix variants, observed contamination, oversized text, and 100 seeded malformed values are default-denied.
 - untrusted_external_text/log_redaction: PASS. No raw period or provider payload is logged; hash is fixed-width and reported length is capped.
 - stale_state: PASS. Fresh typecheck/build plus repeated dist-driver execution.
-- dirty_worktree: PASS. Concurrent CONTRACTS.md, README.md, docs, DESIGN.md, scripts/check-product-copy*, and unrelated .omo files were preserved and excluded from this task's staging set.
+- dirty_worktree: PASS. All concurrent Task 1 paths and unrelated .omo orchestration state were preserved and excluded from this task's staging set.
 - flaky_seeded_tests: PASS. Fixed seed and two identical post-build driver outputs.
-- misleading_success_output: PASS. Both the truly focused 75-test command and the package script's 200-test output were checked with exit codes and semantic driver counts.
+- misleading_success_output: PASS. Both repeated 83-test focused runs and the full package's 201-test output were checked with exit codes and semantic driver counts.
 
 Review gate
 - Goal and constraints: PASS. Every plan token class and scoped deliverable is covered; score normalization and out-of-scope surfaces are untouched.
 - Runtime QA: PASS. The freshly built library was exercised directly with allowed, observed, compound, and seeded inputs.
 - Code quality: PASS. Untrusted payloads remain Zod-parsed, period outcomes are a readonly discriminated union, and branching is exhaustive.
 - Security: PASS. Rejection diagnostics contain only a fixed event, typed reason, truncated SHA-256 fingerprint, and capped normalized length.
-- Context and integration: PASS. LiveSource and ReplaySource continue through the unchanged boolean adapter; their package tests pass, so no engine metric edit is necessary.
+- Context and integration: PASS. ReplaySource reuses its already filtered records for suspension and combination; live ingestion and engine wiring remain unchanged.
 - Structural note: normalize-odds.test.ts was already 298 pure lines before this task. It remains the plan-owned acceptance file rather than being split outside scope.
 
 Cleanup receipt
 - No temporary source files, debugger statements, debug processes, env overrides, or scratch scripts were created.
 - Generated dist output is ignored and absent from the commit scope.
-- Final staging is restricted to the two TxLINE files and this exact evidence pair.
+- Follow-up staging is restricted to replay-source.ts, replay-source.test.ts, and this exact evidence pair.
