@@ -1,0 +1,6 @@
+{"event":"manual_qa_summary","allowedResults":[{"label":"null","periodKind":"full_match","emitsOdds":true},{"label":"empty","periodKind":"full_match","emitsOdds":true},{"label":"ft","periodKind":"full_match","emitsOdds":true},{"label":"trimmed_regular","periodKind":"full_match","emitsOdds":true}],"malformedCount":103,"malformedOddsEmitted":0,"unsupportedPeriodCount":103,"diagnosticCount":103,"diagnosticShapeValid":true,"rawLeakCount":0}
+{"event":"unsupported_period","case":"observed_contamination","message":"odds period rejected","reason":"unsupported_period","periodHash":"0d411720919f","periodLength":9}
+{"event":"unsupported_period","case":"embedded_key_value","message":"odds period rejected","reason":"unsupported_period","periodHash":"70ba683b0b15","periodLength":9}
+{"event":"unsupported_period","case":"compound_separator","message":"odds period rejected","reason":"unsupported_period","periodHash":"75eace75e0bc","periodLength":5}
+{"event":"unsupported_period","case":"seeded_first","message":"odds period rejected","reason":"unsupported_period","periodHash":"7a7e148c0591","periodLength":13}
+{"event":"unsupported_period","case":"seeded_last","message":"odds period rejected","reason":"unsupported_period","periodHash":"f63c3c714e9e","periodLength":14}
