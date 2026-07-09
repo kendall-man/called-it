@@ -254,12 +254,16 @@ export async function offerClaim(h: HandlerCtx, args: OfferArgs): Promise<void> 
     confidence: args.confidence,
     trigger: args.announce,
   });
-  const outcome = await proveClaim(h.deps, claim);
+  // In a replaying group, pin the parse to the replayed fixture (else ambiguous
+  // team names — several active fixtures for one team — reject and go silent).
+  const replayFixtureId = h.supervisor.replayFixture(args.chatId) ?? undefined;
+  const outcome = await proveClaim(h.deps, claim, replayFixtureId);
   await routeProveOutcome(h, claim, args.group, outcome, args.announce);
 }
 
 /** Exposed for the "Run it back" retry: re-parse and re-route under the claim lock. */
 export async function retryOffer(h: HandlerCtx, claim: ClaimRow, group: GroupRow): Promise<void> {
-  const outcome = await proveClaim(h.deps, claim);
+  const replayFixtureId = h.supervisor.replayFixture(group.id) ?? undefined;
+  const outcome = await proveClaim(h.deps, claim, replayFixtureId);
   await routeProveOutcome(h, claim, group, outcome, true);
 }

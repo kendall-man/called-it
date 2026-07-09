@@ -53,15 +53,30 @@ export type ProveOutcome =
  * decide (LLM proposes, code disposes). Never throws: infrastructure
  * failures come back as 'retryable' so the caller can restore a live button
  * instead of stranding the claim in 'clarifying'.
+ *
+ * `preferredFixtureId` pins the claim to a specific match: during a replay the
+ * whole group is betting on the replayed fixture, so without this a team that
+ * has several active fixtures (e.g. "Argentina to win" with three Argentina
+ * matches on the board) parses to fixtureId=null and the compiler rejects it.
+ * When set it both seeds the parse context and overrides the parsed fixture.
  */
-export async function proveClaim(deps: Deps, claim: ClaimRow): Promise<ProveOutcome> {
+export async function proveClaim(
+  deps: Deps,
+  claim: ClaimRow,
+  preferredFixtureId?: number,
+): Promise<ProveOutcome> {
   let raw: RawClaimParse;
   try {
-    const seedCtx = await buildCompileContext(deps, null);
+    const seedCtx = await buildCompileContext(deps, preferredFixtureId ?? null);
     raw = await deps.agent.parse(claim.quoted_text, seedCtx);
   } catch (err) {
     deps.log.warn('parse_failed', { claimId: claim.id, error: String(err) });
     return { kind: 'retryable' };
+  }
+  // Pin the fixture during a replay — any claim in a replaying group is about
+  // the replayed match, so a null/off-fixture parse is corrected to it.
+  if (preferredFixtureId !== undefined) {
+    raw = { ...raw, fixtureId: preferredFixtureId };
   }
   deps.log.info('parse', { claimId: claim.id, raw });
 

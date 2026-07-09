@@ -194,4 +194,30 @@ describe('proveClaim never-throw contract', () => {
     const outcome = await proveClaim(deps, CLAIM);
     expect(outcome.kind).toBe('envelope');
   });
+
+  type CompileCapture = { compileClaim: (raw: { fixtureId: number | null }) => unknown };
+
+  it('pins an ambiguous (null-fixture) parse to the replay fixture', async () => {
+    const REPLAY_FIXTURE = 18202701;
+    const deps = makeDeps({ parse: () => ({ ...RAW, fixtureId: null, unresolved: 'which match?' }) });
+    let compiledFixtureId: number | null | undefined;
+    (deps.engine as unknown as CompileCapture).compileClaim = (raw) => {
+      compiledFixtureId = raw.fixtureId;
+      return { kind: 'ok', spec: SPEC };
+    };
+    const outcome = await proveClaim(deps, CLAIM, REPLAY_FIXTURE);
+    expect(compiledFixtureId).toBe(REPLAY_FIXTURE); // null was overridden to the replay fixture
+    expect(outcome.kind).toBe('envelope');
+  });
+
+  it('leaves the parsed fixture untouched when no replay pin is given', async () => {
+    const deps = makeDeps({ parse: () => RAW });
+    let compiledFixtureId: number | null | undefined;
+    (deps.engine as unknown as CompileCapture).compileClaim = (raw) => {
+      compiledFixtureId = raw.fixtureId;
+      return { kind: 'ok', spec: SPEC };
+    };
+    await proveClaim(deps, CLAIM);
+    expect(compiledFixtureId).toBe(FIXTURE_ID);
+  });
 });
