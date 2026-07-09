@@ -10,6 +10,7 @@
     "dev": "turbo run dev",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
+    "verify:product-copy": "tsx --test scripts/check-product-copy.test.ts && tsx scripts/check-product-copy.ts",
     "bootstrap:txline": "tsx scripts/bootstrap-txline.ts"
   },
   "devDependencies": {

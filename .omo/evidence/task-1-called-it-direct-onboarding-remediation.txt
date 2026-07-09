@@ -1,0 +1,132 @@
+Task 1 evidence: Freeze the SOL-only product, onboarding, consent and design contract
+Captured: 2026-07-09T23:46:52Z
+Worktree: <REPO>/.claude/worktrees/direct-onboarding
+Branch: codex/direct-onboarding
+
+SCOPE
+- Added DESIGN.md and rewrote the owned active product/app/concierge contracts.
+- Added scripts/check-product-copy.ts, behavior tests, and root verify:product-copy wiring.
+- Removed the concierge replay instruction.
+- Did not modify bot/web implementation, environment files, migrations, boulder state, or
+  start-work ledger state.
+
+TDD / BASELINE CHARACTERIZATION
+1. Before production edits:
+   npx -y pnpm@10.33.0 --filter @calledit/engine test -- copy.test.ts
+   exit 0; 20 test files passed; 207 tests passed.
+2. Before production edits:
+   npx -y pnpm@10.33.0 --filter @calledit/web test -- spec-terms.test.ts
+   exit 0; 4 test files passed; 34 tests passed.
+3. RED: the first checker behavior test failed because no rule diagnostics were emitted for
+   Practice Rep plus a placeholder anchor.
+4. GREEN: fixture scan emitted [economy.rep-primary-path] and [cta.placeholder-href].
+5. RED/GREEN slices also proved malformed UTF-8 rejection, adjacent historical context,
+   unrelated-negative-line resistance, --help, and the literal real-value rule.
+
+FINAL EXACT TASK COMMAND
+npx -y pnpm@10.33.0 --filter @calledit/engine test -- copy.test.ts &&
+npx -y pnpm@10.33.0 --filter @calledit/web test -- spec-terms.test.ts &&
+npx -y pnpm@10.33.0 verify:product-copy
+
+exit 0
+- Engine: 20 test files passed; 207 tests passed.
+- Web: 4 test files passed; 34 tests passed.
+- Product-copy behavior: 7 tests passed; 0 failed.
+- Tracked scan:
+  PASS guidance (9 files)
+  PASS bot (1 file)
+  PASS concierge (5 files)
+  PASS web (12 files)
+  Product copy contract: PASS (27 files)
+- Non-failing runtime warning: bigint native bindings were unavailable; affected engine
+  tests used the package's pure-JS fallback and passed.
+
+FLAKY_TESTS / REPEATABILITY
+Immediately after the exact task command:
+  npx -y pnpm@10.33.0 verify:product-copy
+  exit 0; 7 behavior tests passed; all four tracked surfaces passed; 27 files scanned.
+Thus two consecutive final verifier runs exited 0 against the same tracked state.
+
+STRICT TYPESCRIPT / RULE AUDIT
+1. Strict standalone tsc over both checker files:
+   exit 0; no diagnostics.
+2. TypeScript no-excuse audit over both checker files:
+   exit 0; No violations in 2 file(s).
+3. git diff --check:
+   exit 0.
+
+MANUAL QA: HAPPY PATH
+npx -y pnpm@10.33.0 exec tsx scripts/check-product-copy.ts
+positive_exit=0
+PASS guidance (9 files)
+PASS bot (1 file)
+PASS concierge (5 files)
+PASS web (12 files)
+Product copy contract: PASS (27 files)
+
+MANUAL QA: REQUIRED FAILURE PATH
+Fixture contents at <TEMP_FIXTURE>:
+  Practice Rep
+  <a href="#">Start</a>
+
+Redacted checker output:
+  <TEMP_FIXTURE>:1 [economy.rep-primary-path] Practice Rep
+  <TEMP_FIXTURE>:2 [cta.placeholder-href] <a href="#">Start</a>
+  FAIL fixture (2 violations)
+  negative_exit=1
+
+The assertion harness required exit 1 and both rule IDs, then exited 0.
+cleanup=removed; the temporary fixture did not exist after the harness.
+
+ADVERSARIAL: MALFORMED INPUT
+A temporary one-byte invalid UTF-8 fixture produced:
+  [input.invalid-fixture] <TEMP_FIXTURE>: The encoded data was not valid for encoding utf-8
+  malformed_exit=2
+cleanup=removed; the malformed fixture did not exist after the harness.
+The same boundary is covered by the behavior suite.
+
+ADVERSARIAL: STALE STATE
+- Re-read README.md, DESIGN.md, CONTRACTS.md, both active docs, root/apps AGENTS.md,
+  every remaining concierge instruction, package.json, checker source, and checker tests
+  after edits.
+- Re-ran the exact task command and the standalone checker after that reread; both exited 0.
+
+ADVERSARIAL: DIRTY WORKTREE / SCOPE
+- Audited git status before staging.
+- Owned changes are limited to the requested product contracts, root/app AGENTS files,
+  concierge instructions, package.json one-script wiring, checker/test, and this evidence.
+- Pre-existing/unowned .omo plans, drafts, reviews, baseline evidence, boulder state, and
+  start-work ledger files remain unstaged and unmodified by this task.
+- No bot implementation, web implementation, environment file, or migration is in the
+  owned diff.
+
+ADVERSARIAL: MISLEADING SUCCESS OUTPUT
+- Tracked scan independently proved positive_exit=0.
+- Required bad fixture independently proved negative_exit=1 and both rule IDs.
+- The negative assertion/cleanup harness itself exited 0 only after checking those facts.
+
+DEBUGGING RUNTIME AUDIT
+H1: The checker could print a failure while still returning success.
+- Distinguishing evidence: process exit for the required Practice Rep/hash-anchor fixture.
+- Observed: negative_exit=1; assertion harness required exactly 1 and both rule IDs.
+- Result: refuted.
+
+H2: Invalid UTF-8 could be replacement-decoded and pass as a clean source.
+- Distinguishing evidence: process exit and stderr for a one-byte invalid UTF-8 fixture.
+- Observed: malformed_exit=2 with [input.invalid-fixture].
+- Result: refuted.
+
+H3: The default mode could scan a stale or partial manifest and report generic success.
+- Distinguishing evidence: named per-surface output and file count after the final reread.
+- Observed: guidance=9, bot=1, concierge=5, web=12; total=27; positive_exit=0.
+- Result: refuted for the Task 1 manifest.
+
+POST-IMPLEMENTATION REVIEW LANES
+- Goal/constraints: PASS; every requested owned document/instruction/checker/evidence path is
+  present, and forbidden bot/web implementation or environment paths are absent.
+- Hands-on QA: PASS; tracked, required-failure, malformed-input, and help CLI modes were run.
+- Code quality: PASS; strict tsc, no-excuse audit, 236 pure source LOC, focused behavior tests.
+- Security/privacy: PASS; no environment values were read, fixture paths are explicit CLI
+  input, errors are typed by stable rule ID, and saved evidence redacts temporary paths.
+- Context/scope: PASS; exact Todo 1 criteria and governing AGENTS files were reread; dormant
+  migration history remains excluded while the selected active surfaces are scanned.

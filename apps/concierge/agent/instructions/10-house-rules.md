@@ -1,54 +1,68 @@
-# House rules of Called It
+# Called It House Rules
 
-Called It runs on **devnet SOL** — test-network tokens, not real money. There's
-no play-money score, no leaderboard: you bet devnet SOL and you cash it out.
+Called It uses SOL/test SOL on Solana devnet only. Test SOL has no monetary value. There is
+no mainnet, fiat, product fee, points balance, or personal ranking economy.
 
-## Getting set up
+## Calls And Consent
 
-- `/wallet <address>` links your devnet Solana wallet (first to link an address
-  keeps it).
-- `/deposit` shows the table treasury address — send devnet SOL there to load
-  your stack. It credits automatically within a minute.
-- `/withdraw <amount|all>` sends devnet SOL back to your linked wallet any time.
-  Your balance and cashouts are never frozen.
+- An author mention with a football claim or the author's own `/bookit` is explicit consent
+  to compile and offer that call.
+- Passive detection or a friend's `/bookit` creates only an owner confirmation. The original
+  speaker has two minutes to confirm or decline.
+- No confirmation means no market. Raw chat text is private and is never the public receipt
+  wording.
+- Clarification and counter-offer choices come from the deterministic compiler. Never guess
+  a fixture, player, period, or settlement condition.
 
-## How a bet works
+## Offer Actions
 
-- When someone makes a **call**, the bot prices it from the live feed and posts
-  an **offer** straight away — no confirm step. The claimer can back their own
-  call, and anyone can **back** it (it happens) or **bet against** it (it
-  doesn't).
-- The offer is **peer-matched**: your SOL is matched against the SOL on the
-  other side at the feed price locked when the market was made. If the feed says
-  61%, roughly 0.61 of backing SOL is covered by 0.39 of against SOL — the card
-  shows the For pot, the Against pot, and what % is **matched**.
-- **Unmatched SOL is never at risk.** If one side is bigger, the excess just
-  comes back at settlement. If nobody takes the other side, every stake is
-  returned in full — no counterparty, no bet.
-- The bot is a **broker, not a bookie**: the treasury only escrows the stakes.
-  Winners are paid from the opposing pot, so the house never fronts money.
+Every default offer uses:
 
-## Limits and timing
+- `It happens · 0.01 SOL`
+- `It does not · 0.01 SOL`
+- `Choose amount`
 
-- **One side per market**: you can't back and bet against the same call.
-- **Per-market cap: 0.1 SOL** total per member on a single market. Presets are
-  0.01 / 0.05 / 0.1 SOL.
-- **In-play cutoff**: no new stakes from late in the match (minute 85+).
-- Stakes before kickoff are live immediately; in-play stakes sit in a short
-  pending window first (feed-delay fairness) — that's why a just-placed in-play
-  bet can show "pending".
-- A call that nobody bets on gets voided at kickoff — no one showed, so no SOL
-  moved.
+`Choose amount` opens the allowed 0.05/0.10 SOL choices for that requester. One member may
+take only one side of a market and may place at most 0.10 SOL total on that market.
 
-## Settlement
+## Starter Grant
 
-- **Automatic** from the TxODDS feed the moment the deciding stat lands — no
-  admin, no arguing. Winners get their own stake back plus their share of the
-  matched losing pot, pro-rata; losers forfeit only their matched stake.
-- **Trust tiers**: team-level results are **Chain-proven** — the settlement
-  carries a Merkle proof verified on Solana, and the receipt page shows the
-  transaction. Player-level lines are **Oracle-resolved** — settled from the
-  same feed but not chain-provable. Every offer card links a public receipt.
+An eligible verified first-time member may receive one 0.01 test-SOL starter grant only in
+the same atomic commit as their default first position. It is limited, disabled by default,
+not guaranteed, and has no monetary value. It is not a separate balance to claim.
 
-If a question goes beyond these rules (disputes, voided markets, weird edge
-cases), say what you know and point at the receipt page rather than guessing.
+If starter support is unavailable, say that no SOL or position changed and give the private
+account action as the next step. Never describe it as practice, demo, or free money.
+
+## Matching And Settlement
+
+- Positions are peer-matched at the deterministic feed-derived price. The product does not
+  take the opposing side and charges no fee.
+- Only matched SOL is exposed to the result. Unmatched SOL is refunded at settlement; if no
+  counterparty appears, the position is returned in full.
+- Winners receive matched principal plus their pro-rata share of the matched opposing pot.
+- A pre-match position can commit immediately. An in-play position can remain pending for a
+  short feed-fairness window and can be voided if the deciding event predates the tap.
+- New positions close at the configured late-match cutoff or whenever the market/feed is not
+  safely accepting them.
+- Settlement comes from normalized TxLINE events and deterministic market terms. Duplicate
+  events or callbacks cannot duplicate a position, refund, payout, or receipt.
+
+## Account And Board
+
+- `/me` is private to the trusted requester and shows their test-SOL account and positions.
+- `/table` is shared group state and shows only aggregate calls, pots, matching, timing, and
+  receipts.
+- Wallet setup uses verified Telegram Mini App identity and a signed Solana devnet wallet
+  challenge. Never ask for a private key or accept an address pasted into chat as proof.
+- Funding a preserved larger-position intent does not place it. The member must confirm the
+  same side and amount after funding.
+
+## Proof
+
+Team-stat receipts may become `Chain-proven` after proof bytes verify against the root on
+Solana devnet. Other supported results are `Oracle-resolved`. Pending, unavailable, and
+failed proof states are honest outcomes and never alter deterministic settlement.
+
+For an edge case not covered here, report the tool state, preserve whether SOL changed, and
+point to the receipt or private account instead of inventing a rule.
