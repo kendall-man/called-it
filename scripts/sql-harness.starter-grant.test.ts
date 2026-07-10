@@ -71,6 +71,46 @@ test('starter stake writes exact linked rows, accepts pending_lineup, and is ide
   record('open and pending_lineup wrote exact linked position, +/-10000000 ledger, grant and budget rows; ten replays deduped; privileges enforced');
 });
 
+test('linked non-starter stakes preserve insufficient state and spend only deposited funds', async () => {
+  const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
+  await withMigratedDb(migrations, async (client) => {
+    const underfunded = await seedMarket(client, { userId: 7111, groupId: -7111 });
+    await fundLinkedUser(client, underfunded, STARTER - 1);
+    const underfundedBefore = await stateSnapshot(client, underfunded);
+    const underfundedDeposit = underfundedBefore.ledger[0];
+    assert.ok(underfundedDeposit);
+    assert.deepEqual(underfundedDeposit, { id: underfundedDeposit.id, userId: String(underfunded.userId), groupId: null, marketId: null, kind: 'deposit', lamports: String(STARTER - 1), idempotencyKey: `deposit:${underfunded.userId}` });
+    assert.deepEqual(underfundedBefore.positions, []);
+    assert.deepEqual(underfundedBefore.grants, []);
+    assert.deepEqual(underfundedBefore.budget, { enabled: true, grantLamports: String(STARTER), totalCapLamports: '5000000000', maxGrants: 500, grantedCount: 0, grantedLamports: '0' });
+
+    assert.deepEqual(await stake(client, underfunded, 'linked-underfunded', false), { ok: false, code: 'insufficient' });
+    assert.deepEqual(await stateSnapshot(client, underfunded), underfundedBefore);
+    assert.deepEqual(await counts(client, underfunded), { positions: 0, ledger: 0, grants: 0, budgetCount: 0, budgetAmount: '0' });
+
+    const funded = await seedMarket(client, { userId: 7112, groupId: -7112 });
+    await fundLinkedUser(client, funded);
+    const fundedBefore = await stateSnapshot(client, funded);
+    const fundedDeposit = fundedBefore.ledger[0];
+    assert.ok(fundedDeposit);
+    assert.deepEqual(fundedDeposit, { id: fundedDeposit.id, userId: String(funded.userId), groupId: null, marketId: null, kind: 'deposit', lamports: '200000000', idempotencyKey: `deposit:${funded.userId}` });
+
+    const result = await stake(client, funded, 'linked-funded', false);
+    assert.ok(result.ok && 'position_id' in result);
+    const fundedAfter = await stateSnapshot(client, funded);
+    const fundedDebit = fundedAfter.ledger[1];
+    assert.ok(fundedDebit);
+    assert.deepEqual(fundedAfter.positions, [{ id: result.position_id, userId: String(funded.userId), marketId: funded.marketId, side: 'back', stake: String(STARTER), state: 'active', placedAtMs: '1751630000000' }]);
+    assert.deepEqual(fundedAfter.ledger, [fundedDeposit, { id: fundedDebit.id, userId: String(funded.userId), groupId: String(funded.groupId), marketId: funded.marketId, kind: 'stake', lamports: String(-STARTER), idempotencyKey: 'wager:stake:api:linked-funded' }]);
+    assert.deepEqual(fundedAfter.grants, []);
+    assert.deepEqual(fundedAfter.budget, fundedBefore.budget);
+    assert.deepEqual(await counts(client, funded), { positions: 1, ledger: 1, grants: 0, budgetCount: 0, budgetAmount: '0' });
+    assert.deepEqual(await stake(client, funded, 'linked-funded', false), { ok: true, duplicate: true });
+    assert.deepEqual(await stateSnapshot(client, funded), fundedAfter);
+  });
+  record('linked allow_starter=false underfunded user returned insufficient with unchanged deposit/budget state; funded user wrote one debit and position with no grant and replay dedupe');
+});
+
 test('every starter refusal and injected exception preserves the exact prior state', async () => {
   const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
   await withMigratedDb(migrations, async (client) => {

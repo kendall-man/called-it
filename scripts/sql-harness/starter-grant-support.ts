@@ -19,7 +19,7 @@ type DirectStakeState = 'pending' | 'active' | 'void' | 'closed';
 type DirectStakeInput = { readonly key: string; readonly allowStarter: boolean; readonly state: DirectStakeState };
 
 type PositionSnapshot = { readonly id: string; readonly userId: string; readonly marketId: string; readonly side: string; readonly stake: string; readonly state: string; readonly placedAtMs: string };
-type LedgerSnapshot = { readonly id: string; readonly userId: string; readonly groupId: string; readonly marketId: string; readonly kind: string; readonly lamports: string; readonly idempotencyKey: string };
+type LedgerSnapshot = { readonly id: string; readonly userId: string; readonly groupId: string | null; readonly marketId: string | null; readonly kind: string; readonly lamports: string; readonly idempotencyKey: string };
 type GrantSnapshot = { readonly userId: string; readonly ledgerEntryId: string; readonly positionId: string; readonly lamports: string; readonly idempotencyKey: string };
 type BudgetSnapshot = { readonly enabled: boolean; readonly grantLamports: string; readonly totalCapLamports: string; readonly maxGrants: number; readonly grantedCount: number; readonly grantedLamports: string };
 export type StateSnapshot = { readonly positions: PositionSnapshot[]; readonly ledger: LedgerSnapshot[]; readonly grants: GrantSnapshot[]; readonly budget: BudgetSnapshot };
@@ -68,10 +68,10 @@ export async function enableStarterBudget(client: Client): Promise<void> {
   await client.query('update wager_starter_budget set enabled = true where id = 1');
 }
 
-export async function fundLinkedUser(client: Client, fixture: Fixture): Promise<void> {
+export async function fundLinkedUser(client: Client, fixture: Fixture, lamports = 200_000_000): Promise<void> {
   await enableStarterBudget(client);
   await client.query('insert into wager_wallet_links (user_id, pubkey) values ($1, $2)', [fixture.userId, `Pubkey${fixture.userId}`]);
-  await client.query('insert into wager_ledger_entries (user_id, kind, lamports, idempotency_key) values ($1, $2, $3, $4)', [fixture.userId, 'deposit', 200_000_000, `deposit:${fixture.userId}`]);
+  await client.query('insert into wager_ledger_entries (user_id, kind, lamports, idempotency_key) values ($1, $2, $3, $4)', [fixture.userId, 'deposit', lamports, `deposit:${fixture.userId}`]);
 }
 
 export async function stake(client: Client, fixture: Fixture, key: string, allowStarter: boolean): Promise<RpcResult> {
@@ -107,7 +107,7 @@ export async function counts(client: Client, fixture: Fixture): Promise<Counts> 
 export async function stateSnapshot(client: Client, fixture: Fixture): Promise<StateSnapshot> {
   const [positions, ledger, grants, budget] = await Promise.all([
     client.query<PositionSnapshot>('select id, user_id::text as "userId", market_id as "marketId", side, stake::text, state, placed_at_ms::text as "placedAtMs" from positions where user_id = $1 and market_id = $2 order by id', [fixture.userId, fixture.marketId]),
-    client.query<LedgerSnapshot>('select id::text, user_id::text as "userId", group_id::text as "groupId", market_id as "marketId", kind, lamports::text, idempotency_key as "idempotencyKey" from wager_ledger_entries where user_id = $1 and market_id = $2 order by id', [fixture.userId, fixture.marketId]),
+    client.query<LedgerSnapshot>('select id::text, user_id::text as "userId", group_id::text as "groupId", market_id as "marketId", kind, lamports::text, idempotency_key as "idempotencyKey" from wager_ledger_entries where user_id = $1 and (market_id = $2 or market_id is null) order by id', [fixture.userId, fixture.marketId]),
     client.query<GrantSnapshot>('select user_id::text as "userId", ledger_entry_id::text as "ledgerEntryId", position_id as "positionId", lamports::text, idempotency_key as "idempotencyKey" from wager_starter_grants where user_id = $1 order by user_id', [fixture.userId]),
     client.query<BudgetSnapshot>('select enabled, grant_lamports::text as "grantLamports", total_cap_lamports::text as "totalCapLamports", max_grants as "maxGrants", granted_count as "grantedCount", granted_lamports::text as "grantedLamports" from wager_starter_budget where id = 1'),
   ]);

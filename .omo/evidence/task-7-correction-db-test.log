@@ -1,0 +1,17 @@
+
+> @calledit/db@0.1.0 test /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/db
+> vitest run
+
+
+ RUN  v3.2.6 /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/db
+
+ ✓ src/wager-db-boundary.test.ts (3 tests) 3ms
+ ✓ src/wager-db-funds.test.ts (17 tests) 7ms
+ ✓ src/wager-db-rpc.test.ts (7 tests) 6ms
+ ✓ src/wager-db-wallet.test.ts (4 tests) 9ms
+ ✓ src/wager-db.test.ts (13 tests) 10ms
+
+ Test Files  5 passed (5)
+      Tests  44 passed (44)
+   Start at  18:00:30
+   Duration  424ms (transform 156ms, setup 0ms, collect 604ms, tests 36ms, environment 1ms, prepare 339ms)

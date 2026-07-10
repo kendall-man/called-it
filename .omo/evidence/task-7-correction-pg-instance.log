@@ -1,2 +1,231 @@
 DATA_DIR=/tmp/calledit-task7-pg.rPbJiJ
 PORT=56559
+2026-07-10 17:59:55.423 IST [32970] LOG:  starting PostgreSQL 17.10 (Homebrew) on aarch64-apple-darwin25.4.0, compiled by Apple clang version 21.0.0 (clang-2100.0.123.102), 64-bit
+2026-07-10 17:59:55.424 IST [32970] LOG:  listening on IPv4 address "127.0.0.1", port 55437
+2026-07-10 17:59:55.424 IST [32970] LOG:  listening on Unix socket "/tmp/calledit-task7-sql-fix-JfPGtr/.s.PGSQL.55437"
+2026-07-10 17:59:55.425 IST [32973] LOG:  database system was shut down at 2026-07-10 17:59:55 IST
+2026-07-10 17:59:55.427 IST [32970] LOG:  database system is ready to accept connections
+2026-07-10 17:59:55.536 IST [32977] FATAL:  role "sublime" does not exist
+2026-07-10 18:00:02.690 IST [33614] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:02.690 IST [33614] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:02.736 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:02.738 IST [32971] LOG:  checkpoint complete: wrote 15 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=12, longest=0.001 s, average=0.001 s; distance=5237 kB, estimate=5237 kB; lsn=0/1A35DC8, redo lsn=0/1A35D70
+2026-07-10 18:00:02.781 IST [33622] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:02.781 IST [33622] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:02.825 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:02.830 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 1 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.006 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5239 kB, estimate=5239 kB; lsn=0/1F53C58, redo lsn=0/1F53C00
+2026-07-10 18:00:02.881 IST [33684] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:02.881 IST [33684] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:02.938 IST [33691] ERROR:  permission denied for function wager_stake
+2026-07-10 18:00:02.938 IST [33691] STATEMENT:  select wager_stake(1,1,'00000000-0000-4000-8000-000000000001','back',10000000,2,'active',1,'deny',true)
+2026-07-10 18:00:02.940 IST [33692] ERROR:  permission denied for function wager_stake
+2026-07-10 18:00:02.940 IST [33692] STATEMENT:  select wager_stake(1,1,'00000000-0000-4000-8000-000000000001','back',10000000,2,'active',1,'deny',true)
+2026-07-10 18:00:02.950 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:02.951 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5255 kB, estimate=5255 kB; lsn=0/24758D0, redo lsn=0/2475878
+2026-07-10 18:00:02.998 IST [33717] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:02.998 IST [33717] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:03.051 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:03.052 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5251 kB, estimate=5254 kB; lsn=0/29967B8, redo lsn=0/2996760
+2026-07-10 18:00:03.098 IST [33725] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:03.098 IST [33725] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:03.167 IST [33731] ERROR:  injected starter failure
+2026-07-10 18:00:03.167 IST [33731] CONTEXT:  PL/pgSQL function fail_starter_grant() line 1 at RAISE
+	SQL statement "insert into wager_starter_grants (user_id, ledger_entry_id, position_id, lamports, idempotency_key)
+	    values (p_user_id, v_credit_id, v_position_id, v_budget.grant_lamports,
+	            'wager:starter:' || p_user_id::text)"
+	PL/pgSQL function wager_stake(bigint,bigint,uuid,text,bigint,double precision,text,bigint,text,boolean) line 110 at SQL statement
+2026-07-10 18:00:03.167 IST [33731] STATEMENT:  select wager_stake($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) as result
+2026-07-10 18:00:03.171 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:03.171 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5281 kB, estimate=5281 kB; lsn=0/2EBEC38, redo lsn=0/2EBEBE0
+2026-07-10 18:00:03.219 IST [33733] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:03.219 IST [33733] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:03.569 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:03.570 IST [32971] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=10, longest=0.001 s, average=0.001 s; distance=7203 kB, estimate=7203 kB; lsn=0/35C78E0, redo lsn=0/35C7888
+2026-07-10 18:00:10.222 IST [34197] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:10.222 IST [34197] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:10.266 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:10.267 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5248 kB, estimate=7007 kB; lsn=0/3AE7C98, redo lsn=0/3AE7C40
+2026-07-10 18:00:10.313 IST [34205] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:10.313 IST [34205] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:10.357 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:10.358 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5251 kB, estimate=6832 kB; lsn=0/40089D8, redo lsn=0/4008980
+2026-07-10 18:00:10.475 IST [34215] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:10.475 IST [34215] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:10.521 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:10.521 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5253 kB, estimate=6674 kB; lsn=0/452A0C0, redo lsn=0/452A068
+2026-07-10 18:00:10.566 IST [34223] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:10.566 IST [34223] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:10.603 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:10.604 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5254 kB, estimate=6532 kB; lsn=0/4A4BC78, redo lsn=0/4A4BC20
+2026-07-10 18:00:10.650 IST [34229] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:10.650 IST [34229] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:10.704 IST [34236] ERROR:  permission denied for function wager_stake
+2026-07-10 18:00:10.704 IST [34236] STATEMENT:  select wager_stake(1,1,'00000000-0000-4000-8000-000000000001','back',10000000,2,'active',1,'deny',true)
+2026-07-10 18:00:10.706 IST [34237] ERROR:  permission denied for function wager_stake
+2026-07-10 18:00:10.706 IST [34237] STATEMENT:  select wager_stake(1,1,'00000000-0000-4000-8000-000000000001','back',10000000,2,'active',1,'deny',true)
+2026-07-10 18:00:10.714 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:10.715 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5270 kB, estimate=6406 kB; lsn=0/4F71608, redo lsn=0/4F715B0
+2026-07-10 18:00:10.764 IST [34240] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:10.764 IST [34240] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:10.817 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:10.818 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5267 kB, estimate=6292 kB; lsn=0/5496330, redo lsn=0/54962D8
+2026-07-10 18:00:10.864 IST [34248] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:10.864 IST [34248] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:10.932 IST [34254] ERROR:  injected starter failure
+2026-07-10 18:00:10.932 IST [34254] CONTEXT:  PL/pgSQL function fail_starter_grant() line 1 at RAISE
+	SQL statement "insert into wager_starter_grants (user_id, ledger_entry_id, position_id, lamports, idempotency_key)
+	    values (p_user_id, v_credit_id, v_position_id, v_budget.grant_lamports,
+	            'wager:starter:' || p_user_id::text)"
+	PL/pgSQL function wager_stake(bigint,bigint,uuid,text,bigint,double precision,text,bigint,text,boolean) line 110 at SQL statement
+2026-07-10 18:00:10.932 IST [34254] STATEMENT:  select wager_stake($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) as result
+2026-07-10 18:00:10.935 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:10.936 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5289 kB, estimate=6192 kB; lsn=0/59C0A40, redo lsn=0/59C09E8
+2026-07-10 18:00:10.984 IST [34278] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:10.984 IST [34278] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:11.330 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:11.331 IST [32971] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=10, longest=0.001 s, average=0.001 s; distance=7211 kB, estimate=7211 kB; lsn=0/60CB990, redo lsn=0/60CB938
+2026-07-10 18:00:11.516 IST [34300] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:11.516 IST [34300] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:11.565 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:11.566 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5257 kB, estimate=7016 kB; lsn=0/65EE040, redo lsn=0/65EDFD0
+2026-07-10 18:00:11.612 IST [34308] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:11.612 IST [34308] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:11.657 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:11.658 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5259 kB, estimate=6840 kB; lsn=0/6B10EB0, redo lsn=0/6B10E58
+2026-07-10 18:00:11.706 IST [34315] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:11.706 IST [34315] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:11.764 IST [34324] ERROR:  permission denied for function wager_resolve_active_stake_intent
+2026-07-10 18:00:11.764 IST [34324] STATEMENT:  select wager_resolve_active_stake_intent(1)
+2026-07-10 18:00:11.766 IST [34325] ERROR:  permission denied for function wager_resolve_active_stake_intent
+2026-07-10 18:00:11.766 IST [34325] STATEMENT:  select wager_resolve_active_stake_intent(1)
+2026-07-10 18:00:11.769 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:11.770 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5269 kB, estimate=6683 kB; lsn=0/70362D0, redo lsn=0/7036278
+2026-07-10 18:00:11.815 IST [34327] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:11.815 IST [34327] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:11.866 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:11.867 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5262 kB, estimate=6541 kB; lsn=0/7559C78, redo lsn=0/7559C20
+2026-07-10 18:00:12.022 IST [34344] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:00:12.022 IST [34344] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:00:12.067 IST [32971] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:00:12.068 IST [32971] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5259 kB, estimate=6413 kB; lsn=0/7A7CC58, redo lsn=0/7A7CC00
+2026-07-10 18:01:00.233 IST [32970] LOG:  received fast shutdown request
+2026-07-10 18:01:00.234 IST [32970] LOG:  aborting any active transactions
+2026-07-10 18:01:00.234 IST [32970] LOG:  background worker "logical replication launcher" (PID 32976) exited with exit code 1
+2026-07-10 18:01:00.234 IST [32971] LOG:  shutting down
+2026-07-10 18:01:00.234 IST [32971] LOG:  checkpoint starting: shutdown immediate
+2026-07-10 18:01:00.236 IST [32971] LOG:  checkpoint complete: wrote 19 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=16, longest=0.001 s, average=0.001 s; distance=76 kB, estimate=5779 kB; lsn=0/7A8FC08, redo lsn=0/7A8FC08
+2026-07-10 18:01:00.237 IST [32970] LOG:  database system is shut down
+2026-07-10 18:02:00.094 IST [39863] LOG:  starting PostgreSQL 17.10 (Homebrew) on aarch64-apple-darwin25.4.0, compiled by Apple clang version 21.0.0 (clang-2100.0.123.102), 64-bit
+2026-07-10 18:02:00.094 IST [39863] LOG:  listening on IPv4 address "127.0.0.1", port 55437
+2026-07-10 18:02:00.094 IST [39863] LOG:  listening on Unix socket "/tmp/calledit-task7-sql-fix-H4amq2/.s.PGSQL.55437"
+2026-07-10 18:02:00.096 IST [39866] LOG:  database system was shut down at 2026-07-10 18:02:00 IST
+2026-07-10 18:02:00.098 IST [39863] LOG:  database system is ready to accept connections
+2026-07-10 18:02:01.010 IST [39899] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:01.010 IST [39899] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:01.056 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:01.057 IST [39864] LOG:  checkpoint complete: wrote 15 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=12, longest=0.001 s, average=0.001 s; distance=5237 kB, estimate=5237 kB; lsn=0/1A35DC8, redo lsn=0/1A35D70
+2026-07-10 18:02:01.102 IST [39907] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:01.102 IST [39907] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:01.140 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:01.145 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 1 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.005 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5239 kB, estimate=5239 kB; lsn=0/1F53C58, redo lsn=0/1F53C00
+2026-07-10 18:02:01.194 IST [39935] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:01.194 IST [39935] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:01.250 IST [39954] ERROR:  permission denied for function wager_stake
+2026-07-10 18:02:01.250 IST [39954] STATEMENT:  select wager_stake(1,1,'00000000-0000-4000-8000-000000000001','back',10000000,2,'active',1,'deny',true)
+2026-07-10 18:02:01.252 IST [39955] ERROR:  permission denied for function wager_stake
+2026-07-10 18:02:01.252 IST [39955] STATEMENT:  select wager_stake(1,1,'00000000-0000-4000-8000-000000000001','back',10000000,2,'active',1,'deny',true)
+2026-07-10 18:02:01.261 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:01.262 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5255 kB, estimate=5255 kB; lsn=0/24758D0, redo lsn=0/2475878
+2026-07-10 18:02:01.307 IST [39958] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:01.307 IST [39958] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:01.360 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:01.361 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5251 kB, estimate=5254 kB; lsn=0/29967B8, redo lsn=0/2996760
+2026-07-10 18:02:01.405 IST [39966] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:01.405 IST [39966] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:01.474 IST [39972] ERROR:  injected starter failure
+2026-07-10 18:02:01.474 IST [39972] CONTEXT:  PL/pgSQL function fail_starter_grant() line 1 at RAISE
+	SQL statement "insert into wager_starter_grants (user_id, ledger_entry_id, position_id, lamports, idempotency_key)
+	    values (p_user_id, v_credit_id, v_position_id, v_budget.grant_lamports,
+	            'wager:starter:' || p_user_id::text)"
+	PL/pgSQL function wager_stake(bigint,bigint,uuid,text,bigint,double precision,text,bigint,text,boolean) line 110 at SQL statement
+2026-07-10 18:02:01.474 IST [39972] STATEMENT:  select wager_stake($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) as result
+2026-07-10 18:02:01.477 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:01.478 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5281 kB, estimate=5281 kB; lsn=0/2EBEC38, redo lsn=0/2EBEBE0
+2026-07-10 18:02:01.521 IST [39974] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:01.521 IST [39974] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:01.865 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:01.866 IST [39864] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=10, longest=0.001 s, average=0.001 s; distance=7203 kB, estimate=7203 kB; lsn=0/35C78B0, redo lsn=0/35C7858
+2026-07-10 18:02:10.765 IST [40315] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:10.765 IST [40315] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:10.811 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:10.812 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5248 kB, estimate=7007 kB; lsn=0/3AE7C68, redo lsn=0/3AE7C10
+2026-07-10 18:02:10.862 IST [40356] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:10.862 IST [40356] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:10.908 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:10.909 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5251 kB, estimate=6832 kB; lsn=0/40089A8, redo lsn=0/4008950
+2026-07-10 18:02:11.029 IST [40399] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:11.029 IST [40399] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:11.078 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:11.079 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5253 kB, estimate=6674 kB; lsn=0/452A090, redo lsn=0/452A038
+2026-07-10 18:02:11.124 IST [40407] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:11.124 IST [40407] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:11.163 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:11.164 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5254 kB, estimate=6532 kB; lsn=0/4A4BC10, redo lsn=0/4A4BBB8
+2026-07-10 18:02:11.210 IST [40413] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:11.210 IST [40413] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:11.264 IST [40420] ERROR:  permission denied for function wager_stake
+2026-07-10 18:02:11.264 IST [40420] STATEMENT:  select wager_stake(1,1,'00000000-0000-4000-8000-000000000001','back',10000000,2,'active',1,'deny',true)
+2026-07-10 18:02:11.266 IST [40421] ERROR:  permission denied for function wager_stake
+2026-07-10 18:02:11.266 IST [40421] STATEMENT:  select wager_stake(1,1,'00000000-0000-4000-8000-000000000001','back',10000000,2,'active',1,'deny',true)
+2026-07-10 18:02:11.276 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:11.276 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5270 kB, estimate=6406 kB; lsn=0/4F715A8, redo lsn=0/4F71550
+2026-07-10 18:02:11.323 IST [40446] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:11.323 IST [40446] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:11.380 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:11.381 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5267 kB, estimate=6292 kB; lsn=0/54962D0, redo lsn=0/5496278
+2026-07-10 18:02:11.427 IST [40476] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:11.427 IST [40476] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:11.496 IST [40482] ERROR:  injected starter failure
+2026-07-10 18:02:11.496 IST [40482] CONTEXT:  PL/pgSQL function fail_starter_grant() line 1 at RAISE
+	SQL statement "insert into wager_starter_grants (user_id, ledger_entry_id, position_id, lamports, idempotency_key)
+	    values (p_user_id, v_credit_id, v_position_id, v_budget.grant_lamports,
+	            'wager:starter:' || p_user_id::text)"
+	PL/pgSQL function wager_stake(bigint,bigint,uuid,text,bigint,double precision,text,bigint,text,boolean) line 110 at SQL statement
+2026-07-10 18:02:11.496 IST [40482] STATEMENT:  select wager_stake($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) as result
+2026-07-10 18:02:11.500 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:11.500 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5289 kB, estimate=6191 kB; lsn=0/59C09E0, redo lsn=0/59C0988
+2026-07-10 18:02:11.547 IST [40484] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:11.547 IST [40484] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:11.893 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:11.894 IST [39864] LOG:  checkpoint complete: wrote 12 buffers (0.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=10, longest=0.001 s, average=0.001 s; distance=7211 kB, estimate=7211 kB; lsn=0/60CB908, redo lsn=0/60CB8B0
+2026-07-10 18:02:12.093 IST [40550] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:12.093 IST [40550] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:12.142 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:12.143 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5257 kB, estimate=7016 kB; lsn=0/65EDFA0, redo lsn=0/65EDF48
+2026-07-10 18:02:12.187 IST [40580] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:12.187 IST [40580] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:12.230 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:12.231 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5259 kB, estimate=6840 kB; lsn=0/6B10E28, redo lsn=0/6B10DD0
+2026-07-10 18:02:12.275 IST [40587] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:12.275 IST [40587] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:12.334 IST [40596] ERROR:  permission denied for function wager_resolve_active_stake_intent
+2026-07-10 18:02:12.334 IST [40596] STATEMENT:  select wager_resolve_active_stake_intent(1)
+2026-07-10 18:02:12.336 IST [40597] ERROR:  permission denied for function wager_resolve_active_stake_intent
+2026-07-10 18:02:12.336 IST [40597] STATEMENT:  select wager_resolve_active_stake_intent(1)
+2026-07-10 18:02:12.340 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:12.341 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5269 kB, estimate=6683 kB; lsn=0/7036248, redo lsn=0/70361F0
+2026-07-10 18:02:12.384 IST [40599] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:12.384 IST [40599] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:12.437 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:12.438 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5262 kB, estimate=6541 kB; lsn=0/7559BF0, redo lsn=0/7559B98
+2026-07-10 18:02:12.592 IST [40638] WARNING:  "wal_level" is insufficient to publish logical changes
+2026-07-10 18:02:12.592 IST [40638] HINT:  Set "wal_level" to "logical" before creating subscriptions.
+2026-07-10 18:02:12.638 IST [39864] LOG:  checkpoint starting: immediate force wait
+2026-07-10 18:02:12.639 IST [39864] LOG:  checkpoint complete: wrote 10 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=10, longest=0.001 s, average=0.001 s; distance=5259 kB, estimate=6413 kB; lsn=0/7A7CBD0, redo lsn=0/7A7CB78
+2026-07-10 18:02:28.280 IST [39863] LOG:  received fast shutdown request
+2026-07-10 18:02:28.280 IST [39863] LOG:  aborting any active transactions
+2026-07-10 18:02:28.281 IST [39863] LOG:  background worker "logical replication launcher" (PID 39869) exited with exit code 1
+2026-07-10 18:02:28.281 IST [39864] LOG:  shutting down
+2026-07-10 18:02:28.281 IST [39864] LOG:  checkpoint starting: shutdown immediate
+2026-07-10 18:02:28.282 IST [39864] LOG:  checkpoint complete: wrote 5 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=5, longest=0.001 s, average=0.001 s; distance=4 kB, estimate=5772 kB; lsn=0/7A7DC58, redo lsn=0/7A7DC58
+2026-07-10 18:02:28.284 IST [39863] LOG:  database system is shut down

@@ -146,3 +146,70 @@ Focused review result
 - Code quality review: PASS, no correctness, type-safety, or maintainability findings.
 - Security review: PASS, severity none, no auth or privilege scope drift.
 - Task2 auth/docs/server-write changes remained outside the focused DB diff and staging scope.
+
+Focused SQL evidence fix
+Date: 2026-07-10
+
+Implemented
+- Added real PostgreSQL coverage for linked users calling wager_stake with allow_starter=false.
+- Underfunded linked user has a 9,999,999-lamport deposit, returns { ok:false, code:'insufficient' }, and preserves the exact before/after position, ledger, grant, and starter-budget snapshot.
+- Funded linked user has a 200,000,000-lamport deposit, creates exactly one active position and one -10,000,000 stake debit, creates no starter_grant ledger row or starter grant record, leaves starter budget unchanged, and duplicate replay returns { ok:true, duplicate:true } with no extra write.
+- Starter-grant state snapshots now include user-global deposit ledger rows for the fixture user so funded/underfunded behavior is asserted from real table state.
+- Deferred: the two stale wager-db-core comments are already in Task8's active edit and were not edited, staged, or reverted by this Task7 fix.
+
+Verification
+1. Focused real PostgreSQL starter-grant SQL harness
+Invocation: DATABASE_URL=postgresql://postgres@127.0.0.1:<redacted>/postgres npx -y pnpm@10.33.0 exec tsx --test --test-concurrency=1 scripts/sql-harness.starter-grant.test.ts
+Binary observable: tests 5, pass 5, fail 0; TAP 1..6 includes "linked allow_starter=false underfunded user returned insufficient..." as ok 4.
+Captured artifacts:
+- .omo/evidence/task-7-correction-sql-focused.log
+- .omo/evidence/task-7-called-it-direct-onboarding-remediation.sql.tap
+
+2. Full real SQL suite in the shared worktree
+Invocation: DATABASE_URL=postgresql://postgres@127.0.0.1:<redacted>/postgres npx -y pnpm@10.33.0 run test:sql
+Binary observable: tests 15, pass 15, fail 0; SQL harness applied 5 tracked migrations and cleaned up. The full suite includes active Task8 wallet-identity SQL tests because those files are present in this shared worktree; no Task8 file was modified or staged by this Task7 fix.
+Captured artifact: .omo/evidence/task-7-correction-sql-full.log
+
+3. DB package tests, typecheck, and build
+Invocations:
+- npx -y pnpm@10.33.0 --filter @calledit/db test
+- npx -y pnpm@10.33.0 --filter @calledit/db typecheck
+- npx -y pnpm@10.33.0 --filter @calledit/db build
+Binary observables: DB tests Test Files 5 passed, Tests 44 passed; typecheck exited 0; build exited 0.
+Captured artifacts:
+- .omo/evidence/task-7-correction-db-test.log
+- .omo/evidence/task-7-correction-db-typecheck.log
+- .omo/evidence/task-7-correction-db-build.log
+
+4. TypeScript no-excuse, LOC, and diff checks
+Invocations:
+- npx -y pnpm@10.33.0 exec tsx /Users/sublime/Seb/tg-bot-idea/.agents/skills/programming/scripts/typescript/check-no-excuse-rules.ts scripts/sql-harness.starter-grant.test.ts scripts/sql-harness/starter-grant-support.ts
+- pure nonblank/non-comment LOC scan for scripts/sql-harness.starter-grant.test.ts and scripts/sql-harness/starter-grant-support.ts
+- git diff --check -- Task7 source/evidence paths
+Binary observables: No violations in 2 file(s); LOC 180 and 188; diff check exited 0.
+Captured artifacts:
+- .omo/evidence/task-7-correction-no-excuse.log
+- .omo/evidence/task-7-correction-loc.txt
+
+5. Runtime cleanup
+Invocations:
+- psql cleanup query for calledit_ci_% databases and anon/authenticated/service_role roles before stop
+- final /tmp and process scan after pg_ctl stop
+Binary observables: db_count=0; role_count=0; final temp-file and process sections are empty.
+Captured artifacts:
+- .omo/evidence/task-7-correction-sql-clean-before-stop.log
+- .omo/evidence/task-7-correction-tmp-final.txt
+- .omo/evidence/task-7-correction-pg-instance.log
+
+Runtime debugging hypotheses checked
+1. Hypothesis: allow_starter=false underfunded linked users can partially write before insufficient.
+Evidence: focused SQL test passed with exact before/after snapshot equality including the 9,999,999-lamport deposit and unchanged budget.
+Result: refuted.
+
+2. Hypothesis: allow_starter=false funded linked users still receive a starter grant or mutate starter budget.
+Evidence: focused SQL test passed with one deposit row, one exact stake debit, one position, zero grants, budget unchanged, and market-scoped counts { positions:1, ledger:1, grants:0, budgetCount:0, budgetAmount:'0' }.
+Result: refuted.
+
+3. Hypothesis: duplicate replay of a funded non-starter stake creates another debit or position.
+Evidence: focused SQL test replay returned { ok:true, duplicate:true } and the post-replay state snapshot exactly matched the first committed funded snapshot.
+Result: refuted.
