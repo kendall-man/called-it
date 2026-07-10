@@ -18,6 +18,8 @@ const EXPECTED_TABLES = [
   'wager_withdrawals',
   'wager_settlements_applied',
   'wager_status',
+  'wager_starter_budget',
+  'wager_starter_grants',
 ] as const;
 
 const EXPECTED_VIEWS = [
@@ -34,11 +36,13 @@ const PRIVATE_TABLES = [
   'wager_withdrawals',
   'wager_settlements_applied',
   'wager_status',
+  'wager_starter_budget',
+  'wager_starter_grants',
 ] as const;
 
 const EXPECTED_FUNCTIONS = [
   'wager_request_withdrawal(bigint,bigint)',
-  'wager_stake(bigint,bigint,uuid,text,bigint,double precision,text,bigint,text)',
+  'wager_stake(bigint,bigint,uuid,text,bigint,double precision,text,bigint,text,boolean)',
 ] as const;
 
 const EXPECTED_REALTIME_MEMBERS = [

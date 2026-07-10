@@ -43,6 +43,14 @@ function copyForStakeError(code: WagerStakeErrorCode, balanceLamports: bigint): 
       return WAGER_COPY.capReached(WAGER_TUNABLES.PER_MARKET_STAKE_CAP_LAMPORTS);
     case 'paused':
       return WAGER_COPY.paused();
+    case 'closed':
+      return WAGER_COPY.marketClosed();
+    case 'starter_unavailable':
+      return WAGER_COPY.starterUnavailable();
+    case 'budget_exhausted':
+      return WAGER_COPY.budgetExhausted();
+    case 'wallet_required':
+      return WAGER_COPY.walletRequired();
   }
 }
 
@@ -80,6 +88,7 @@ export async function handleStakeTap(
     // delay-arbitrage pending window (reducer sees the shared row).
     state: inPlay ? 'pending' : 'active',
     placed_at_ms: nowMs,
+    allow_starter: false,
     ...(idempotencyKey !== undefined ? { idempotency_key: idempotencyKey } : {}),
   });
 

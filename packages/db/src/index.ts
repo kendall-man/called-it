@@ -62,6 +62,8 @@ export type {
   WagerLedgerKind,
   WagerLedgerRow,
   WagerSettlementAppliedRow,
+  WagerStarterBudgetRow,
+  WagerStarterGrantRow,
   WagerStakeErrorCode,
   WagerStakeInput,
   WagerStakeResult,

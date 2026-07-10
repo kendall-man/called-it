@@ -47,7 +47,9 @@ export function createProductionProofSubmitter<Connection, Wallet>(
         });
         return result.ok ? { ok: true, txSig: result.txSig } : result;
       } catch (error) {
-        return { ok: false, error: String(error) };
+        if (!(error instanceof Error)) throw error;
+        const message = error.toString();
+        return { ok: false, error: message };
       }
     },
   };

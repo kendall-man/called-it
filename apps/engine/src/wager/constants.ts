@@ -34,6 +34,7 @@ export const WAGER_TUNABLES = {
  */
 export const WAGER_KEYS = {
   stake: (positionId: string) => `wager:stake:${positionId}`,
+  starterGrant: (userId: number) => `wager:starter:${userId}`,
   /** Client-supplied idempotency key for API/concierge stakes (at-least-once). */
   apiStake: (key: string) => `wager:stake:api:${key}`,
   deposit: (txSig: string, ixIndex: number) => `wager:deposit:${txSig}:${ixIndex}`,

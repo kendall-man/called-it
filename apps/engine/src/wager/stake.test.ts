@@ -137,6 +137,10 @@ describe('typed RPC errors map to distinct copy', () => {
     ['wrong_side', WAGER_COPY.pickALane()],
     ['cap', WAGER_COPY.capReached(WAGER_TUNABLES.PER_MARKET_STAKE_CAP_LAMPORTS)],
     ['paused', WAGER_COPY.paused()],
+    ['closed', WAGER_COPY.marketClosed()],
+    ['starter_unavailable', WAGER_COPY.starterUnavailable()],
+    ['budget_exhausted', WAGER_COPY.budgetExhausted()],
+    ['wallet_required', WAGER_COPY.walletRequired()],
   ];
 
   it.each(cases)('%s', async (code, expected) => {

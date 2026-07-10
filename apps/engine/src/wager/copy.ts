@@ -23,6 +23,14 @@ export const WAGER_COPY = {
     'This table uses test SOL on Solana devnet. It has no monetary value. Open /wallet in private chat to verify a devnet wallet before placing a position.',
   paused: (): string =>
     'New SOL positions are paused while account coverage is checked. Existing balances and withdrawal requests are unchanged.',
+  marketClosed: (): string =>
+    'That call is closed for new SOL positions. No SOL moved.',
+  starterUnavailable: (): string =>
+    'The starter grant is not available. No SOL moved. Open /wallet in private chat to verify a devnet wallet.',
+  budgetExhausted: (): string =>
+    'The starter grant budget is used up. No SOL moved. Open /wallet in private chat to continue with your own test SOL.',
+  walletRequired: (): string =>
+    'No verified devnet wallet is available for this account. No SOL moved. Open /wallet in private chat.',
   insufficient: (balanceLamports: bigint): string =>
     `Not enough test SOL for that position. Available balance: ${formatSolAmount(balanceLamports)} (devnet). Use /deposit to add test SOL.`,
   pickALane: (): string => "You can't back it and doubt it — pick a lane. Your SOL agrees.",

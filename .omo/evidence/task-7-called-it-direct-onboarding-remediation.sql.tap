@@ -1,0 +1,7 @@
+TAP version 13
+ok 1 - fresh 0001-0004 migration applied and cleaned
+ok 2 - upgraded 0001-0003 plus 0004 applied and cleaned
+ok 3 - open and pending_lineup wrote exact linked position, +/-10000000 ledger, grant and budget rows; ten replays deduped; privileges enforced
+ok 4 - disabled paused frozen settling settled voided bad-state wrong-side non-SOL history cap and injected exception returned stable codes with exact before/after state
+ok 5 - 50 same-key calls produced one exact position; distinct first taps produced success plus wallet_required; 500 real grants remained in parity and the 501st wrote nothing
+1..5

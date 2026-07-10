@@ -1,0 +1,14 @@
+✔ starter-grant migrations apply fresh and as 0001-0003 upgrade (171.371042ms)
+(node:13557) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✔ starter stake writes exact linked rows, accepts pending_lineup, and is idempotent and private (93.79225ms)
+✔ every starter refusal and injected exception preserves the exact prior state (103.452167ms)
+✔ concurrency grants once per user and the real 501st eligible user is refused (370.020125ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 838.649416

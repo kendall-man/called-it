@@ -19,6 +19,7 @@ import type { PositionState } from './types.js';
 
 export type WagerLedgerKind =
   | 'deposit'
+  | 'starter_grant'
   | 'stake'
   | 'payout'
   | 'refund'
@@ -28,7 +29,15 @@ export type WagerLedgerKind =
 export type WagerWithdrawalState = 'debited' | 'submitted' | 'confirmed' | 'failed';
 
 /** Typed rejection codes returned by the wager_stake RPC. */
-export type WagerStakeErrorCode = 'insufficient' | 'wrong_side' | 'cap' | 'paused';
+export type WagerStakeErrorCode =
+  | 'insufficient'
+  | 'wrong_side'
+  | 'cap'
+  | 'paused'
+  | 'closed'
+  | 'starter_unavailable'
+  | 'budget_exhausted'
+  | 'wallet_required';
 
 /** Typed rejection codes returned by the wager_request_withdrawal RPC. */
 export type WagerWithdrawErrorCode = 'no_wallet' | 'insufficient';
@@ -109,6 +118,26 @@ export interface WagerStatusRow {
   updated_at: string;
 }
 
+export interface WagerStarterBudgetRow {
+  id: 1;
+  enabled: boolean;
+  grant_lamports: bigint;
+  total_cap_lamports: bigint;
+  max_grants: number;
+  granted_lamports: bigint;
+  granted_count: number;
+  updated_at: string;
+}
+
+export interface WagerStarterGrantRow {
+  user_id: number;
+  ledger_entry_id: number;
+  position_id: string;
+  lamports: bigint;
+  idempotency_key: string;
+  granted_at: string;
+}
+
 // ── Write inputs (subsets of rows the engine supplies; DB fills defaults) ──
 
 export interface WagerLedgerEntry {
@@ -157,6 +186,7 @@ export interface WagerStakeInput {
   placed_at_ms: number;
   /** Client idempotency key for at-least-once callers (concierge/API). */
   idempotency_key?: string;
+  allow_starter: boolean;
 }
 
 export type WagerStakeResult =
@@ -168,4 +198,3 @@ export type WagerStakeResult =
 export type WagerWithdrawResult =
   | { ok: true; withdrawal_id: string }
   | { ok: false; code: WagerWithdrawErrorCode };
-

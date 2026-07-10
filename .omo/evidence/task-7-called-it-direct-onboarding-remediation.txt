@@ -1,0 +1,90 @@
+Task 7 correction evidence — starter grant invariants
+Date: 2026-07-10
+Worktree: /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+Base HEAD before correction: 4100784be580a22b261016354df95f7b132447a6
+
+Implemented correction
+- Direct wager_stake service-role calls now have SQL harness coverage proving only market statuses pending_lineup/open write. Frozen, settling, settled, voided, bad incoming p_state void, and bad incoming p_state closed all return { ok:false, code:'closed' } with exact before/after state snapshots.
+- Catch narrowing fixed in apps/engine/src/api/server-write.ts, apps/engine/src/wiring-proof.ts, and apps/engine/src/wiring-wager.ts: non-Error throws are rethrown; Error instances are converted to the existing response/result shapes.
+- RPC response parsing remains strict and malformed wager_stake payload tests cover unknown code, missing id, blank id, duplicate+id drift, missing ok flag, non-object payload, and database error.
+- Fake DB test support no longer uses Row assertion casts for object writes.
+
+Success criteria and evidence
+
+1. Scenario: starter-grant focused PostgreSQL surface
+Invocation: DATABASE_URL=postgresql://postgres@127.0.0.1:<redacted>/postgres npx -y pnpm@10.33.0 exec tsx --test --test-concurrency=1 scripts/sql-harness.starter-grant.test.ts
+Binary observable: tests 4, pass 4, fail 0; TAP includes 1..5 with exact invariant lines.
+Captured artifacts:
+- .omo/evidence/task-7-correction-sql-focused.log
+- .omo/evidence/task-7-called-it-direct-onboarding-remediation.sql.tap
+
+2. Scenario: full SQL gate against fresh PostgreSQL 17.10
+Invocation: DATABASE_URL=postgresql://postgres@127.0.0.1:<redacted>/postgres npx -y pnpm@10.33.0 run test:sql
+Binary observable: tests 11, pass 11, fail 0; harness printed "SQL harness applied 4 migrations ... and cleaned it up".
+Captured artifact: .omo/evidence/task-7-correction-sql-full.log
+
+3. Scenario: DB/role cleanup before PostgreSQL shutdown
+Invocation: psql postgresql://postgres@127.0.0.1:<redacted>/postgres -Atc "select ... calledit_ci_%; select ... anon/authenticated/service_role"
+Binary observable: db_count=0; role_count=0.
+Captured artifact: .omo/evidence/task-7-correction-sql-clean-before-stop.log
+
+4. Scenario: final leaked-process/temp-file cleanup
+Invocation: find /tmp -maxdepth 1 \( -name 'calledit-task7-*' -o -name 'calledit-task7-*.log' \) -print; ps -ef | rg 'calledit-task7|postgres.*calledit-task7'
+Binary observable: find artifact is empty; ps output only contained the transient rg command, no PostgreSQL process.
+Captured artifacts:
+- .omo/evidence/task-7-correction-tmp-final.txt
+- .omo/evidence/task-7-correction-pg-instance.log
+
+5. Scenario: DB facade tests
+Invocation: npx -y pnpm@10.33.0 --filter @calledit/db test
+Binary observable: Test Files 3 passed; Tests 35 passed.
+Captured artifact: this evidence file; console output observed in-session.
+
+6. Scenario: DB package typecheck and build
+Invocations:
+- npx -y pnpm@10.33.0 --filter @calledit/db typecheck
+- npx -y pnpm@10.33.0 --filter @calledit/db build
+Binary observable: both exited 0.
+Captured artifact: this evidence file; console output observed in-session.
+
+7. Scenario: engine full tests, typecheck, and build
+Invocations:
+- npx -y pnpm@10.33.0 --filter @calledit/engine test
+- npx -y pnpm@10.33.0 --filter @calledit/engine typecheck
+- npx -y pnpm@10.33.0 --filter @calledit/engine build
+Binary observable: engine tests Test Files 34 passed; Tests 278 passed; typecheck/build exited 0.
+Captured artifact: this evidence file; console output observed in-session.
+
+8. Scenario: exact Task4 production no-excuse scan
+Invocation: npx -y pnpm@10.33.0 exec tsx /Users/sublime/Seb/tg-bot-idea/.agents/skills/programming/scripts/typescript/check-no-excuse-rules.ts <31 production files>
+Binary observable: No violations in 31 file(s).
+Captured artifact: this evidence file; console output observed in-session.
+Note: current worktree has Task2's telegram-ingress boundary rename, so the 31-file scan used apps/engine/src/api/telegram-ingress-boundary.ts in the Task4 boundary slot and did not touch Task2 files.
+
+9. Scenario: touched/new Task7 TypeScript LOC ceiling
+Invocation: pure nonblank/non-comment LOC scan over touched/new Task7 TS files.
+Binary observable: LOC_OK all touched/new Task7 TS files <=250; largest files were packages/db/src/wager-db-test-support.ts 234 and apps/engine/src/wiring-wager.ts 224.
+Captured artifact: .omo/evidence/task-7-correction-loc.txt
+
+10. Scenario: scoped diff whitespace/conflict audit
+Invocation: git diff --check -- <Task7 source and evidence paths>
+Binary observable: exit_code 0 after normalizing one Task7-owned EOF blank line.
+Captured artifact: this evidence file; console output observed in-session.
+
+Runtime debugging hypotheses checked
+1. Hypothesis: closed-state direct RPC calls still write before refusal.
+Evidence: focused SQL harness "every starter refusal..." passed and TAP ok 4 names frozen/settling/settled/voided/bad-state with exact before/after snapshots.
+Result: refuted.
+
+2. Hypothesis: starter-grant concurrency can double-grant or break budget parity.
+Evidence: focused and full SQL logs show concurrency test passed; TAP ok 5 names 50 same-key calls, distinct first taps, 500 parity, and 501st no-write refusal.
+Result: refuted.
+
+3. Hypothesis: cleanup leaves leaked databases, roles, temp files, or PostgreSQL processes.
+Evidence: SQL cleanup artifact shows db_count=0 and role_count=0 before shutdown; final /tmp artifact is empty; final ps probe found no task7 PostgreSQL process.
+Result: refuted.
+
+Review result
+- Goal constraints: PASS. Review blockers 1-7 are covered by SQL harness, strict RPC parsing tests, canonical @calledit/db WagerStakeErrorCode usage, catch narrowing, no-excuse scan, LOC scan, and DB/engine builds/tests.
+- Security/privacy: PASS. wager_stake execute remains service_role-only; anon/authenticated direct calls are denied in the real SQL harness.
+- Scope: PASS. Task2-owned auth/concierge/docs/env/main/server/server-http/server-auth/telegram-ingress files were not edited or staged.

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import { depositCursorStream, WAGER_KEYS, WAGER_TUNABLES } from './constants.js';
 import { WAGER_COPY } from './copy.js';
 
@@ -34,6 +35,7 @@ describe('WAGER_TUNABLES internal consistency', () => {
   it('idempotency keys are namespaced and mutually distinct', () => {
     const keys = [
       WAGER_KEYS.stake('x'),
+      WAGER_KEYS.starterGrant(1),
       WAGER_KEYS.apiStake('x'),
       WAGER_KEYS.deposit('x', 0),
       WAGER_KEYS.refund('x'),
@@ -49,6 +51,12 @@ describe('WAGER_TUNABLES internal consistency', () => {
     // wager_stake v2 writes 'wager:stake:api:' || p_idempotency_key.
     expect(WAGER_KEYS.apiStake('abc')).toBe('wager:stake:api:abc');
   });
+
+  it('the starter-grant key matches the SQL ledger key namespace in migration 0004', async () => {
+    const sql = await readFile('../../packages/db/migrations/0004_starter_grant.sql', 'utf8');
+    expect(sql).toContain("'wager:starter:' || p_user_id::text");
+    expect(WAGER_KEYS.starterGrant(123)).toBe('wager:starter:123');
+  });
 });
 
 describe('copy bank hygiene', () => {
@@ -56,6 +64,10 @@ describe('copy bank hygiene', () => {
     const samples: string[] = [
       WAGER_COPY.unlinkedOnboarding(),
       WAGER_COPY.paused(),
+      WAGER_COPY.marketClosed(),
+      WAGER_COPY.starterUnavailable(),
+      WAGER_COPY.budgetExhausted(),
+      WAGER_COPY.walletRequired(),
       WAGER_COPY.insufficient(1n),
       WAGER_COPY.pickALane(),
       WAGER_COPY.capReached(1n),

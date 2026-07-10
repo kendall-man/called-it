@@ -184,7 +184,9 @@ function buildWagerChain<Connection, Treasury, PublicKey>(
         const lamports = await runtime.retry(() => runtime.getBalance(connection, publicKey));
         return { ok: true, lamports: BigInt(lamports) };
       } catch (error) {
-        return { ok: false, error: `getBalance: ${String(error)}` };
+        if (!(error instanceof Error)) throw error;
+        const message = error.toString();
+        return { ok: false, error: `getBalance: ${message}` };
       }
     },
     async buildTransfer({ to, lamports }) {
@@ -192,7 +194,9 @@ function buildWagerChain<Connection, Treasury, PublicKey>(
       try {
         latest = await runtime.retry(() => runtime.getLatestBlockhash(connection));
       } catch (error) {
-        return { ok: false, error: `getLatestBlockhash: ${String(error)}` };
+        if (!(error instanceof Error)) throw error;
+        const message = error.toString();
+        return { ok: false, error: `getLatestBlockhash: ${message}` };
       }
       const built = runtime.buildSolTransfer({
         from: treasury,
