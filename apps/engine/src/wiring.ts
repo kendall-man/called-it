@@ -40,8 +40,7 @@ import type { Logger } from './log.js';
 import { mapFixtureRecord } from './ingest/fixtureMap.js';
 import { ENGINE } from './engineConstants.js';
 import { bindAbortSignalToFetch } from './api/readiness-http.js';
-import { createProductionReadinessPorts } from './api/readiness-production.js';
-import { createSupabaseReadinessClient } from './api/readiness-supabase.js';
+import { createSupabaseProductionReadinessPorts } from './api/readiness-production.js';
 import { resolvePersonaTemplateKey } from './wiring-agent.js';
 import { createProductionProofSubmitter } from './wiring-proof.js';
 import { createProductionWagerModule } from './wiring-wager.js';
@@ -123,9 +122,10 @@ export async function createDeps(
       signal?.throwIfAborted();
       recordCount = records.length;
       odds = combineOddsSnapshot(records, { logger: txLogger });
-    } catch (err) {
+    } catch (error) {
       signal?.throwIfAborted();
-      log.warn('odds_snapshot_failed', { fixtureId, error: String(err) });
+      const message = error instanceof Error ? String(error) : String(error);
+      log.warn('odds_snapshot_failed', { fixtureId, error: message });
       return { kind: 'transient' };
     }
     if (!odds) {
@@ -166,8 +166,9 @@ export async function createDeps(
                 await handler(event);
               }
             }
-          } catch (err) {
-            log.warn('gap_fill_failed', { fixtureId, error: String(err) });
+          } catch (error) {
+            const message = error instanceof Error ? String(error) : String(error);
+            log.warn('gap_fill_failed', { fixtureId, error: message });
           }
         },
       });
@@ -220,11 +221,9 @@ export async function createDeps(
         fetchIncomingTransfers(connection, address, options),
     },
   });
-  const readiness = createProductionReadinessPorts({
-    database: createSupabaseReadinessClient({
-      baseUrl: env.SUPABASE_URL,
-      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
-    }),
+  const readiness = createSupabaseProductionReadinessPorts({
+    supabaseUrl: env.SUPABASE_URL,
+    supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
     odds: {
       async snapshot(fixtureId, signal) {
         const request = bindAbortSignalToFetch(globalThis.fetch, signal);

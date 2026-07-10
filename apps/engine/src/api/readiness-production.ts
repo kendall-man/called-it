@@ -1,5 +1,6 @@
 import { SOLVENCY_PAUSE_REASON_PREFIX } from '../wager/constants.js';
 import type { EngineReadinessPorts } from './readiness-checks.js';
+import { createSupabaseReadinessClient } from './readiness-supabase.js';
 
 export interface ProductionReadinessDatabasePort {
   probe(signal: AbortSignal): Promise<void>;
@@ -33,6 +34,12 @@ export interface ProductionReadinessOptions {
   readonly wagerConfigured: boolean;
   readonly proofEnabled: boolean;
   readonly settlementEnabled: boolean;
+}
+
+export interface SupabaseProductionReadinessOptions
+  extends Omit<ProductionReadinessOptions, 'database'> {
+  readonly supabaseUrl: string;
+  readonly supabaseServiceRoleKey: string;
 }
 
 function checkCancellation(signal: AbortSignal): void {
@@ -128,4 +135,16 @@ export function createProductionReadinessPorts(
       },
     },
   };
+}
+
+export function createSupabaseProductionReadinessPorts(
+  options: SupabaseProductionReadinessOptions,
+): Omit<EngineReadinessPorts, 'telegram'> {
+  return createProductionReadinessPorts({
+    ...options,
+    database: createSupabaseReadinessClient({
+      baseUrl: options.supabaseUrl,
+      serviceRoleKey: options.supabaseServiceRoleKey,
+    }),
+  });
 }

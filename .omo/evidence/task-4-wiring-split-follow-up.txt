@@ -1,0 +1,61 @@
+Task 4 wiring split follow-up evidence
+timestamp: 2026-07-10T02:25:21Z
+worktree: /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+branch: codex/direct-onboarding
+
+Scenario: conservative pure LOC count before/after for apps/engine/src/wiring.ts
+Invocation before: git show HEAD:apps/engine/src/wiring.ts | awk '!/^[[:space:]]*$/ && !/^[[:space:]]*\/\//' | wc -l
+Observable before_loc: 245
+Invocation after: awk '!/^[[:space:]]*$/ && !/^[[:space:]]*\/\//' apps/engine/src/wiring.ts | wc -l
+Observable after_loc: 244
+
+Scenario: block-comment-aware pure LOC count before/after for apps/engine/src/wiring.ts
+Invocation before: git show HEAD:apps/engine/src/wiring.ts | awk '!/^[[:space:]]*$/ && !/^[[:space:]]*(\/\/|\/\*|\*)/' | wc -l
+Observable before_loc_strict: 239
+Invocation after: awk '!/^[[:space:]]*$/ && !/^[[:space:]]*(\/\/|\/\*|\*)/' apps/engine/src/wiring.ts | wc -l
+Observable after_loc_strict: 238
+
+Scenario: engine typecheck
+Invocation: npx -y pnpm@10.33.0 --filter @calledit/engine typecheck
+
+> @calledit/engine@0.1.0 typecheck /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/engine
+> tsc -p tsconfig.json --noEmit
+
+Observable exit_code: 0
+
+Scenario: focused readiness production and Supabase tests
+Invocation: npx -y pnpm@10.33.0 --dir apps/engine exec vitest run src/api/readiness-production.test.ts src/api/readiness-supabase.test.ts
+
+ RUN  v3.2.6 /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/engine
+
+ ✓ src/api/readiness-supabase.test.ts (2 tests) 5ms
+ ✓ src/api/readiness-production.test.ts (2 tests) 2ms
+
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+   Start at  07:55:24
+   Duration  228ms (transform 51ms, setup 0ms, collect 68ms, tests 7ms, environment 0ms, prepare 94ms)
+
+Observable exit_code: 0
+
+Scenario: engine build
+Invocation: npx -y pnpm@10.33.0 --filter @calledit/engine build
+
+> @calledit/engine@0.1.0 build /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/engine
+> tsc -p tsconfig.json
+
+Observable exit_code: 0
+
+Scenario: no-excuse scan on touched files
+Invocation: npx -y pnpm@10.33.0 exec tsx /Users/sublime/Seb/tg-bot-idea/.agents/skills/programming/scripts/typescript/check-no-excuse-rules.ts apps/engine/src/wiring.ts apps/engine/src/api/readiness-production.ts
+No violations in 2 file(s).
+Observable exit_code: 0
+
+Scenario: built readiness helper import smoke
+Invocation: node --input-type=module -e import("./apps/engine/dist/api/readiness-production.js").then((m) => console.log(typeof m.createSupabaseProductionReadinessPorts))
+function
+Observable exit_code: 0
+
+Scenario: git diff whitespace/conflict marker scan
+Invocation: git diff --check -- apps/engine/src/wiring.ts apps/engine/src/api/readiness-production.ts .omo/evidence/task-4-wiring-split-follow-up.txt
+Observable exit_code: 0
