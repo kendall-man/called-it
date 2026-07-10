@@ -50,7 +50,7 @@ Discovery/runtime fault catches
 
 Module-size and policy audit
 ----------------------------
-- Required modules, non-comment/nonblank LOC: wiring.ts 246, api/server.ts 121,
+- Required modules, non-comment/nonblank LOC: wiring.ts 241, api/server.ts 121,
   api/server.test.ts 131, ports.ts 29.
 - Largest extracted/new Task 4 modules: server-test-harness.ts 223 and wiring-wager.ts 220.
 - Every touched/new Task 4 TypeScript file is below 250 non-comment/nonblank LOC.
@@ -115,5 +115,13 @@ Cleanup receipt
 - Generated ignored .eve/ and .output/ build directories were not staged or deleted in the
   shared checkout.
 - No branch/worktree switch, reset, deletion, or unrelated-file revert was performed.
+
+Final wiring LOC follow-up
+-------------------------
+- Independent-review baseline: wiring.ts 252 pure LOC.
+- After extracting persona key resolution to wiring-agent.ts and removing one-use bindings:
+  wiring.ts 241 pure LOC by the TypeScript scanner.
+- Engine typecheck: PASS. Focused readiness production tests: 3 files, 5 tests PASS.
+- Engine build: PASS. No-excuse scan: 0 matches. Scoped git diff check: PASS.
 
 Structured redacted records: .omo/evidence/task-4-called-it-direct-onboarding-remediation.logs.jsonl

@@ -13,7 +13,6 @@ import {
   PERSONA_TEMPLATE_KEYS,
   prefilter,
   type ParseToolExecutors,
-  type PersonaTemplateKey,
 } from '@calledit/agent';
 import {
   LiveSource,
@@ -34,7 +33,7 @@ import {
   submitValidateStat,
   withRetry,
 } from '@calledit/solana';
-import type { AgentPort, Deps, EngineDb, EnginePort, EventSourceLike, OddsFetchResult, ProofSubmitter, TxPort } from './ports.js';
+import type { AgentPort, Deps, EngineDb, EventSourceLike, OddsFetchResult, ProofSubmitter, TxPort } from './ports.js';
 import type { WagerModule, WagerPoster } from './wager/module.js';
 import type { Env } from './env.js';
 import type { Logger } from './log.js';
@@ -43,6 +42,7 @@ import { ENGINE } from './engineConstants.js';
 import { bindAbortSignalToFetch } from './api/readiness-http.js';
 import { createProductionReadinessPorts } from './api/readiness-production.js';
 import { createSupabaseReadinessClient } from './api/readiness-supabase.js';
+import { resolvePersonaTemplateKey } from './wiring-agent.js';
 import { createProductionProofSubmitter } from './wiring-proof.js';
 import { createProductionWagerModule } from './wiring-wager.js';
 
@@ -56,8 +56,6 @@ export async function createDeps(
 ): Promise<Deps> {
   const now = () => Date.now();
   const db: EngineDb = createEngineDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
-
-  const engine: EnginePort = { compileClaim, priceSpec, reduceMarket, checkDebounce };
 
   // Grounded tool executors for the parse step — results come from OUR DB,
   // so the model cannot invent entity ids (PRD: LLM proposes, code disposes).
@@ -96,10 +94,8 @@ export async function createDeps(
     parse: (text, ctx) => parseClaim(text, ctx, { executors: parseExecutors }),
     // No garnish client/budget wired yet → persona returns the deterministic
     // template (garnish is a polish pass; the bot must never block on it).
-    persona: (templateKey, vars) => {
-      if (!isPersonaTemplateKey(templateKey)) throw new Error('unknown persona template');
-      return persona(templateKey, vars);
-    },
+    persona: (templateKey, vars) =>
+      persona(resolvePersonaTemplateKey(PERSONA_TEMPLATE_KEYS, templateKey), vars),
   };
 
   const txLogger: TxlineLogger = (message, context) => log.warn(`txline: ${message}`, context);
@@ -224,12 +220,11 @@ export async function createDeps(
         fetchIncomingTransfers(connection, address, options),
     },
   });
-  const readinessDatabase = createSupabaseReadinessClient({
-    baseUrl: env.SUPABASE_URL,
-    serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
-  });
   const readiness = createProductionReadinessPorts({
-    database: readinessDatabase,
+    database: createSupabaseReadinessClient({
+      baseUrl: env.SUPABASE_URL,
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    }),
     odds: {
       async snapshot(fixtureId, signal) {
         const request = bindAbortSignalToFetch(globalThis.fetch, signal);
@@ -256,7 +251,7 @@ export async function createDeps(
   return {
     db,
     agent,
-    engine,
+    engine: { compileClaim, priceSpec, reduceMarket, checkDebounce },
     tx,
     proofSubmitter,
     wager,
@@ -266,8 +261,4 @@ export async function createDeps(
     log,
     now,
   };
-}
-
-function isPersonaTemplateKey(value: string): value is PersonaTemplateKey {
-  return PERSONA_TEMPLATE_KEYS.some((key) => key === value);
 }
