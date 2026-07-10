@@ -4,19 +4,13 @@
  * drift between CONTRACTS.md and a sibling's real surface is fixed here alone.
  */
 
-import {
-  CLAIM_TYPES,
-  checkDebounce,
-  compileClaim,
-  priceSpec,
-  reduceMarket,
-  type MatchEvent,
-} from '@calledit/market-engine';
+import { CLAIM_TYPES, checkDebounce, compileClaim, priceSpec, reduceMarket, type MatchEvent } from '@calledit/market-engine';
 import { createEngineDb, createWagerDb } from '@calledit/db';
 import {
   classifyMessage,
   parseClaim,
   persona,
+  PERSONA_TEMPLATE_KEYS,
   prefilter,
   type ParseToolExecutors,
   type PersonaTemplateKey,
@@ -39,25 +33,18 @@ import {
   loadWallet,
   submitValidateStat,
   withRetry,
-  type Keypair,
 } from '@calledit/solana';
-import type {
-  AgentPort,
-  Deps,
-  EngineDb,
-  EnginePort,
-  EventSourceLike,
-  ProofSubmitter,
-  TxPort,
-} from './ports.js';
-import type { WagerModule, WagerModuleDeps, WagerPoster } from './wager/module.js';
+import type { AgentPort, Deps, EngineDb, EnginePort, EventSourceLike, OddsFetchResult, ProofSubmitter, TxPort } from './ports.js';
+import type { WagerModule, WagerPoster } from './wager/module.js';
 import type { Env } from './env.js';
 import type { Logger } from './log.js';
 import { mapFixtureRecord } from './ingest/fixtureMap.js';
-import { mapStatValidationToParams } from './proofs/mapping.js';
 import { ENGINE } from './engineConstants.js';
-import { SOLVENCY_PAUSE_REASON_PREFIX } from './wager/constants.js';
-import type { EngineReadinessPorts } from './api/readiness-checks.js';
+import { bindAbortSignalToFetch } from './api/readiness-http.js';
+import { createProductionReadinessPorts } from './api/readiness-production.js';
+import { createSupabaseReadinessClient } from './api/readiness-supabase.js';
+import { createProductionProofSubmitter } from './wiring-proof.js';
+import { createProductionWagerModule } from './wiring-wager.js';
 
 // ── Dependency construction ───────────────────────────────────────────────
 
@@ -68,7 +55,7 @@ export async function createDeps(
   wagerPoster?: WagerPoster,
 ): Promise<Deps> {
   const now = () => Date.now();
-  const db = createEngineDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY) as unknown as EngineDb;
+  const db: EngineDb = createEngineDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
   const engine: EnginePort = { compileClaim, priceSpec, reduceMarket, checkDebounce };
 
@@ -109,17 +96,48 @@ export async function createDeps(
     parse: (text, ctx) => parseClaim(text, ctx, { executors: parseExecutors }),
     // No garnish client/budget wired yet → persona returns the deterministic
     // template (garnish is a polish pass; the bot must never block on it).
-    persona: (templateKey, vars) => persona(templateKey as PersonaTemplateKey, vars),
+    persona: (templateKey, vars) => {
+      if (!isPersonaTemplateKey(templateKey)) throw new Error('unknown persona template');
+      return persona(templateKey, vars);
+    },
   };
 
   const txLogger: TxlineLogger = (message, context) => log.warn(`txline: ${message}`, context);
 
-  const client = new TxlineClient({
-    apiBase: env.TXLINE_API_BASE,
-    guestJwt: env.TXLINE_GUEST_JWT,
-    apiToken: env.TXLINE_API_TOKEN,
-    logger: txLogger,
-  });
+  const createTxlineClient = (fetchImpl?: typeof fetch): TxlineClient =>
+    new TxlineClient({
+      apiBase: env.TXLINE_API_BASE,
+      guestJwt: env.TXLINE_GUEST_JWT,
+      apiToken: env.TXLINE_API_TOKEN,
+      logger: txLogger,
+      ...(fetchImpl === undefined ? {} : { fetchImpl }),
+    });
+  const client = createTxlineClient();
+
+  const fetchOdds = async (
+    sourceClient: TxlineClient,
+    fixtureId: number,
+    asOfMs?: number,
+    signal?: AbortSignal,
+  ): Promise<OddsFetchResult> => {
+    let odds;
+    let recordCount = 0;
+    try {
+      const records = await sourceClient.oddsSnapshot(fixtureId, asOfMs);
+      signal?.throwIfAborted();
+      recordCount = records.length;
+      odds = combineOddsSnapshot(records, { logger: txLogger });
+    } catch (err) {
+      signal?.throwIfAborted();
+      log.warn('odds_snapshot_failed', { fixtureId, error: String(err) });
+      return { kind: 'transient' };
+    }
+    if (!odds) {
+      log.info('odds_snapshot_empty', { fixtureId, recordCount });
+      return { kind: 'no_odds' };
+    }
+    return { kind: 'ok', odds };
+  };
 
   const cursorStore = {
     get: (name: string) => db.getCursor(name),
@@ -127,25 +145,7 @@ export async function createDeps(
   };
 
   const tx: TxPort = {
-    fetchOdds: async (fixtureId, asOfMs) => {
-      let odds;
-      let recordCount = 0;
-      try {
-        const records = await client.oddsSnapshot(fixtureId, asOfMs);
-        recordCount = records.length;
-        odds = combineOddsSnapshot(records, { logger: txLogger });
-      } catch (err) {
-        log.warn('odds_snapshot_failed', { fixtureId, error: String(err) });
-        return { kind: 'transient' };
-      }
-      if (!odds) {
-        // The fetch worked — the feed just has nothing usable for this
-        // fixture. Logged so inventory gaps are distinguishable from outages.
-        log.info('odds_snapshot_empty', { fixtureId, recordCount });
-        return { kind: 'no_odds' };
-      }
-      return { kind: 'ok', odds };
-    },
+    fetchOdds: (fixtureId, asOfMs) => fetchOdds(client, fixtureId, asOfMs),
     fetchFixtures: async () => {
       const records = await client.fixturesSnapshot();
       return records.map(mapFixtureRecord);
@@ -190,9 +190,68 @@ export async function createDeps(
       new ReplaySource({ client, fixtureId, speed, logger: txLogger }),
   };
 
-  const proofSubmitter: ProofSubmitter | null = buildProofSubmitter(env, log);
-  const wager: WagerModule | null = await buildWagerModule(env, log, db, wagerPoster);
-  const readiness = buildReadinessPorts(env, db, tx, wager, proofSubmitter, now);
+  const proofSubmitter: ProofSubmitter | null = createProductionProofSubmitter(env, log, {
+    createConnection: (rpcUrl) => new Connection(rpcUrl, 'confirmed'),
+    loadWallet,
+    submit: (input) => submitValidateStat(input),
+  });
+  const wager: WagerModule | null = await createProductionWagerModule({
+    env,
+    log,
+    engineDb: db,
+    poster: wagerPoster,
+    createDb: (url, serviceRoleKey) => createWagerDb(url, serviceRoleKey),
+    createConnection: (rpcUrl) => new Connection(rpcUrl, 'confirmed'),
+    loadTreasury: loadWallet,
+    chainRuntime: {
+      publicKey: (treasury) => treasury.publicKey,
+      publicKeyAddress: (publicKey) => publicKey.toBase58(),
+      getBalance: (connection, publicKey) => connection.getBalance(publicKey, 'confirmed'),
+      getLatestBlockhash: (connection) => connection.getLatestBlockhash('finalized'),
+      sendRawTransaction: (connection, raw, options) =>
+        connection.sendRawTransaction(raw, options),
+      getSignatureStatuses: (connection, signatures, config) =>
+        connection.getSignatureStatuses(signatures, {
+          searchTransactionHistory: config?.searchTransactionHistory ?? false,
+        }),
+      getBlockHeight: (connection, commitment) => connection.getBlockHeight(commitment),
+      retry: (operation) => withRetry(operation),
+      buildSolTransfer: (args) => buildSolTransfer(args),
+      broadcastRawTx: (rpc, rawTxB64) => broadcastRawTx(rpc, rawTxB64),
+      getSigStatus: (rpc, sig) => getSigStatus(rpc, sig),
+      isBlockheightExceeded: (rpc, height) => isBlockheightExceeded(rpc, height),
+      fetchIncomingTransfers: (connection, address, options) =>
+        fetchIncomingTransfers(connection, address, options),
+    },
+  });
+  const readinessDatabase = createSupabaseReadinessClient({
+    baseUrl: env.SUPABASE_URL,
+    serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+  });
+  const readiness = createProductionReadinessPorts({
+    database: readinessDatabase,
+    odds: {
+      async snapshot(fixtureId, signal) {
+        const request = bindAbortSignalToFetch(globalThis.fetch, signal);
+        const result = await fetchOdds(
+          createTxlineClient(request),
+          fixtureId,
+          undefined,
+          signal,
+        );
+        signal.throwIfAborted();
+        return result.kind === 'ok'
+          ? { kind: 'ok', oddsTsMs: result.odds.oddsTsMs }
+          : { kind: 'unavailable' };
+      },
+    },
+    liveLookaheadMs: ENGINE.LIVE_LOOKAHEAD_MS,
+    now,
+    wagerEnabled: env.WAGER_MODE_ENABLED === 'true',
+    wagerConfigured: wager !== null,
+    proofEnabled: proofSubmitter !== null,
+    settlementEnabled: false,
+  });
 
   return {
     db,
@@ -209,273 +268,6 @@ export async function createDeps(
   };
 }
 
-function buildReadinessPorts(
-  env: Env,
-  db: EngineDb,
-  tx: TxPort,
-  wager: WagerModule | null,
-  proofSubmitter: ProofSubmitter | null,
-  now: () => number,
-): Omit<EngineReadinessPorts, 'telegram'> {
-  const wagerStatusDb =
-    env.WAGER_MODE_ENABLED === 'true'
-      ? createWagerDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY)
-      : null;
-  return {
-    database: {
-      async probe() {
-        await db.getCursor('readiness:database');
-      },
-    },
-    feed: {
-      async snapshot() {
-        const fixtures = await db.liveFixtures(now(), ENGINE.LIVE_LOOKAHEAD_MS);
-        if (fixtures.length === 0) {
-          return { activePricingExpected: false, lastEventAtMs: null };
-        }
-        const results = await Promise.all(
-          fixtures.map((fixture) => tx.fetchOdds(fixture.fixture_id)),
-        );
-        let oldestTimestamp: number | null = null;
-        for (const result of results) {
-          if (result.kind !== 'ok' || result.odds.oddsTsMs === null) {
-            return { activePricingExpected: true, lastEventAtMs: null };
-          }
-          oldestTimestamp =
-            oldestTimestamp === null
-              ? result.odds.oddsTsMs
-              : Math.min(oldestTimestamp, result.odds.oddsTsMs);
-        }
-        return { activePricingExpected: true, lastEventAtMs: oldestTimestamp };
-      },
-    },
-    wager: {
-      async snapshot() {
-        const enabled = env.WAGER_MODE_ENABLED === 'true';
-        if (!enabled) {
-          return { enabled, configured: false, paused: false, covered: false };
-        }
-        if (wager === null || wagerStatusDb === null) {
-          return { enabled, configured: false, paused: false, covered: false };
-        }
-        const status = await wagerStatusDb.getWagerStatus();
-        const covered =
-          !status.paused || !(status.reason ?? '').startsWith(SOLVENCY_PAUSE_REASON_PREFIX);
-        return { enabled, configured: true, paused: status.paused, covered };
-      },
-    },
-    proof: {
-      async snapshot() {
-        return {
-          enabled: proofSubmitter !== null,
-          heartbeatAtMs: null,
-          backlog: 0,
-          oldestAgeMs: null,
-        };
-      },
-    },
-    settlement: {
-      async snapshot() {
-        return {
-          enabled: false,
-          heartbeatAtMs: null,
-          backlog: 0,
-          oldestAgeMs: null,
-        };
-      },
-    },
-  };
-}
-
-// ── Wager module construction (nullable degrade, like the proof submitter) ──
-
-type WagerModuleDb = WagerModuleDeps['db'];
-type WagerChainPort = WagerModuleDeps['chain'];
-
-/**
- * The dynamic import keeps ./wager/module.js completely unreachable at
- * runtime unless BOTH gates pass, so a flag-off deploy never loads a byte of
- * wager code. Uses the DEDICATED wager treasury keypair; the TxL-holding
- * SOLANA_KEYPAIR_B58 must never touch wager flows (sponsor terms) — env.ts
- * refuses to boot if the two are the same key.
- */
-async function buildWagerModule(
-  env: Env,
-  log: Logger,
-  engineDb: EngineDb,
-  poster: WagerPoster | undefined,
-): Promise<WagerModule | null> {
-  if (env.WAGER_MODE_ENABLED !== 'true') return null;
-  const treasurySecret = env.WAGER_TREASURY_KEYPAIR_B58;
-  if (!treasurySecret) {
-    log.warn('wager_module_disabled', { reason: 'WAGER_TREASURY_KEYPAIR_B58 not set' });
-    return null;
-  }
-  if (!poster) {
-    // Programming error, not configuration: main.ts must construct the poster
-    // before deps when the flag is on. Fail loud rather than run silent.
-    throw new Error('wager module requires a poster — pass one to createDeps');
-  }
-  const treasury = loadWallet(treasurySecret);
-  // Long-lived Connection, constructed once per process for the module.
-  const connection = new Connection(env.SOLANA_RPC_URL, 'confirmed');
-  const { createWagerModule } = await import('./wager/module.js');
-  return createWagerModule({
-    db: buildWagerModuleDb(env, engineDb),
-    chain: buildWagerChain(connection, treasury),
-    poster,
-    log,
-    now: () => Date.now(),
-    opsChatId: parseOpsChatId(env, log),
-  });
-}
-
-/**
- * The module's WagerDb port = packages/db's wager facade plus the handful of
- * SHARED-table reads (positions, cursors, user names) served by the engine
- * facade, so neither package grows a dependency on the other.
- */
-function buildWagerModuleDb(env: Env, engineDb: EngineDb): WagerModuleDb {
-  const wagerDb = createWagerDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
-  // Migration 0002 ships no advisory-lock RPC, so cron singleton guarding is
-  // in-process (the engine is one Node process). Rolling-deploy overlap can
-  // double-run a tick; every money movement stays idempotent via unique keys,
-  // so the worst case is a duplicated chat line — cosmetic, not monetary.
-  const heldCronLocks = new Set<string>();
-  return {
-    ...wagerDb,
-    // Port wants Promise<void>; the facade reports {updated}/{inserted}.
-    async markWithdrawalSubmitted(id, tx) {
-      await wagerDb.markWithdrawalSubmitted(id, tx);
-    },
-    async markWithdrawalConfirmed(id) {
-      await wagerDb.markWithdrawalConfirmed(id);
-    },
-    async markWithdrawalFailed(id, error) {
-      await wagerDb.markWithdrawalFailed(id, error);
-    },
-    async insertSettlementApplied(marketId) {
-      await wagerDb.insertSettlementApplied(marketId);
-    },
-    // Shared tables — engine facade owns these.
-    positionsForMarket: (marketId) => engineDb.positionsForMarket(marketId),
-    setPositionStates: (ids, state) => engineDb.setPositionStates(ids, state),
-    getCursor: (streamName) => engineDb.getCursor(streamName),
-    setCursor: (streamName, value) => engineDb.setCursor(streamName, value),
-    getUserName: async (userId) => (await engineDb.getUser(userId))?.display_name ?? null,
-    async tryCronLock(name) {
-      if (heldCronLocks.has(name)) return false;
-      heldCronLocks.add(name);
-      return true;
-    },
-    async releaseCronLock(name) {
-      heldCronLocks.delete(name);
-    },
-  };
-}
-
-/** Binds packages/solana's pure chain I/O to the module's WagerChain port. */
-function buildWagerChain(connection: Connection, treasury: Keypair): WagerChainPort {
-  const treasuryAddress = treasury.publicKey.toBase58();
-  // Retry-wrapped Connection facets for the calls transfer.ts does not retry
-  // itself (fetchIncomingTransfers applies withRetry internally).
-  const retryRpc = {
-    sendRawTransaction: (raw: Buffer, options?: { skipPreflight?: boolean }) =>
-      withRetry(() => connection.sendRawTransaction(raw, options)),
-    getSignatureStatuses: (sigs: string[], config?: { searchTransactionHistory?: boolean }) =>
-      withRetry(() =>
-        connection.getSignatureStatuses(sigs, {
-          searchTransactionHistory: config?.searchTransactionHistory ?? false,
-        }),
-      ),
-    getBlockHeight: (commitment?: 'confirmed' | 'finalized') =>
-      withRetry(() => connection.getBlockHeight(commitment)),
-  };
-  return {
-    treasuryPubkey: () => treasuryAddress,
-    async treasuryBalanceLamports() {
-      try {
-        const lamports = await withRetry(() =>
-          connection.getBalance(treasury.publicKey, 'confirmed'),
-        );
-        return { ok: true, lamports: BigInt(lamports) };
-      } catch (err) {
-        return { ok: false, error: `getBalance: ${String(err)}` };
-      }
-    },
-    async buildTransfer({ to, lamports }) {
-      let latest: { blockhash: string; lastValidBlockHeight: number };
-      try {
-        latest = await withRetry(() => connection.getLatestBlockhash('finalized'));
-      } catch (err) {
-        return { ok: false, error: `getLatestBlockhash: ${String(err)}` };
-      }
-      const built = buildSolTransfer({
-        from: treasury,
-        to,
-        lamports,
-        recentBlockhash: latest.blockhash,
-        lastValidBlockHeight: latest.lastValidBlockHeight,
-      });
-      // buildSolTransfer is pure — same inputs fail the same way forever.
-      if (!built.ok) return { ok: false, error: built.error, permanent: true };
-      return {
-        ok: true,
-        sig: built.sig,
-        rawTxB64: built.rawTxB64,
-        lastValidBlockHeight: latest.lastValidBlockHeight,
-      };
-    },
-    broadcastRawTx: (rawTxB64) => broadcastRawTx(retryRpc, rawTxB64),
-    getSigStatus: (sig) => getSigStatus(retryRpc, sig),
-    isBlockheightExceeded: (lastValidBlockHeight) =>
-      isBlockheightExceeded(retryRpc, lastValidBlockHeight),
-    fetchIncomingTransfers: ({ untilSig }) =>
-      fetchIncomingTransfers(connection, treasuryAddress, { untilSig: untilSig ?? undefined }),
-  };
-}
-
-function parseOpsChatId(env: Env, log: Logger): number | null {
-  const raw = env.WAGER_OPS_CHAT_ID;
-  if (raw === undefined || raw.trim() === '') return null;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isSafeInteger(parsed)) {
-    log.warn('wager_ops_chat_invalid', { raw });
-    return null;
-  }
-  return parsed;
-}
-
-function buildProofSubmitter(env: Env, log: Logger): ProofSubmitter | null {
-  const secret = env.SOLANA_KEYPAIR_B58;
-  if (!secret) {
-    log.warn('proof_submitter_disabled', { reason: 'SOLANA_KEYPAIR_B58 not set' });
-    return null;
-  }
-  return {
-    async submit(args) {
-      try {
-        const mapped = mapStatValidationToParams(args.proof, args.comparator, args.threshold);
-        if (!mapped) {
-          return {
-            ok: false,
-            permanent: true,
-            error: 'stat-validation payload missing required proof fields',
-          };
-        }
-        const wallet = loadWallet(secret);
-        const connection = new Connection(env.SOLANA_RPC_URL, 'confirmed');
-        const result = await submitValidateStat({
-          connection,
-          wallet,
-          programId: env.TXORACLE_PROGRAM_ID,
-          ...mapped,
-        });
-        if (result.ok) return { ok: true, txSig: result.txSig };
-        return { ok: false, error: result.error };
-      } catch (err) {
-        return { ok: false, error: String(err) };
-      }
-    },
-  };
+function isPersonaTemplateKey(value: string): value is PersonaTemplateKey {
+  return PERSONA_TEMPLATE_KEYS.some((key) => key === value);
 }

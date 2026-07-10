@@ -76,6 +76,46 @@ describe('engine readiness evaluator', () => {
     expect(checkSignal?.aborted).toBe(true);
   });
 
+  it('observes a dependency rejection that arrives after timeout cancellation', async () => {
+    let expire: (() => void) | undefined;
+    let rejectedAfterAbort = false;
+    const database = {
+      name: 'database',
+      unavailableReason: ENGINE_READINESS_REASONS.databaseUnavailable,
+      timeoutReason: ENGINE_READINESS_REASONS.databaseTimeout,
+      check: (signal: AbortSignal) => new Promise<never>((_resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          queueMicrotask(() => {
+            rejectedAfterAbort = true;
+            reject(new Error('late sensitive dependency failure'));
+          });
+        }, { once: true });
+      }),
+    } satisfies ReadinessCheckPort;
+    const readiness = createReadinessEvaluator({
+      checks: [database],
+      checkTimeoutMs: 50,
+      deadline: {
+        wait: async () => new Promise<void>((resolve) => {
+          expire = resolve;
+        }),
+      },
+      drainState: new DrainState(),
+    });
+
+    const reportPromise = readiness.evaluate();
+    expire?.();
+    const report = await reportPromise;
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    expect(report).toEqual({
+      status: 'not_ready',
+      reasons: [ENGINE_READINESS_REASONS.databaseTimeout],
+    });
+    expect(rejectedAfterAbort).toBe(true);
+    expect(JSON.stringify(report)).not.toContain('sensitive');
+  });
+
   it('maps a thrown dependency error to its stable unavailable reason', async () => {
     const database = {
       name: 'database',

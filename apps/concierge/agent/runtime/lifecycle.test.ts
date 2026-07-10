@@ -47,6 +47,26 @@ describe('concierge lifecycle', () => {
     expect(lifecycle.unfinished()).toBe(0);
   });
 
+  it('refuses a new Eve session after draining starts without leaking a count', () => {
+    const lifecycle = new ConciergeLifecycle();
+    lifecycle.beginDrain();
+
+    expect(() => lifecycle.beginSession('late-session')).toThrowError(
+      'concierge_draining',
+    );
+    expect(lifecycle.unfinished()).toBe(0);
+  });
+
+  it('lets an existing Eve session finish after draining starts', () => {
+    const lifecycle = new ConciergeLifecycle();
+    lifecycle.beginSession('existing-session');
+
+    lifecycle.beginDrain();
+
+    expect(lifecycle.finishSession('existing-session')).toBe(true);
+    expect(lifecycle.unfinished()).toBe(0);
+  });
+
   it('forces non-zero exit with unfinished count after the shutdown deadline', () => {
     const lifecycle = new ConciergeLifecycle();
     void lifecycle.track(async () => new Promise<never>(() => undefined));

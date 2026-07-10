@@ -23,30 +23,20 @@
 import { defaultTelegramAuth, telegramChannel } from 'eve/channels/telegram';
 import { loadConciergeEnv } from '../env.js';
 import { forwardTelegramUpdate } from '../lib/engine-api.js';
+import { conciergeLifecycle } from '../runtime/lifecycle.js';
+import { routeTelegramIntake } from '../runtime/telegram-intake.js';
 
 const botUsername = loadConciergeEnv().TELEGRAM_BOT_USERNAME;
 
 /** Synthetic envelope id — grammY only uses update_id for polling offsets. */
 let syntheticUpdateId = Math.floor(Date.now() / 1000);
 
-function isConversational(message: {
-  chat: { type: string };
-  text: string;
-  caption: string;
-  from?: { isBot: boolean };
-}): boolean {
-  if (message.from?.isBot) return false;
-  const text = `${message.text} ${message.caption}`.trim();
-  if (text.startsWith('/')) return false; // commands are the engine's surface
-  if (message.chat.type === 'private') return true;
-  if (!botUsername) return false;
-  return text.toLowerCase().includes(`@${botUsername.toLowerCase()}`);
-}
-
 export default telegramChannel({
   botUsername,
   onMessage: async (_ctx, message) => {
-    if (isConversational(message)) {
+    const destination = routeTelegramIntake(message, botUsername, conciergeLifecycle);
+    if (destination === 'draining') return null;
+    if (destination === 'concierge') {
       return { auth: defaultTelegramAuth(message) };
     }
     syntheticUpdateId += 1;
@@ -56,6 +46,7 @@ export default telegramChannel({
     return null; // handled — do not start an agent session
   },
   onCallbackQuery: async (_ctx, query) => {
+    if (!conciergeLifecycle.acceptsIntake()) return;
     // eve already consumed its own HITL callbacks; these are the engine's.
     syntheticUpdateId += 1;
     await forwardTelegramUpdate({ update_id: syntheticUpdateId, callback_query: query.raw }).catch(

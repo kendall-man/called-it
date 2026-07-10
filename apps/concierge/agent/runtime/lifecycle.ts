@@ -13,6 +13,7 @@ export class ConciergeLifecycle {
 
   beginSession(sessionId: string): boolean {
     if (this.sessions.has(sessionId)) return false;
+    this.assertAccepting();
     this.sessions.add(sessionId);
     return true;
   }
@@ -35,12 +36,16 @@ export class ConciergeLifecycle {
     return !this.draining;
   }
 
+  assertAccepting(): void {
+    if (this.draining) throw new ConciergeDrainingError();
+  }
+
   unfinished(): number {
     return this.active + this.sessions.size;
   }
 
   async track<T>(work: () => Promise<T>): Promise<T> {
-    if (this.draining) throw new ConciergeDrainingError();
+    this.assertAccepting();
     this.active += 1;
     try {
       return await work();
