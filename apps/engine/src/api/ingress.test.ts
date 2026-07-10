@@ -9,6 +9,7 @@ import { startEngineApi } from './server.js';
 import type { Deps } from '../ports.js';
 import type { Env } from '../env.js';
 import type { Poster } from '../bot/poster.js';
+import { DrainState } from './readiness.js';
 
 const TOKEN = 'test-engine-api-token-0123456789';
 
@@ -25,6 +26,8 @@ async function startIngress() {
     poster: {} as Poster,
     env: { ENGINE_API_TOKEN: TOKEN, PORT: 0, WEB_BASE_URL: 'https://web.test' } as unknown as Env,
     log: { info: () => undefined, warn: () => undefined, error: () => undefined } as never,
+    readiness: { evaluate: async () => ({ status: 'ready', reasons: [] }) },
+    drainState: new DrainState(),
     handleTelegramUpdate: async (update) => {
       received.push(update);
     },

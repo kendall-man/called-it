@@ -28,6 +28,22 @@ import { Settler } from './settle/settler.js';
 import { IngestSupervisor } from './ingest/supervisor.js';
 import { startCrons } from './cron/index.js';
 import { startEngineApi } from './api/server.js';
+import {
+  createEngineReadinessChecks,
+  type EngineReadinessPolicy,
+  type EngineReadinessPorts,
+} from './api/readiness-checks.js';
+import {
+  DrainState,
+  SYSTEM_READINESS_DEADLINE,
+  createReadinessEvaluator,
+} from './api/readiness.js';
+import {
+  createShutdownSignalHandler,
+  runBoundedShutdown,
+  type ShutdownDrainPort,
+  type ShutdownSignal,
+} from './api/shutdown.js';
 
 /**
  * Load the repo-root `.env` into process.env for local/dev runs. Production
@@ -63,11 +79,17 @@ async function main(): Promise<void> {
 
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
   bot.api.config.use(autoRetry());
+  let telegramHeartbeatAtMs: number | null = null;
 
   // The poster exists before deps so the wager module can post deposit/
   // withdrawal notifications through the same rate-limited queue.
   const poster = createPoster(bot.api, queue, log);
   const deps = await createDeps(env, log, poster);
+  bot.api.config.use(async (previous, method, payload, signal) => {
+    const result = await previous(method, payload, signal);
+    if (method === 'getUpdates') telegramHeartbeatAtMs = deps.now();
+    return result;
+  });
 
   // The wager module is the product now — SOL is the only currency. A boot with
   // it unwired (missing treasury keypair / flag) would silently mint nothing
@@ -101,6 +123,10 @@ async function main(): Promise<void> {
     })();
   };
 
+  bot.use(async (_context, next) => {
+    telegramHeartbeatAtMs = deps.now();
+    await next();
+  });
   registerBotHandlers(bot, handlerCtx);
 
   await bot.api.setMyCommands([...BOT_COMMANDS]).catch((err) => {
@@ -112,11 +138,49 @@ async function main(): Promise<void> {
   if (webhookIngress && !env.ENGINE_API_TOKEN) {
     throw new Error('TELEGRAM_INGRESS=webhook requires ENGINE_API_TOKEN (updates arrive via the API)');
   }
+  let runner: ReturnType<typeof run> | null = null;
+  let webhookWorkerReady = false;
+  const drainState = new DrainState();
+  const readinessPolicy = {
+    checkTimeoutMs: env.READINESS_CHECK_TIMEOUT_MS,
+    feedMaxAgeMs: env.READINESS_FEED_MAX_AGE_MS,
+    ingressMaxAgeMs: env.READINESS_INGRESS_MAX_AGE_MS,
+    workerMaxAgeMs: env.READINESS_WORKER_MAX_AGE_MS,
+    proofMaxBacklog: env.READINESS_PROOF_MAX_BACKLOG,
+    proofMaxOldestAgeMs: env.READINESS_PROOF_MAX_OLDEST_AGE_MS,
+    settlementMaxBacklog: env.READINESS_SETTLEMENT_MAX_BACKLOG,
+    settlementMaxOldestAgeMs: env.READINESS_SETTLEMENT_MAX_OLDEST_AGE_MS,
+  } satisfies EngineReadinessPolicy;
+  const readinessPorts: EngineReadinessPorts = {
+    ...deps.readiness,
+    telegram: {
+      async snapshot() {
+        if (webhookIngress) {
+          return { heartbeatAtMs: webhookWorkerReady ? deps.now() : null };
+        }
+        return {
+          heartbeatAtMs: runner?.isRunning() ? telegramHeartbeatAtMs : null,
+        };
+      },
+    },
+  };
+  const readiness = createReadinessEvaluator({
+    checks: createEngineReadinessChecks(
+      readinessPorts,
+      readinessPolicy,
+      deps.now,
+    ),
+    checkTimeoutMs: readinessPolicy.checkTimeoutMs,
+    deadline: SYSTEM_READINESS_DEADLINE,
+    drainState,
+  });
   const apiServer = startEngineApi({
     deps,
     poster,
     env,
     log,
+    readiness,
+    drainState,
     ...(webhookIngress
       ? {
           handleTelegramUpdate: (update: Record<string, unknown>) =>
@@ -126,11 +190,13 @@ async function main(): Promise<void> {
   });
   // Webhook ingress: the concierge owns getUpdates' replacement (the webhook)
   // and forwards; polling here would 409 against the registered webhook.
-  let runner: ReturnType<typeof run> | null = null;
   if (webhookIngress) {
     await bot.init(); // handleUpdate needs botInfo, which run() normally fetches
+    webhookWorkerReady = true;
+    telegramHeartbeatAtMs = deps.now();
   } else {
     runner = run(bot);
+    telegramHeartbeatAtMs = deps.now();
   }
   log.info('engine_up', {
     webBaseUrl: env.WEB_BASE_URL,
@@ -140,22 +206,64 @@ async function main(): Promise<void> {
     wagerModule: deps.wager !== null,
   });
 
-  let shuttingDown = false;
-  const shutdown = async (signal: string): Promise<void> => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    log.info('engine_shutdown', { signal });
-    crons.stop();
-    supervisor.stopAll();
-    proofWorker.stop();
-    apiServer?.close();
-    if (runner?.isRunning()) await runner.stop();
-    await queue.idle().catch(() => undefined);
+  let queueDrained = false;
+  const queueDrain = {
+    name: 'telegram_send_queue',
+    async drain() {
+      await queue.idle();
+      queueDrained = true;
+    },
+    unfinished: () => (queueDrained ? 0 : 1),
+  } satisfies ShutdownDrainPort;
+  const shutdown = async (signal: ShutdownSignal) => {
+    log.info('engine_shutdown_started', { signal });
+    const result = await runBoundedShutdown({
+      timeoutMs: env.SHUTDOWN_DRAIN_TIMEOUT_MS,
+      deadline: SYSTEM_READINESS_DEADLINE,
+      drainState,
+      stopIntake() {
+        crons.stop();
+        supervisor.stopAll();
+        proofWorker.stop();
+      },
+      async closeResources(abortSignal) {
+        const closeApi = new Promise<void>((resolveClose) => {
+          if (!apiServer.listening) {
+            resolveClose();
+            return;
+          }
+          apiServer.close(() => resolveClose());
+          abortSignal.addEventListener(
+            'abort',
+            () => {
+              apiServer.closeAllConnections();
+              resolveClose();
+            },
+            { once: true },
+          );
+        });
+        const closeRunner = runner?.isRunning() ? runner.stop() : Promise.resolve();
+        await Promise.all([closeApi, closeRunner]);
+      },
+      drains: [...deps.drains, queueDrain],
+    });
     queue.stop();
-    process.exit(0);
+    log.info('engine_shutdown_complete', {
+      signal,
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      unfinishedCount: result.unfinishedCount,
+      unfinished: result.unfinished,
+    });
+    return result;
   };
-  process.once('SIGINT', () => void shutdown('SIGINT'));
-  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  const handleSignal = createShutdownSignalHandler({
+    shutdown,
+    repeated: (signal) => log.warn('engine_shutdown_repeated_signal', { signal }),
+    exit: (code) => process.exit(code),
+  });
+  process.on('SIGINT', () => handleSignal('SIGINT'));
+  process.on('SIGTERM', () => handleSignal('SIGTERM'));
 }
 
 main().catch((err: unknown) => {

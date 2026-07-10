@@ -32,6 +32,8 @@ import type { Logger } from './log.js';
 // Type-only on purpose: the wager module must stay unreachable at runtime
 // from any file outside wager/ except wiring.ts's gated dynamic import.
 import type { WagerModule } from './wager/module.js';
+import type { EngineReadinessPorts } from './api/readiness-checks.js';
+import type { ShutdownDrainPort } from './api/shutdown.js';
 
 // ── Row shapes (matching migrations/0001_init.sql) ────────────────────────
 
@@ -414,6 +416,8 @@ export interface Deps {
    * is set — every seam short-circuits to exact main behavior on null.
    */
   wager: WagerModule | null;
+  readiness: Omit<EngineReadinessPorts, 'telegram'>;
+  drains: readonly ShutdownDrainPort[];
   env: Env;
   log: Logger;
   now(): number;

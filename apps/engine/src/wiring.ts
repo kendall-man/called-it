@@ -55,6 +55,9 @@ import type { Env } from './env.js';
 import type { Logger } from './log.js';
 import { mapFixtureRecord } from './ingest/fixtureMap.js';
 import { mapStatValidationToParams } from './proofs/mapping.js';
+import { ENGINE } from './engineConstants.js';
+import { SOLVENCY_PAUSE_REASON_PREFIX } from './wager/constants.js';
+import type { EngineReadinessPorts } from './api/readiness-checks.js';
 
 // ── Dependency construction ───────────────────────────────────────────────
 
@@ -64,6 +67,7 @@ export async function createDeps(
   /** Rate-limited chat poster — required only when wager mode is enabled. */
   wagerPoster?: WagerPoster,
 ): Promise<Deps> {
+  const now = () => Date.now();
   const db = createEngineDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY) as unknown as EngineDb;
 
   const engine: EnginePort = { compileClaim, priceSpec, reduceMarket, checkDebounce };
@@ -188,8 +192,99 @@ export async function createDeps(
 
   const proofSubmitter: ProofSubmitter | null = buildProofSubmitter(env, log);
   const wager: WagerModule | null = await buildWagerModule(env, log, db, wagerPoster);
+  const readiness = buildReadinessPorts(env, db, tx, wager, proofSubmitter, now);
 
-  return { db, agent, engine, tx, proofSubmitter, wager, env, log, now: () => Date.now() };
+  return {
+    db,
+    agent,
+    engine,
+    tx,
+    proofSubmitter,
+    wager,
+    readiness,
+    drains: [],
+    env,
+    log,
+    now,
+  };
+}
+
+function buildReadinessPorts(
+  env: Env,
+  db: EngineDb,
+  tx: TxPort,
+  wager: WagerModule | null,
+  proofSubmitter: ProofSubmitter | null,
+  now: () => number,
+): Omit<EngineReadinessPorts, 'telegram'> {
+  const wagerStatusDb =
+    env.WAGER_MODE_ENABLED === 'true'
+      ? createWagerDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY)
+      : null;
+  return {
+    database: {
+      async probe() {
+        await db.getCursor('readiness:database');
+      },
+    },
+    feed: {
+      async snapshot() {
+        const fixtures = await db.liveFixtures(now(), ENGINE.LIVE_LOOKAHEAD_MS);
+        if (fixtures.length === 0) {
+          return { activePricingExpected: false, lastEventAtMs: null };
+        }
+        const results = await Promise.all(
+          fixtures.map((fixture) => tx.fetchOdds(fixture.fixture_id)),
+        );
+        let oldestTimestamp: number | null = null;
+        for (const result of results) {
+          if (result.kind !== 'ok' || result.odds.oddsTsMs === null) {
+            return { activePricingExpected: true, lastEventAtMs: null };
+          }
+          oldestTimestamp =
+            oldestTimestamp === null
+              ? result.odds.oddsTsMs
+              : Math.min(oldestTimestamp, result.odds.oddsTsMs);
+        }
+        return { activePricingExpected: true, lastEventAtMs: oldestTimestamp };
+      },
+    },
+    wager: {
+      async snapshot() {
+        const enabled = env.WAGER_MODE_ENABLED === 'true';
+        if (!enabled) {
+          return { enabled, configured: false, paused: false, covered: false };
+        }
+        if (wager === null || wagerStatusDb === null) {
+          return { enabled, configured: false, paused: false, covered: false };
+        }
+        const status = await wagerStatusDb.getWagerStatus();
+        const covered =
+          !status.paused || !(status.reason ?? '').startsWith(SOLVENCY_PAUSE_REASON_PREFIX);
+        return { enabled, configured: true, paused: status.paused, covered };
+      },
+    },
+    proof: {
+      async snapshot() {
+        return {
+          enabled: proofSubmitter !== null,
+          heartbeatAtMs: null,
+          backlog: 0,
+          oldestAgeMs: null,
+        };
+      },
+    },
+    settlement: {
+      async snapshot() {
+        return {
+          enabled: false,
+          heartbeatAtMs: null,
+          backlog: 0,
+          oldestAgeMs: null,
+        };
+      },
+    },
+  };
 }
 
 // ── Wager module construction (nullable degrade, like the proof submitter) ──

@@ -24,6 +24,7 @@ import { marketStakeKeyboard } from '../bot/keyboards.js';
 import { describeTerms } from '../bot/cards.js';
 import { computePots } from '../wager/pot.js';
 import { formatSol, LAMPORTS_PER_SOL } from '../wager/format.js';
+import type { DrainState, ReadinessEvaluator } from './readiness.js';
 
 const JSON_BODY_LIMIT_BYTES = 64 * 1024;
 const FIXTURES_WINDOW_HOURS_DEFAULT = 48;
@@ -54,6 +55,8 @@ export interface EngineApiOptions {
   poster: Poster;
   env: Env;
   log: Logger;
+  readiness: ReadinessEvaluator;
+  drainState: DrainState;
   /**
    * Webhook-ingress mode: the concierge owns the Telegram webhook and
    * forwards every update the agent doesn't handle (plain group chatter,
@@ -63,14 +66,9 @@ export interface EngineApiOptions {
   handleTelegramUpdate?: (update: Record<string, unknown>) => Promise<void>;
 }
 
-/** Starts the API when ENGINE_API_TOKEN is configured; otherwise a no-op. */
-export function startEngineApi(options: EngineApiOptions): Server | null {
+export function startEngineApi(options: EngineApiOptions): Server {
   const { deps, env, log } = options;
   const token = env.ENGINE_API_TOKEN;
-  if (!token) {
-    log.info('engine_api_disabled', { reason: 'ENGINE_API_TOKEN not set' });
-    return null;
-  }
   const quoteBudget = new LlmBudget(undefined, deps.now);
   const server = createServer((req, res) => {
     void route(options, quoteBudget, token, req, res).catch((err) => {
@@ -87,7 +85,7 @@ export function startEngineApi(options: EngineApiOptions): Server | null {
 async function route(
   options: EngineApiOptions,
   quoteBudget: LlmBudget,
-  token: string,
+  token: string | undefined,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -95,6 +93,19 @@ async function route(
   const path = url.pathname;
   if (path === '/api/health') {
     sendJson(res, 200, { ok: true });
+    return;
+  }
+  if (path === '/api/live') {
+    sendJson(res, 200, { status: 'live' });
+    return;
+  }
+  if (path === '/api/ready') {
+    const report = await options.readiness.evaluate();
+    sendJson(res, report.status === 'ready' ? 200 : 503, report);
+    return;
+  }
+  if (options.drainState.isDraining()) {
+    sendJson(res, 503, { error: 'draining' });
     return;
   }
   if (!authorized(req, token)) {
@@ -393,7 +404,8 @@ function toQuoteJson(outcome: QuoteOutcome) {
   };
 }
 
-function authorized(req: IncomingMessage, token: string): boolean {
+function authorized(req: IncomingMessage, token: string | undefined): boolean {
+  if (token === undefined) return false;
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) return false;
   // Hash both sides so timingSafeEqual gets equal-length buffers.

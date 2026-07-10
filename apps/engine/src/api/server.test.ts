@@ -12,6 +12,12 @@ import type { Env } from '../env.js';
 import type { Poster } from '../bot/poster.js';
 import { createWagerModule } from '../wager/module.js';
 import { makeFakeDeps, type FakeWagerDb } from '../wager/fakes.js';
+import {
+  DrainState,
+  ENGINE_READINESS_REASONS,
+  createReadinessEvaluator,
+  type ReadinessEvaluator,
+} from './readiness.js';
 
 const NOW = Date.parse('2026-07-08T12:00:00.000Z');
 const CHAT_ID = -100555;
@@ -70,7 +76,13 @@ afterEach(() => {
 });
 
 async function startHarness(
-  opts: { balanceLamports?: bigint; link?: boolean; market?: MarketRow } = {},
+  opts: {
+    balanceLamports?: bigint;
+    link?: boolean;
+    market?: MarketRow;
+    readiness?: ReadinessEvaluator;
+    drainState?: DrainState;
+  } = {},
 ): Promise<ApiHarness> {
   const wagerBundle = makeFakeDeps({ now: () => NOW });
   const wager = createWagerModule(wagerBundle.deps);
@@ -132,7 +144,17 @@ async function startHarness(
   const poster = { post: () => undefined, editCard: () => undefined, stripKeyboard: () => undefined } as unknown as Poster;
   const env = { ENGINE_API_TOKEN: TOKEN, PORT: 0, WEB_BASE_URL: 'https://web.test' } as unknown as Env;
 
-  const server = startEngineApi({ deps, poster, env, log: deps.log });
+  const drainState = opts.drainState ?? new DrainState();
+  const readiness =
+    opts.readiness ??
+    createReadinessEvaluator({
+      checks: [],
+      checkTimeoutMs: 100,
+      deadline: { wait: async () => new Promise<void>(() => undefined) },
+      drainState,
+    });
+  const apiOptions = { deps, poster, env, log: deps.log, readiness, drainState };
+  const server = startEngineApi(apiOptions);
   if (!server) throw new Error('api did not start');
   activeServer = server;
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -157,14 +179,19 @@ function stakeBody(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('engine API', () => {
-  it('starts only when a token is configured', () => {
+  it('starts health routes even when application API auth is unconfigured', () => {
     const server = startEngineApi({
       deps: { log: { info: () => undefined } } as unknown as Deps,
       poster: {} as Poster,
       env: { ENGINE_API_TOKEN: undefined, PORT: 0 } as unknown as Env,
       log: { info: () => undefined, warn: () => undefined, error: () => undefined } as never,
+      readiness: { evaluate: async () => ({ status: 'ready', reasons: [] }) },
+      drainState: new DrainState(),
     });
-    expect(server).toBeNull();
+    expect(server).not.toBeNull();
+    if (server !== null) {
+      activeServer = server;
+    }
   });
 
   it('rejects a missing or wrong bearer token', async () => {
@@ -177,6 +204,60 @@ describe('engine API', () => {
     expect(wrong.status).toBe(401);
     const health = await fetch(`${hz.base}/api/health`);
     expect(health.status).toBe(200);
+    expect(await health.json()).toEqual({ ok: true });
+  });
+
+  it('reports process liveness without authentication or dependency checks', async () => {
+    const hz = await startHarness();
+
+    const live = await fetch(`${hz.base}/api/live`);
+
+    expect(live.status).toBe(200);
+    expect(await live.json()).toEqual({ status: 'live' });
+  });
+
+  it('reports a healthy dependency set as ready without authentication', async () => {
+    const hz = await startHarness();
+
+    const ready = await fetch(`${hz.base}/api/ready`);
+
+    expect(ready.status).toBe(200);
+    expect(await ready.json()).toEqual({ status: 'ready', reasons: [] });
+  });
+
+  it('reports a failed database readiness check with a stable reason code', async () => {
+    const hz = await startHarness({
+      readiness: {
+        evaluate: async () => ({
+          status: 'not_ready',
+          reasons: [ENGINE_READINESS_REASONS.databaseUnavailable],
+        }),
+      },
+    });
+
+    const ready = await fetch(`${hz.base}/api/ready`);
+
+    expect(ready.status).toBe(503);
+    expect(await ready.json()).toEqual({
+      status: 'not_ready',
+      reasons: ['database_unavailable'],
+    });
+  });
+
+  it('keeps liveness up but rejects readiness and new intake while draining', async () => {
+    const drainState = new DrainState();
+    drainState.begin();
+    const hz = await startHarness({ drainState });
+
+    const live = await fetch(`${hz.base}/api/live`);
+    const ready = await fetch(`${hz.base}/api/ready`);
+    const intake = await fetch(`${hz.base}/api/fixtures`, { headers: authed });
+
+    expect(live.status).toBe(200);
+    expect(ready.status).toBe(503);
+    expect(await ready.json()).toEqual({ status: 'not_ready', reasons: ['draining'] });
+    expect(intake.status).toBe(503);
+    expect(await intake.json()).toEqual({ error: 'draining' });
   });
 
   it('serves the group snapshot with SOL markets and pots (no leaderboard)', async () => {

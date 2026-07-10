@@ -1,0 +1,99 @@
+Task 4 evidence: separate liveness, readiness, and bounded shutdown
+Captured: 2026-07-10
+Requested base: def6be1cec57e23e83e74080eb292a1427cdf331
+Shared-checkout HEAD at final review: bfad996e55228dd3e6cf2805f34a33d61e5adbae
+
+Scope
+-----
+- Engine API/readiness/lifecycle ports, wiring, main lifecycle, and tests only.
+- Concierge health channel, session hook, runtime readiness/lifecycle, and tests only.
+- No Task 6 env, deployment, Railway, docs, scripts, migrations, parser, or web files changed by Task 4.
+- The shared checkout advanced during review through a separate Task 6 web-env commit; it was not reverted or modified.
+
+Baseline and red-to-green record
+--------------------------------
+- Baseline characterization pinned legacy unauthenticated GET /api/health at HTTP 200 with exact body {"ok":true}.
+- Before engine route implementation, /api/live and /api/ready returned the authenticated-route result instead of the new public health contract.
+- Before bounded checks, an injected failed database check still produced ready and a hung check had no injected deadline outcome.
+- Before drain gating, application intake remained open after drain began.
+- Before concierge process-exit arbitration, direct built-server SIGTERM logged unfinishedCount 0 but exited 143.
+- Red lifecycle tests observed `undefined` instead of clean/failed exit decisions (2 intended failures).
+- Red stale-state tests observed ready after drain began during an in-flight probe (1 intended failure in each service).
+- Green lifecycle rerun: 1 file passed, 7 tests passed.
+- Green stale-state reruns: engine 1 file/5 tests; concierge 1 file/8 tests.
+
+Final automated verification
+----------------------------
+- `npx -y pnpm@10.33.0 --filter @calledit/engine test`
+  Result: PASS, 26 files passed, 259 tests passed.
+- `npx -y pnpm@10.33.0 --filter @calledit/engine typecheck`
+  Result: PASS, exit 0.
+- `npx -y pnpm@10.33.0 --filter @calledit/engine build`
+  Result: PASS, exit 0.
+- `npx -y pnpm@10.33.0 --filter callie test`
+  Result: PASS, 5 files passed, 34 tests passed.
+- `npx -y pnpm@10.33.0 --filter callie typecheck`
+  Result: PASS, exit 0.
+- `npx -y pnpm@10.33.0 --filter callie eve:build` with redacted mock configuration
+  Result: PASS, built output contains GET /api/live, GET /api/ready, and shutdown lifecycle code.
+  Note: Eve warns that top-level `agent/runtime/` is not a discovery root; those modules are imported by discovered channel/hook files and are present in the built bundle.
+- `git diff --check`
+  Result: PASS.
+- Added-line policy scan for `any`, type assertions, ts-ignore/expect-error, non-null assertions, and debug markers
+  Result: PASS, no Task 4 additions matched.
+
+Final process-level manual QA
+-----------------------------
+Services used compiled engine modules with mock dependency ports and the built Eve/Nitro concierge server. Mock values were non-production placeholders and are omitted.
+
+Engine:
+- GET /api/live ready state: HTTP 200, {"status":"live"}.
+- GET /api/ready ready state: HTTP 200, {"status":"ready","reasons":[]}.
+- Injected database failure: HTTP 503, {"status":"not_ready","reasons":["database_unavailable"]}.
+- Drain state: GET /api/ready HTTP 503, {"status":"not_ready","reasons":["draining"]}.
+- Drain state: GET /api/live remained HTTP 200, {"status":"live"}.
+- Drain state: authenticated application intake returned HTTP 503, {"error":"draining"}.
+- Clean SIGTERM with one short drain: exit 0 in 93 ms, timedOut false, unfinishedCount 0.
+- Hung lease with 300 ms budget: exit 1 in 318 ms, timedOut true, unfinishedCount 3.
+- Repeated SIGTERM: exit 1 in 78 ms with one repeated-signal event.
+
+Concierge:
+- GET /api/live ready state: HTTP 200, {"status":"live"}.
+- GET /api/ready ready state: HTTP 200, {"status":"ready","reasons":[]}.
+- Private engine became not ready: HTTP 503, {"status":"not_ready","reasons":["engine_not_ready"]}.
+- Production readiness/response modules on a mock HTTP listener: HTTP 200 ready, then after toggling the injected drain port HTTP 503, {"status":"not_ready","reasons":["draining"]}, both verified with `curl -i`.
+- Direct built-server SIGTERM: exit 0 in 18 ms with shutdown_started and shutdown_complete, unfinishedCount 0.
+
+Debugging audit hypotheses
+--------------------------
+1. Route logic could return misleading success or leak dependency detail. Result: refuted after exact curl status/body checks and error-redaction tests; only stable codes are returned.
+2. Eve could ignore imported runtime health modules because `runtime/` is not a discovery root. Result: refuted by built bundle route entries and live curls against the built server.
+3. Signal races could outlive the budget, return stale ready, or lose unfinished counts. Result: one framework exit-code race and two stale-state races found, locked red, fixed, and reverified; clean/hung/repeated process QA passed.
+
+Adversarial matrix
+------------------
+- hung_dependency: PASS; injected deadlines abort checks and emit *_timeout codes.
+- cancel_resume_via_SIGTERM: PASS; first signal drains, repeated signal forces one nonzero exit.
+- repeated_interruption: PASS; process-level 78 ms forced exit plus unit coverage.
+- stale_state: PASS; drain is rechecked after in-flight probes before publishing readiness.
+- dirty_worktree: PASS; unrelated .omo artifacts and concurrent Task 6 work were left untouched and unstaged.
+- flaky_timing: PASS; unit tests use injected clocks/deadline ports; wall-clock assertions are not used in tests.
+- misleading_success_output: PASS; exact semantic status/body assertions reject 2xx/default-body false positives.
+- secret_error_redaction: PASS; health JSON and shutdown logs contain stable codes/counts only.
+
+Review gate
+-----------
+- Goal and constraint verification: PASS.
+- Hands-on QA execution: PASS.
+- Code quality and maintainability: PASS; production files are under 250 lines and typed ports isolate future queue wiring.
+- Security and redaction: PASS.
+- Repository context and scope: PASS; only Task 4 paths and these two evidence files are selected for commit.
+
+Cleanup receipt
+---------------
+- QA listeners on ports 39791 and 39792: stopped; both ports verified free.
+- Temporary QA driver and debug journal: removed and absence verified.
+- Ignored `.eve/` and `.output/` build caches: preserved because the checkout is shared; neither is staged.
+- No branch/worktree switch, reset, deletion, or unrelated-file revert performed.
+
+Detailed redacted structured records: `.omo/evidence/task-4-called-it-direct-onboarding-remediation.logs.jsonl`.
