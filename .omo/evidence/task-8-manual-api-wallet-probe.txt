@@ -1,0 +1,17 @@
+{
+  "getWallet": {
+    "status": 200,
+    "body": {
+      "linkedWallet": "Wa11etPubkey1111111111111111111111111111",
+      "balanceLamports": "1000000000",
+      "balanceSol": "1",
+      "positions": []
+    }
+  },
+  "postWallet": {
+    "status": 404,
+    "body": {
+      "error": "not_found"
+    }
+  }
+}

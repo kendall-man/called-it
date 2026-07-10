@@ -1,0 +1,49 @@
+
+> @calledit/engine@0.1.0 test /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/engine
+> vitest run -- src/wager/module.test.ts src/wager/constants.test.ts src/wager/deposits.test.ts src/api/server.test.ts
+
+
+ RUN  v3.2.6 /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/engine
+
+ ✓ src/api/readiness-queues.test.ts (10 tests) 4ms
+ ✓ src/wager/pot.test.ts (12 tests) 135ms
+ ✓ src/api/server-auth-boundary.test.ts (5 tests) 29ms
+ ✓ src/api/ingress.test.ts (2 tests) 30ms
+ ✓ src/api/ingress-auth-redaction.test.ts (3 tests) 70ms
+ ✓ src/api/server-health.test.ts (5 tests) 74ms
+ ✓ src/api/server.test.ts (5 tests) 87ms
+ ✓ src/api/server-auth.test.ts (22 tests) 122ms
+ ✓ src/bot/callbacks.test.ts (17 tests) 14ms
+ ✓ src/wager/constants.test.ts (12 tests) 8ms
+ ✓ src/bot/callbackData.test.ts (4 tests) 4ms
+ ✓ src/api/readiness-checks.test.ts (12 tests) 4ms
+ ✓ src/wager/module.test.ts (17 tests) 7ms
+ ✓ src/wager/withdrawals.test.ts (15 tests) 8ms
+ ✓ src/env.test.ts (15 tests) 14ms
+ ✓ src/api/readiness.test.ts (6 tests) 7ms
+ ✓ src/bot/copy.test.ts (3 tests) 22ms
+ ✓ src/wager/deposits.test.ts (13 tests) 8ms
+ ✓ src/env.rollout.test.ts (7 tests) 6ms
+ ✓ src/wager/solvency.test.ts (9 tests) 5ms
+ ✓ src/bot/sendQueue.test.ts (5 tests) 3ms
+ ✓ src/api/shutdown.test.ts (4 tests) 4ms
+ ✓ src/api/readiness-supabase.test.ts (2 tests) 6ms
+ ✓ src/pipeline/claims.test.ts (10 tests) 6ms
+ ✓ src/bot/callbacks.stake.test.ts (7 tests) 8ms
+ ✓ src/bot/bot.test.ts (1 test) 2ms
+ ✓ src/api/telegram-ingress-boundary.test.ts (4 tests) 6ms
+ ✓ src/wager/format.test.ts (32 tests) 5ms
+ ✓ src/wager/settlement.test.ts (11 tests) 8ms
+ ✓ src/api/readiness-http.test.ts (1 test) 2ms
+ ✓ src/api/readiness-production.test.ts (2 tests) 3ms
+ ✓ src/wager/stake.test.ts (19 tests) 11ms
+ ✓ src/bot/cards.test.ts (6 tests) 3ms
+ ✓ src/wiring-proof.test.ts (1 test) 3ms
+ ✓ src/ingest/fixtureMap.test.ts (3 tests) 3ms
+ ✓ src/proofs/mapping.test.ts (5 tests) 2ms
+ ✓ src/wiring.test.ts (2 tests) 1ms
+
+ Test Files  37 passed (37)
+      Tests  309 passed (309)
+   Start at  01:00:45
+   Duration  1.85s (transform 1.35s, setup 0ms, collect 4.14s, tests 734ms, environment 5ms, prepare 2.33s)

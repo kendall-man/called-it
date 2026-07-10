@@ -44,10 +44,6 @@ export interface WagerWalletLinkRow {
   created_at: string;
 }
 
-export type WalletLinkResult =
-  | { ok: true; relinked: boolean }
-  | { ok: false; reason: 'pubkey_taken' };
-
 export interface WagerDepositRow {
   tx_sig: string;
   ix_index: number;
@@ -86,7 +82,6 @@ export interface WagerStatusRow {
 export interface WagerDb {
   getWalletLink(userId: number): Promise<WagerWalletLinkRow | null>;
   getWalletLinkByPubkey(pubkey: string): Promise<WagerWalletLinkRow | null>;
-  linkWallet(input: { user_id: number; pubkey: string }): Promise<WalletLinkResult>;
   setLastWagerGroup(userId: number, groupId: number): Promise<void>;
   balanceLamports(userId: number): Promise<bigint>;
   totalLedgerLamports(): Promise<bigint>;

@@ -109,7 +109,7 @@ describe('module surface', () => {
 });
 
 describe('/wallet command', () => {
-  it('links a valid pubkey, remembers the group, and sweeps orphan deposits', async () => {
+  it('fails closed for pasted pubkeys without linking or sweeping deposits', async () => {
     const { deps, db } = makeFakeDeps();
     db.seedOrphanDeposit({
       tx_sig: 'early',
@@ -123,31 +123,33 @@ describe('/wallet command', () => {
     const ctx = groupCtx(VALID_PUBKEY);
     await invoke(bot, 'wallet', ctx);
 
-    expect(db.links.get(USER)?.pubkey).toBe(VALID_PUBKEY);
-    expect(db.links.get(USER)?.last_wager_group_id).toBe(GROUP);
-    expect(db.ledgerByKey(WAGER_KEYS.deposit('early', 0))?.lamports).toBe(5_000_000n);
-    expect(ctx.replies[0]).toContain('0.005 SOL'); // swept credit is named
+    expect(db.links.get(USER)).toBeUndefined();
+    expect(db.ledgerByKey(WAGER_KEYS.deposit('early', 0))).toBeUndefined();
+    expect(ctx.replies).toEqual([
+      'Wallet setup requires signed ownership verification. Pasted wallet addresses are not accepted, and no account state changed. Setup is not available yet; use /me to review your account.',
+    ]);
   });
 
-  it('rejects garbage addresses without touching the link table', async () => {
+  it('gives bad input the same fail-closed recovery without touching links', async () => {
     const { deps, db } = makeFakeDeps();
     const bot = fakeBot();
     createWagerModule(deps).registerCommands(bot);
     const ctx = groupCtx('not-a-pubkey');
     await invoke(bot, 'wallet', ctx);
-    expect(ctx.replies).toEqual([WAGER_COPY.walletInvalid()]);
+    expect(ctx.replies).toEqual([WAGER_COPY.walletSetupUnavailable()]);
     expect(db.links.size).toBe(0);
   });
 
-  it('first link wins — a second user cannot claim the same pubkey', async () => {
+  it('does not replace or claim a link when a pasted pubkey is already reserved', async () => {
     const { deps, db } = makeFakeDeps();
     db.seedLink(99, VALID_PUBKEY);
     const bot = fakeBot();
     createWagerModule(deps).registerCommands(bot);
     const ctx = groupCtx(VALID_PUBKEY);
     await invoke(bot, 'wallet', ctx);
-    expect(ctx.replies).toEqual([WAGER_COPY.walletPubkeyTaken()]);
+    expect(ctx.replies).toEqual([WAGER_COPY.walletSetupUnavailable()]);
     expect(db.links.get(USER)).toBeUndefined();
+    expect(db.links.get(99)?.pubkey).toBe(VALID_PUBKEY);
   });
 
   it('bare /wallet shows the linked status and balance', async () => {

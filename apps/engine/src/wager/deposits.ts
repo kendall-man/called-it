@@ -5,9 +5,10 @@
  * 'wager:deposit:<sig>:<ix>', and the stream cursor only advances after every
  * instruction of a signature is persisted, so re-processing converges.
  *
- * Unlinked senders become orphan rows; /wallet link runs the auto-credit
- * sweep so deposited-before-linking resolves itself. Notifications are group
- * posts to last_wager_group_id — NEVER a DM (the bot cannot open one).
+ * Unlinked senders become orphan rows; wallet ownership verification runs the
+ * auto-credit sweep so deposited-before-linking resolves itself. Notifications
+ * are group posts to last_wager_group_id — NEVER a DM (the bot cannot open
+ * one).
  */
 
 import {
@@ -26,8 +27,8 @@ export interface OrphanSweepResult {
 
 /**
  * Credit every uncredited prior deposit from `pubkey` to `userId` — invoked
- * when a wallet link is created. Idempotent: keys dedupe, so a re-link or a
- * crash mid-sweep never double-credits.
+ * when signed ownership verification installs a wallet link. Idempotent: keys
+ * dedupe, so a re-link or a crash mid-sweep never double-credits.
  */
 export async function autoCreditOrphanDeposits(
   deps: WagerModuleDeps,
@@ -109,7 +110,7 @@ async function processTransfer(
   });
   if (transfer.lamports < WAGER_TUNABLES.MIN_DEPOSIT_LAMPORTS) return; // stored, never credited
   const link = await deps.db.getWalletLinkByPubkey(transfer.sender);
-  if (!link) return; // orphan — the /wallet link sweep picks it up later
+  if (!link) return; // orphan — a later verified link sweep picks it up
   await creditTransfer(deps, transfer, link);
 }
 

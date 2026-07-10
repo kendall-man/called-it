@@ -96,22 +96,6 @@ export class FakeWagerDb implements WagerDb {
     return null;
   }
 
-  async linkWallet(input: { user_id: number; pubkey: string }): Promise<
-    { ok: true; relinked: boolean } | { ok: false; reason: 'pubkey_taken' }
-  > {
-    const holder = await this.getWalletLinkByPubkey(input.pubkey);
-    if (holder && holder.user_id !== input.user_id) return { ok: false, reason: 'pubkey_taken' };
-    const existing = this.links.get(input.user_id);
-    this.links.set(input.user_id, {
-      user_id: input.user_id,
-      pubkey: input.pubkey,
-      last_wager_group_id: existing?.last_wager_group_id ?? null,
-      verified_at: null,
-      created_at: new Date(0).toISOString(),
-    });
-    return { ok: true, relinked: existing !== undefined && existing.pubkey !== input.pubkey };
-  }
-
   async setLastWagerGroup(userId: number, groupId: number): Promise<void> {
     const link = this.links.get(userId);
     if (link) link.last_wager_group_id = groupId;

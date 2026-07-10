@@ -1,0 +1,40 @@
+✖ wallet identity migrations apply fresh and as 0001-0004 upgrade (2.493917ms)
+✖ verified wallet challenges are single-use, private, and relink guarded (1.943875ms)
+✖ pending stake intents preserve immutable owner-bound state and consume once (1.142916ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 0
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 86.989625
+
+✖ failing tests:
+
+test at scripts/sql-harness.wallet-identity.test.ts:3:34
+✖ wallet identity migrations apply fresh and as 0001-0004 upgrade (2.493917ms)
+  Error: DATABASE_URL or POSTGRES_URL is required for starter-grant SQL tests
+      at requiredDatabaseUrl (/Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/scripts/sql-harness/starter-grant-support.ts:206:11)
+      at withMigratedDb (/Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/scripts/sql-harness/starter-grant-support.ts:33:28)
+      at TestContext.<anonymous> (/Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/scripts/sql-harness.wallet-identity.test.ts:36:9)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+
+test at scripts/sql-harness.wallet-identity.test.ts:3:764
+✖ verified wallet challenges are single-use, private, and relink guarded (1.943875ms)
+  Error: DATABASE_URL or POSTGRES_URL is required for starter-grant SQL tests
+      at requiredDatabaseUrl (/Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/scripts/sql-harness/starter-grant-support.ts:206:11)
+      at withMigratedDb (/Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/scripts/sql-harness/starter-grant-support.ts:33:28)
+      at TestContext.<anonymous> (/Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/scripts/sql-harness.wallet-identity.test.ts:49:9)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
+
+test at scripts/sql-harness.wallet-identity.test.ts:3:4901
+✖ pending stake intents preserve immutable owner-bound state and consume once (1.142916ms)
+  Error: DATABASE_URL or POSTGRES_URL is required for starter-grant SQL tests
+      at requiredDatabaseUrl (/Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/scripts/sql-harness/starter-grant-support.ts:206:11)
+      at withMigratedDb (/Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/scripts/sql-harness/starter-grant-support.ts:33:28)
+      at TestContext.<anonymous> (/Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/scripts/sql-harness.wallet-identity.test.ts:133:9)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)

@@ -132,7 +132,7 @@ describe('deposit watcher', () => {
   });
 });
 
-describe('orphan auto-credit at /wallet link', () => {
+describe('orphan auto-credit at wallet verification', () => {
   it('credits prior orphan deposits from the newly linked sender', async () => {
     const { deps, db } = makeFakeDeps();
     db.seedOrphanDeposit({ tx_sig: 'old1', ix_index: 0, sender_pubkey: SENDER, lamports: 5_000_000n });

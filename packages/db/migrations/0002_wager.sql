@@ -69,7 +69,7 @@ create table wager_deposits (
   unique (tx_sig, ix_index)
 );
 
--- Orphan auto-credit at /wallet link time scans by sender.
+-- Orphan auto-credit at wallet verification time scans by sender.
 create index wager_deposits_orphan_sender_idx on wager_deposits (sender_pubkey)
   where user_id is null;
 

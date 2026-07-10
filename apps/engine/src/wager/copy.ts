@@ -12,11 +12,6 @@
 import { formatSolAmount, shortPubkey } from './format.js';
 import { WAGER_TUNABLES } from './constants.js';
 
-export interface OrphanSweepNote {
-  creditedCount: number;
-  creditedLamports: bigint;
-}
-
 export const WAGER_COPY = {
   // ── stake gates & results ────────────────────────────────────────────────
   unlinkedOnboarding: (): string =>
@@ -42,26 +37,8 @@ export const WAGER_COPY = {
   staleTap: (): string => 'That ship has sailed.',
 
   // ── /wallet ──────────────────────────────────────────────────────────────
-  walletUsage: (): string =>
-    'Open /wallet in private chat to verify the Solana devnet wallet for your account.',
-  walletInvalid: (): string =>
-    "That doesn't look like a wallet address — paste the full base58 address from your devnet wallet.",
-  walletPubkeyTaken: (): string =>
-    'That wallet cannot be verified for this account. No account state changed. Open /me to review your wallet status.',
-  walletLinked: (pubkey: string, sweep: OrphanSweepNote, relinked: boolean): string => {
-    const lines = [`Wallet linked: ${shortPubkey(pubkey)}. Eligible devnet transfers from it can credit your account.`];
-    if (sweep.creditedCount > 0) {
-      lines.push(
-        `Found ${sweep.creditedCount} earlier deposit${sweep.creditedCount === 1 ? '' : 's'} waiting — ${formatSolAmount(sweep.creditedLamports)} credited. (devnet)`,
-      );
-    }
-    if (relinked) {
-      lines.push(
-        'Heads up: this replaces your old link — future sends from the old address will sit unclaimed.',
-      );
-    }
-    return lines.join('\n');
-  },
+  walletSetupUnavailable: (): string =>
+    'Wallet setup requires signed ownership verification. Pasted wallet addresses are not accepted, and no account state changed. Setup is not available yet; use /me to review your account.',
   walletStatus: (pubkey: string, balanceLamports: bigint): string =>
     `Linked wallet: ${shortPubkey(pubkey)}. Available balance: ${formatSolAmount(balanceLamports)} (devnet). Use /deposit to add test SOL or /withdraw to return it.`,
 

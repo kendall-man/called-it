@@ -5,12 +5,11 @@
  * main behavior on null.
  */
 
-import { base58Decode } from '@calledit/solana';
 import { WAGER_TUNABLES } from './constants.js';
 import { WAGER_COPY } from './copy.js';
 import { formatSolAmount, parseSolToLamports } from './format.js';
 import { handleStakeTap } from './stake.js';
-import { autoCreditOrphanDeposits, createDepositWatcher } from './deposits.js';
+import { createDepositWatcher } from './deposits.js';
 import { createWithdrawalExecutor } from './withdrawals.js';
 import {
   applySettlement,
@@ -43,16 +42,6 @@ export type {
   WagerSettlementOutcome,
   WagerStakeTapArgs,
 } from './port.js';
-
-const PUBKEY_BYTE_LENGTH = 32;
-
-function isValidPubkey(candidate: string): boolean {
-  try {
-    return base58Decode(candidate).length === PUBKEY_BYTE_LENGTH;
-  } catch {
-    return false;
-  }
-}
 
 function commandArg(ctx: WagerCommandCtx): string {
   const match = ctx.match;
@@ -88,28 +77,11 @@ export function createWagerModule(deps: WagerModuleDeps): WagerModule {
         const balance = await deps.db.balanceLamports(from.id);
         await ctx.reply(WAGER_COPY.walletStatus(link.pubkey, balance));
       } else {
-        await ctx.reply(WAGER_COPY.walletUsage());
+        await ctx.reply(WAGER_COPY.walletSetupUnavailable());
       }
       return;
     }
-    if (!isValidPubkey(arg)) {
-      await ctx.reply(WAGER_COPY.walletInvalid());
-      return;
-    }
-    const result = await deps.db.linkWallet({ user_id: from.id, pubkey: arg });
-    if (!result.ok) {
-      await ctx.reply(WAGER_COPY.walletPubkeyTaken());
-      return;
-    }
-    await rememberGroup(ctx, from.id);
-    // Deposited-before-linking resolves here: credit prior orphan deposits.
-    const sweep = await autoCreditOrphanDeposits(deps, from.id, arg);
-    deps.log.info('wager_wallet_linked', {
-      userId: from.id,
-      relinked: result.relinked,
-      sweptCount: sweep.creditedCount,
-    });
-    await ctx.reply(WAGER_COPY.walletLinked(arg, sweep, result.relinked));
+    await ctx.reply(WAGER_COPY.walletSetupUnavailable());
   }
 
   async function handleDepositCommand(ctx: WagerCommandCtx): Promise<void> {

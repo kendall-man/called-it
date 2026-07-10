@@ -1,0 +1,77 @@
+
+> calledit@ verify:product-copy /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+> pnpm run typecheck:product-copy && tsx --test scripts/check-product-copy.test.ts && tsx scripts/check-product-copy.ts
+
+
+> calledit@ typecheck:product-copy /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+> tsc -p tsconfig.product-copy.json
+
+✔ reports both contract violations when a fixture mixes Practice Rep with a placeholder CTA (55.140875ms)
+✔ rejects a malformed UTF-8 fixture at the CLI boundary (55.932167ms)
+✔ reports every tracked product-copy surface when the contract is clean (64.081708ms)
+✔ includes every active landing, engine copy, fallback, and concierge surface (65.051834ms)
+✔ allows a historical migration label split across adjacent lines (52.004167ms)
+✔ does not let an unrelated negative sentence exempt active Rep copy (53.4265ms)
+✔ rejects simulated onboarding, misleading starter funds, and a real-value claim (54.103333ms)
+✔ rejects real devnet SOL, cashout, load-stack, demo, and assigned hash CTA drift (52.361ms)
+✔ prints CLI usage without scanning when help is requested (48.681416ms)
+✔ keeps the checker CLI below 250 non-comment lines (0.270583ms)
+✔ keeps every audited Task 1 TypeScript surface at or below 250 pure lines (6.011125ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 757.488666
+SCAN guidance README.md
+SCAN guidance DESIGN.md
+SCAN guidance CONTRACTS.md
+SCAN guidance AGENTS.md
+SCAN guidance apps/engine/AGENTS.md
+SCAN guidance apps/concierge/AGENTS.md
+SCAN guidance apps/web/AGENTS.md
+SCAN guidance docs/PRD-called-it-mvp.md
+SCAN guidance docs/eve-concierge-plan.md
+PASS guidance (9 files)
+SCAN bot apps/engine/src/bot/bot.ts
+SCAN bot apps/engine/src/bot/commands.ts
+SCAN bot apps/engine/src/bot/copy.ts
+SCAN bot apps/engine/src/bot/fallback-copy.ts
+SCAN bot apps/engine/src/wager/copy.ts
+SCAN bot packages/agent/src/templates.ts
+PASS bot (6 files)
+SCAN concierge apps/concierge/agent/instructions/00-callie.md
+SCAN concierge apps/concierge/agent/instructions/10-house-rules.md
+SCAN concierge apps/concierge/agent/instructions/10-placing-bets.md
+SCAN concierge apps/concierge/agent/instructions/10-receipts-and-proof.md
+SCAN concierge apps/concierge/agent/instructions/10-voice.md
+SCAN concierge apps/concierge/agent/tools/bash.ts
+SCAN concierge apps/concierge/agent/tools/get_group_snapshot.ts
+SCAN concierge apps/concierge/agent/tools/get_market_status.ts
+SCAN concierge apps/concierge/agent/tools/get_my_wallet.ts
+SCAN concierge apps/concierge/agent/tools/glob.ts
+SCAN concierge apps/concierge/agent/tools/grep.ts
+SCAN concierge apps/concierge/agent/tools/list_todays_matches.ts
+SCAN concierge apps/concierge/agent/tools/quote_claim.ts
+SCAN concierge apps/concierge/agent/tools/read_file.ts
+SCAN concierge apps/concierge/agent/tools/todo.ts
+SCAN concierge apps/concierge/agent/tools/web_fetch.ts
+SCAN concierge apps/concierge/agent/tools/web_search.ts
+SCAN concierge apps/concierge/agent/tools/write_file.ts
+PASS concierge (18 files)
+SCAN web apps/web/app/g/[slug]/page.tsx
+SCAN web apps/web/app/layout.tsx
+SCAN web apps/web/app/not-found.tsx
+SCAN web apps/web/app/page.tsx
+SCAN web apps/web/app/r/[marketId]/page.tsx
+SCAN web apps/web/components/evidence-list.tsx
+SCAN web apps/web/components/receipt-row.tsx
+SCAN web apps/web/components/states.tsx
+SCAN web apps/web/components/timeline-list.tsx
+SCAN web apps/web/components/trust-badge.tsx
+SCAN web apps/web/components/ui.tsx
+SCAN web apps/web/lib/spec-terms.ts
+PASS web (12 files)
+Product copy contract: PASS (45 files)

@@ -1,0 +1,73 @@
+
+> @calledit/engine@0.1.0 test /private/tmp/direct-onboarding-task8-char/apps/engine
+> vitest run -- src/wager/module.test.ts
+
+
+ RUN  v3.2.6 /private/tmp/direct-onboarding-task8-char/apps/engine
+
+ ✓ src/bot/copy.test.ts (3 tests) 7ms
+ ✓ src/wager/pot.test.ts (12 tests) 200ms
+ ✓ src/env.test.ts (15 tests) 9ms
+ ✓ src/bot/callbacks.test.ts (17 tests) 11ms
+ ✓ src/wager/stake.test.ts (19 tests) 9ms
+ ✓ src/wager/constants.test.ts (12 tests) 7ms
+ ✓ src/api/server-auth-boundary.test.ts (5 tests) 20ms
+ ✓ src/api/ingress.test.ts (2 tests) 22ms
+ ✓ src/api/server.test.ts (5 tests) 40ms
+ ✓ src/api/ingress-auth-redaction.test.ts (3 tests) 40ms
+ ✓ src/api/server-health.test.ts (5 tests) 48ms
+ ✓ src/wager/deposits.test.ts (13 tests) 17ms
+ ✓ src/api/server-auth.test.ts (22 tests) 173ms
+ ✓ src/wager/withdrawals.test.ts (15 tests) 5ms
+ ✓ src/api/readiness.test.ts (6 tests) 5ms
+ ✓ src/wager/settlement.test.ts (11 tests) 7ms
+ ✓ src/api/readiness-supabase.test.ts (2 tests) 10ms
+ ✓ src/env.rollout.test.ts (7 tests) 24ms
+ ✓ src/api/telegram-ingress-boundary.test.ts (4 tests) 5ms
+ ✓ src/pipeline/claims.test.ts (10 tests) 8ms
+ ✓ src/wager/format.test.ts (32 tests) 3ms
+ ✓ src/bot/callbackData.test.ts (4 tests) 3ms
+ ✓ src/api/readiness-checks.test.ts (12 tests) 3ms
+ ✓ src/wager/solvency.test.ts (9 tests) 6ms
+ ✓ src/api/shutdown.test.ts (4 tests) 3ms
+ ✓ src/api/readiness-queues.test.ts (10 tests) 3ms
+ ✓ src/bot/sendQueue.test.ts (5 tests) 5ms
+ ✓ src/ingest/fixtureMap.test.ts (3 tests) 2ms
+ ✓ src/api/readiness-production.test.ts (2 tests) 2ms
+ ✓ src/wiring-proof.test.ts (1 test) 6ms
+ ✓ src/bot/cards.test.ts (6 tests) 2ms
+ ✓ src/proofs/mapping.test.ts (5 tests) 2ms
+ ✓ src/api/readiness-http.test.ts (1 test) 4ms
+ ❯ src/wager/module.test.ts (17 tests | 3 failed) 14ms
+   ✓ module surface > currencyForMint is always sol (SOL-only product) 1ms
+   ✓ module surface > presetLamports maps an index to lamports; out-of-range → null 0ms
+   ✓ module surface > walletSummary returns the user-global balance and linked pubkey 0ms
+   ✓ module surface > walletSummary reports a null pubkey when the user has no wallet 0ms
+   ✓ module surface > presetLabels renders the three presets as exact SOL 0ms
+   ✓ module surface > cardFooter is the copy-bank line 0ms
+   ✓ module surface > registerCrons registers the four wager loops at their tunable cadences 0ms
+   × /wallet command > fails closed for pasted pubkeys without linking or sweeping deposits 4ms
+     → expected { user_id: 11, …(4) } to be undefined
+   × /wallet command > gives bad input the same fail-closed recovery without touching links 2ms
+     → expected [ Array(1) ] to deeply equal [ Array(1) ]
+   × /wallet command > does not replace or claim a link when a pasted pubkey is already reserved 4ms
+     → expected [ Array(1) ] to deeply equal [ Array(1) ]
+   ✓ /wallet command > bare /wallet shows the linked status and balance 0ms
+   ✓ /deposit command > names the treasury and warns devnet-only 0ms
+   ✓ /withdraw command > queues a valid amount through the RPC and confirms 0ms
+   ✓ /withdraw command > "all" cashes out the full stack 0ms
+   ✓ /withdraw command > refuses below the minimum 0ms
+   ✓ /withdraw command > requires a linked wallet first 0ms
+   ✓ /withdraw command > maps an insufficient balance to honest copy 0ms
+ ✓ src/bot/callbacks.stake.test.ts (7 tests) 6ms
+ ✓ src/bot/bot.test.ts (1 test) 1ms
+ ✓ src/wiring.test.ts (2 tests) 1ms
+
+ Test Files  1 failed | 36 passed (37)
+      Tests  3 failed | 306 passed (309)
+   Start at  01:02:55
+   Duration  1.94s (transform 979ms, setup 0ms, collect 6.02s, tests 730ms, environment 3ms, prepare 2.19s)
+
+/private/tmp/direct-onboarding-task8-char/apps/engine:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @calledit/engine@0.1.0 test: `vitest run -- src/wager/module.test.ts`
+Exit status 1
