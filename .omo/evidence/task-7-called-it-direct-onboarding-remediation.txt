@@ -88,3 +88,61 @@ Review result
 - Goal constraints: PASS. Review blockers 1-7 are covered by SQL harness, strict RPC parsing tests, canonical @calledit/db WagerStakeErrorCode usage, catch narrowing, no-excuse scan, LOC scan, and DB/engine builds/tests.
 - Security/privacy: PASS. wager_stake execute remains service_role-only; anon/authenticated direct calls are denied in the real SQL harness.
 - Scope: PASS. Task2-owned auth/concierge/docs/env/main/server/server-http/server-auth/telegram-ingress files were not edited or staged.
+
+Focused immutable re-review correction
+Date: 2026-07-10
+
+Implemented
+- Wager table queries now expose PgResult<unknown>. manyRows/maybeRow accept unknown payloads and require an explicit parser for every caller-selected row shape before domain use.
+- Removed the unchecked `as PgResult<T>` assertions from wager-db-core.ts. No assertion, any, or ignore escape hatch replaced them.
+- Added field-level parsers for account, ledger, deposit, withdrawal, settlement, status, and market-id rows. Malformed rows fail with DbError.
+- Stake RPC success now accepts only canonical UUID-shaped position_id strings. The valid database UUID is preserved; empty, whitespace, and not-a-uuid values fail with DbError. Withdrawal ID behavior is unchanged.
+- Removed trailing EOF blank lines from wager-db-funds.test.ts and wager-db-rpc.test.ts.
+
+Verification
+1. Red phase
+Invocation: npx -y pnpm@10.33.0 --filter @calledit/db exec vitest run src/wager-db-boundary.test.ts src/wager-db-rpc.test.ts src/wager-db-funds.test.ts
+Binary observable before production edits: 3 files failed; 6 tests failed because malformed rows, whitespace position_id, and malformed position_id resolved instead of rejecting.
+
+2. DB focused and full tests
+Invocations:
+- npx -y pnpm@10.33.0 --filter @calledit/db exec vitest run src/wager-db-boundary.test.ts src/wager-db-rpc.test.ts src/wager-db-funds.test.ts
+- npx -y pnpm@10.33.0 --filter @calledit/db test
+Binary observables: focused Test Files 3 passed, Tests 27 passed; full Test Files 4 passed, Tests 40 passed.
+
+3. DB package checks
+Invocations:
+- npx -y pnpm@10.33.0 --filter @calledit/db typecheck
+- npx -y pnpm@10.33.0 --filter @calledit/db build
+Binary observable: both exited 0.
+
+4. Engine compatibility checks
+Invocations:
+- npx -y pnpm@10.33.0 --filter @calledit/engine exec vitest run src/wager/stake.test.ts src/wiring-proof.test.ts
+- npx -y pnpm@10.33.0 --filter @calledit/engine typecheck
+Binary observables: Test Files 2 passed, Tests 20 passed; typecheck exited 0.
+
+5. Built facade manual QA
+Invocation: node --input-type=module with wagerDbFromClient from packages/db/dist/wager-db.js
+Binary observables:
+- valid {"ok":true,"position_id":"f4ebd2d9-a2c6-4ea8-96c2-2d66b0ce3761"}
+- spaces DbError
+- malformed DbError
+- malformed-row DbError
+
+6. Task7 static gates
+Invocations:
+- check-no-excuse-rules.ts over 27 Task7 TypeScript files
+- pure nonblank/non-comment LOC scan over the same Task7 TypeScript surface
+- git diff --check over the focused Task7 DB paths
+Binary observables: No violations in 27 file(s); every file <=250 pure LOC (largest packages/db/src/wager-db-test-support.ts at 242); diff check exited 0.
+Captured artifact: .omo/evidence/task-7-correction-loc.txt
+
+7. SQL/runtime invariants
+The parser change does not alter SQL, migrations, RPC arguments, transaction behavior, privileges, starter-grant concurrency, or PostgreSQL harness code. Per re-review direction, the expensive 501-user SQL suite was not rerun; immutable PASS evidence above remains authoritative.
+
+Focused review result
+- Goal/constraint review: PASS, no blocking issue.
+- Code quality review: PASS, no correctness, type-safety, or maintainability findings.
+- Security review: PASS, severity none, no auth or privilege scope drift.
+- Task2 auth/docs/server-write changes remained outside the focused DB diff and staging scope.

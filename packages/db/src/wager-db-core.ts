@@ -23,7 +23,8 @@
  */
 
 import type { MarketStatus, SettlementOutcome } from '@calledit/market-engine';
-import { assertOk, DbError, unwrapMaybe, unwrapRows, type PgResult } from './errors.js';
+import { assertOk, DbError, type PgResult } from './errors.js';
+import type { RawDepositRow, RawWithdrawalRow } from './wager-db-row-parsers.js';
 import type {
   WagerDepositInsert,
   WagerDepositRow,
@@ -132,12 +133,12 @@ export function nowIso(): string {
 
 export type Row = Record<string, unknown>;
 
-export interface WagerFilterBuilder extends PromiseLike<PgResult<Row[]>> {
+export interface WagerFilterBuilder extends PromiseLike<PgResult<unknown>> {
   eq(column: string, value: unknown): WagerFilterBuilder;
   in(column: string, values: readonly unknown[]): WagerFilterBuilder;
   is(column: string, value: null): WagerFilterBuilder;
   select(columns?: string): WagerFilterBuilder;
-  maybeSingle(): PromiseLike<PgResult<Row | null>>;
+  maybeSingle(): PromiseLike<PgResult<unknown>>;
 }
 
 export interface WagerTableBuilder {
@@ -178,27 +179,7 @@ export function requireWagerDbClient(value: unknown): WagerDbClient {
   return value;
 }
 
-export async function manyRows<T>(op: string, query: PromiseLike<PgResult<Row[]>>): Promise<T> {
-  return unwrapRows<T>(op, (await query) as PgResult<T>);
-}
-
-export async function maybeRow<T>(op: string, query: PromiseLike<PgResult<Row | null>>): Promise<T | null> {
-  return unwrapMaybe<T>(op, (await query) as PgResult<T>);
-}
-
 // ── Raw row shapes (lamports still PostgREST numbers) and converters ───────
-
-export interface RawDepositRow {
-  id: number;
-  tx_sig: string;
-  ix_index: number;
-  sender_pubkey: string;
-  lamports: number;
-  slot: number;
-  user_id: number | null;
-  credited_at: string | null;
-  observed_at: string;
-}
 
 export function depositFromRaw(op: string, raw: RawDepositRow): WagerDepositRow {
   return {
@@ -206,20 +187,6 @@ export function depositFromRaw(op: string, raw: RawDepositRow): WagerDepositRow 
     lamports: lamportsFromDb(op, raw.lamports),
     slot: assertSafeInteger(op, raw.slot),
   };
-}
-
-export interface RawWithdrawalRow {
-  id: string;
-  user_id: number;
-  dest_pubkey: string;
-  lamports: number;
-  state: WagerWithdrawalState;
-  tx_sig: string | null;
-  raw_tx_b64: string | null;
-  last_valid_block_height: number | null;
-  error: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export function withdrawalFromRaw(op: string, raw: RawWithdrawalRow): WagerWithdrawalRow {
@@ -262,11 +229,23 @@ export function isWithdrawErrorCode(value: unknown): value is WagerWithdrawError
   return WITHDRAW_ERROR_CODES.has(value);
 }
 
+export function isUuid(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+  );
+}
+
+export function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
 export function parseRpcOutcome<C extends string>(
   op: string,
   payload: unknown,
   idField: string,
   isCode: (value: unknown) => value is C,
+  isId: (value: unknown) => value is string,
 ): { ok: true; id: string } | { ok: true; duplicate: true } | { ok: false; code: C } {
   if (!isRecord(payload)) {
     throw new DbError(op, { message: `malformed RPC payload: ${JSON.stringify(payload)}` });
@@ -279,8 +258,8 @@ export function parseRpcOutcome<C extends string>(
       return { ok: true, duplicate: true };
     }
     const id = payload[idField];
-    if (typeof id !== 'string' || id.length === 0) {
-      throw new DbError(op, { message: `RPC ok payload missing ${idField}` });
+    if (!isId(id)) {
+      throw new DbError(op, { message: `RPC ok payload missing or invalid ${idField}` });
     }
     return { ok: true, id };
   }

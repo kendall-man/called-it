@@ -1,4 +1,4 @@
- 171 apps/engine/src/api/server-write.ts
+  94 apps/engine/src/api/server-write.ts
  118 apps/engine/src/wager/constants.test.ts
   31 apps/engine/src/wager/constants.ts
   99 apps/engine/src/wager/copy.ts
@@ -14,13 +14,15 @@
  161 scripts/sql-harness/schema-checks.ts
  114 apps/engine/src/wager/port-db.ts
   39 apps/engine/src/wiring-proof.test.ts
- 172 packages/db/src/wager-db-account.ts
- 222 packages/db/src/wager-db-core.ts
- 163 packages/db/src/wager-db-funds.test.ts
- 167 packages/db/src/wager-db-operations.ts
- 126 packages/db/src/wager-db-rpc.test.ts
-  60 packages/db/src/wager-db-rpc.ts
- 234 packages/db/src/wager-db-test-support.ts
+ 187 packages/db/src/wager-db-account.ts
+  45 packages/db/src/wager-db-boundary.test.ts
+ 203 packages/db/src/wager-db-core.ts
+ 185 packages/db/src/wager-db-funds.test.ts
+ 181 packages/db/src/wager-db-operations.ts
+ 184 packages/db/src/wager-db-row-parsers.ts
+ 129 packages/db/src/wager-db-rpc.test.ts
+  64 packages/db/src/wager-db-rpc.ts
+ 242 packages/db/src/wager-db-test-support.ts
  144 scripts/sql-harness.starter-grant.test.ts
  188 scripts/sql-harness/starter-grant-support.ts
 LOC_OK all touched/new Task7 TS files <=250

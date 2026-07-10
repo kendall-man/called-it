@@ -17,6 +17,7 @@ type Filter =
 interface TableSpec {
   uniques?: string[][];
   serialColumn?: string;
+  defaults?: Row;
 }
 
 class FakeTable {
@@ -89,7 +90,7 @@ class FakeQuery implements WagerFilterBuilder, WagerTableBuilder {
     return this;
   }
 
-  maybeSingle(): Promise<PgResult<Row | null>> {
+  maybeSingle(): Promise<PgResult<unknown>> {
     const result = this.execute();
     if (result.error) return Promise.resolve({ data: null, error: result.error });
     const rows = result.data ?? [];
@@ -99,8 +100,8 @@ class FakeQuery implements WagerFilterBuilder, WagerTableBuilder {
     return Promise.resolve({ data: rows[0] ?? null, error: null });
   }
 
-  then<TResult1 = PgResult<Row[]>, TResult2 = never>(
-    onfulfilled?: ((value: PgResult<Row[]>) => TResult1 | PromiseLike<TResult1>) | null,
+  then<TResult1 = PgResult<unknown>, TResult2 = never>(
+    onfulfilled?: ((value: PgResult<unknown>) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): Promise<TResult1 | TResult2> {
     return Promise.resolve(this.execute()).then(onfulfilled, onrejected);
@@ -155,7 +156,7 @@ class FakeQuery implements WagerFilterBuilder, WagerTableBuilder {
         }
         const clash = this.uniqueViolation(op.value);
         if (clash) return { data: null, error: clash };
-        const inserted: Row = { ...op.value };
+        const inserted: Row = { ...this.table.spec.defaults, ...op.value };
         const serial = this.table.spec.serialColumn;
         if (serial && inserted[serial] === undefined) inserted[serial] = this.table.nextSerial++;
         this.table.rows.push(inserted);
@@ -184,9 +185,16 @@ export class FakeSupabase implements WagerDbClient {
     this.define('markets', { uniques: [['id']] });
     this.define('settlements', { uniques: [['market_id']] });
     this.define('wager_groups', { uniques: [['group_id']] });
-    this.define('wager_wallet_links', { uniques: [['user_id'], ['pubkey']] });
+    this.define('wager_wallet_links', {
+      uniques: [['user_id'], ['pubkey']],
+      defaults: { last_wager_group_id: null, created_at: NOW_ISO },
+    });
     this.define('wager_ledger_entries', { uniques: [['idempotency_key']], serialColumn: 'id' });
-    this.define('wager_deposits', { uniques: [['tx_sig', 'ix_index']], serialColumn: 'id' });
+    this.define('wager_deposits', {
+      uniques: [['tx_sig', 'ix_index']],
+      serialColumn: 'id',
+      defaults: { user_id: null, credited_at: null, observed_at: NOW_ISO },
+    });
     this.define('wager_withdrawals', { uniques: [['id']] });
     this.define('wager_settlements_applied', { uniques: [['market_id']] });
     this.define('wager_status', { uniques: [['id']] });

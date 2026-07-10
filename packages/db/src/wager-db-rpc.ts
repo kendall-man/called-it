@@ -1,7 +1,9 @@
 import { DbError, unwrapRows } from './errors.js';
 import {
   assertSafeInteger,
+  isNonEmptyString,
   isStakeErrorCode,
+  isUuid,
   isWithdrawErrorCode,
   lamportsToDb,
   parseRpcOutcome,
@@ -34,6 +36,7 @@ export function rpcDbMethods(client: WagerDbClient): RpcDb {
         payload,
         'position_id',
         isStakeErrorCode,
+        isUuid,
       );
       if (!outcome.ok) return outcome;
       return 'duplicate' in outcome
@@ -52,6 +55,7 @@ export function rpcDbMethods(client: WagerDbClient): RpcDb {
         payload,
         'withdrawal_id',
         isWithdrawErrorCode,
+        isNonEmptyString,
       );
       if (!outcome.ok) return outcome;
       if ('duplicate' in outcome) {

@@ -4,16 +4,22 @@ import {
   depositFromRaw,
   lamportsFromDb,
   lamportsToDb,
-  manyRows,
-  maybeRow,
   nowIso,
   UNIQUE_VIOLATION,
-  type RawDepositRow,
   type Row,
   type WagerDb,
   type WagerDbClient,
 } from './wager-db-core.js';
-import type { WagerWalletLinkRow } from './wager-types.js';
+import {
+  manyRows,
+  maybeRow,
+  parseDepositRow,
+  parseEnabledRow,
+  parseLamportsRow,
+  parseNumericIdRow,
+  parsePubkeyRow,
+  parseWalletLinkRow,
+} from './wager-db-row-parsers.js';
 
 type AccountDb = Pick<
   WagerDb,
@@ -46,9 +52,10 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
     },
 
     async isGroupEnabled(groupId) {
-      const row = await maybeRow<{ enabled: boolean }>(
+      const row = await maybeRow(
         'isGroupEnabled',
         client.from('wager_groups').select('enabled').eq('group_id', groupId).maybeSingle(),
+        parseEnabledRow,
       );
       return row?.enabled ?? false;
     },
@@ -56,16 +63,18 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
     // ── wallet links ───────────────────────────────────────────────────────
 
     async getWalletLink(userId) {
-      return maybeRow<WagerWalletLinkRow>(
+      return maybeRow(
         'getWalletLink',
         client.from('wager_wallet_links').select('*').eq('user_id', userId).maybeSingle(),
+        parseWalletLinkRow,
       );
     },
 
     async getWalletLinkByPubkey(pubkey) {
-      return maybeRow<WagerWalletLinkRow>(
+      return maybeRow(
         'getWalletLinkByPubkey',
         client.from('wager_wallet_links').select('*').eq('pubkey', pubkey).maybeSingle(),
+        parseWalletLinkRow,
       );
     },
 
@@ -73,9 +82,10 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
       // Lookup-then-upsert: the lookup only feeds the cosmetic relinked flag,
       // so its benign race window costs nothing. verified_at resets on every
       // (re-)link — verification belongs to the linked pubkey, not the user.
-      const existing = await maybeRow<{ pubkey: string }>(
+      const existing = await maybeRow(
         'linkWallet.lookup',
         client.from('wager_wallet_links').select('pubkey').eq('user_id', input.user_id).maybeSingle(),
+        parsePubkeyRow,
       );
       const row: Row = { user_id: input.user_id, pubkey: input.pubkey, verified_at: null };
       if (input.last_wager_group_id !== undefined) {
@@ -121,7 +131,7 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
     // ── ledger ─────────────────────────────────────────────────────────────
 
     async postWagerLedger(entry) {
-      const rows = await manyRows<Array<{ id: number }>>(
+      const rows = await manyRows(
         'postWagerLedger',
         client
           .from('wager_ledger_entries')
@@ -130,22 +140,25 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
             { onConflict: 'idempotency_key', ignoreDuplicates: true },
           )
           .select('id'),
+        parseNumericIdRow,
       );
       return { inserted: rows.length > 0 };
     },
 
     async balanceLamports(userId) {
-      const rows = await manyRows<Array<{ lamports: number }>>(
+      const rows = await manyRows(
         'balanceLamports',
         client.from('wager_ledger_entries').select('lamports').eq('user_id', userId),
+        parseLamportsRow,
       );
       return rows.reduce((sum, row) => sum + lamportsFromDb('balanceLamports', row.lamports), 0n);
     },
 
     async totalLedgerLamports() {
-      const rows = await manyRows<Array<{ lamports: number }>>(
+      const rows = await manyRows(
         'totalLedgerLamports',
         client.from('wager_ledger_entries').select('lamports'),
+        parseLamportsRow,
       );
       return rows.reduce(
         (sum, row) => sum + lamportsFromDb('totalLedgerLamports', row.lamports),
@@ -157,7 +170,7 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
 
     async upsertDeposit(row) {
       assertSafeInteger('upsertDeposit.slot', row.slot);
-      const rows = await manyRows<Array<{ id: number }>>(
+      const rows = await manyRows(
         'upsertDeposit',
         client
           .from('wager_deposits')
@@ -166,6 +179,7 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
             { onConflict: 'tx_sig,ix_index', ignoreDuplicates: true },
           )
           .select('id'),
+        parseNumericIdRow,
       );
       return { inserted: rows.length > 0 };
     },
@@ -185,13 +199,14 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
     },
 
     async orphanDepositsBySender(pubkey) {
-      const rows = await manyRows<RawDepositRow[]>(
+      const rows = await manyRows(
         'orphanDepositsBySender',
         client
           .from('wager_deposits')
           .select('*')
           .eq('sender_pubkey', pubkey)
           .is('user_id', null),
+        parseDepositRow,
       );
       return rows.map((row) => depositFromRaw('orphanDepositsBySender', row));
     },

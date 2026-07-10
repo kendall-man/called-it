@@ -11,6 +11,7 @@ import {
 import type { WagerStakeInput } from './wager-types.js';
 
 describe('security-definer RPCs', () => {
+  const POSITION_ID = 'f4ebd2d9-a2c6-4ea8-96c2-2d66b0ce3761';
   const stakeInput: WagerStakeInput = {
     user_id: USER_ID,
     group_id: GROUP_ID,
@@ -31,8 +32,8 @@ describe('security-definer RPCs', () => {
 
   it('forwards stake arguments under the SQL parameter names', async () => {
     const { db, fake } = makeHarness();
-    fake.onRpc('wager_stake', () => ({ data: { ok: true, position_id: 'pos-1' }, error: null }));
-    expect(await db.wagerStake(stakeInput)).toEqual({ ok: true, position_id: 'pos-1' });
+    fake.onRpc('wager_stake', () => ({ data: { ok: true, position_id: POSITION_ID }, error: null }));
+    expect(await db.wagerStake(stakeInput)).toEqual({ ok: true, position_id: POSITION_ID });
     expect(fake.rpcCalls).toEqual([
       {
         fn: 'wager_stake',
@@ -86,7 +87,9 @@ describe('security-definer RPCs', () => {
       { ok: false, code: 'not_a_real_code' },
       { ok: true }, // missing position_id
       { ok: true, position_id: '' },
-      { ok: true, duplicate: true, position_id: 'pos-1' },
+      { ok: true, position_id: '   ' },
+      { ok: true, position_id: 'not-a-uuid' },
+      { ok: true, duplicate: true, position_id: POSITION_ID },
       { unexpected: true }, // missing ok flag
       'weird',
     ];
@@ -102,7 +105,7 @@ describe('security-definer RPCs', () => {
 
   it('rejects unsafe stake lamports before the RPC is ever invoked', async () => {
     const { db, fake } = makeHarness();
-    fake.onRpc('wager_stake', () => ({ data: { ok: true, position_id: 'pos-1' }, error: null }));
+    fake.onRpc('wager_stake', () => ({ data: { ok: true, position_id: POSITION_ID }, error: null }));
     await expect(db.wagerStake({ ...stakeInput, lamports: UNSAFE_BIGINT })).rejects.toThrow(DbError);
     expect(fake.rpcCalls).toHaveLength(0);
   });
@@ -134,4 +137,3 @@ describe('security-definer RPCs', () => {
     expect(unsafe.fake.rpcCalls).toHaveLength(0);
   });
 });
-

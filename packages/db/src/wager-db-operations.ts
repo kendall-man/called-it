@@ -1,20 +1,26 @@
-import type { MarketStatus, SettlementOutcome } from '@calledit/market-engine';
 import { assertOk, DbError } from './errors.js';
 import {
   assertSafeInteger,
-  manyRows,
-  maybeRow,
   nowIso,
   OPEN_MARKET_STATUSES,
   RESIGNABLE_WITHDRAWAL_STATES,
   SETTLED_MARKET_STATUSES,
   WAGER_STATUS_ROW_ID,
   withdrawalFromRaw,
-  type RawWithdrawalRow,
   type WagerDb,
   type WagerDbClient,
 } from './wager-db-core.js';
-import type { WagerStatusRow, WagerWithdrawalState } from './wager-types.js';
+import {
+  manyRows,
+  maybeRow,
+  parseIdRow,
+  parseMarketIdRow,
+  parseProbabilityRow,
+  parseSettlementOutcomeRow,
+  parseWagerStatusRow,
+  parseWithdrawalRow,
+} from './wager-db-row-parsers.js';
+import type { WagerWithdrawalState } from './wager-types.js';
 
 type OperationsDb = Pick<
   WagerDb,
@@ -35,9 +41,10 @@ type OperationsDb = Pick<
 export function operationsDbMethods(client: WagerDbClient): OperationsDb {
   return {
     async withdrawalsInState(state) {
-      const rows = await manyRows<RawWithdrawalRow[]>(
+      const rows = await manyRows(
         'withdrawalsInState',
         client.from('wager_withdrawals').select('*').eq('state', state),
+        parseWithdrawalRow,
       );
       return rows.map((row) => withdrawalFromRaw('withdrawalsInState', row));
     },
@@ -85,29 +92,32 @@ export function operationsDbMethods(client: WagerDbClient): OperationsDb {
     // ── settlements (money-movement marker) ────────────────────────────────
 
     async getMarketProbability(marketId) {
-      const row = await maybeRow<{ quote_probability: number }>(
+      const row = await maybeRow(
         'getMarketProbability',
         client.from('markets').select('quote_probability').eq('id', marketId).maybeSingle(),
+        parseProbabilityRow,
       );
       return row?.quote_probability ?? null;
     },
 
     async getSettlementOutcome(marketId) {
-      const row = await maybeRow<{ outcome: SettlementOutcome }>(
+      const row = await maybeRow(
         'getSettlementOutcome',
         client.from('settlements').select('outcome').eq('market_id', marketId).maybeSingle(),
+        parseSettlementOutcomeRow,
       );
       return row?.outcome ?? null;
     },
 
     async hasSettlementApplied(marketId) {
-      const row = await maybeRow<{ market_id: string }>(
+      const row = await maybeRow(
         'hasSettlementApplied',
         client
           .from('wager_settlements_applied')
           .select('market_id')
           .eq('market_id', marketId)
           .maybeSingle(),
+        parseMarketIdRow,
       );
       return row !== null;
     },
@@ -124,19 +134,21 @@ export function operationsDbMethods(client: WagerDbClient): OperationsDb {
     async settledSolMarketsMissingApplied() {
       // Two-step anti-join: PostgREST has no NOT EXISTS, and both sets stay
       // tiny (SOL markets only).
-      const settled = await manyRows<Array<{ id: string }>>(
+      const settled = await manyRows(
         'settledSolMarketsMissingApplied.markets',
         client
           .from('markets')
           .select('id')
           .eq('currency', 'sol')
           .in('status', [...SETTLED_MARKET_STATUSES]),
+        parseIdRow,
       );
       if (settled.length === 0) return [];
       const ids = settled.map((row) => row.id);
-      const applied = await manyRows<Array<{ market_id: string }>>(
+      const applied = await manyRows(
         'settledSolMarketsMissingApplied.applied',
         client.from('wager_settlements_applied').select('market_id').in('market_id', ids),
+        parseMarketIdRow,
       );
       const appliedIds = new Set(applied.map((row) => row.market_id));
       return ids.filter((id) => !appliedIds.has(id));
@@ -145,13 +157,14 @@ export function operationsDbMethods(client: WagerDbClient): OperationsDb {
     // ── circuit breaker ────────────────────────────────────────────────────
 
     async getWagerStatus() {
-      const row = await maybeRow<WagerStatusRow>(
+      const row = await maybeRow(
         'getWagerStatus',
         client
           .from('wager_status')
           .select('paused, reason, updated_at')
           .eq('id', WAGER_STATUS_ROW_ID)
           .maybeSingle(),
+        parseWagerStatusRow,
       );
       if (!row) {
         throw new DbError('getWagerStatus', {
@@ -174,13 +187,14 @@ export function operationsDbMethods(client: WagerDbClient): OperationsDb {
     // ── solvency support ───────────────────────────────────────────────────
 
     async openSolMarketIds() {
-      const rows = await manyRows<Array<{ id: string }>>(
+      const rows = await manyRows(
         'openSolMarketIds',
         client
           .from('markets')
           .select('id')
           .eq('currency', 'sol')
           .in('status', [...OPEN_MARKET_STATUSES]),
+        parseIdRow,
       );
       return rows.map((row) => row.id);
     },

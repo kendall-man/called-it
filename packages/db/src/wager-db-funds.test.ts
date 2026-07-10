@@ -59,6 +59,24 @@ describe('deposits', () => {
     expect(orphans.map((row) => row.tx_sig)).toEqual(['sig1']);
     expect(orphans[0]?.lamports).toBe(10_000_000n);
   });
+
+  it('rejects malformed deposit rows returned by the database', async () => {
+    const { db, fake } = makeHarness();
+    fake.seed('wager_deposits', [
+      {
+        id: 1,
+        tx_sig: 99,
+        ix_index: 0,
+        sender_pubkey: deposit.sender_pubkey,
+        lamports: 10_000_000,
+        slot: 250,
+        user_id: null,
+        credited_at: null,
+        observed_at: NOW_ISO,
+      },
+    ]);
+    await expect(db.orphanDepositsBySender(deposit.sender_pubkey)).rejects.toThrow(DbError);
+  });
 });
 
 describe('withdrawal outbox transitions', () => {
@@ -118,6 +136,12 @@ describe('withdrawal outbox transitions', () => {
     expect(debited.map((row) => row.id)).toEqual(['w-1']);
     expect(debited[0]?.lamports).toBe(10_000_000n);
     fake.seed('wager_withdrawals', [withdrawalRow({ id: 'w-3', lamports: UNSAFE_INTEGER })]);
+    await expect(db.withdrawalsInState('debited')).rejects.toThrow(DbError);
+  });
+
+  it('rejects malformed withdrawal rows returned by the database', async () => {
+    const { db, fake } = makeHarness();
+    fake.seed('wager_withdrawals', [withdrawalRow({ dest_pubkey: 99 })]);
     await expect(db.withdrawalsInState('debited')).rejects.toThrow(DbError);
   });
 });
@@ -184,5 +208,3 @@ describe('solvency queries', () => {
     expect(await db.openSolMarketIds()).toEqual(['m-open', 'm-frozen']);
   });
 });
-
-
