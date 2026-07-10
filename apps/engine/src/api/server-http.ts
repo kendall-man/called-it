@@ -23,28 +23,46 @@ export interface RouteCredentials {
   readonly ops: string;
 }
 
+type CredentialDigest = {
+  readonly scope: RouteScope;
+  readonly digest: Buffer;
+};
+
+export interface RouteCredentialBoundary {
+  readonly authorize: (
+    req: IncomingMessage,
+    allowed: ReadonlySet<RouteScope>,
+  ) => AuthorizationResult;
+  readonly hasCredentialSearchParam: (url: URL) => boolean;
+  readonly hasCredentialField: (value: unknown) => boolean;
+}
+
 export type AuthorizationResult =
   | { readonly kind: 'authorized'; readonly scope: RouteScope }
   | { readonly kind: 'wrong_scope'; readonly scope: RouteScope }
   | { readonly kind: 'unauthorized' };
 
-export function authorizeRoute(
-  req: IncomingMessage,
+export function createRouteCredentialBoundary(
   credentials: RouteCredentials,
-  allowed: ReadonlySet<RouteScope>,
-): AuthorizationResult {
-  const presentedToken = extractBearerToken(req);
-  if (presentedToken === null) return { kind: 'unauthorized' };
-  const presented = createHash('sha256').update(presentedToken).digest();
-  const matches: RouteScope[] = [];
-  for (const [scope, token] of credentialEntries(credentials)) {
-    const expected = createHash('sha256').update(token).digest();
-    if (timingSafeEqual(presented, expected)) matches.push(scope);
-  }
-  const scope = matches[0];
-  if (scope === undefined) return { kind: 'unauthorized' };
-  if (!allowed.has(scope)) return { kind: 'wrong_scope', scope };
-  return { kind: 'authorized', scope };
+): RouteCredentialBoundary {
+  const digests = credentialDigests(credentials);
+  return {
+    authorize(req, allowed) {
+      const scope = matchingCredentialScope(extractBearerToken(req), digests);
+      if (scope === null) return { kind: 'unauthorized' };
+      if (!allowed.has(scope)) return { kind: 'wrong_scope', scope };
+      return { kind: 'authorized', scope };
+    },
+    hasCredentialSearchParam(url) {
+      for (const [name, value] of url.searchParams.entries()) {
+        if (isCredentialName(name) || isKnownCredentialValue(value, digests)) return true;
+      }
+      return false;
+    },
+    hasCredentialField(value) {
+      return hasCredentialTransportValue(value, digests);
+    },
+  };
 }
 
 export async function readJson(req: IncomingMessage): Promise<unknown> {
@@ -83,23 +101,6 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export function hasCredentialSearchParam(url: URL): boolean {
-  for (const name of url.searchParams.keys()) {
-    if (isCredentialName(name)) return true;
-  }
-  return false;
-}
-
-export function hasCredentialField(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some((item) => hasCredentialField(item));
-  if (!isRecord(value)) return false;
-  for (const [name, fieldValue] of Object.entries(value)) {
-    if (isCredentialName(name)) return true;
-    if (hasCredentialField(fieldValue)) return true;
-  }
-  return false;
-}
-
 export function redactedFailureReason(error: unknown): string {
   return error instanceof Error && error.name === 'ZodError'
     ? 'invalid_payload'
@@ -126,6 +127,39 @@ function isCredentialName(name: string): boolean {
   );
 }
 
+function hasCredentialTransportValue(
+  value: unknown,
+  digests: ReadonlyArray<CredentialDigest>,
+): boolean {
+  if (typeof value === 'string') return isKnownCredentialValue(value, digests);
+  if (Array.isArray(value)) return value.some((item) => hasCredentialTransportValue(item, digests));
+  if (!isRecord(value)) return false;
+  for (const [name, fieldValue] of Object.entries(value)) {
+    if (isCredentialName(name)) return true;
+    if (hasCredentialTransportValue(fieldValue, digests)) return true;
+  }
+  return false;
+}
+
+function isKnownCredentialValue(
+  value: string,
+  digests: ReadonlyArray<CredentialDigest>,
+): boolean {
+  return matchingCredentialScope(value, digests) !== null;
+}
+
+function matchingCredentialScope(
+  value: string | null,
+  digests: ReadonlyArray<CredentialDigest>,
+): RouteScope | null {
+  if (value === null) return null;
+  const presented = createHash('sha256').update(value).digest();
+  for (const digest of digests) {
+    if (timingSafeEqual(presented, digest.digest)) return digest.scope;
+  }
+  return null;
+}
+
 function credentialEntries(
   credentials: RouteCredentials,
 ): ReadonlyArray<readonly [RouteScope, string]> {
@@ -134,4 +168,11 @@ function credentialEntries(
     ['telegram', credentials.telegram],
     ['ops', credentials.ops],
   ];
+}
+
+function credentialDigests(credentials: RouteCredentials): ReadonlyArray<CredentialDigest> {
+  return credentialEntries(credentials).map(([scope, token]) => ({
+    scope,
+    digest: createHash('sha256').update(token).digest(),
+  }));
 }

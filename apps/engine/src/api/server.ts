@@ -7,13 +7,12 @@ import type { Poster } from '../bot/poster.js';
 import { LlmBudget } from '../bot/budget.js';
 import type { DrainState, ReadinessEvaluator } from './readiness.js';
 import {
-  authorizeRoute,
   clampHours,
-  hasCredentialField,
-  hasCredentialSearchParam,
+  createRouteCredentialBoundary,
   isRecord,
   readJson,
   redactedFailureReason,
+  type RouteCredentialBoundary,
   type RouteCredentials,
   type RouteScope,
   sendJson,
@@ -41,7 +40,7 @@ export interface EngineApiOptions {
 }
 
 export function startEngineApi(options: EngineApiOptions): Server {
-  const credentials = routeCredentials(options.env);
+  const credentials = createRouteCredentialBoundary(routeCredentials(options.env));
   const quoteBudget = new LlmBudget(undefined, options.deps.now);
   const server = createServer((req, res) => {
     const requestId = randomUUID();
@@ -62,17 +61,17 @@ export function startEngineApi(options: EngineApiOptions): Server {
 async function route(
   options: EngineApiOptions,
   quoteBudget: LlmBudget,
-  credentials: RouteCredentials,
+  credentials: RouteCredentialBoundary,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://engine.local');
   const path = url.pathname;
-  if (hasCredentialSearchParam(url)) {
+  if (credentials.hasCredentialSearchParam(url)) {
     sendJson(res, 401, { error: 'unauthorized' });
     return;
   }
-  const body = await readBodyWithoutCredentials(req, res);
+  const body = await readBodyWithoutCredentials(req, res, credentials);
   if (body.kind === 'rejected') return;
   if (path === '/api/live') {
     sendJson(res, 200, { status: 'live' });
@@ -88,7 +87,7 @@ async function route(
     sendJson(res, 404, { error: 'not_found' });
     return;
   }
-  const authorization = authorizeRoute(req, credentials, routeScope);
+  const authorization = credentials.authorize(req, routeScope);
   if (authorization.kind === 'unauthorized') {
     sendJson(res, 401, { error: 'unauthorized' });
     return;
@@ -175,6 +174,7 @@ function allowedScopes(method: string, path: string): ReadonlySet<RouteScope> | 
 async function readBodyWithoutCredentials(
   req: IncomingMessage,
   res: ServerResponse,
+  credentials: RouteCredentialBoundary,
 ): Promise<
   | { readonly kind: 'rejected'; readonly value: undefined }
   | { readonly kind: 'ok'; readonly value: unknown }
@@ -183,7 +183,7 @@ async function readBodyWithoutCredentials(
     return { kind: 'ok', value: undefined };
   }
   const body = await readJson(req);
-  if (hasCredentialField(body)) {
+  if (credentials.hasCredentialField(body)) {
     sendJson(res, 401, { error: 'unauthorized' });
     return { kind: 'rejected', value: undefined };
   }

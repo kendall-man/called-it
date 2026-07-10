@@ -1,0 +1,37 @@
+Task 2 bounded live auth probe against current review worktree state
+
+Lifecycle:
+- hard timeout enforced in-probe with 120000 ms wall-clock cap
+- route harness closed
+
+Summary:
+- PASS public live no auth -> actual 200, expected 200
+- PASS public ready no auth -> actual 200, expected 200
+- PASS unknown route without token preserved -> actual 404, expected 404
+- PASS concierge scope ok -> actual 200, expected 200
+- PASS telegram scope ok -> actual 200, expected 200
+- PASS ops scope ok -> actual 200, expected 200
+- PASS missing token denied -> actual 401, expected 401
+- PASS unknown token denied -> actual 401, expected 401
+- PASS wrong scope denied -> actual 403, expected 403
+- PASS duplicate authorization denied -> actual 401, expected 401
+- PASS public query name credential denied -> actual 401, expected 401
+- PASS protected query value credential denied -> actual 401, expected 401
+- PASS public encoded query value credential denied -> actual 401, expected 401
+- PASS unknown duplicate query value credential denied -> actual 401, expected 401
+- PASS public GET body value credential denied -> actual 401, expected 401
+- PASS protected GET body nested credential denied -> actual 401, expected 401
+- PASS protected POST body nested credential denied -> actual 401, expected 401
+- PASS unknown POST body credential denied -> actual 401, expected 401
+- PASS proof fields accepted with non-token values -> actual 200, expected 200
+- PASS malformed JSON stays bad request -> actual 400, expected 400
+- PASS logs omit raw route token values
+- PASS wall-clock stayed within cap -> 15 ms
+
+Adversarial notes:
+- Value-level route tokens no longer pass under innocuous query keys such as `note`.
+- URL-encoded query values are decoded and denied before any public, protected, or unknown route handling.
+- Duplicate query values fail closed when any one value equals a configured route token.
+- Nested array/object JSON carriers fail closed on both GET-with-body and POST bodies.
+- Known safe proof fields remain accepted when their string values are not route tokens.
+- Malformed JSON remains a safe `400` and is not promoted into authorization success.
