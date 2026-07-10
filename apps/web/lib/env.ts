@@ -1,20 +1,172 @@
-/**
- * Public runtime configuration. The app MUST build and render with all of
- * these unset — every accessor returns null instead of throwing, and pages
- * degrade to an "awaiting configuration" state.
- *
- * NEXT_PUBLIC_* reads stay as literal property accesses so Next.js can inline
- * them into client bundles.
- */
+import { z } from 'zod';
 
-export interface SupabasePublicConfig {
-  url: string;
-  anonKey: string;
+const BooleanSchema = z.enum(['true', 'false']).default('false').transform(
+  (value) => value === 'true',
+);
+const BotUsernameSchema = z.string().regex(
+  /^[A-Za-z][A-Za-z0-9_]{3,30}[Bb][Oo][Tt]$/,
+);
+const DomainSchema = z.string().regex(
+  /^(?:localhost|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+)$/,
+);
+
+const WebEnvSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional(),
+  NEXT_PUBLIC_SOLANA_RPC_URL: z.string().url().optional(),
+  NEXT_PUBLIC_TXORACLE_PROGRAM_ID: z.string().min(32).optional(),
+  NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: BotUsernameSchema.optional(),
+  NEXT_PUBLIC_TELEGRAM_STARTGROUP: z.literal('calledit_v1').optional(),
+  CONCIERGE_WALLET_API_URL: z.string().url().optional(),
+  WEB_CONCIERGE_TOKEN: z.string().min(32).optional(),
+  WEB_BASE_URL: z.string().url().optional(),
+  WALLET_LINK_DOMAIN: DomainSchema.optional(),
+  ANALYTICS_HMAC_SECRET: z.string().regex(/^[A-Za-z0-9+/]{43}=$/).optional(),
+  STARTER_GRANTS_ENABLED: BooleanSchema,
+  WALLET_MINIAPP_ENABLED: BooleanSchema,
+  STAKE_ACCEPTANCE_ENABLED: BooleanSchema,
+  NEXT_PUBLIC_WEB_CONCIERGE_TOKEN: z.never().optional(),
+  NEXT_PUBLIC_ACCOUNT_SESSION_KEY_CURRENT: z.never().optional(),
+  NEXT_PUBLIC_ACCOUNT_SESSION_KEY_PREVIOUS: z.never().optional(),
+  NEXT_PUBLIC_ANALYTICS_HMAC_SECRET: z.never().optional(),
+}).superRefine((env, ctx) => {
+  const addPairIssue = (left: string, right: string): void => {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [left], message: 'invalid relationship' });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [right], message: 'invalid relationship' });
+  };
+  const isOrigin = (value: string): boolean => {
+    const url = new URL(value);
+    return (
+      url.username === '' &&
+      url.password === '' &&
+      url.search === '' &&
+      url.hash === '' &&
+      url.pathname === '/'
+    );
+  };
+  if (env.NODE_ENV === 'production') {
+    if (env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['NEXT_PUBLIC_TELEGRAM_BOT_USERNAME'],
+        message: 'required for production',
+      });
+    }
+    if (env.NEXT_PUBLIC_TELEGRAM_STARTGROUP === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['NEXT_PUBLIC_TELEGRAM_STARTGROUP'],
+        message: 'required for production',
+      });
+    }
+    if (env.WEB_BASE_URL !== undefined && new URL(env.WEB_BASE_URL).protocol !== 'https:') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['WEB_BASE_URL'],
+        message: 'HTTPS required for production',
+      });
+    }
+    if (
+      env.CONCIERGE_WALLET_API_URL !== undefined &&
+      new URL(env.CONCIERGE_WALLET_API_URL).protocol !== 'https:'
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['CONCIERGE_WALLET_API_URL'],
+        message: 'HTTPS required for production',
+      });
+    }
+  }
+
+  if (
+    env.CONCIERGE_WALLET_API_URL !== undefined &&
+    !isOrigin(env.CONCIERGE_WALLET_API_URL)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['CONCIERGE_WALLET_API_URL'],
+      message: 'origin required',
+    });
+  }
+  if (env.WEB_BASE_URL !== undefined && !isOrigin(env.WEB_BASE_URL)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['WEB_BASE_URL'],
+      message: 'origin required',
+    });
+  }
+
+  const hasSupabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL !== undefined;
+  const hasSupabaseKey = env.NEXT_PUBLIC_SUPABASE_ANON_KEY !== undefined;
+  if (hasSupabaseUrl !== hasSupabaseKey) {
+    addPairIssue('NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  }
+  const hasSolanaUrl = env.NEXT_PUBLIC_SOLANA_RPC_URL !== undefined;
+  const hasProgramId = env.NEXT_PUBLIC_TXORACLE_PROGRAM_ID !== undefined;
+  if (hasSolanaUrl !== hasProgramId) {
+    addPairIssue('NEXT_PUBLIC_SOLANA_RPC_URL', 'NEXT_PUBLIC_TXORACLE_PROGRAM_ID');
+  }
+
+  const walletVariables = [
+    ['CONCIERGE_WALLET_API_URL', env.CONCIERGE_WALLET_API_URL],
+    ['WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN],
+    ['WEB_BASE_URL', env.WEB_BASE_URL],
+    ['WALLET_LINK_DOMAIN', env.WALLET_LINK_DOMAIN],
+    ['ANALYTICS_HMAC_SECRET', env.ANALYTICS_HMAC_SECRET],
+  ] as const;
+  if (env.WALLET_MINIAPP_ENABLED) {
+    for (const [name, value] of walletVariables) {
+      if (value === undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: 'required' });
+      }
+    }
+  }
+  if (
+    env.WEB_BASE_URL !== undefined &&
+    env.WALLET_LINK_DOMAIN !== undefined &&
+    new URL(env.WEB_BASE_URL).hostname !== env.WALLET_LINK_DOMAIN
+  ) {
+    addPairIssue('WALLET_LINK_DOMAIN', 'WEB_BASE_URL');
+  }
+  if (env.STARTER_GRANTS_ENABLED && !env.STAKE_ACCEPTANCE_ENABLED) {
+    addPairIssue('STARTER_GRANTS_ENABLED', 'STAKE_ACCEPTANCE_ENABLED');
+  }
+});
+
+export type WebEnv = Readonly<z.infer<typeof WebEnvSchema>>;
+
+export type SupabasePublicConfig = {
+  readonly url: string;
+  readonly anonKey: string;
+};
+
+export type SolanaPublicConfig = {
+  readonly rpcUrl: string;
+  readonly programId: string;
+};
+
+export class WebEnvironmentError extends Error {
+  readonly name = 'WebEnvironmentError';
+
+  constructor(readonly variables: readonly string[]) {
+    super(`Web environment invalid: ${variables.join(', ')}`);
+  }
 }
 
-export interface SolanaPublicConfig {
-  rpcUrl: string;
-  programId: string;
+export function loadWebEnv(source: NodeJS.ProcessEnv = process.env): WebEnv {
+  const parsed = WebEnvSchema.safeParse(source);
+  if (!parsed.success) {
+    const variables = [...new Set(
+      parsed.error.issues.map((issue) => String(issue.path[0] ?? '(root)')),
+    )].sort();
+    throw new WebEnvironmentError(variables);
+  }
+  return parsed.data;
+}
+
+export function validateWebBuildEnv(source: NodeJS.ProcessEnv = process.env): void {
+  loadWebEnv(source);
 }
 
 export function getSupabaseConfig(): SupabasePublicConfig | null {

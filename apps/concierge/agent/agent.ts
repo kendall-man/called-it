@@ -10,8 +10,10 @@
 
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { defineAgent } from 'eve';
+import { loadConciergeEnv } from './env.js';
 
-const GLM_DEFAULT_BASE_URL = 'https://api.z.ai/api/anthropic';
+const env = loadConciergeEnv();
+
 const PARSER_MODEL = 'glm-4.6';
 
 // Session token ceilings — the concierge answers short Telegram turns; a
@@ -19,13 +21,10 @@ const PARSER_MODEL = 'glm-4.6';
 const MAX_INPUT_TOKENS_PER_SESSION = 300_000;
 const MAX_OUTPUT_TOKENS_PER_SESSION = 10_000;
 
-const glmApiKey = process.env.GLM_API_KEY;
-
 const glm = createAnthropic({
   // The AI SDK provider appends /v1/messages relative to this base.
-  baseURL: `${process.env.GLM_BASE_URL ?? GLM_DEFAULT_BASE_URL}/v1`,
-  // Missing key fails at the first model call with the provider's own error.
-  ...(glmApiKey ? { apiKey: glmApiKey } : {}),
+  baseURL: `${env.GLM_BASE_URL}/v1`,
+  apiKey: env.GLM_API_KEY,
 });
 
 export default defineAgent({

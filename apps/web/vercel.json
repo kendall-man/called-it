@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "installCommand": "pnpm install --frozen-lockfile=false",
-  "buildCommand": "pnpm --filter @calledit/solana build && next build"
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm --filter @calledit/solana build && pnpm --filter @calledit/web build"
 }

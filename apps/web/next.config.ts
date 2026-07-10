@@ -1,6 +1,9 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { NextConfig } from 'next';
+import { validateWebBuildEnv } from './lib/env';
+
+validateWebBuildEnv();
 
 /**
  * In-browser merkle re-verification comes from `@calledit/solana/verify`

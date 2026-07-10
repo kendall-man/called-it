@@ -5,6 +5,8 @@
  * monorepo's workspace packages (see the migration plan: zero workspace deps).
  */
 
+import { loadConciergeEnv } from '../env.js';
+
 const REQUEST_TIMEOUT_MS = 15_000;
 
 export interface EngineMarket {
@@ -83,35 +85,53 @@ export interface EngineFixture {
   minute: number | null;
 }
 
-function config(): { base: string; token: string } {
-  const base = process.env.ENGINE_API_URL;
-  const token = process.env.ENGINE_API_TOKEN;
-  if (!base || !token) {
-    throw new Error('engine api not configured: set ENGINE_API_URL and ENGINE_API_TOKEN');
+type EngineRouteScope = 'concierge' | 'telegram';
+
+function config(scope: EngineRouteScope): { readonly base: string; readonly token: string } {
+  const env = loadConciergeEnv();
+  switch (scope) {
+    case 'concierge':
+      return {
+        base: env.ENGINE_PRIVATE_API_URL.replace(/\/$/, ''),
+        token: env.ENGINE_CONCIERGE_TOKEN,
+      };
+    case 'telegram':
+      return {
+        base: env.ENGINE_PRIVATE_API_URL.replace(/\/$/, ''),
+        token: env.ENGINE_TELEGRAM_TOKEN,
+      };
   }
-  return { base: base.replace(/\/$/, ''), token };
 }
 
-async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
-  const { base, token } = config();
-  const res = await fetch(`${base}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${token}`,
-      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  // Engine guard rejections (422) and stake conflicts (409) carry structured
-  // JSON the tools relay to the model — only transport-level failures throw.
-  const parsed = (await res.json().catch(() => null)) as T | null;
-  if (parsed === null) throw new Error(`engine api ${path} → ${res.status} (no body)`);
-  if (!res.ok && res.status !== 409 && res.status !== 422 && res.status !== 404) {
-    throw new Error(`engine api ${path} → ${res.status}: ${JSON.stringify(parsed).slice(0, 200)}`);
-  }
-  return parsed;
+function createCaller(scope: EngineRouteScope) {
+  return async function call<T>(
+    method: 'GET' | 'POST',
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
+    const { base, token } = config(scope);
+    const res = await fetch(`${base}${path}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    // Engine guard rejections (422) and stake conflicts (409) carry structured
+    // JSON the tools relay to the model — only transport-level failures throw.
+    const parsed = (await res.json().catch(() => null)) as T | null;
+    if (parsed === null) throw new Error(`engine api ${path} → ${res.status} (no body)`);
+    if (!res.ok && res.status !== 409 && res.status !== 422 && res.status !== 404) {
+      throw new Error(`engine api ${path} → ${res.status}: ${JSON.stringify(parsed).slice(0, 200)}`);
+    }
+    return parsed;
+  };
 }
+
+const call = createCaller('concierge');
+const callTelegram = createCaller('telegram');
 
 /**
  * Single-ingress forwarding: hand a raw Telegram update to the engine so its
@@ -119,7 +139,7 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
  * as if it had been polled. Fire-and-forget semantics; the engine acks fast.
  */
 export async function forwardTelegramUpdate(update: Record<string, unknown>): Promise<void> {
-  await call<{ ok: boolean }>('POST', '/api/telegram-update', update);
+  await callTelegram<{ ok: boolean }>('POST', '/api/telegram-update', update);
 }
 
 export const engineApi = {

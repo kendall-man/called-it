@@ -1,0 +1,180 @@
+TASK 6: Make environment and rollout configuration explicit and fail-closed
+Evidence date: 2026-07-10
+Workspace: /Users/sublime/Seb/tg-bot-idea
+Base HEAD: 55ef15c75bb8bb0f9e277a520420f036460d9ace
+Redaction: PASS. No raw credential, session master, derived key, auth header,
+Telegram identifier, wallet identifier, or local env value is present below.
+
+TDD RED -> GREEN
+
+1. Engine malformed rollout switch
+   RED: env parser returned successfully; Vitest reported "expected function to
+   throw an error".
+   GREEN: strict literal true/false parsing reports only
+   STARTER_GRANTS_ENABLED.
+
+2. Engine duplicate route tokens and unsafe feature dependencies
+   RED: parser returned successfully for duplicate route credentials, starter
+   grants with stakes off, and stake intake without treasury/coverage.
+   GREEN: deterministic variable-name-only failures; no sentinel token value
+   appeared.
+
+3. Concierge startup/private engine contract and session key derivation
+   RED: importing the Eve agent resolved with no private engine URL; current
+   session master produced no keyring.
+   GREEN: startup names ENGINE_PRIVATE_API_URL; canonical 32-byte masters derive
+   distinct 32-byte JWE/CSRF keys and raw masters are absent from parsed config.
+
+4. Web production build gate
+   RED: importing next.config resolved without the public Telegram username or
+   versioned start-group payload.
+   GREEN: production config import and real Next build fail before compilation
+   with only NEXT_PUBLIC_TELEGRAM_BOT_USERNAME and
+   NEXT_PUBLIC_TELEGRAM_STARTGROUP.
+
+FINAL TEST AND TYPECHECK RESULTS
+
+- Engine full suite: PASS, 25 files / 256 tests.
+- Concierge full suite: PASS, 3 files / 20 tests. Repeated full suite three
+  additional times: 3/3 PASS.
+- Web full suite: PASS, 5 files / 46 tests.
+- Engine typecheck: PASS.
+- Concierge typecheck: PASS.
+- Web typecheck: PASS.
+- TypeScript no-excuse scan: PASS, 11 scoped files, zero violations.
+- git diff --check: PASS.
+
+BUILD RESULTS
+
+- Forced Turbo engine/dependency build: PASS, 6/6 tasks, 0 cached.
+- Concierge Eve build with complete fake disabled config: PASS. Eve emitted a
+  concurrent Todo 4 warning that agent/runtime is not a discoverable directory;
+  route internals are outside Task 6 and are listed under risks.
+- Web production build with missing Telegram entry config: EXPECTED FAIL,
+  variable names only.
+- Web production build with complete fake config: PASS, optimized build and
+  four pages generated.
+- Frozen offline pnpm install: PASS; lockfile current.
+
+MANUAL PARSER QA
+
+Engine driver, exit 0:
+- disabled configuration: PASS
+- starter enabled without treasury/coverage: FAIL CLOSED on
+  TREASURY_COVERAGE_ENFORCED, WAGER_TREASURY_KEYPAIR_B58
+- duplicate route tokens: FAIL CLOSED on ENGINE_CONCIERGE_TOKEN,
+  ENGINE_TELEGRAM_TOKEN
+- same malformed startup invoked twice: identical messages
+
+Concierge driver, exit 0:
+- disabled configuration without account keys: PASS
+- incomplete previous tuple: FAIL CLOSED on
+  ACCOUNT_SESSION_KEY_PREVIOUS_EXPIRES_AT,
+  ACCOUNT_SESSION_KEY_PREVIOUS_KID
+- redacted metadata: current KID + encrypts/accepts metadata; previous KID +
+  encrypts=false + acceptance deadline only; no key bytes
+
+Web driver, exit 0:
+- minimal disabled production configuration: PASS
+- stale start-group version: FAIL CLOSED on NEXT_PUBLIC_TELEGRAM_STARTGROUP
+- Mini App enabled without server config: FAIL CLOSED on five named server-only
+  variables
+- public-prefixed server token: FAIL CLOSED on
+  NEXT_PUBLIC_WEB_CONCIERGE_TOKEN
+
+DEPLOYMENT AND EXAMPLE CONFIG QA
+
+- JSON parse: PASS, railway.json, apps/concierge/railway.json,
+  apps/web/vercel.json.
+- Railway readiness wiring: PASS, 2/2 use /api/ready.
+- Health timeout: PASS, 30 seconds > 5-second application budget.
+- Drain allowance: PASS, 15 seconds >= 12-second application drain budget.
+- Start/build/frozen-lock assertions: PASS.
+- Root/app env name inventory: PASS; root contains the app contract union.
+- Env example placeholder scan: PASS, 4/4 parsed, zero non-placeholder
+  assignments outside the exact safe local/default allowlist.
+- No grant amount, grant cap, grant count, or remaining-budget env variable was
+  introduced.
+
+DEBUGGING RUNTIME AUDIT
+
+H1 - Unsafe config may still be treated as disabled.
+Distinguishing evidence: direct parser invocations for malformed switches,
+duplicate tokens, grants-without-stakes, and stakes-without-coverage.
+Result: REFUTED after implementation. Every case failed non-zero/throw with
+sorted variable names; minimal disabled configs passed.
+
+H2 - Errors or key metadata may disclose secret material.
+Distinguishing evidence: a sentinel duplicate route token, serialized keyring
+metadata, and raw-master property checks.
+Result: REFUTED. The sentinel and key bytes were absent; metadata contains only
+KIDs, usage metadata, and the previous deadline.
+
+H3 - Cached/generated configuration may produce misleading success.
+Distinguishing evidence: first Turbo run replayed cached logs from the separate
+direct-onboarding worktree; production Next build was toggled with missing vs
+complete env.
+Result: CONFIRMED as an evidence risk and mitigated. The build was rerun with
+--force from the assigned workspace (0 cached, 6/6 pass). Missing web env failed
+before compilation; complete fake env built successfully.
+
+H4 - Concurrent readiness failure may be a deterministic regression.
+Distinguishing evidence: one full concierge run observed engineCalls=0 while
+Todo 4 files were changing; focused readiness test and four subsequent full
+runs were executed.
+Result: REFUTED as a stable failure. Focused run passed; four consecutive full
+runs passed with both test file orders. No Todo 4 file was modified by Task 6.
+
+ADVERSARIAL CLASSES
+
+- malformed_input: PASS; booleans, URLs, base64 length/canonical form, key IDs,
+  durations, domains, start-group version, and incomplete pairs covered.
+- stale_generated_config: PASS; forced build, explicit config name parity, and
+  real production build toggle recorded.
+- dirty_worktree: PASS; unrelated pre-existing .omo files and concurrent Todo 4
+  files were neither reverted nor staged by Task 6.
+- secret_redaction: PASS; errors use sorted variable names only; metadata and
+  evidence omit values.
+- misleading_success_output: PASS; expected-failure exit codes checked and
+  cached Turbo output rejected as final evidence.
+- repeated_invalid_startup: PASS; two identical invocations produced identical
+  messages; Railway retry maximum is 3.
+- flaky_tests: PASS after audit; one concurrent transient failure followed by a
+  focused pass and four consecutive full-suite passes.
+
+POST-IMPLEMENTATION REVIEW
+
+The review-work skill requested five subagents, but no multi-agent spawn/wait
+tools were exposed in this session. Five equivalent local lanes were completed:
+
+- Goal/constraint verification: PASS. Every Task 6 deliverable and acceptance
+  item maps to source, tests, docs, manifest, or this evidence.
+- Hands-on QA: PASS. Parsers and real build surfaces were invoked directly.
+- Code quality: PASS. Strict typechecks, <=250-line scoped TS files, no-excuse
+  scan, and diff check passed.
+- Security: PASS for Task 6 scope. Keys use HKDF-SHA256 exact labels, previous
+  acceptance is bounded, public secret names are rejected, and values are not
+  reflected.
+- Context mining: PASS. Plan, root/app AGENTS, current Todo 4 readiness policy,
+  env consumers, deployment history, and package scripts were checked.
+
+CLEANUP RECEIPT
+
+- No debugger, server, tmux session, scratch script, temporary fixture, or
+  inspector port was created.
+- No .env or .env.local value was read or printed.
+- Build outputs are ignored workspace artifacts and were not staged.
+- Pre-existing untracked .omo planning files remain untouched.
+- Concurrent Todo 4 source/test files remain untouched and unstaged by Task 6.
+
+INTEGRATION RISKS
+
+1. Todo 2 still owns removal of legacy ENGINE_API_TOKEN/API server references.
+   Task 6 defines and consumes split credentials where in scope; do not deploy
+   the combined rollout until Todo 2 lands.
+2. Todo 4 owns concierge /api/live and /api/ready internals. Its current
+   agent/runtime directory produces an Eve discovery warning and has no
+   supported-entry import visible at this checkpoint. Task 6 intentionally only
+   configures the expected /api/ready manifest path.
+3. Railway health checks are deployment gates, not continuous monitoring; the
+   operations runbook keeps continuous readiness monitoring as a separate gate.

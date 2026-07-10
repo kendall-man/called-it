@@ -16,17 +16,15 @@
  * conversation with Callie going, @mention her again — instructions tell her
  * to always offer options (inline keyboard) instead of freeform follow-ups.
  *
- * Env: TELEGRAM_BOT_TOKEN (same bot as the engine),
- *      TELEGRAM_WEBHOOK_SECRET_TOKEN, CONCIERGE_BOT_USERNAME,
- *      ENGINE_API_URL, ENGINE_API_TOKEN.
  * BotFather: /setprivacy → Disable (the bot must see plain group messages to
  * forward them for claim detection).
  */
 
 import { defaultTelegramAuth, telegramChannel } from 'eve/channels/telegram';
+import { loadConciergeEnv } from '../env.js';
 import { forwardTelegramUpdate } from '../lib/engine-api.js';
 
-const botUsername = process.env.CONCIERGE_BOT_USERNAME;
+const botUsername = loadConciergeEnv().TELEGRAM_BOT_USERNAME;
 
 /** Synthetic envelope id — grammY only uses update_id for polling offsets. */
 let syntheticUpdateId = Math.floor(Date.now() / 1000);
@@ -46,7 +44,7 @@ function isConversational(message: {
 }
 
 export default telegramChannel({
-  ...(botUsername ? { botUsername } : {}),
+  botUsername,
   onMessage: async (_ctx, message) => {
     if (isConversational(message)) {
       return { auth: defaultTelegramAuth(message) };
