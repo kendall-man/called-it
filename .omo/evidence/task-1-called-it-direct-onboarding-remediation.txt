@@ -130,3 +130,143 @@ POST-IMPLEMENTATION REVIEW LANES
   input, errors are typed by stable rule ID, and saved evidence redacts temporary paths.
 - Context/scope: PASS; exact Todo 1 criteria and governing AGENTS files were reread; dormant
   migration history remains excluded while the selected active surfaces are scanned.
+
+===============================================================================
+FOLLOW-UP GATE REMEDIATION
+Captured: 2026-07-10T00:35:39Z
+Base before follow-up: 9716643 (includes independent Todo 3 work)
+
+BOUND VERIFIER FINDINGS ADDRESSED
+- The default manifest now names and prints every scanned file. It includes the active
+  landing, engine bot copy, wager copy, shared persona fallback, concierge instructions,
+  and concierge tools. Historical migrations remain outside the manifest.
+- Rules now reject real-devnet-SOL/value framing, cashout, stack/load-stack, demo/replay
+  onboarding, assigned or inline hash CTAs, and active Rep wording. Policy exemptions are
+  limited to guidance/instruction contracts; historical migration context remains allowed.
+- The landing's visible action uses the interim versioned group-add URL for the known bot.
+  Both fragment destinations and unavailable sample-receipt copy were removed.
+- Bot, wager, persona fallback, and concierge tool copy now use direct consent, test SOL,
+  no-monetary-value, account/position, and literal recovery language.
+- DESIGN.md now distinguishes the observed 16px radius, radial gradients, negative and
+  positive tracking, hover scale, raw quote/display-name rendering, and fixed link as
+  audited debt. Tasks 19-22 own the corresponding target migrations.
+- tsconfig.product-copy.json and root @types/node wiring make strict checker compilation
+  reproducible. verify:product-copy runs that tracked compiler command first.
+
+RED -> GREEN RECORD
+1. Landing behavior RED: versioned Telegram URL count was 0, expected 1.
+   GREEN: apps/web/app/page.test.ts passed after the real link replaced both fragments.
+2. Checker RED: manifest test found no SCAN path output; drift fixture reported only demo.
+   GREEN: manifest paths are printed and all six expected rule IDs are emitted.
+3. Bot copy RED: two tests failed on old cashout/stack intro and old offer labels.
+   GREEN: src/bot/copy.test.ts passed 3/3.
+4. Wager copy RED: hygiene and no-monetary-value tests failed on real-SOL/cashout/stack.
+   GREEN: src/wager/constants.test.ts passed 11/11.
+5. Persona fallback RED: rendered template bank contained stack/load language.
+   GREEN: src/persona.test.ts passed 47/47; the full agent suite passed later.
+6. Tracked compiler RED: typecheck:product-copy was missing; after wiring, the first run
+   showed root @types/node was not linked. The offline workspace install linked the locked
+   dependency; the tracked command then exited 0.
+7. Policy-bypass RED: fixture wording "No Rep moves" was exempted by the initial policy
+   matcher. GREEN: policy exemptions are contract-scoped and that fixture emits
+   [economy.rep-primary-path].
+
+FINAL EXACT TASK 1 COMMANDS
+1. npx -y pnpm@10.33.0 --filter @calledit/engine test -- copy.test.ts
+   exit 0; 22 test files passed; 225 tests passed.
+   Non-failing bigint native-binding warnings used the package's pure-JS fallback.
+2. npx -y pnpm@10.33.0 --filter @calledit/web test -- spec-terms.test.ts
+   exit 0; 6 test files passed; 47 tests passed.
+3. npx -y pnpm@10.33.0 verify:product-copy
+   exit 0 twice consecutively after the final edit; each run compiled strictly, passed
+   10/10 checker behavior tests, and reported:
+     PASS guidance (9 files)
+     PASS bot (3 files)
+     PASS concierge (19 files)
+     PASS web (12 files)
+     Product copy contract: PASS (43 files)
+
+ADDITIONAL VERIFICATION
+- npx -y pnpm@10.33.0 --filter @calledit/agent test
+  exit 0; 5 files passed; 178 tests passed; 80 golden live cases skipped by design.
+- npx -y pnpm@10.33.0 typecheck
+  exit 0; 8/8 Turbo workspace typecheck tasks passed with 0 cached.
+- npx -y pnpm@10.33.0 --filter callie eve:build with process-local, non-secret
+  development test values
+  exit 0; Nitro server bundle generated, then removed. No environment file was read or
+  changed. The initial no-values probe failed fast only on the expected environment gate.
+- TypeScript no-excuse checker over all 14 changed TS/TSX files
+  exit 0; "No violations in 14 file(s)."
+- Pure non-comment line counts:
+  scripts/check-product-copy.ts = 95
+  scripts/product-copy-contract.ts = 176
+  scripts/check-product-copy.test.ts = 147
+  The committed behavior test enforces the main checker remains below 250.
+
+MANUAL QA: TRACKED / LIVE LANDING
+- Final tracked checker: positive_exit=0 with all 43 SCAN paths and four PASS summaries.
+- Live Next server at <LOCAL_URL> returned HTTP 200.
+- Server-rendered HTML contained:
+  https://t.me/footballcallit_bot?startgroup=calledit_v1&admin=manage_chat
+  Add to Telegram group
+- Server-rendered HTML contained no Join-the-demo, sample-receipt, or href="#" action.
+- The local server was stopped and its temporary HTML was removed.
+
+MANUAL QA: REQUIRED FAILURE / MALFORMED INPUT
+Required fixture at <TEMP_FIXTURE>:
+  Practice Rep
+  <a href="#">Start</a>
+
+Redacted result:
+  <TEMP_FIXTURE>:1 [economy.rep-primary-path] Practice Rep
+  <TEMP_FIXTURE>:2 [cta.placeholder-href] <a href="#">Start</a>
+  FAIL fixture (2 violations)
+  negative_exit=1
+
+Malformed one-byte UTF-8 fixture result:
+  [input.invalid-fixture] <TEMP_FIXTURE>: invalid UTF-8
+  malformed_exit=2
+
+CLEANUP RECEIPT
+- Both final temporary fixtures and their directory were removed; an absence assertion
+  exited 0.
+- Temporary landing HTML was removed; port 3021 had no listener after shutdown.
+- Generated apps/concierge/.output was removed.
+- No environment or migration file was modified.
+
+ADVERSARIAL RESULTS
+- malformed_input: PASS; fatal UTF-8 decode produced exit 2 and stable rule ID.
+- dirty_worktree: PASS; only follow-up-owned product/copy/test/config/evidence paths are
+  selected for staging. Todo 3 and untracked orchestration/review state remain untouched.
+- stale_state: PASS; key landing, engine copy, wager copy, persona fallback, concierge
+  instructions/tools, DESIGN baseline, checker manifest/rules, tests, package wiring, and
+  tracked config were reread after edits; the final verifier then passed twice.
+- misleading_success_output: PASS; independent observed exits are positive=0, negative=1,
+  malformed=2, with expected diagnostics.
+- flaky_tests: PASS; two consecutive final root verifier runs produced the same 43-file
+  manifest and all 10 behavior tests passed.
+
+DEBUGGING RUNTIME AUDIT
+H1: Default success could omit active bot/landing/fallback files.
+- Evidence: final stdout printed SCAN lines for page.tsx, both engine copy files,
+  packages/agent/src/templates.ts, concierge instructions, and place_stake.ts.
+- Result: refuted; manifest inclusion is also a behavior test.
+H2: A negative phrase such as "No Rep moves" could hide active economy drift.
+- Evidence: the strengthened fixture test was RED under the broad matcher and GREEN only
+  after contract-scoped policy handling; final suite passed.
+- Result: refuted.
+H3: The landing could pass a source test but still render a dead action.
+- Evidence: live Next response was HTTP 200 and rendered the exact Telegram destination;
+  forbidden fragment/demo/sample patterns were absent from returned HTML.
+- Result: refuted.
+
+PROGRAMMING / REVIEW-WORK GATE
+- Correctness: PASS; focused and full behavior suites cover direct copy, active manifest,
+  all required rule classes, malformed input, and the landing destination.
+- Type safety: PASS; tracked strict tsc, full workspace typecheck, and no-excuse audit pass;
+  no any, type assertions, ignore directives, non-null assertions, or swallowed catches
+  were added.
+- Scope/privacy: PASS; migration history is excluded, public policy context is explicit,
+  evidence is redacted, and no secret/environment value was read or committed.
+- Manual surface: PASS; CLI happy/error/malformed/help paths and live landing HTML were
+  observed. No independent review artifact was created by this worker.

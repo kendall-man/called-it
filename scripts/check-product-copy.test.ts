@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -67,6 +67,27 @@ test('reports every tracked product-copy surface when the contract is clean', ()
   }
 });
 
+test('includes every active landing, engine copy, fallback, and concierge surface', () => {
+  // Given
+  const expectedPaths = [
+    'apps/web/app/page.tsx',
+    'apps/engine/src/bot/copy.ts',
+    'apps/engine/src/wager/copy.ts',
+    'packages/agent/src/templates.ts',
+    'apps/concierge/agent/instructions/00-callie.md',
+    'apps/concierge/agent/tools/place_stake.ts',
+  ];
+
+  // When
+  const result = runChecker([]);
+
+  // Then
+  assert.equal(result.status, 0);
+  for (const path of expectedPaths) {
+    assert.match(result.stdout, new RegExp(`SCAN [^\\n]*${path.replaceAll('.', '\\.')}`));
+  }
+});
+
 test('allows a historical migration label split across adjacent lines', () => {
   // Given
   const fixtureDirectory = mkdtempSync(join(tmpdir(), 'calledit-product-copy-'));
@@ -127,6 +148,40 @@ test('rejects simulated onboarding, misleading starter funds, and a real-value c
   }
 });
 
+test('rejects real devnet SOL, cashout, load-stack, demo, and assigned hash CTA drift', () => {
+  // Given
+  const fixtureDirectory = mkdtempSync(join(tmpdir(), 'calledit-product-copy-'));
+  const fixturePath = join(fixtureDirectory, 'active.tsx');
+  writeFileSync(
+    fixturePath,
+    [
+      'Real devnet SOL on the line.',
+      'Cash out now.',
+      'Load your stack.',
+      'Join the demo group.',
+      "const ACTION_URL = '#start';",
+      'No Rep moves.',
+    ].join('\n'),
+    'utf8',
+  );
+
+  try {
+    // When
+    const result = runChecker(['--fixture', fixturePath]);
+
+    // Then
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /\[value\.real-money-claim\]/);
+    assert.match(result.stdout, /\[language\.cashout\]/);
+    assert.match(result.stdout, /\[language\.stack\]/);
+    assert.match(result.stdout, /\[onboarding\.demo-or-replay\]/);
+    assert.match(result.stdout, /\[cta\.placeholder-href\]/);
+    assert.match(result.stdout, /\[economy\.rep-primary-path\]/);
+  } finally {
+    rmSync(fixtureDirectory, { recursive: true, force: true });
+  }
+});
+
 test('prints CLI usage without scanning when help is requested', () => {
   // Given
   const args = ['--help'];
@@ -137,4 +192,18 @@ test('prints CLI usage without scanning when help is requested', () => {
   // Then
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Usage: check-product-copy/);
+});
+
+test('keeps the checker CLI below 250 non-comment lines', () => {
+  // Given
+  const source = readFileSync(CHECKER_PATH, 'utf8');
+
+  // When
+  const nonCommentLines = source.split(/\r?\n/u).filter((line) => {
+    const trimmed = line.trim();
+    return trimmed.length > 0 && !trimmed.startsWith('//');
+  });
+
+  // Then
+  assert.ok(nonCommentLines.length < 250, `checker has ${nonCommentLines.length} lines`);
 });

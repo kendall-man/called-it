@@ -19,7 +19,7 @@ Prefer: `call`, `offer`, `position`, `it happens`, `it does not`, `matched`, `un
 - Amounts are SOL/test SOL on Solana devnet.
 - Prices are plain percentages, never odds notation.
 - Do not use fiat amounts or imply monetary value.
-- Avoid idioms such as stack, cash out, first link wins, or any phrase a B1 reader must
+- Never use idioms such as stack, cash out, first link wins, or any phrase a B1 reader must
   decode to understand money/state.
 
 ## Examples
@@ -48,4 +48,4 @@ Prefer: `call`, `offer`, `position`, `it happens`, `it does not`, `matched`, `un
 - Duplicate ready messages, offer cards, position updates, settlement posts, or receipts.
 - Public account details or attempts to identify a receipt alias.
 - A success claim before the engine reports a committed state.
-- Demo or replay guidance; direct members to the next real live action.
+- Never provide demo or replay guidance; direct members to the next live action.

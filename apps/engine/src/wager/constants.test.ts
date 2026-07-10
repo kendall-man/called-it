@@ -52,7 +52,7 @@ describe('WAGER_TUNABLES internal consistency', () => {
 });
 
 describe('copy bank hygiene', () => {
-  it('every line renders non-empty with no leftover placeholders', () => {
+  it('every line renders non-empty and follows the direct SOL vocabulary', () => {
     const samples: string[] = [
       WAGER_COPY.unlinkedOnboarding(),
       WAGER_COPY.paused(),
@@ -83,10 +83,25 @@ describe('copy bank hygiene', () => {
       WAGER_COPY.opsSolvencyAlert(1n, 2n),
       WAGER_COPY.opsSolvencyRecovered(),
     ];
+    const banned = [
+      /\bRep\b/i,
+      /\breplay\b/i,
+      /\bcash\s*out\b/i,
+      /\bstack\b/i,
+      /\breal\s+(?:devnet\s+)?SOL\b/i,
+    ];
     for (const line of samples) {
       expect(line.trim().length).toBeGreaterThan(0);
       expect(line).not.toMatch(/\$\{|\{\w+\}/); // no unrendered templates
+      for (const pattern of banned) expect(line).not.toMatch(pattern);
     }
+  });
+
+  it('states that test SOL has no monetary value on onboarding and card fallbacks', () => {
+    expect(WAGER_COPY.unlinkedOnboarding()).toMatch(/test SOL/i);
+    expect(WAGER_COPY.unlinkedOnboarding()).toMatch(/no monetary value/i);
+    expect(WAGER_COPY.cardFooter()).toMatch(/test SOL/i);
+    expect(WAGER_COPY.cardFooter()).toMatch(/no monetary value/i);
   });
 
   it('the deposit explainer carries the devnet-only warning and the treasury address', () => {

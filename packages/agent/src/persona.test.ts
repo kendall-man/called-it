@@ -16,7 +16,8 @@ const NUMERIC_VAR_RE = /(multiplier|amount|balance|payout|pot|minute|backers|dou
 function sampleVarsFor(template: string): PersonaVars {
   const vars: PersonaVars = {};
   for (const match of template.matchAll(/\{([a-zA-Z0-9_]+)\}/g)) {
-    const name = match[1]!;
+    const name = match[1];
+    if (name === undefined) throw new Error('placeholder capture missing');
     vars[name] = NUMERIC_VAR_RE.test(name) ? 9 : 'the big screen';
   }
   return vars;
@@ -42,7 +43,7 @@ describe('template bank', () => {
         expect(violatesDenyList(rendered)).toBeNull();
       }
       // persona() without a client is fully deterministic.
-      const first = PERSONA_TEMPLATES[key][0]!;
+      const first = PERSONA_TEMPLATES[key][0];
       const vars = sampleVarsFor(first);
       const a = await persona(key, vars);
       const b = await persona(key, vars);
@@ -52,6 +53,18 @@ describe('template bank', () => {
 
   it('leaves unknown placeholders visible instead of blanking them', () => {
     expect(renderTemplate('hello {who}', {})).toBe('hello {who}');
+  });
+
+  it('keeps active fallback copy direct and SOL-only', () => {
+    const renderedBank = PERSONA_TEMPLATE_KEYS.flatMap((key) => PERSONA_TEMPLATES[key]).join('\n');
+    const intro = PERSONA_TEMPLATES.intro_disclosure.join('\n');
+    const confirmation = PERSONA_TEMPLATES.confirm_gate.join('\n');
+
+    expect(renderedBank).not.toMatch(/\bRep\b|\breplay\b|cash\s*out|\bstack\b|real devnet SOL/i);
+    expect(intro).toMatch(/mention.*\/bookit/i);
+    expect(intro).toMatch(/test SOL/i);
+    expect(intro).toMatch(/no monetary value/i);
+    expect(confirmation).toMatch(/confirm/i);
   });
 });
 
@@ -92,9 +105,9 @@ describe('persona garnish', () => {
   }
 
   it('uses a clean garnish when the model behaves', async () => {
-    const client = makeTextClient('Dec is IN — 50 Rep riding at ×9. Locked and loud!');
+    const client = makeTextClient('Dec is IN — 50 SOL riding at ×9. Locked and loud!');
     const out = await persona('back_ack', vars, { client, budget: budgeted() });
-    expect(out).toBe('Dec is IN — 50 Rep riding at ×9. Locked and loud!');
+    expect(out).toBe('Dec is IN — 50 SOL riding at ×9. Locked and loud!');
   });
 
   it('falls back to the template when garnish trips the deny-list', async () => {
@@ -147,7 +160,7 @@ describe('persona garnish', () => {
 
   it('hard-caps garnish generations via the budget', async () => {
     const client = makeScriptedClient([
-      { content: [{ type: 'text', text: 'Dec is IN — 50 Rep at ×9!' }], stop_reason: 'end_turn' },
+      { content: [{ type: 'text', text: 'Dec is IN — 50 SOL at ×9!' }], stop_reason: 'end_turn' },
     ]);
     const budget = createGarnishBudget(1);
     await persona('back_ack', vars, { client, budget });

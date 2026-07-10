@@ -6,12 +6,8 @@ export const metadata: Metadata = {
     'Callie books the bets your group already argues about — prices each match-night call off the live feed, matches it in devnet SOL, and settles it from verified data with a receipt anyone can check on Solana.',
 };
 
-/**
- * Link placeholders — swap in the real demo group invite and a flagship
- * settled receipt before submission.
- */
-const DEMO_GROUP_URL = '#demo-group';
-const SAMPLE_RECEIPT_URL = '#sample-receipt';
+const TELEGRAM_GROUP_URL =
+  'https://t.me/footballcallit_bot?startgroup=calledit_v1&admin=manage_chat';
 
 const LOOP_STEPS = [
   {
@@ -82,16 +78,10 @@ export default function LandingPage() {
       {/* Calls to action */}
       <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <a
-          href={DEMO_GROUP_URL}
-          className="display-type rounded-2xl bg-pitch-500 px-5 py-4 text-center text-lg text-night-950 transition-transform hover:scale-[1.01]"
+          href={TELEGRAM_GROUP_URL}
+          className="display-type rounded-2xl bg-pitch-500 px-5 py-4 text-center text-lg text-night-950 transition-transform hover:scale-[1.01] sm:col-span-2"
         >
-          Join the demo group →
-        </a>
-        <a
-          href={SAMPLE_RECEIPT_URL}
-          className="display-type rounded-2xl border border-line bg-night-800 px-5 py-4 text-center text-lg text-chalk transition-colors hover:border-pitch-500/50"
-        >
-          See a sample receipt
+          Add to Telegram group →
         </a>
       </div>
 

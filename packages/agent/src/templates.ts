@@ -6,9 +6,8 @@
  * missing vars. Multiple variants per key keep copy fresh; selection is a
  * deterministic hash of (key, vars) so retries render identical messages.
  *
- * Register rules: own the betting language ("back it / bet against"), amounts
- * are devnet SOL (never fiat symbols), prices are plain percentages (never
- * odds notation), and one honest "devnet SOL — not real money" disclosure.
+ * Register rules: calls use two explicit outcomes, amounts are test SOL on
+ * devnet with no monetary value, and prices are plain percentages.
  */
 
 export const PERSONA_TEMPLATE_KEYS = [
@@ -39,13 +38,16 @@ export type PersonaTemplateKey = (typeof PERSONA_TEMPLATE_KEYS)[number];
 
 export type PersonaVars = Record<string, string | number>;
 
-export const PERSONA_TEMPLATES: Record<PersonaTemplateKey, readonly string[]> = {
+export const PERSONA_TEMPLATES: Record<
+  PersonaTemplateKey,
+  readonly [string, ...string[]]
+> = {
   intro_disclosure: [
-    '🎙️ {botName} in the chat — I’m the broker for your group’s hot takes. Someone makes a call, I put a price on it from the live feed and offer a bet: back it or bet against it in devnet SOL. The feed settles it before the argument ends, and every result gets a public receipt. Heads up: your admins switched on always-on listening (they can turn it off any time). One honest note — this runs on devnet SOL: test tokens, not real money. Type /help for the rules.',
+    '🎙️ {botName} is ready. Mention me on a call or use /bookit yourself. I ask the speaker to confirm exact terms before I post two 0.01 SOL choices: It happens or It does not. This is test SOL on devnet with no monetary value. Type /help for the rules.',
   ],
   priced_nudge: [
-    'Big call from {claimer}! “{quote}” — the feed makes it {probability}%. Back it or bet against below.',
-    '{claimer} said it out loud: “{quote}”. Feed says {probability}%. Who’s backing it, who’s fading it?',
+    '{claimer}, I read “{quote}” as this call. The feed estimate is {probability}%. Confirm the exact terms before I post the two choices.',
+    '{claimer}, this sounds like a call: “{quote}”. The feed estimate is {probability}%. Confirm my reading before anything opens.',
   ],
   clarify_question: [
     'One thing before I book it, {claimer}: {question}',
@@ -56,8 +58,8 @@ export const PERSONA_TEMPLATES: Record<PersonaTemplateKey, readonly string[]> = 
     'Straight with you, {claimer}: {reason}. Here’s the nearest call I can prove: {offer}. Deal?',
   ],
   confirm_gate: [
-    'Here it is, {claimer}: {terms} — the feed makes it {probability}%. It’s on the board; back it below.',
-    'Read it back, {claimer}: {terms} at {probability}%. Booked — pick your side below.',
+    '{claimer}, confirm this exact call: {terms}. The feed estimate is {probability}%. Reply confirm before I post It happens and It does not.',
+    '{claimer}, please confirm my reading: {terms}. The feed estimate is {probability}%. I will open the two choices only after you confirm.',
   ],
   claim_card: [
     '📋 THE CALL — {claimer}: “{quote}”\nTerms: {terms}\nFeed says {probability}% · {provenance}\nBacking: {backers} · Against: {doubters} · Matched: {matched}',
@@ -99,8 +101,8 @@ export const PERSONA_TEMPLATES: Record<PersonaTemplateKey, readonly string[]> = 
     'Too slow, {user}! This call is {state} now. There’ll be another along in a minute.',
   ],
   insufficient_rep: [
-    'Not enough SOL on your stack, {user} — you’re holding {balance}. Top up with /deposit.',
-    'Big spirit, {user}, light stack: {balance}. Load up with /deposit and come back.',
+    'Not enough test SOL, {user}. Your available balance is {balance}. Open /deposit to add more.',
+    '{user}, your available test SOL balance is {balance}. Use /deposit before choosing a position.',
   ],
   pick_a_lane: [
     'Pick a lane, {user} — you’re already on the other side of this one.',
@@ -152,6 +154,5 @@ export function selectTemplate(key: PersonaTemplateKey, vars: PersonaVars): stri
   const variants = PERSONA_TEMPLATES[key];
   const fingerprint = key + JSON.stringify(Object.entries(vars).sort(([a], [b]) => a.localeCompare(b)));
   const variant = variants[stableHash(fingerprint) % variants.length];
-  // Non-null: every key in the bank has at least one variant.
-  return variant as string;
+  return variant ?? variants[0];
 }

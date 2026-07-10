@@ -1,9 +1,28 @@
 # Called It Design Contract
 
-This file is the visual and interaction source of truth for the direct SOL beta. It
-preserves the current match-night character while making action, state, privacy, and
-recovery clear before personality. UI changes must follow this contract unless a later
-recorded design decision replaces a rule.
+This file records both the audited current web baseline and the approved visual and
+interaction target for the direct SOL beta. It preserves the match-night character while
+making action, state, privacy, and recovery clear before personality. It does not claim
+that the current implementation already complies. UI changes must follow the approved
+target unless a later recorded design decision replaces a rule.
+
+## Audited Current Baseline
+
+The 2026-07-10 audit found the following implementation details. They are design debt,
+not exceptions to the target contract.
+
+| Current implementation | Status and planned migration |
+| --- | --- |
+| Shared `Card` and receipt/action surfaces use `rounded-2xl` (16px radius). | Audited debt. Task 22 applies the approved 8px maximum across active surfaces. |
+| The page background uses two decorative radial gradients. | Audited debt. Task 22 removes decorative gradients while retaining the canonical palette. |
+| `.display-type` uses `letter-spacing: -0.015em`; several components also use `tracking-tight`, `tracking-wider`, or positive arbitrary tracking. | Audited debt. Task 22 moves active UI text to zero letter spacing. |
+| The landing primary action uses `hover:scale-[1.01]`. | Audited debt. Task 22 replaces hover scaling with non-layout-shifting state feedback. |
+| Public receipt and group rows render raw `quotedText` and `claimerName`. | Privacy and content debt. Task 21 replaces them with deterministic compiled terms and the confirmed speaker's stable group alias. |
+| The landing action uses a fixed versioned Telegram bot link as an interim destination. | Functional interim state. Task 19 derives the same versioned group-add link from validated environment configuration and completes the landing flow. |
+
+Task 20 builds the account surface against this target. Task 22 performs the final
+cross-surface accessibility, language, motion, shape, and recovery migration after Tasks
+19-21 establish the required product surfaces.
 
 ## Product Character
 
@@ -18,6 +37,11 @@ surface, not a marketing site or an analytics dashboard.
   in an expandable trust section.
 - No demo or replay onboarding, decorative blobs, fake receipts, nested cards, or
   instructional feature tours.
+
+## Approved Target
+
+Everything below is the required destination for new work and the scheduled migrations
+above. It is not a statement that the audited baseline already passes these rules.
 
 ## Foundations
 

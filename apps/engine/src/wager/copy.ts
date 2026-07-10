@@ -20,28 +20,28 @@ export interface OrphanSweepNote {
 export const WAGER_COPY = {
   // ── stake gates & results ────────────────────────────────────────────────
   unlinkedOnboarding: (): string =>
-    'This table plays for real devnet SOL. Link your devnet wallet first — /wallet <address> — then /deposit to load your stack.',
+    'This table uses test SOL on Solana devnet. It has no monetary value. Open /wallet in private chat to verify a devnet wallet before placing a position.',
   paused: (): string =>
-    'The SOL desk is paused while we square the books — no new stakes for now. Balances and cashouts are untouched.',
+    'New SOL positions are paused while account coverage is checked. Existing balances and withdrawal requests are unchanged.',
   insufficient: (balanceLamports: bigint): string =>
-    `Not enough SOL on your stack — you're holding ${formatSolAmount(balanceLamports)} (devnet). Load up with /deposit.`,
+    `Not enough test SOL for that position. Available balance: ${formatSolAmount(balanceLamports)} (devnet). Use /deposit to add test SOL.`,
   pickALane: (): string => "You can't back it and doubt it — pick a lane. Your SOL agrees.",
   capReached: (capLamports: bigint): string =>
     `You're maxed on this call — ${formatSolAmount(capLamports)} is the ceiling per market.`,
   stakePlaced: (name: string, sideLabel: string, lamports: bigint, multiplier: string): string =>
-    `${name} is in — ${sideLabel} with ${formatSolAmount(lamports)} at up to ×${multiplier}. Real devnet SOL on the line.`,
+    `${name}'s position is recorded — ${sideLabel} with ${formatSolAmount(lamports)} at up to ×${multiplier}. Test SOL is a devnet token with no monetary value.`,
   stakeReplayed: (): string => "Already got that one — your SOL's on it.",
   staleTap: (): string => 'That ship has sailed.',
 
   // ── /wallet ──────────────────────────────────────────────────────────────
   walletUsage: (): string =>
-    'Usage: /wallet <your devnet wallet address>. Deposits from that address credit your stack — first to link an address keeps it, so link your own before someone funny does.',
+    'Open /wallet in private chat to verify the Solana devnet wallet for your account.',
   walletInvalid: (): string =>
     "That doesn't look like a wallet address — paste the full base58 address from your devnet wallet.",
   walletPubkeyTaken: (): string =>
-    'That address is already claimed at this table — first link wins. If that claim is wrong, get an admin to sort it.',
+    'That wallet cannot be verified for this account. No account state changed. Open /me to review your wallet status.',
   walletLinked: (pubkey: string, sweep: OrphanSweepNote, relinked: boolean): string => {
-    const lines = [`Wallet linked: ${shortPubkey(pubkey)}. Devnet SOL sent from it now credits your stack.`];
+    const lines = [`Wallet linked: ${shortPubkey(pubkey)}. Eligible devnet transfers from it can credit your account.`];
     if (sweep.creditedCount > 0) {
       lines.push(
         `Found ${sweep.creditedCount} earlier deposit${sweep.creditedCount === 1 ? '' : 's'} waiting — ${formatSolAmount(sweep.creditedLamports)} credited. (devnet)`,
@@ -55,45 +55,45 @@ export const WAGER_COPY = {
     return lines.join('\n');
   },
   walletStatus: (pubkey: string, balanceLamports: bigint): string =>
-    `Linked wallet: ${shortPubkey(pubkey)}. Stack: ${formatSolAmount(balanceLamports)} (devnet). /deposit to load, /withdraw to cash out.`,
+    `Linked wallet: ${shortPubkey(pubkey)}. Available balance: ${formatSolAmount(balanceLamports)} (devnet). Use /deposit to add test SOL or /withdraw to return it.`,
 
   // ── /deposit ─────────────────────────────────────────────────────────────
   depositInstructions: (treasuryPubkey: string, linked: boolean): string => {
     const lines = [
-      'Load your stack: send devnet SOL to the table treasury —',
+      'Add test SOL by sending a devnet transfer to the table treasury —',
       treasuryPubkey,
       `Minimum ${formatSolAmount(WAGER_TUNABLES.MIN_DEPOSIT_LAMPORTS)}; smaller sends are ignored. Plain transfer from your linked wallet, no memo needed — it credits automatically within a minute or so.`,
-      'DEVNET ONLY. This table runs on devnet SOL — do not send real mainnet SOL, it will not credit and cannot be returned.',
+      'DEVNET ONLY. Test SOL has no monetary value. Do not send mainnet SOL; it will not credit and cannot be returned.',
     ];
     if (!linked) {
       lines.push(
-        'You have no wallet linked yet — /wallet <address> first. Anything you sent before linking auto-credits the moment you link.',
+        'No verified wallet is linked. Open /wallet in private chat first; transfers remain pending until verification completes.',
       );
     }
     return lines.join('\n');
   },
   depositCredited: (name: string, lamports: bigint, balanceLamports: bigint): string =>
-    `${name} just loaded ${formatSolAmount(lamports)} onto the stack — balance ${formatSolAmount(balanceLamports)}. (devnet)`,
+    `${name}'s deposit was recorded: ${formatSolAmount(lamports)}. Available balance: ${formatSolAmount(balanceLamports)}. (devnet)`,
 
   // ── /withdraw ────────────────────────────────────────────────────────────
   withdrawUsage: (): string =>
     `Usage: /withdraw <amount|all> — sends devnet SOL back to your linked wallet. Minimum ${formatSolAmount(WAGER_TUNABLES.MIN_WITHDRAWAL_LAMPORTS)}.`,
   withdrawNoWallet: (): string =>
-    'No wallet on file — /wallet <address> first, then /withdraw sends there.',
+    'No verified wallet is available. No SOL moved. Open /wallet in private chat first.',
   withdrawBelowMin: (): string =>
-    `Cashouts start at ${formatSolAmount(WAGER_TUNABLES.MIN_WITHDRAWAL_LAMPORTS)} — build the stack a little first.`,
+    `Withdrawals start at ${formatSolAmount(WAGER_TUNABLES.MIN_WITHDRAWAL_LAMPORTS)}. No SOL moved. Choose a qualifying amount.`,
   withdrawInsufficient: (balanceLamports: bigint): string =>
-    `Your stack is ${formatSolAmount(balanceLamports)} (devnet) — can't send more than that.`,
+    `Available balance: ${formatSolAmount(balanceLamports)} (devnet). No SOL moved. Choose a smaller amount.`,
   withdrawQueued: (lamports: bigint): string =>
-    `Cashout queued — ${formatSolAmount(lamports)} heading to your linked wallet. I'll post the receipt when it lands. (devnet)`,
+    `Withdrawal queued: ${formatSolAmount(lamports)} to your verified wallet. I'll post the receipt when it confirms. (devnet)`,
   withdrawConfirmed: (name: string, lamports: bigint, explorerUrl: string): string =>
-    `Cashout landed — ${formatSolAmount(lamports)} paid out to ${name}'s wallet. Receipt: ${explorerUrl} (devnet)`,
+    `Withdrawal confirmed: ${formatSolAmount(lamports)} sent to ${name}'s verified wallet. Receipt: ${explorerUrl} (devnet)`,
   withdrawFailed: (name: string, lamports: bigint): string =>
-    `${name}'s cashout didn't make it onto the chain — ${formatSolAmount(lamports)} is back on the stack. Give it another go.`,
+    `${name}'s withdrawal was not submitted. ${formatSolAmount(lamports)} is available again. No SOL left the account. Open /me before trying again.`,
 
   // ── card & receipt furniture ─────────────────────────────────────────────
   cardFooter: (): string =>
-    '⚠️ Real devnet SOL on the line — /deposit to load, /withdraw to cash out.',
+    'Test SOL is a devnet token with no monetary value. Use /me for account status.',
   payoutsLineVoid: (): string => 'Call off — every SOL stake returned. (devnet)',
   payoutsLineNone: (): string => 'No SOL changed hands. (devnet)',
   payoutPart: (name: string, lamports: bigint): string =>

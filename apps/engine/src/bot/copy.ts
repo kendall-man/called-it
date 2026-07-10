@@ -82,16 +82,17 @@ function v(vars: CopyVars, key: string, fallback = ''): string {
  */
 export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string> = {
   intro: (vars) =>
-    `Evening, legends — I'm Called It, the broker for your hot takes. Someone makes a big shout, I price it off the live feed and offer a bet: back it or bet against it in devnet SOL. The feed settles it and posts a public receipt. Get set with /wallet to link, /deposit to load your stack, /withdraw to cash out. Devnet SOL only — test tokens, not real money. Receipts live at ${v(vars, 'webUrl', 'the web link')}.`,
+    `Evening, legends — I'm Called It. Make a football call by mentioning me or using /bookit on your own message. Once the speaker confirms, I price it from the live feed and post two choices in test SOL. Test SOL is a devnet token with no monetary value. Use /me for your private account and /table for the group board. Receipts live at ${v(vars, 'webUrl', 'the web link')}.`,
   help: () =>
     [
       'How this works:',
-      '• Someone makes a call — I price it off the feed and post an offer card straight away.',
-      '• Back it (it happens) or bet against it, in devnet SOL. Your stake is matched against the other side at the feed price.',
-      '• I settle from the official data feed the moment the stat lands, and post a provable receipt.',
+      '• Mention me with your call, or use /bookit on your own message. Passive calls wait for the speaker to confirm.',
+      '• Choose It happens · 0.01 SOL or It does not · 0.01 SOL. Choose amount opens the larger test-SOL options.',
+      '• I settle from the official feed and post an aggregate receipt.',
       '',
-      'Get set: /wallet <address> · /deposit · /withdraw',
-      'Commands: /bookit (reply to a claim) · /settings (admins) · /replay <fixtureId> (admins) · /help',
+      'Private account: /me · Group board: /table',
+      'Commands: /bookit (your own claim) · /settings (admins) · /table · /help',
+      'Test SOL is a devnet token with no monetary value.',
     ].join('\n'),
   dm_start: (vars) =>
     `I live in group chats — add me to yours and the banter starts pricing itself. ${v(vars, 'addLink')}`,
@@ -105,7 +106,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     `${v(vars, 'reason')} Your move: book it as stated (Oracle-resolved), or take the upgrade (Chain-proven).`,
   reject: (vars) => v(vars, 'message', "Can't put a number on that one — next shout."),
   confirm_gate: (vars) =>
-    `Here's the call: ${v(vars, 'terms')}. Data says ${v(vars, 'probabilityPct')}% — that's ×${v(vars, 'multiplier')} Rep if it lands. ${v(vars, 'claimer')}, is that your shout?`,
+    `Here's the call: ${v(vars, 'terms')}. Data says ${v(vars, 'probabilityPct')}%. ${v(vars, 'claimer')}, confirm this is your call. No offer goes live until you do.`,
   confirm_declined: () => 'No harm — the call stays banter.',
   no_price: () =>
     "Can't get a clean number on that right now — give it a moment and hit Run it again.",
@@ -121,7 +122,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   budget_spent: () => "I've done all the thinking I can in here for today — catch me tomorrow.",
   market_live: (vars) => `Locked in. ${v(vars, 'claimer')} is on the record — pick a side below.`,
   offer_live: (vars) =>
-    `🎙 ${v(vars, 'claimer', 'someone')}'s call is on the board. Back it or bet against below — the feed settles it.`,
+    `${v(vars, 'claimer', 'Someone')}'s call is on the board. Choose It happens · 0.01 SOL or It does not · 0.01 SOL below.`,
   offer_taken: () =>
     "Too late to pull it — there's already money on this one. It rides to the final whistle now.",
   pending_lineup_note: () =>
@@ -141,10 +142,12 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     `After the moment — no SOL moved. ${v(vars, 'names', 'Those taps')} came in once the pitch already knew; their SOL returned.`,
   positions_activated: () => 'Window cleared — those calls are locked in at their price.',
   pick_a_lane: () => "You can't back it and doubt it. Pick a lane.",
-  insufficient_rep: (vars) => `Not enough Rep on your card — you're holding ${v(vars, 'balance')}.`,
-  cap_reached: (vars) => `You're maxed on this call — ${v(vars, 'cap')} Rep is the ceiling per market.`,
+  insufficient_rep: (vars) =>
+    `Not enough test SOL for that position. Available balance: ${v(vars, 'balance')} SOL. Open /me for your private account.`,
+  cap_reached: (vars) =>
+    `This call has reached the ${v(vars, 'cap')} SOL limit for one member. No position changed.`,
   stake_locked: (vars) =>
-    `${v(vars, 'name')} is in — ${v(vars, 'side')} with ${v(vars, 'stake')} Rep at ×${v(vars, 'multiplier')}.`,
+    `${v(vars, 'name')}'s position is recorded: ${v(vars, 'stake')} SOL on ${v(vars, 'side')}.`,
   stale: () => 'That ship has sailed.',
   not_your_shout: (vars) => `Only ${v(vars, 'claimer', 'the claimer')} can lock this one in.`,
   claimer_only_terms: (vars) => `The terms are ${v(vars, 'claimer', 'the claimer')}'s to pick.`,
@@ -154,12 +157,13 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   table_header: (vars) => `THE TABLE — ${v(vars, 'groupTitle', 'this group')}`,
   slate_intro: (vars) => `Morning, legends — today's card: ${v(vars, 'fixtures', 'check back soon')}`,
   replay_started: (vars) =>
-    `Replay running: ${v(vars, 'fixture')}. Same rules, same data, full speed ahead — replay calls stay off the season table.`,
-  replay_finished: (vars) => `Replay finished: ${v(vars, 'fixture')}. Receipts are on the web page.`,
+    `Internal fixture run active: ${v(vars, 'fixture')}. It is outside the direct onboarding path and group board.`,
+  replay_finished: (vars) =>
+    `Internal fixture run finished: ${v(vars, 'fixture')}. Any generated receipts remain internal compatibility records.`,
   replay_blocked_live: () => 'Not while live calls are open in here — let those settle first.',
-  replay_blocked_active: () => 'One replay at a time — this group already has one running.',
-  replay_unknown_fixture: () => "Can't find that fixture. Usage: /replay <fixtureId>",
-  replay_stopped: () => 'Replay stopped.',
+  replay_blocked_active: () => 'An internal fixture run is already active for this group.',
+  replay_unknown_fixture: () => "That fixture is unavailable. Open /table for current calls.",
+  replay_stopped: () => 'Internal fixture run stopped.',
   bookit_needs_reply: () => 'Reply /bookit to the claim you want on the record.',
   window_closed: () => 'Too late for that one — the window is closed.',
   detection_enabled: () =>
@@ -291,8 +295,9 @@ export function createSay(agent: AgentPort, log: Logger): Say {
       try {
         const line = await agent.persona(mapping.agentKey, mapping.agentVars);
         if (typeof line === 'string' && line.trim().length > 0) return line;
-      } catch (err) {
-        log.warn('persona_fallback', { templateKey: key, error: String(err) });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        log.warn('persona_fallback', { templateKey: key, error: message });
       }
     }
     return renderFallback(key, vars);

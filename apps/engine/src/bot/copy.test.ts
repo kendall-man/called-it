@@ -12,11 +12,16 @@ const DENY_PATTERNS: Array<{ name: string; re: RegExp }> = [
   { name: 'fiat currency words', re: /\b(dollars?|euros?|pounds?|usd|gbp|eur)\b/i },
   { name: 'fractional odds notation', re: /\b\d+\s*\/\s*\d+\b/ },
   { name: '"N-to-1" odds phrasing', re: /\b\d+\s*-?\s*to\s*-?\s*\d+\b/i },
+  { name: 'retired Rep economy', re: /\bRep\b/i },
+  { name: 'replay guidance', re: /\breplay\b/i },
+  { name: 'cashout language', re: /\bcash\s*out\b/i },
+  { name: 'stack language', re: /\bstack\b/i },
+  { name: 'real-SOL framing', re: /\breal\s+(?:devnet\s+)?SOL\b/i },
 ];
 
 const SAMPLE_VARS = {
   webUrl: 'https://example.test',
-  addLink: 'https://t.me/CalledItBot?startgroup=true',
+  addLink: 'https://t.me/footballcallit_bot?startgroup=calledit_v1&admin=manage_chat',
   claimer: 'Dee',
   probabilityPct: 9,
   question: 'in 90 minutes, or advancing on pens?',
@@ -27,7 +32,7 @@ const SAMPLE_VARS = {
   scorer: 'Mbappé',
   minute: 63,
   note: '2 open calls are feeling it.',
-  payouts: 'Dee collects 225 Rep.',
+  payouts: 'Dee collects 0.01 test SOL.',
   names: '@mark',
   balance: 40,
   cap: 100,
@@ -59,10 +64,12 @@ describe('fallback copy bank', () => {
     }
   });
 
-  it('speaks the broker/SOL register where it matters', () => {
+  it('speaks the direct test-SOL contract where it matters', () => {
     expect(renderFallback('var_freeze')).toMatch(/calls locked/i);
-    expect(renderFallback('offer_live', SAMPLE_VARS)).toMatch(/back it|bet against/i);
-    expect(renderFallback('intro', SAMPLE_VARS)).toMatch(/devnet SOL/i);
+    expect(renderFallback('offer_live', SAMPLE_VARS)).toContain('It happens · 0.01 SOL');
+    expect(renderFallback('offer_live', SAMPLE_VARS)).toContain('It does not · 0.01 SOL');
+    expect(renderFallback('intro', SAMPLE_VARS)).toMatch(/test SOL/i);
+    expect(renderFallback('intro', SAMPLE_VARS)).toMatch(/no monetary value/i);
     expect(renderFallback('void_market', SAMPLE_VARS)).not.toMatch(/\bRep\b/);
   });
 });
