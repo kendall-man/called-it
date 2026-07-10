@@ -5,15 +5,55 @@ import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import ts from 'typescript';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CHECKER_PATH = join(REPO_ROOT, 'scripts/check-product-copy.ts');
+const COMMENT_TOKENS = new Set([
+  ts.SyntaxKind.SingleLineCommentTrivia,
+  ts.SyntaxKind.MultiLineCommentTrivia,
+]);
+const TASK_ONE_TYPESCRIPT_PATHS = [
+  'apps/concierge/agent/tools/get_my_wallet.ts',
+  'apps/concierge/agent/tools/place_stake.ts',
+  'apps/concierge/agent/tools/quote_claim.ts',
+  'apps/engine/src/bot/copy.test.ts',
+  'apps/engine/src/bot/copy.ts',
+  'apps/engine/src/bot/fallback-copy.ts',
+  'apps/engine/src/wager/constants.test.ts',
+  'apps/engine/src/wager/copy.ts',
+  'apps/web/app/page.test.ts',
+  'apps/web/app/page.tsx',
+  'packages/agent/src/persona.test.ts',
+  'packages/agent/src/templates.ts',
+  'scripts/check-product-copy.test.ts',
+  'scripts/check-product-copy.ts',
+  'scripts/product-copy-contract.ts',
+] as const;
 
 function runChecker(args: readonly string[]) {
   return spawnSync(process.execPath, ['--import', 'tsx', CHECKER_PATH, ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
   });
+}
+
+function countPureLines(path: string): number {
+  const source = readFileSync(path, 'utf8');
+  const withoutComments = source.split('');
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.JSX, source);
+  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+    if (!COMMENT_TOKENS.has(token)) continue;
+    for (let index = scanner.getTokenPos(); index < scanner.getTextPos(); index += 1) {
+      if (withoutComments[index] !== '\n' && withoutComments[index] !== '\r') {
+        withoutComments[index] = ' ';
+      }
+    }
+  }
+  return withoutComments
+    .join('')
+    .split(/\r?\n/u)
+    .filter((line) => line.trim().length > 0).length;
 }
 
 test('reports both contract violations when a fixture mixes Practice Rep with a placeholder CTA', () => {
@@ -72,6 +112,7 @@ test('includes every active landing, engine copy, fallback, and concierge surfac
   const expectedPaths = [
     'apps/web/app/page.tsx',
     'apps/engine/src/bot/copy.ts',
+    'apps/engine/src/bot/fallback-copy.ts',
     'apps/engine/src/wager/copy.ts',
     'packages/agent/src/templates.ts',
     'apps/concierge/agent/instructions/00-callie.md',
@@ -206,4 +247,20 @@ test('keeps the checker CLI below 250 non-comment lines', () => {
 
   // Then
   assert.ok(nonCommentLines.length < 250, `checker has ${nonCommentLines.length} lines`);
+});
+
+test('keeps every audited Task 1 TypeScript surface at or below 250 pure lines', () => {
+  // Given
+  const limit = 250;
+
+  // When
+  const counts = TASK_ONE_TYPESCRIPT_PATHS.map((path) => [
+    path,
+    countPureLines(join(REPO_ROOT, path)),
+  ] as const);
+
+  // Then
+  for (const [path, count] of counts) {
+    assert.ok(count <= limit, `${path}: ${count} pure lines exceeds ${limit}`);
+  }
 });

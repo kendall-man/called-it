@@ -55,6 +55,7 @@ export const TRACKED_SURFACES: readonly Surface[] = [
     name: 'bot',
     entries: [
       'apps/engine/src/bot/copy.ts',
+      'apps/engine/src/bot/fallback-copy.ts',
       'apps/engine/src/wager/copy.ts',
       'packages/agent/src/templates.ts',
     ],

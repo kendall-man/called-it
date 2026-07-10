@@ -270,3 +270,77 @@ PROGRAMMING / REVIEW-WORK GATE
   evidence is redacted, and no secret/environment value was read or committed.
 - Manual surface: PASS; CLI happy/error/malformed/help paths and live landing HTML were
   observed. No independent review artifact was created by this worker.
+
+===============================================================================
+FOLLOW-UP LOC REVIEW REMEDIATION
+Captured: 2026-07-10T00:56:08Z
+Base: a11990418d2d515bd3c7c40c60d9e2c4125525fb
+
+BLOCKER AND RED PROOF
+- Independent review reported apps/engine/src/bot/copy.ts above the 250 pure-LOC ceiling.
+- Existing behavior lock before extraction:
+  npx -y pnpm@10.33.0 --filter @calledit/engine exec vitest run src/bot/copy.test.ts
+  exit 0; 1 file passed; 3/3 tests passed.
+- RED manifest test: no SCAN line existed for apps/engine/src/bot/fallback-copy.ts.
+- RED size test: the TypeScript-scanner counter reported copy.ts at 279 code-bearing lines,
+  above the 250 limit.
+
+NARROW REFACTOR
+- Moved CopyVars, TemplateKey and the complete deterministic fallback bank to
+  apps/engine/src/bot/fallback-copy.ts.
+- apps/engine/src/bot/copy.ts remains the public import surface and re-exports CopyVars,
+  TemplateKey and FALLBACK_TEMPLATES unchanged. It retains persona mapping, rendering and
+  error fallback orchestration.
+- Added fallback-copy.ts to the default product-copy bot manifest and manifest behavior
+  test, preventing consumer strings from escaping extraction checks.
+- Added a TypeScript-scanner pure-LOC gate over the explicit audited Task 1 TS/TSX list;
+  it is repository-state based and does not inspect git history.
+
+FINAL VERIFICATION
+1. Engine copy behavior:
+   npx -y pnpm@10.33.0 --filter @calledit/engine exec vitest run src/bot/copy.test.ts
+   exit 0; 1 file passed; 3/3 tests passed.
+2. Product copy:
+   npx -y pnpm@10.33.0 verify:product-copy
+   exit 0; tracked strict tsc passed; 11/11 behavior tests passed; default scan reported
+   guidance=9, bot=4, concierge=19, web=12, total=44 files.
+3. Engine typecheck:
+   npx -y pnpm@10.33.0 --filter @calledit/engine typecheck
+   exit 0; no diagnostics.
+4. TypeScript no-excuse audit over the four touched TS files:
+   exit 0; "No violations in 4 file(s)."
+5. git diff --check:
+   exit 0.
+
+EXACT PURE LINE COUNTS
+- apps/engine/src/bot/copy.ts: 132
+- apps/engine/src/bot/fallback-copy.ts: 151
+- scripts/check-product-copy.test.ts: 221
+- scripts/product-copy-contract.ts: 177
+All follow-up-touched TS files are at or below 250. The committed audited-list test also
+passes every Task 1 TS/TSX path.
+
+MANUAL BEHAVIOR EQUIVALENCE
+- A temporary runtime driver loaded the pre-split fallback bank from a119904 and the new
+  fallback-copy.ts bank, rendered both with the same populated variables, compared keys
+  and outputs, and reported: "fallback equivalence: 54/54 keys identical"; exit 0.
+- The temporary pre-split source was removed and an absence assertion exited 0.
+
+PROGRAMMING / REMOVE-SLOP REVIEW
+- Oversized module: FIXED by responsibility, not by formatting or token splitting.
+- Public API: PRESERVED; existing copy.ts imports and exports compile unchanged.
+- Comments: removed the obsolete top-level narration; retained the pre-existing mapping
+  comment because it explains placeholder-completeness fallback behavior.
+- Defensive/error handling: PRESERVED; persona failures remain narrowed, logged and routed
+  to deterministic fallback copy.
+- Dead code, needless abstraction, boundary violations, algorithm changes and new
+  duplication: none introduced. The private value accessor is intentionally local to each
+  responsibility rather than creating a cross-module helper abstraction.
+- Lint/static-security commands: N/A; no dedicated repository command applies to this
+  narrow module split. Strict typecheck, no-excuse and product-copy static checks passed.
+
+CLEANUP / SCOPE
+- Follow-up ownership is limited to copy.ts, new fallback-copy.ts, checker manifest/test,
+  and this evidence update.
+- Todo 3 and orchestration/review artifacts remain untouched and unstaged.
+- No server, fixture, generated output, temporary source or environment change remains.
