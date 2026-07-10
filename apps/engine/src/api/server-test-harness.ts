@@ -199,14 +199,17 @@ export async function startHarness(options: {
   drainState?: DrainState;
   log?: Logger;
   parse?: Deps['agent']['parse'];
+  wager?: Deps['wager'];
   telegramIngress?: TelegramIngressPort;
   handleTelegramUpdate?: (update: Record<string, unknown>) => Promise<void>;
 } = {}): Promise<ApiHarness> {
   const wagerBundle = makeFakeDeps({ now: () => NOW });
-  const wager = createWagerModule(wagerBundle.deps);
-  if (options.link ?? true) wagerBundle.db.seedLink(USER_ID, PUBKEY);
-  wagerBundle.db.seedBalance(USER_ID, options.balanceLamports ?? 1_000_000_000n);
-  wagerBundle.db.seedMarketProbability(MARKET_ID, 0.5);
+  const wager = options.wager === undefined ? createWagerModule(wagerBundle.deps) : options.wager;
+  if (wager !== null) {
+    if (options.link ?? true) wagerBundle.db.seedLink(USER_ID, PUBKEY);
+    wagerBundle.db.seedBalance(USER_ID, options.balanceLamports ?? 1_000_000_000n);
+    wagerBundle.db.seedMarketProbability(MARKET_ID, 0.5);
+  }
   const log = options.log ?? createLogger();
   const deps = createDeps(createDb(options.market ?? MARKET), wager, log);
   if (options.parse !== undefined) {

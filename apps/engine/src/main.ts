@@ -29,6 +29,7 @@ import { IngestSupervisor } from './ingest/supervisor.js';
 import { startCrons } from './cron/index.js';
 import { startEngineApi } from './api/server.js';
 import { createTelegramIngressHandler } from './api/telegram-ingress-boundary.js';
+import { assertWagerBootable } from './wager-capability.js';
 import {
   createEngineReadinessChecks,
   type EngineReadinessPolicy,
@@ -91,15 +92,7 @@ async function main(): Promise<void> {
     if (method === 'getUpdates') telegramHeartbeatAtMs = deps.now();
     return result;
   });
-
-  // The wager module is the product now — SOL is the only currency. A boot with
-  // it unwired (missing treasury keypair / flag) would silently mint nothing
-  // and take no bets, so fail loud instead of limping.
-  if (deps.wager === null) {
-    throw new Error(
-      'wager module is required: set WAGER_MODE_ENABLED=true and a valid WAGER_TREASURY_KEYPAIR_B58',
-    );
-  }
+  assertWagerBootable(env, deps.wager !== null);
 
   const say = createSay(deps.agent, log);
   const proofWorker = new ProofWorker(deps);
