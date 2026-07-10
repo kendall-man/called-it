@@ -26,8 +26,8 @@ import {
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
-  getAssociatedTokenAddressSync,
-} from '@solana/spl-token';
+  deriveAssociatedTokenAddress,
+} from './token-program.js';
 import { TXORACLE_IDL } from './txoracle-idl.js';
 import { decodeHashInput, type HashInput } from './codecs.js';
 import { deriveDailyScoresRootsAddress, epochDayFromMs, MS_PER_DAY } from './verify.js';
@@ -114,8 +114,8 @@ export function deriveSubscribeAccounts(
     user,
     pricingMatrix: derivePricingMatrixPda(programId),
     tokenMint: txlMint,
-    userTokenAccount: getAssociatedTokenAddressSync(txlMint, user, false, TOKEN_2022_PROGRAM_ID),
-    tokenTreasuryVault: getAssociatedTokenAddressSync(
+    userTokenAccount: deriveAssociatedTokenAddress(txlMint, user, false, TOKEN_2022_PROGRAM_ID),
+    tokenTreasuryVault: deriveAssociatedTokenAddress(
       txlMint,
       tokenTreasuryPda,
       true, // treasury owner is a PDA (off-curve)

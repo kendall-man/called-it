@@ -4,8 +4,8 @@ import { Connection, Keypair, PublicKey, SystemProgram } from '@solana/web3.js';
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
-  getAssociatedTokenAddressSync,
-} from '@solana/spl-token';
+  deriveAssociatedTokenAddress,
+} from './token-program.js';
 import { sha256 } from '@noble/hashes/sha2';
 import { TXORACLE_IDL } from './txoracle-idl.js';
 import { bytesToHex } from './codecs.js';
@@ -75,7 +75,7 @@ describe('buildSubscribeInstruction', () => {
       { pubkey: derivePricingMatrixPda(PROGRAM_ID), isSigner: false, isWritable: false },
       { pubkey: TXL_MINT, isSigner: false, isWritable: false },
       {
-        pubkey: getAssociatedTokenAddressSync(
+        pubkey: deriveAssociatedTokenAddress(
           TXL_MINT,
           WALLET.publicKey,
           false,
@@ -85,7 +85,7 @@ describe('buildSubscribeInstruction', () => {
         isWritable: true,
       },
       {
-        pubkey: getAssociatedTokenAddressSync(TXL_MINT, treasuryPda, true, TOKEN_2022_PROGRAM_ID),
+        pubkey: deriveAssociatedTokenAddress(TXL_MINT, treasuryPda, true, TOKEN_2022_PROGRAM_ID),
         isSigner: false,
         isWritable: true,
       },
