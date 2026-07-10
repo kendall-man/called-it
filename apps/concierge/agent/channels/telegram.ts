@@ -23,35 +23,31 @@ import { loadConciergeEnv } from '../env.js';
 import { forwardTelegramUpdate } from '../lib/engine-api.js';
 import { conciergeLifecycle } from '../runtime/lifecycle.js';
 import {
-  routeTelegramCallbackIntake,
-  routeTelegramIntake,
-} from '../runtime/telegram-intake.js';
+  forwardEngineCallback,
+  forwardEngineMessage,
+} from '../runtime/telegram-forwarding.js';
 
 const botUsername = loadConciergeEnv().TELEGRAM_BOT_USERNAME;
-
-/** Synthetic envelope id — grammY only uses update_id for polling offsets. */
-let syntheticUpdateId = Math.floor(Date.now() / 1000);
 
 export default telegramChannel({
   botUsername,
   onMessage: async (_ctx, message) => {
-    const destination = routeTelegramIntake(message, conciergeLifecycle);
+    const destination = await forwardEngineMessage(
+      { ...message, raw: message.raw },
+      conciergeLifecycle,
+      forwardTelegramUpdate,
+    );
     if (destination === 'draining') return null;
     if (destination === 'concierge') {
       return { auth: defaultTelegramAuth(message) };
     }
-    syntheticUpdateId += 1;
-    await forwardTelegramUpdate({ update_id: syntheticUpdateId, message: message.raw }).catch(
-      () => console.error('[ingress] forward message failed: engine_forward_failed'),
-    );
     return null; // handled — do not start an agent session
   },
   onCallbackQuery: async (_ctx, query) => {
-    if (routeTelegramCallbackIntake(conciergeLifecycle) === 'draining') return;
-    // eve already consumed its own HITL callbacks; these are the engine's.
-    syntheticUpdateId += 1;
-    await forwardTelegramUpdate({ update_id: syntheticUpdateId, callback_query: query.raw }).catch(
-      () => console.error('[ingress] forward callback failed: engine_forward_failed'),
+    await forwardEngineCallback(
+      query.raw,
+      conciergeLifecycle,
+      forwardTelegramUpdate,
     );
   },
 });

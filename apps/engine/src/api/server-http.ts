@@ -63,7 +63,8 @@ export async function readJson(req: IncomingMessage): Promise<unknown> {
   }
   try {
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  } catch {
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
     return null;
   }
 }

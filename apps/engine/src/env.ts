@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 const MillisecondsSchema = z.coerce.number().int().positive().max(86_400_000);
+const Sha256FingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const Base64KeySchema = z.string().regex(/^[A-Za-z0-9+/]{43}=$/).refine(
   (value) => Buffer.from(value, 'base64').toString('base64') === value,
 );
@@ -33,7 +35,7 @@ const EnvSchema = z.object({
   ENGINE_CONCIERGE_TOKEN: z.string().min(32),
   ENGINE_TELEGRAM_TOKEN: z.string().min(32),
   ENGINE_OPS_TOKEN: z.string().min(32),
-  WEB_CONCIERGE_TOKEN: z.string().min(32).optional(),
+  WEB_CONCIERGE_TOKEN_SHA256: Sha256FingerprintSchema.optional(),
   /** HTTP port for the engine API (Railway injects PORT). */
   PORT: z.coerce.number().int().positive().default(8790),
   /**
@@ -124,19 +126,34 @@ const EnvSchema = z.object({
   if (env.READINESS_CHECK_TIMEOUT_MS >= env.SHUTDOWN_DRAIN_TIMEOUT_MS) {
     addPairIssue('READINESS_CHECK_TIMEOUT_MS', 'SHUTDOWN_DRAIN_TIMEOUT_MS');
   }
+  if (deployed && env.WEB_CONCIERGE_TOKEN_SHA256 === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['WEB_CONCIERGE_TOKEN_SHA256'],
+      message: 'required in deployed environments',
+    });
+  }
 
+  const routeTokens = [
+    ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN],
+    ['ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN],
+    ['ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN],
+  ] as const;
   const routeTokenPairs: ReadonlyArray<readonly [string, string, string, string]> = [
-    ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN],
-    ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN],
-    ['ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN, 'ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN],
-    ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN ?? ''],
-    ['ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN, 'WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN ?? ''],
-    ['ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN, 'WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN ?? ''],
+    [routeTokens[0][0], routeTokens[0][1], routeTokens[1][0], routeTokens[1][1]],
+    [routeTokens[0][0], routeTokens[0][1], routeTokens[2][0], routeTokens[2][1]],
+    [routeTokens[1][0], routeTokens[1][1], routeTokens[2][0], routeTokens[2][1]],
   ];
   for (const [leftName, leftToken, rightName, rightToken] of routeTokenPairs) {
     if (leftToken === rightToken) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: [leftName], message: 'must be unique' });
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: [rightName], message: 'must be unique' });
+    }
+  }
+  for (const [name, token] of routeTokens) {
+    if (env.WEB_CONCIERGE_TOKEN_SHA256 !== undefined && tokenFingerprint(token) === env.WEB_CONCIERGE_TOKEN_SHA256) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: 'must be unique' });
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['WEB_CONCIERGE_TOKEN'], message: 'must be unique' });
     }
   }
 
@@ -196,7 +213,7 @@ const EnvSchema = z.object({
   }
 
 }).transform((env) => {
-  const { WEB_CONCIERGE_TOKEN: _auditOnly, ...runtime } = env;
+  const { WEB_CONCIERGE_TOKEN_SHA256: _auditOnly, ...runtime } = env;
   return {
     ...runtime,
     GLM_BASE_URL: runtime.GLM_BASE_URL ?? 'https://api.z.ai/api/anthropic',
@@ -212,6 +229,10 @@ export class EngineEnvironmentError extends Error {
   constructor(readonly variables: readonly string[]) {
     super(`Engine environment invalid: ${variables.join(', ')}`);
   }
+}
+
+function tokenFingerprint(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
 }
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {

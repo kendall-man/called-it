@@ -185,7 +185,7 @@ function buildWagerChain<Connection, Treasury, PublicKey>(
         return { ok: true, lamports: BigInt(lamports) };
       } catch (error) {
         if (!(error instanceof Error)) throw error;
-        const message = error.toString();
+        const message = error.message;
         return { ok: false, error: `getBalance: ${message}` };
       }
     },
@@ -195,7 +195,7 @@ function buildWagerChain<Connection, Treasury, PublicKey>(
         latest = await runtime.retry(() => runtime.getLatestBlockhash(connection));
       } catch (error) {
         if (!(error instanceof Error)) throw error;
-        const message = error.toString();
+        const message = error.message;
         return { ok: false, error: `getLatestBlockhash: ${message}` };
       }
       const built = runtime.buildSolTransfer({

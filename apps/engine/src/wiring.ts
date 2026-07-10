@@ -124,7 +124,7 @@ export async function createDeps(
       odds = combineOddsSnapshot(records, { logger: txLogger });
     } catch (error) {
       signal?.throwIfAborted();
-      const message = error instanceof Error ? String(error) : String(error);
+      const message = dependencyErrorMessage(error);
       log.warn('odds_snapshot_failed', { fixtureId, error: message });
       return { kind: 'transient' };
     }
@@ -167,7 +167,7 @@ export async function createDeps(
               }
             }
           } catch (error) {
-            const message = error instanceof Error ? String(error) : String(error);
+            const message = dependencyErrorMessage(error);
             log.warn('gap_fill_failed', { fixtureId, error: message });
           }
         },
@@ -260,4 +260,9 @@ export async function createDeps(
     log,
     now,
   };
+}
+
+export function dependencyErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) throw error;
+  return error.message;
 }

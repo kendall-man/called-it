@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { getSolanaConfig, getSupabaseConfig, loadWebEnv } from './env';
 
 const BASE_ENV = {
@@ -9,6 +10,10 @@ const BASE_ENV = {
   WALLET_MINIAPP_ENABLED: 'false',
   STAKE_ACCEPTANCE_ENABLED: 'false',
 } satisfies NodeJS.ProcessEnv;
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
 
 describe('web environment', () => {
   afterEach(() => {
@@ -134,6 +139,9 @@ describe('web environment', () => {
       WALLET_MINIAPP_ENABLED: 'true',
       CONCIERGE_WALLET_API_URL: 'https://concierge.example.test',
       WEB_CONCIERGE_TOKEN: 'web-concierge-token-with-32-bytes-',
+      ENGINE_CONCIERGE_TOKEN_SHA256: sha256('concierge-route-token-with-32-bytes'),
+      ENGINE_TELEGRAM_TOKEN_SHA256: sha256('telegram-route-token-with-32-bytes-'),
+      ENGINE_OPS_TOKEN_SHA256: sha256('operations-route-token-with-32-bytes'),
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
       ANALYTICS_HMAC_SECRET: 'YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=',
@@ -152,13 +160,21 @@ describe('web environment', () => {
     'ENGINE_CONCIERGE_TOKEN',
     'ENGINE_TELEGRAM_TOKEN',
     'ENGINE_OPS_TOKEN',
-  ])('rejects WEB_CONCIERGE_TOKEN reuse of %s without echoing values', (routeName) => {
-    // Given one credential is supplied for the web bridge and an engine route
+  ])('rejects WEB_CONCIERGE_TOKEN reuse of %s fingerprint without echoing values', (routeName) => {
+    // Given one credential is supplied for the web bridge and an engine route fingerprint
     const token = 'shared-route-token-with-at-least-32-bytes';
     const source = {
       ...BASE_ENV,
       WEB_CONCIERGE_TOKEN: token,
-      [routeName]: token,
+      ENGINE_CONCIERGE_TOKEN_SHA256: sha256(
+        routeName === 'ENGINE_CONCIERGE_TOKEN' ? token : 'concierge-route-token-with-32-bytes',
+      ),
+      ENGINE_TELEGRAM_TOKEN_SHA256: sha256(
+        routeName === 'ENGINE_TELEGRAM_TOKEN' ? token : 'telegram-route-token-with-32-bytes-',
+      ),
+      ENGINE_OPS_TOKEN_SHA256: sha256(
+        routeName === 'ENGINE_OPS_TOKEN' ? token : 'operations-route-token-with-32-bytes',
+      ),
     };
 
     // When the web parser audits its server environment
@@ -169,13 +185,13 @@ describe('web environment', () => {
     expect(parse).toThrowError(`Web environment invalid: ${variables}`);
   });
 
-  it('strips audit-only engine credentials from web runtime config', () => {
-    // Given distinct engine credentials are visible in a shared server environment
+  it('strips audit-only engine credential fingerprints from web runtime config', () => {
+    // Given distinct engine credential fingerprints are visible in a shared server environment
     const source = {
       ...BASE_ENV,
-      ENGINE_CONCIERGE_TOKEN: 'concierge-route-token-with-32-bytes',
-      ENGINE_TELEGRAM_TOKEN: 'telegram-route-token-with-32-bytes-',
-      ENGINE_OPS_TOKEN: 'operations-route-token-with-32-bytes',
+      ENGINE_CONCIERGE_TOKEN_SHA256: sha256('concierge-route-token-with-32-bytes'),
+      ENGINE_TELEGRAM_TOKEN_SHA256: sha256('telegram-route-token-with-32-bytes-'),
+      ENGINE_OPS_TOKEN_SHA256: sha256('operations-route-token-with-32-bytes'),
       WEB_CONCIERGE_TOKEN: 'web-bridge-token-with-at-least-32-bytes',
     };
 
@@ -183,9 +199,25 @@ describe('web environment', () => {
     const parsed = loadWebEnv(source);
 
     // Then web code cannot consume any engine route credential
-    expect(parsed).not.toHaveProperty('ENGINE_CONCIERGE_TOKEN');
-    expect(parsed).not.toHaveProperty('ENGINE_TELEGRAM_TOKEN');
-    expect(parsed).not.toHaveProperty('ENGINE_OPS_TOKEN');
+    expect(parsed).not.toHaveProperty('ENGINE_CONCIERGE_TOKEN_SHA256');
+    expect(parsed).not.toHaveProperty('ENGINE_TELEGRAM_TOKEN_SHA256');
+    expect(parsed).not.toHaveProperty('ENGINE_OPS_TOKEN_SHA256');
+  });
+
+  it('requires engine route fingerprints when the web bridge token is configured', () => {
+    // Given the web bridge token is present without engine fingerprints
+    const source = {
+      ...BASE_ENV,
+      WEB_CONCIERGE_TOKEN: 'web-bridge-token-with-at-least-32-bytes',
+    };
+
+    // When the web parser audits its server environment
+    const parse = () => loadWebEnv(source);
+
+    // Then startup fails without needing raw engine route credentials
+    expect(parse).toThrowError(
+      'Web environment invalid: ENGINE_CONCIERGE_TOKEN_SHA256, ENGINE_OPS_TOKEN_SHA256, ENGINE_TELEGRAM_TOKEN_SHA256',
+    );
   });
 
   it.each([
@@ -219,6 +251,9 @@ describe('web environment', () => {
       WALLET_MINIAPP_ENABLED: 'true',
       CONCIERGE_WALLET_API_URL: `https://concierge.example.test?${'token'}=do-not-log`,
       WEB_CONCIERGE_TOKEN: 'web-concierge-token-with-32-bytes-',
+      ENGINE_CONCIERGE_TOKEN_SHA256: sha256('concierge-route-token-with-32-bytes'),
+      ENGINE_TELEGRAM_TOKEN_SHA256: sha256('telegram-route-token-with-32-bytes-'),
+      ENGINE_OPS_TOKEN_SHA256: sha256('operations-route-token-with-32-bytes'),
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
       ANALYTICS_HMAC_SECRET: 'YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=',

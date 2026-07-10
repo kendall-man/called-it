@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { loadEnv } from './env.js';
 import { BASE_ENV } from './env.test-fixtures.js';
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
 
 describe('loadEnv', () => {
   it('preserves the existing valid defaults when optional settings are absent', () => {
@@ -79,6 +84,7 @@ describe('loadEnv', () => {
       DEPLOYMENT_ENV: 'production',
       TELEGRAM_INGRESS: 'webhook',
       TELEGRAM_WEBHOOK_SECRET_TOKEN: 'webhook-secret-token-with-32-bytes',
+      WEB_CONCIERGE_TOKEN_SHA256: sha256('web-concierge-token-with-32-bytes-'),
       GLM_BASE_URL: 'https://api.z.ai/api/anthropic',
       SOLANA_RPC_URL: 'https://api.devnet.solana.com',
       WEB_BASE_URL: 'https://web.example.test',
@@ -110,6 +116,7 @@ describe('loadEnv', () => {
       DEPLOYMENT_ENV: 'production',
       TELEGRAM_INGRESS: 'webhook',
       TELEGRAM_WEBHOOK_SECRET_TOKEN: 'webhook-secret-token-with-32-bytes',
+      WEB_CONCIERGE_TOKEN_SHA256: sha256('web-concierge-token-with-32-bytes-'),
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
     };
@@ -138,9 +145,9 @@ describe('loadEnv', () => {
     ['ENGINE_CONCIERGE_TOKEN', BASE_ENV.ENGINE_CONCIERGE_TOKEN],
     ['ENGINE_TELEGRAM_TOKEN', BASE_ENV.ENGINE_TELEGRAM_TOKEN],
     ['ENGINE_OPS_TOKEN', BASE_ENV.ENGINE_OPS_TOKEN],
-  ])('rejects WEB_CONCIERGE_TOKEN reuse of %s without echoing values', (routeName, token) => {
-    // Given the web bridge credential duplicates an engine route credential
-    const source = { ...BASE_ENV, WEB_CONCIERGE_TOKEN: token };
+  ])('rejects WEB_CONCIERGE_TOKEN fingerprint reuse of %s without echoing values', (routeName, token) => {
+    // Given the web bridge credential fingerprint duplicates an engine route credential
+    const source = { ...BASE_ENV, WEB_CONCIERGE_TOKEN_SHA256: sha256(token) };
 
     // When the engine parser audits the shared deployment environment
     const parse = () => loadEnv(source);
@@ -150,18 +157,38 @@ describe('loadEnv', () => {
     expect(parse).toThrowError(`Engine environment invalid: ${variables}`);
   });
 
-  it('strips the audit-only web credential from engine runtime config', () => {
-    // Given a distinct web bridge credential is visible in a shared environment
+  it('strips the audit-only web credential fingerprint from engine runtime config', () => {
+    // Given a distinct web bridge credential fingerprint is visible in a shared environment
     const source = {
       ...BASE_ENV,
-      WEB_CONCIERGE_TOKEN: 'distinct-web-bridge-token-with-32-bytes',
+      WEB_CONCIERGE_TOKEN_SHA256: sha256('distinct-web-bridge-token-with-32-bytes'),
     };
 
     // When the engine parser audits and returns runtime config
     const parsed = loadEnv(source);
 
     // Then engine code cannot consume the web credential
-    expect(parsed).not.toHaveProperty('WEB_CONCIERGE_TOKEN');
+    expect(parsed).not.toHaveProperty('WEB_CONCIERGE_TOKEN_SHA256');
+  });
+
+  it('requires the web bridge fingerprint in deployed environments', () => {
+    // Given production omits the cross-runtime web credential fingerprint
+    const source = {
+      ...BASE_ENV,
+      DEPLOYMENT_ENV: 'production',
+      TELEGRAM_INGRESS: 'webhook',
+      TELEGRAM_WEBHOOK_SECRET_TOKEN: 'webhook-secret-token-with-32-bytes',
+      GLM_BASE_URL: 'https://api.z.ai/api/anthropic',
+      SOLANA_RPC_URL: 'https://api.devnet.solana.com',
+      WEB_BASE_URL: 'https://web.example.test',
+      WALLET_LINK_DOMAIN: 'web.example.test',
+    };
+
+    // When the engine parses its deployed environment
+    const parse = () => loadEnv(source);
+
+    // Then startup fails without requiring the raw web credential
+    expect(parse).toThrowError('Engine environment invalid: WEB_CONCIERGE_TOKEN_SHA256');
   });
 
   it('rejects malformed analytics key material', () => {

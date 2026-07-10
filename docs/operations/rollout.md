@@ -13,9 +13,11 @@ sequence with isolated resources before production starts.
 3. Apply forward-only migrations with the database starter budget disabled.
 4. Set `WALLET_MINIAPP_ENABLED=false`, `STAKE_ACCEPTANCE_ENABLED=false`,
    `STARTER_GRANTS_ENABLED=false`, and `TREASURY_COVERAGE_ENFORCED=false`.
-5. Validate each service environment with the exact parser shipped in the
+5. Compute lowercase SHA-256 hex fingerprints for route-token uniqueness checks
+   and set only the fingerprint variables needed by the opposite runtime.
+6. Validate each service environment with the exact parser shipped in the
    selected commit. Stop on any named variable failure.
-6. Parse all deployment JSON and confirm the commands and health paths match
+7. Parse all deployment JSON and confirm the commands and health paths match
    this document before deploying.
 
 ## Deployment order

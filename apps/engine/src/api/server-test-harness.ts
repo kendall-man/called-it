@@ -198,6 +198,7 @@ export async function startHarness(options: {
   readiness?: ReadinessEvaluator;
   drainState?: DrainState;
   log?: Logger;
+  parse?: Deps['agent']['parse'];
   telegramIngress?: TelegramIngressPort;
   handleTelegramUpdate?: (update: Record<string, unknown>) => Promise<void>;
 } = {}): Promise<ApiHarness> {
@@ -208,6 +209,9 @@ export async function startHarness(options: {
   wagerBundle.db.seedMarketProbability(MARKET_ID, 0.5);
   const log = options.log ?? createLogger();
   const deps = createDeps(createDb(options.market ?? MARKET), wager, log);
+  if (options.parse !== undefined) {
+    deps.agent.parse = options.parse;
+  }
   const drainState = options.drainState ?? new DrainState();
   const readiness = options.readiness ?? createReadinessEvaluator({
     checks: [], checkTimeoutMs: 100,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { tokenFingerprint } from './token-fingerprint';
 
 const BooleanSchema = z.enum(['true', 'false']).default('false').transform(
   (value) => value === 'true',
@@ -10,6 +11,7 @@ const DomainSchema = z.string().regex(
   /^(?:localhost|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+)$/,
 );
 const Base64KeyPattern = /^[A-Za-z0-9+/]{43}=$/;
+const Sha256FingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const Base64KeySchema = z.string().refine((value) => {
   if (!Base64KeyPattern.test(value)) return false;
   const decoded = atob(value);
@@ -26,9 +28,9 @@ const WebEnvSchema = z.object({
   NEXT_PUBLIC_TELEGRAM_STARTGROUP: z.literal('calledit_v1').optional(),
   CONCIERGE_WALLET_API_URL: z.string().url().optional(),
   WEB_CONCIERGE_TOKEN: z.string().min(32).optional(),
-  ENGINE_CONCIERGE_TOKEN: z.string().min(32).optional(),
-  ENGINE_TELEGRAM_TOKEN: z.string().min(32).optional(),
-  ENGINE_OPS_TOKEN: z.string().min(32).optional(),
+  ENGINE_CONCIERGE_TOKEN_SHA256: Sha256FingerprintSchema.optional(),
+  ENGINE_TELEGRAM_TOKEN_SHA256: Sha256FingerprintSchema.optional(),
+  ENGINE_OPS_TOKEN_SHA256: Sha256FingerprintSchema.optional(),
   WEB_BASE_URL: z.string().url().optional(),
   WALLET_LINK_DOMAIN: DomainSchema.optional(),
   ANALYTICS_HMAC_SECRET: Base64KeySchema.optional(),
@@ -141,21 +143,31 @@ const WebEnvSchema = z.object({
   if (env.STARTER_GRANTS_ENABLED && !env.STAKE_ACCEPTANCE_ENABLED) {
     addPairIssue('STARTER_GRANTS_ENABLED', 'STAKE_ACCEPTANCE_ENABLED');
   }
-  const routeTokens = [
-    ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN],
-    ['ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN],
-    ['ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN],
+  const routeFingerprints = [
+    ['ENGINE_CONCIERGE_TOKEN', 'ENGINE_CONCIERGE_TOKEN_SHA256', env.ENGINE_CONCIERGE_TOKEN_SHA256],
+    ['ENGINE_TELEGRAM_TOKEN', 'ENGINE_TELEGRAM_TOKEN_SHA256', env.ENGINE_TELEGRAM_TOKEN_SHA256],
+    ['ENGINE_OPS_TOKEN', 'ENGINE_OPS_TOKEN_SHA256', env.ENGINE_OPS_TOKEN_SHA256],
   ] as const;
-  for (const [name, token] of routeTokens) {
-    if (token !== undefined && token === env.WEB_CONCIERGE_TOKEN) {
+  if (env.WEB_CONCIERGE_TOKEN !== undefined) {
+    for (const [_tokenName, fingerprintName, fingerprint] of routeFingerprints) {
+      if (fingerprint === undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [fingerprintName], message: 'required' });
+      }
+    }
+  }
+  const webTokenFingerprint = env.WEB_CONCIERGE_TOKEN === undefined
+    ? undefined
+    : tokenFingerprint(env.WEB_CONCIERGE_TOKEN);
+  for (const [name, _fingerprintName, fingerprint] of routeFingerprints) {
+    if (webTokenFingerprint !== undefined && fingerprint === webTokenFingerprint) {
       addPairIssue(name, 'WEB_CONCIERGE_TOKEN');
     }
   }
 }).transform((env) => {
   const {
-    ENGINE_CONCIERGE_TOKEN: _conciergeAuditOnly,
-    ENGINE_TELEGRAM_TOKEN: _telegramAuditOnly,
-    ENGINE_OPS_TOKEN: _opsAuditOnly,
+    ENGINE_CONCIERGE_TOKEN_SHA256: _conciergeAuditOnly,
+    ENGINE_TELEGRAM_TOKEN_SHA256: _telegramAuditOnly,
+    ENGINE_OPS_TOKEN_SHA256: _opsAuditOnly,
     ...runtime
   } = env;
   return runtime;

@@ -21,9 +21,13 @@ data must not be copied into staging.
 | `ENGINE_CONCIERGE_TOKEN` | accepts | sends | forbidden | platform security |
 | `ENGINE_TELEGRAM_TOKEN` | accepts | sends | forbidden | platform security |
 | `ENGINE_OPS_TOKEN` | accepts | forbidden | forbidden | operations lead |
+| `ENGINE_CONCIERGE_TOKEN_SHA256` | forbidden | forbidden | audits | platform security |
+| `ENGINE_TELEGRAM_TOKEN_SHA256` | forbidden | forbidden | audits | platform security |
+| `ENGINE_OPS_TOKEN_SHA256` | forbidden | audits | audits | operations lead |
 | `ENGINE_PRIVATE_API_URL` | n/a | required | forbidden | Railway operator |
 | `CONCIERGE_WALLET_API_URL` | forbidden | n/a | server-only | Vercel operator |
 | `WEB_CONCIERGE_TOKEN` | forbidden | accepts | sends, server-only | platform security |
+| `WEB_CONCIERGE_TOKEN_SHA256` | audits | forbidden | forbidden | platform security |
 | account session keyring | forbidden | required when Mini App is on | forbidden | platform security |
 | `ANALYTICS_HMAC_SECRET` | required | required | server-only when wallet bridge is configured | privacy owner |
 | Supabase service role | required | forbidden | forbidden | database operator |
@@ -43,13 +47,20 @@ They grant only their named route scope. `WEB_CONCIERGE_TOKEN` is also distinct
 and grants no engine route. A shared engine bearer and public engine URL are not
 part of the contract.
 
+Deployment preflight computes lowercase SHA-256 hex fingerprints for cross-scope
+uniqueness checks. Engine receives only `WEB_CONCIERGE_TOKEN_SHA256`, concierge
+receives only `ENGINE_OPS_TOKEN_SHA256`, and web receives only the three
+`ENGINE_*_TOKEN_SHA256` values. These fingerprints are not bearer credentials
+and must never replace the raw token in an Authorization header.
+
 For the initial split, provision all route credentials with intake disabled,
 deploy the accepting engine, then deploy the concierge callers. Verify a
 negative request with a different scope and a matching request before enabling
 traffic. A later replacement also disables intake and updates the accepting
 service before its caller; the contract does not claim a dual-token overlap.
 Never put a token in a URL, query string, body, log, health response, deployment
-manifest, or evidence file.
+manifest, or evidence file. Evidence may record fingerprint variable presence
+and equality or inequality outcomes, never raw token material.
 
 Exact engine route scopes:
 

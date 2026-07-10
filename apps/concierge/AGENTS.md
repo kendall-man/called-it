@@ -51,8 +51,9 @@ npx -y pnpm@10.33.0 --filter callie eve:build
 - `callie` has no `build` script, so root `turbo run build` skips it.
 - `package.json` declares Node >=24, while the repo root says Node >=22.
 - Env used here includes `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`,
-  `ENGINE_PRIVATE_API_URL`, route-scoped engine tokens, `WEB_CONCIERGE_TOKEN`,
-  `GLM_API_KEY`, and `GLM_BASE_URL`.
+  `ENGINE_PRIVATE_API_URL`, route-scoped engine caller tokens,
+  `ENGINE_OPS_TOKEN_SHA256`, `WEB_CONCIERGE_TOKEN`, `GLM_API_KEY`, and
+  `GLM_BASE_URL`.
 - Telegram privacy mode must be disabled for the single-ingress forwarding design.
 - `group_ready` and `position_placed` are the only activation events; Callie must not report
   either before the engine returns the committed transition.

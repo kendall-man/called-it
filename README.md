@@ -139,6 +139,8 @@ npx -y pnpm@10.33.0 --dir apps/web exec next dev --hostname 127.0.0.1 --port 302
 
 Running the engine with real environment values can connect to Telegram and TxLINE. Prefer
 tests or explicit development credentials for local work. Do not print `.env` values.
+Cross-runtime route-token uniqueness uses SHA-256 fingerprint variables; do not copy raw
+tokens into services that only audit another scope.
 
 ## Historical Compatibility
 

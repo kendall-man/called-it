@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import type { Logger } from '../log.js';
 import {
   CHAT_ID,
   CONCIERGE_TOKEN,
@@ -21,6 +22,15 @@ const CREDENTIAL_NAMES = [
   'wallet',
   'privateKey',
 ] as const;
+
+function captureWarnings(logs: unknown[]): Logger {
+  return {
+    info: () => undefined,
+    warn: (event, fields) => logs.push({ event, fields }),
+    error: (event, fields) => logs.push({ event, fields }),
+    child: () => captureWarnings(logs),
+  };
+}
 
 function bearer(token: string): Record<string, string> {
   return { ...jsonHeaders, authorization: `Bearer ${token}` };
@@ -176,5 +186,51 @@ describe('engine route-scoped credentials', () => {
     // Then both requests reach normal domain handling
     expect(queryResponse.status).toBe(200);
     expect(bodyResponse.status).toBe(200);
+  });
+
+  it('returns a safe 400 for malformed JSON without logging request text', async () => {
+    // Given malformed JSON containing credential-shaped text
+    const logs: unknown[] = [];
+    const secret = 'malformed-json-secret-token';
+    const harness = await startHarness({ log: captureWarnings(logs) });
+
+    // When the caller submits it to a JSON body route
+    const response = await fetch(`${harness.base}/api/quote`, {
+      method: 'POST',
+      headers: bearer(CONCIERGE_TOKEN),
+      body: `{"chatId":${CHAT_ID},"text":"Spain win","authorization":"${secret}"`,
+    });
+
+    // Then the API preserves the safe bad-request behavior and logs no input
+    expect(response.status).toBe(400);
+    expect(JSON.stringify(logs)).not.toContain(secret);
+  });
+
+  it('redacts parser exception text when quote parsing is unavailable', async () => {
+    // Given the parser throws a secret-bearing Error
+    const logs: unknown[] = [];
+    const secret = 'quote-parser-secret-token';
+    const harness = await startHarness({
+      log: captureWarnings(logs),
+      parse: async () => {
+        throw new Error(`provider failed with Authorization: Bearer ${secret}`);
+      },
+    });
+
+    // When a live quote request reaches the parser
+    const response = await fetch(`${harness.base}/api/quote`, {
+      method: 'POST',
+      headers: bearer(CONCIERGE_TOKEN),
+      body: JSON.stringify({ chatId: CHAT_ID, text: 'Spain win this easy' }),
+    });
+
+    // Then callers see only the stable failure and logs contain no exception text
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: 'parse_unavailable' });
+    const serializedLogs = JSON.stringify(logs);
+    expect(serializedLogs).toContain('api_quote_parse_failed');
+    expect(serializedLogs).toContain('parse_exception');
+    expect(serializedLogs).not.toContain(secret);
+    expect(serializedLogs).not.toContain('Authorization');
   });
 });

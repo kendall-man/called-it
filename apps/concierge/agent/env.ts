@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
   deriveAccountSessionKey,
@@ -7,6 +8,7 @@ import {
 const PREVIOUS_KEY_OVERLAP_MS = 10 * 60 * 1_000;
 const MillisecondsSchema = z.coerce.number().int().positive().max(86_400_000);
 const BooleanSchema = z.enum(['true', 'false']).transform((value) => value === 'true');
+const Sha256FingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const Base64KeySchema = z.string()
   .regex(/^[A-Za-z0-9+/]{43}=$/)
   .refine((value) => Buffer.from(value, 'base64').toString('base64') === value)
@@ -23,7 +25,7 @@ const RawConciergeEnvSchema = z.object({
   ENGINE_PRIVATE_API_URL: z.string().url(),
   ENGINE_CONCIERGE_TOKEN: z.string().min(32),
   ENGINE_TELEGRAM_TOKEN: z.string().min(32),
-  ENGINE_OPS_TOKEN: z.string().min(32).optional(),
+  ENGINE_OPS_TOKEN_SHA256: Sha256FingerprintSchema.optional(),
   WEB_CONCIERGE_TOKEN: z.string().min(32),
   WEB_BASE_URL: z.string().url(),
   WALLET_LINK_DOMAIN: z.string().regex(/^(?:localhost|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+)$/),
@@ -50,11 +52,8 @@ function createConciergeEnvSchema(nowEpochMs: number) {
     };
     const routeTokenPairs = [
       ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN],
-      ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN],
       ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN],
-      ['ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN, 'ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN],
       ['ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN, 'WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN],
-      ['ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN, 'WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN],
     ] as const;
     for (const [leftName, leftToken, rightName, rightToken] of routeTokenPairs) {
       if (leftToken !== undefined && leftToken === rightToken) {
@@ -65,6 +64,15 @@ function createConciergeEnvSchema(nowEpochMs: number) {
     const webUrl = new URL(env.WEB_BASE_URL);
     const engineUrl = new URL(env.ENGINE_PRIVATE_API_URL);
     const deployed = env.DEPLOYMENT_ENV !== 'development';
+    if (deployed && env.ENGINE_OPS_TOKEN_SHA256 === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['ENGINE_OPS_TOKEN_SHA256'], message: 'required' });
+    }
+    if (
+      env.ENGINE_OPS_TOKEN_SHA256 !== undefined &&
+      tokenFingerprint(env.WEB_CONCIERGE_TOKEN) === env.ENGINE_OPS_TOKEN_SHA256
+    ) {
+      addPairIssue('ENGINE_OPS_TOKEN', 'WEB_CONCIERGE_TOKEN');
+    }
     if (deployed && webUrl.protocol !== 'https:') {
       ctx.addIssue({ code: 'custom', path: ['WEB_BASE_URL'], message: 'HTTPS required' });
     }
@@ -164,7 +172,7 @@ function createConciergeEnvSchema(nowEpochMs: number) {
       ACCOUNT_SESSION_KEY_PREVIOUS,
       ACCOUNT_SESSION_KEY_PREVIOUS_KID,
       ACCOUNT_SESSION_KEY_PREVIOUS_EXPIRES_AT,
-      ENGINE_OPS_TOKEN: _auditOnly,
+      ENGINE_OPS_TOKEN_SHA256: _auditOnly,
       ...runtime
     } = env;
     let keyring: AccountSessionKeyring | null = null;
@@ -192,6 +200,10 @@ function createConciergeEnvSchema(nowEpochMs: number) {
     }
     return { ...runtime, ACCOUNT_SESSION_KEYRING: keyring };
   });
+}
+
+function tokenFingerprint(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
 }
 
 export type ConciergeEnv = Readonly<

@@ -53,8 +53,7 @@ export async function handleQuoteRequest(
     raw = await deps.agent.parse(body.data.text, seedCtx);
   } catch (err) {
     if (!(err instanceof Error)) throw err;
-    const message = err.toString();
-    log.warn('api_quote_parse_failed', { error: message });
+    log.warn('api_quote_parse_failed', { reason: 'parse_exception' });
     sendJson(res, 502, { error: 'parse_unavailable' });
     return;
   }

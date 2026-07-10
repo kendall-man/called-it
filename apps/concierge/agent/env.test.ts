@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { loadConciergeEnv } from './env.js';
 import {
   BASE_ENV,
@@ -7,6 +8,10 @@ import {
   PREVIOUS_MASTER,
 } from './env.test-fixtures.js';
 import { accountSessionKeyringMetadata } from './session-keys.js';
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
 
 describe('concierge runtime environment', () => {
   afterEach(() => {
@@ -87,7 +92,11 @@ describe('concierge runtime environment', () => {
     },
     {
       name: 'plain HTTP for the production web origin',
-      source: { ...BASE_ENV, DEPLOYMENT_ENV: 'production' },
+      source: {
+        ...BASE_ENV,
+        DEPLOYMENT_ENV: 'production',
+        ENGINE_OPS_TOKEN_SHA256: sha256('operations-route-token-with-32-bytes'),
+      },
       variables: 'WEB_BASE_URL',
     },
     {
@@ -96,6 +105,7 @@ describe('concierge runtime environment', () => {
         ...BASE_ENV,
         DEPLOYMENT_ENV: 'production',
         ENGINE_PRIVATE_API_URL: 'https://engine.example.test',
+        ENGINE_OPS_TOKEN_SHA256: sha256('operations-route-token-with-32-bytes'),
         WEB_BASE_URL: 'https://web.example.test',
         WALLET_LINK_DOMAIN: 'web.example.test',
       },
@@ -127,10 +137,10 @@ describe('concierge runtime environment', () => {
     ['ENGINE_TELEGRAM_TOKEN', BASE_ENV.ENGINE_TELEGRAM_TOKEN],
     ['ENGINE_OPS_TOKEN', 'operations-route-token-with-32-bytes'],
   ])('rejects WEB_CONCIERGE_TOKEN reuse of %s without echoing values', (routeName, token) => {
-    // Given every engine route credential is visible to the concierge parser
+    // Given the concierge has only the operations credential fingerprint
     const source = {
       ...BASE_ENV,
-      ENGINE_OPS_TOKEN: 'operations-route-token-with-32-bytes',
+      ENGINE_OPS_TOKEN_SHA256: sha256('operations-route-token-with-32-bytes'),
       WEB_CONCIERGE_TOKEN: token,
     };
 
@@ -142,18 +152,35 @@ describe('concierge runtime environment', () => {
     expect(parse).toThrowError(`Concierge environment invalid: ${variables}`);
   });
 
-  it('strips the audit-only operations credential from concierge runtime config', () => {
-    // Given a distinct operations credential is visible in a shared environment
+  it('strips the audit-only operations credential fingerprint from concierge runtime config', () => {
+    // Given a distinct operations credential fingerprint is visible in a shared environment
     const source = {
       ...BASE_ENV,
-      ENGINE_OPS_TOKEN: 'operations-route-token-with-32-bytes',
+      ENGINE_OPS_TOKEN_SHA256: sha256('operations-route-token-with-32-bytes'),
     };
 
     // When the concierge parser audits and returns runtime config
     const parsed = loadConciergeEnv(source, NOW_EPOCH_MS);
 
     // Then concierge code cannot consume the operations credential
-    expect(parsed).not.toHaveProperty('ENGINE_OPS_TOKEN');
+    expect(parsed).not.toHaveProperty('ENGINE_OPS_TOKEN_SHA256');
+  });
+
+  it('requires the operations token fingerprint in deployed environments', () => {
+    // Given production omits the cross-runtime operations credential fingerprint
+    const source = {
+      ...BASE_ENV,
+      DEPLOYMENT_ENV: 'production',
+      ENGINE_PRIVATE_API_URL: 'https://engine.railway.internal',
+      WEB_BASE_URL: 'https://web.example.test',
+      WALLET_LINK_DOMAIN: 'web.example.test',
+    };
+
+    // When the concierge parses its deployed environment
+    const parse = () => loadConciergeEnv(source, NOW_EPOCH_MS);
+
+    // Then startup fails without requiring the raw operations credential
+    expect(parse).toThrowError('Concierge environment invalid: ENGINE_OPS_TOKEN_SHA256');
   });
 
   it('accepts a previous key only for the bounded overlap and exposes redacted metadata', () => {
