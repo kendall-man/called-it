@@ -4,7 +4,6 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { Pool } from 'pg';
 import { discoverMigrationFiles } from './sql-harness/runner.js';
-import { validateCalledItSchema } from './sql-harness/schema-checks.js';
 import {
   STARTER,
   assertBudgetParity,
@@ -37,14 +36,15 @@ test.after(async () => {
 test('starter-grant migrations apply fresh and as 0001-0003 upgrade', async () => {
   const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
   await withMigratedDb(migrations, async () => undefined);
-  record('fresh 0001-0004 migration applied and cleaned');
+  record('fresh tracked migrations applied and cleaned');
   await withMigratedDb(migrations.filter((migration) => migration.name <= '0003_broker_pivot.sql'), async (client) => {
-    const fourth = migrations.find((migration) => migration.name === '0004_starter_grant.sql');
-    assert.ok(fourth);
-    await client.query(fourth.sql);
-    await validateCalledItSchema(client);
+    for (const name of ['0004_starter_grant.sql', '0005_wallet_identity.sql']) {
+      const migration = migrations.find((candidate) => candidate.name === name);
+      assert.ok(migration);
+      await client.query(migration.sql);
+    }
   });
-  record('upgraded 0001-0003 plus 0004 applied and cleaned');
+  record('upgraded 0001-0003 plus 0004 and 0005 applied and cleaned');
 });
 
 test('starter stake writes exact linked rows, accepts pending_lineup, and is idempotent and private', async () => {

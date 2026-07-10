@@ -172,6 +172,75 @@ export type WalletLinkResult =
   /** First-link-wins: the pubkey is already claimed by another user. */
   | { ok: false; reason: 'pubkey_taken' };
 
+export type VerifiedWalletLinkErrorCode =
+  | 'challenge_invalid'
+  | 'challenge_expired'
+  | 'pubkey_reserved'
+  | 'balance_nonzero'
+  | 'positions_open'
+  | 'withdrawal_pending';
+
+export interface VerifiedWalletLinkInput {
+  challenge_id: string;
+  user_id: number;
+  pubkey: string;
+  challenge_hash_hex: string;
+}
+
+export type VerifiedWalletLinkResult =
+  | { ok: true; relinked: boolean; link_id: number }
+  | { ok: false; code: VerifiedWalletLinkErrorCode };
+
+export type PendingStakeIntentState =
+  | 'pending'
+  | 'awaiting_funds'
+  | 'ready'
+  | 'consumed'
+  | 'expired'
+  | 'cancelled';
+
+export interface PendingStakeIntentRow {
+  id: string;
+  user_id: number;
+  group_id: number;
+  market_id: string;
+  side: PositionSide;
+  lamports: bigint;
+  state: PendingStakeIntentState;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PendingStakeIntentErrorCode =
+  | 'field_mismatch'
+  | 'active_intent_exists'
+  | 'expired'
+  | 'not_found'
+  | 'not_ready';
+
+export interface PendingStakeIntentInput {
+  user_id: number;
+  group_id: number;
+  market_id: string;
+  side: PositionSide;
+  lamports: bigint;
+  intent_key_hash_hex: string;
+  expires_at: string;
+}
+
+export type CreatePendingStakeIntentResult =
+  | { ok: true; intent_id: string; state: PendingStakeIntentState }
+  | { ok: false; code: PendingStakeIntentErrorCode; intent_id?: string };
+
+export type ResolvePendingStakeIntentResult =
+  | { ok: true; intent: PendingStakeIntentRow }
+  | { ok: false; code: PendingStakeIntentErrorCode };
+
+export type MutatePendingStakeIntentResult =
+  | { ok: true }
+  | { ok: false; code: PendingStakeIntentErrorCode };
+
 // ── RPC inputs / results ───────────────────────────────────────────────────
 
 export interface WagerStakeInput {

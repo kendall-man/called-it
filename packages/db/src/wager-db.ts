@@ -6,6 +6,7 @@ import {
 } from './wager-db-core.js';
 import { operationsDbMethods } from './wager-db-operations.js';
 import { rpcDbMethods } from './wager-db-rpc.js';
+import { walletDbMethods } from './wager-db-wallet.js';
 
 export {
   assertSafeInteger,
@@ -31,5 +32,6 @@ export function wagerDbFromClient(candidate: unknown): WagerDb {
     ...accountDbMethods(client),
     ...operationsDbMethods(client),
     ...rpcDbMethods(client),
+    ...walletDbMethods(client),
   } satisfies WagerDb;
 }

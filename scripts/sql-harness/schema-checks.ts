@@ -20,6 +20,10 @@ const EXPECTED_TABLES = [
   'wager_status',
   'wager_starter_budget',
   'wager_starter_grants',
+  'wager_wallet_reconciliation_items',
+  'wager_wallet_challenges',
+  'wager_wallet_link_history',
+  'wager_pending_stake_intents',
 ] as const;
 
 const EXPECTED_VIEWS = [
@@ -38,11 +42,22 @@ const PRIVATE_TABLES = [
   'wager_status',
   'wager_starter_budget',
   'wager_starter_grants',
+  'wager_wallet_reconciliation_items',
+  'wager_wallet_challenges',
+  'wager_wallet_link_history',
+  'wager_pending_stake_intents',
 ] as const;
 
 const EXPECTED_FUNCTIONS = [
   'wager_request_withdrawal(bigint,bigint)',
   'wager_stake(bigint,bigint,uuid,text,bigint,double precision,text,bigint,text,boolean)',
+  'wager_decode_sha256_hex(text)',
+  'wager_verify_wallet_link(uuid,bigint,text,text)',
+  'wager_create_pending_stake_intent(bigint,bigint,uuid,text,bigint,text,timestamp with time zone)',
+  'wager_resolve_active_stake_intent(bigint)',
+  'wager_mark_stake_intent_funded(bigint,uuid)',
+  'wager_consume_ready_stake_intent(bigint,uuid)',
+  'wager_cancel_stake_intent(bigint,uuid)',
 ] as const;
 
 const EXPECTED_REALTIME_MEMBERS = [
@@ -149,7 +164,17 @@ async function assertFunctionPrivileges(client: Client): Promise<void> {
      from pg_proc p
      join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = any($1::text[])`,
-    [['wager_stake', 'wager_request_withdrawal']],
+    [[
+      'wager_stake',
+      'wager_request_withdrawal',
+      'wager_decode_sha256_hex',
+      'wager_verify_wallet_link',
+      'wager_create_pending_stake_intent',
+      'wager_resolve_active_stake_intent',
+      'wager_mark_stake_intent_funded',
+      'wager_consume_ready_stake_intent',
+      'wager_cancel_stake_intent',
+    ]],
   );
   const bySignature = new Map(result.rows.map((row) => [row.signature, row]));
   for (const signature of EXPECTED_FUNCTIONS) {

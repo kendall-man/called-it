@@ -29,10 +29,16 @@ import type {
   WagerDepositInsert,
   WagerDepositRow,
   WagerLedgerEntry,
+  CreatePendingStakeIntentResult,
+  MutatePendingStakeIntentResult,
+  PendingStakeIntentInput,
   WagerStakeErrorCode,
   WagerStakeInput,
   WagerStakeResult,
   WagerStatusRow,
+  ResolvePendingStakeIntentResult,
+  VerifiedWalletLinkInput,
+  VerifiedWalletLinkResult,
   WagerWalletLinkInsert,
   WagerWalletLinkRow,
   WagerWithdrawErrorCode,
@@ -108,7 +114,7 @@ export function lamportsToDb(op: string, value: bigint): number {
 /** Postgres unique_violation — linkWallet maps it to first-link-wins. */
 export const UNIQUE_VIOLATION = '23505';
 
-/** Market statuses still open for staking; mirrors engine-db.ts (not exported there). */
+/** Non-terminal SOL market statuses used by solvency scans; stake RPCs still gate entry. */
 export const OPEN_MARKET_STATUSES: readonly MarketStatus[] = [
   'pending_lineup',
   'open',
@@ -153,8 +159,7 @@ export interface WagerTableBuilder {
 
 /**
  * The slice of SupabaseClient the wager façade actually uses. Hermetic tests
- * implement this shape in memory; production passes the real client through
- * one contained cast in createWagerDb.
+ * implement this shape in memory; production clients are accepted by structure.
  */
 export interface WagerDbClient {
   from(table: string): WagerTableBuilder;
@@ -347,4 +352,11 @@ export interface WagerDb {
   wagerStake(args: WagerStakeInput): Promise<WagerStakeResult>;
   /** dest_pubkey is resolved from the wallet link INSIDE the function. */
   requestWithdrawal(args: { user_id: number; lamports: bigint }): Promise<WagerWithdrawResult>;
+
+  verifyWalletLink(args: VerifiedWalletLinkInput): Promise<VerifiedWalletLinkResult>;
+  createPendingStakeIntent(args: PendingStakeIntentInput): Promise<CreatePendingStakeIntentResult>;
+  resolveActiveStakeIntent(userId: number): Promise<ResolvePendingStakeIntentResult>;
+  markStakeIntentFunded(userId: number, intentId: string): Promise<MutatePendingStakeIntentResult>;
+  consumeReadyStakeIntent(userId: number, intentId: string): Promise<ResolvePendingStakeIntentResult>;
+  cancelStakeIntent(userId: number, intentId: string): Promise<MutatePendingStakeIntentResult>;
 }

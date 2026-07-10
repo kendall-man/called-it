@@ -1,6 +1,7 @@
 import type { SettlementOutcome } from '@calledit/market-engine';
 import { DbError, unwrapMaybe, unwrapRows, type PgResult } from './errors.js';
 import type {
+  PendingStakeIntentState,
   WagerStatusRow,
   WagerWalletLinkRow,
   WagerWithdrawalState,
@@ -62,6 +63,21 @@ function isSettlementOutcome(value: unknown): value is SettlementOutcome {
 
 function isWithdrawalState(value: unknown): value is WagerWithdrawalState {
   return value === 'debited' || value === 'submitted' || value === 'confirmed' || value === 'failed';
+}
+
+function isPositionSide(value: unknown): value is 'back' | 'doubt' {
+  return value === 'back' || value === 'doubt';
+}
+
+function isPendingStakeIntentState(value: unknown): value is PendingStakeIntentState {
+  return (
+    value === 'pending' ||
+    value === 'awaiting_funds' ||
+    value === 'ready' ||
+    value === 'consumed' ||
+    value === 'expired' ||
+    value === 'cancelled'
+  );
 }
 
 export async function manyRows<T>(
@@ -207,6 +223,39 @@ export function parseWagerStatusRow(op: string, value: unknown): WagerStatusRow 
   return {
     paused: booleanField(op, row, 'paused'),
     reason: nullableStringField(op, row, 'reason'),
+    updated_at: stringField(op, row, 'updated_at'),
+  };
+}
+
+export interface RawPendingStakeIntentRow {
+  readonly id: string;
+  readonly user_id: number;
+  readonly group_id: number;
+  readonly market_id: string;
+  readonly side: 'back' | 'doubt';
+  readonly lamports: number;
+  readonly state: PendingStakeIntentState;
+  readonly expires_at: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export function parsePendingStakeIntentRow(op: string, value: unknown): RawPendingStakeIntentRow {
+  const row = record(op, value);
+  const side = row.side;
+  if (!isPositionSide(side)) return malformed(op, 'side');
+  const state = row.state;
+  if (!isPendingStakeIntentState(state)) return malformed(op, 'state');
+  return {
+    id: stringField(op, row, 'id'),
+    user_id: integerField(op, row, 'user_id'),
+    group_id: integerField(op, row, 'group_id'),
+    market_id: stringField(op, row, 'market_id'),
+    side,
+    lamports: integerField(op, row, 'lamports'),
+    state,
+    expires_at: stringField(op, row, 'expires_at'),
+    created_at: stringField(op, row, 'created_at'),
     updated_at: stringField(op, row, 'updated_at'),
   };
 }

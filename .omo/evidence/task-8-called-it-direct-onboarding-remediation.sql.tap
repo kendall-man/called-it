@@ -1,0 +1,6 @@
+TAP version 13
+ok 1 - fresh 0001-0005 migration applied and cleaned
+ok 2 - upgraded 0001-0004 plus 0005 applied and cleaned
+ok 3 - challenge race, TTL, wrong-user, relink blockers, accepted relink and permanent pubkey reservation matched typed outcomes
+ok 4 - owner-only active intent resolution, immutable field mismatch, active conflict, funding and single consume were enforced
+1..4
