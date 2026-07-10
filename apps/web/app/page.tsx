@@ -6,12 +6,23 @@ export const metadata: Metadata = {
     'Callie books the bets your group already argues about — prices each match-night call off the live feed, matches it in devnet SOL, and settles it from verified data with a receipt anyone can check on Solana.',
 };
 
-/**
- * Link placeholders — swap in the real demo group invite and a flagship
- * settled receipt before submission.
- */
-const DEMO_GROUP_URL = '#demo-group';
-const SAMPLE_RECEIPT_URL = '#sample-receipt';
+const SAFE_FALLBACK_URL = '/';
+
+function resolveOnboardingUrl(value: string | undefined): string {
+  if (!value) return SAFE_FALLBACK_URL;
+
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : SAFE_FALLBACK_URL;
+  } catch {
+    return SAFE_FALLBACK_URL;
+  }
+}
+
+const DEMO_GROUP_URL = resolveOnboardingUrl(process.env.NEXT_PUBLIC_TELEGRAM_GROUP_URL);
+const SAMPLE_RECEIPT_URL = resolveOnboardingUrl(process.env.NEXT_PUBLIC_SAMPLE_RECEIPT_URL);
+const hasDemoGroupUrl = DEMO_GROUP_URL !== SAFE_FALLBACK_URL;
+const hasSampleReceiptUrl = SAMPLE_RECEIPT_URL !== SAFE_FALLBACK_URL;
 
 const LOOP_STEPS = [
   {
@@ -43,7 +54,7 @@ export default function LandingPage() {
           Called <span className="text-pitch-400">It</span>
         </h1>
         <p className="mt-4 max-w-md text-base leading-relaxed text-fog">
-          Callie books the bets your group already argues about. She prices each match-night call
+          Callie books the calls your group already argues about. She prices each match-night call
           off the live feed, matches whoever backs it against whoever doubts it in devnet SOL, and
           settles it from verified match data seconds after the moment — with a receipt anyone can
           check on Solana.
@@ -80,20 +91,28 @@ export default function LandingPage() {
       </Card>
 
       {/* Calls to action */}
-      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" aria-label="Get started">
         <a
           href={DEMO_GROUP_URL}
-          className="display-type rounded-2xl bg-pitch-500 px-5 py-4 text-center text-lg text-night-950 transition-transform hover:scale-[1.01]"
+          className="display-type min-h-14 rounded-2xl bg-pitch-500 px-5 py-4 text-center text-lg text-night-950 transition-transform hover:scale-[1.01] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-pitch-300"
+          aria-describedby={!hasDemoGroupUrl ? 'onboarding-link-status' : undefined}
         >
-          Join the demo group →
+          {hasDemoGroupUrl ? 'Add Callie to your group' : 'Group link not configured'}
         </a>
         <a
           href={SAMPLE_RECEIPT_URL}
-          className="display-type rounded-2xl border border-line bg-night-800 px-5 py-4 text-center text-lg text-chalk transition-colors hover:border-pitch-500/50"
+          className="display-type min-h-14 rounded-2xl border border-line bg-night-800 px-5 py-4 text-center text-lg text-chalk transition-colors hover:border-pitch-500/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-pitch-300"
+          aria-describedby={!hasSampleReceiptUrl ? 'onboarding-link-status' : undefined}
         >
-          See a sample receipt
+          {hasSampleReceiptUrl ? 'Open a sample receipt' : 'Sample receipt not configured'}
         </a>
       </div>
+
+      {!hasDemoGroupUrl || !hasSampleReceiptUrl ? (
+        <p className="text-center text-xs leading-relaxed text-fog/80" id="onboarding-link-status">
+          Demo links will appear here when configured. You can still browse the site safely.
+        </p>
+      ) : null}
 
       <p className="mt-1 text-center text-xs text-fog/80">
         Every pot is devnet SOL — test tokens, not real money.

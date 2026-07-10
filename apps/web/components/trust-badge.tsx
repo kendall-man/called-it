@@ -64,6 +64,16 @@ function snapshotFromReceipt(receipt: PublicReceipt): TrustSnapshot {
   };
 }
 
+function safeExternalUrl(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Tolerantly pull `{leaf, proof: MerkleProofNode[]}` out of whatever shape the
  * proofs row stores (the OpenAPI stat-validation payload or a near relative).
@@ -224,6 +234,7 @@ export function TrustBadge({ marketId, specTier, initial }: TrustBadgeProps) {
 
   const view = deriveView(snapshot, specTier);
   const tierForBlurb = snapshot.tier ?? specTier;
+  const explorerUrl = safeExternalUrl(snapshot.explorerUrl);
 
   return (
     <div className="space-y-2">
@@ -231,9 +242,9 @@ export function TrustBadge({ marketId, specTier, initial }: TrustBadgeProps) {
         <Badge tone={view.tone} className="px-3 py-1 text-sm normal-case tracking-normal">
           {view.label}
         </Badge>
-        {snapshot.explorerUrl ? (
+        {explorerUrl ? (
           <a
-            href={snapshot.explorerUrl}
+            href={explorerUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs font-semibold text-pitch-300 underline decoration-pitch-500/50 underline-offset-4 hover:text-pitch-400"

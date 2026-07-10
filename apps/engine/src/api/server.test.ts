@@ -179,6 +179,39 @@ describe('engine API', () => {
     expect(health.status).toBe(200);
   });
 
+  it('exposes liveness and authenticated-independent readiness separately', async () => {
+    const hz = await startHarness();
+    const live = await fetch(`${hz.base}/api/health`);
+    const ready = await fetch(`${hz.base}/api/ready`);
+    expect(live.status).toBe(200);
+    expect(await live.json()).toEqual({ ok: true });
+    expect(ready.status).toBe(200);
+    expect(await ready.json()).toEqual({ ok: true });
+  });
+
+  it('returns a stable 413 response for oversized JSON and correlates the request', async () => {
+    const hz = await startHarness();
+    const res = await fetch(`${hz.base}/api/quote`, {
+      method: 'POST',
+      headers: authed,
+      body: JSON.stringify({ chatId: CHAT_ID, text: 'x'.repeat(70_000) }),
+    });
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: 'payload_too_large' });
+    expect(res.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('returns a stable bad request response for malformed JSON', async () => {
+    const hz = await startHarness();
+    const res = await fetch(`${hz.base}/api/quote`, {
+      method: 'POST',
+      headers: authed,
+      body: '{',
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: 'bad_request' });
+  });
+
   it('serves the group snapshot with SOL markets and pots (no leaderboard)', async () => {
     const hz = await startHarness();
     const res = await fetch(`${hz.base}/api/groups/${CHAT_ID}/snapshot`, { headers: authed });

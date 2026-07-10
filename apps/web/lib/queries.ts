@@ -20,6 +20,7 @@ const EVIDENCE_VIEW = 'public_evidence';
 
 const GROUP_RECEIPTS_FETCH_LIMIT = 60;
 const GROUP_RECEIPTS_SHOWN = 12;
+const GROUP_RECEIPTS_MAX_PAGES = 5;
 
 function mapRows<T>(rows: unknown, mapRow: (row: Record<string, unknown>) => T | null): T[] {
   if (!Array.isArray(rows)) return [];
@@ -69,15 +70,26 @@ export async function fetchGroupReceipts(
   client: SupabaseClient,
   slug: string,
 ): Promise<QueryResult<PublicReceipt[] | null>> {
-  const { data, error } = await client
-    .from(RECEIPTS_VIEW)
-    .select('*')
-    .eq('group_slug', slug)
-    .order('created_at', { ascending: false })
-    .limit(GROUP_RECEIPTS_FETCH_LIMIT);
-  if (error) return { ok: false, message: error.message };
+  const rows: PublicReceipt[] = [];
+  for (let page = 0; page < GROUP_RECEIPTS_MAX_PAGES; page += 1) {
+    const from = page * GROUP_RECEIPTS_FETCH_LIMIT;
+    const to = from + GROUP_RECEIPTS_FETCH_LIMIT - 1;
+    const { data, error } = await client
+      .from(RECEIPTS_VIEW)
+      .select('*')
+      .eq('group_slug', slug)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+    if (error) return { ok: false, message: error.message };
 
-  const receipts = dedupeReceipts(mapRows(data, receiptFromRow)).slice(0, GROUP_RECEIPTS_SHOWN);
+    const pageRows = mapRows(data, receiptFromRow);
+    rows.push(...pageRows);
+    if (dedupeReceipts(rows).length >= GROUP_RECEIPTS_SHOWN || pageRows.length < GROUP_RECEIPTS_FETCH_LIMIT) {
+      break;
+    }
+  }
+
+  const receipts = dedupeReceipts(rows).slice(0, GROUP_RECEIPTS_SHOWN);
   if (receipts.length === 0) return { ok: true, data: null };
   return { ok: true, data: receipts };
 }

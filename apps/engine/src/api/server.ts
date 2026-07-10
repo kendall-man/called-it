@@ -9,7 +9,7 @@
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import type { Deps, MarketRow } from '../ports.js';
 import type { Env } from '../env.js';
@@ -73,9 +73,15 @@ export function startEngineApi(options: EngineApiOptions): Server | null {
   }
   const quoteBudget = new LlmBudget(undefined, deps.now);
   const server = createServer((req, res) => {
+    const requestId = randomUUID();
+    res.setHeader('x-request-id', requestId);
     void route(options, quoteBudget, token, req, res).catch((err) => {
-      log.error('engine_api_unhandled', { error: String(err) });
-      sendJson(res, 500, { error: 'internal' });
+      if (err instanceof PayloadTooLargeError) {
+        sendJson(res, 413, { error: 'payload_too_large' });
+        return;
+      }
+      log.error('engine_api_unhandled', { error: String(err), requestId });
+      if (!res.headersSent) sendJson(res, 500, { error: 'internal' });
     });
   });
   server.listen(env.PORT, () => {
@@ -95,6 +101,17 @@ async function route(
   const path = url.pathname;
   if (path === '/api/health') {
     sendJson(res, 200, { ok: true });
+    return;
+  }
+  if (path === '/api/ready') {
+    try {
+      const now = options.deps.now();
+      await options.deps.db.fixturesBetween(now, now);
+      sendJson(res, 200, { ok: true });
+    } catch (err) {
+      options.log.warn('engine_api_not_ready', { error: String(err) });
+      sendJson(res, 503, { error: 'not_ready' });
+    }
     return;
   }
   if (!authorized(req, token)) {
@@ -402,12 +419,18 @@ function authorized(req: IncomingMessage, token: string): boolean {
   return timingSafeEqual(presented, expected);
 }
 
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super('request body exceeds the JSON limit');
+  }
+}
+
 async function readJson(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > JSON_BODY_LIMIT_BYTES) throw new Error('body too large');
+    if (size > JSON_BODY_LIMIT_BYTES) throw new PayloadTooLargeError();
     chunks.push(chunk as Buffer);
   }
   try {

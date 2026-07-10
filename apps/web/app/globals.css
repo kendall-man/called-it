@@ -52,6 +52,11 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  :focus-visible {
+    outline: 2px solid var(--color-pitch-300);
+    outline-offset: 4px;
+  }
+
   ::selection {
     background-color: var(--color-pitch-500);
     color: var(--color-night-950);
@@ -61,7 +66,24 @@
 @utility display-type {
   font-family: var(--font-display);
   font-weight: 800;
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
   text-transform: uppercase;
   line-height: 0.95;
+}
+
+@media (max-width: 639px) {
+  .display-type {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
