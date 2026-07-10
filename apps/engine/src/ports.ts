@@ -304,6 +304,15 @@ export interface EngineDb {
   liveFixtures(nowMs: number, lookaheadMs: number): Promise<FixtureRow[]>;
   /** Apply a normalized event's phase/minute/score/last_seq to the fixture row. */
   updateFixtureFromEvent(event: MatchEvent): Promise<void>;
+  /**
+   * Replay prep: wipe the fixture's recorded feed_events and rewind its state
+   * (phase→NS, score cleared, last_seq→0). Without this, replaying a fixture
+   * that was already watched live dedupes every re-fed event (insertFeedEvent)
+   * AND the last_seq monotonic guard blocks it (updateFixtureFromEvent), so the
+   * market never settles. The ReplaySource re-fetches from TxLINE, so clearing
+   * the local copy is safe.
+   */
+  resetFixtureForReplay(fixtureId: number): Promise<void>;
   /** Name-substring fixture search used by the agent's grounded tools. */
   searchFixtures(query: string): Promise<FixtureRow[]>;
   /** Team + player dictionary for the deterministic prefilter. */

@@ -69,7 +69,10 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
       h.poster.post(ctx.chat.id, await h.say('replay_unknown_fixture'), { replyToMessageId: replyTo });
       return;
     }
-    const activeReplay = h.supervisor.hasActiveReplay(group.id);
+    if (h.supervisor.hasActiveReplay(group.id)) {
+      h.poster.post(ctx.chat.id, await h.say('replay_blocked_active'), { replyToMessageId: replyTo });
+      return;
+    }
     // Only a non-replay market with real money on it blocks a replay — the
     // broker auto-mints offer markets from banter, and an untouched zero-bet
     // one must never brick a demo.
@@ -83,19 +86,6 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
         break;
       }
     }
-    // TEMP DIAG: surface exactly why /replay gates (remove after debugging).
-    h.deps.log.info('replay_diag', {
-      groupId: group.id,
-      fixtureId,
-      hasActiveReplay: activeReplay,
-      openMarkets: openMarkets.length,
-      replayFlags: openMarkets.map((m) => m.is_replay),
-      liveBetInPlay,
-    });
-    if (activeReplay) {
-      h.poster.post(ctx.chat.id, await h.say('replay_blocked_active'), { replyToMessageId: replyTo });
-      return;
-    }
     if (liveBetInPlay) {
       h.poster.post(ctx.chat.id, await h.say('replay_blocked_live'), { replyToMessageId: replyTo });
       return;
@@ -105,7 +95,7 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
       h.poster.post(ctx.chat.id, await h.say('replay_unknown_fixture'), { replyToMessageId: replyTo });
       return;
     }
-    h.supervisor.startReplay(group.id, fixtureId);
+    await h.supervisor.startReplay(group.id, fixtureId);
     h.poster.post(
       ctx.chat.id,
       await h.say('replay_started', { fixture: `${fixture.p1_name} vs ${fixture.p2_name}` }),

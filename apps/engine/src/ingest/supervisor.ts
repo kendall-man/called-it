@@ -51,7 +51,15 @@ export class IngestSupervisor {
     return this.replays.has(groupId);
   }
 
-  startReplay(groupId: number, fixtureId: number, speed: number = ENGINE.REPLAY_SPEED): void {
+  async startReplay(
+    groupId: number,
+    fixtureId: number,
+    speed: number = ENGINE.REPLAY_SPEED,
+  ): Promise<void> {
+    // Rewind the fixture (clear feed_events + reset last_seq/phase) so the
+    // replay's re-fetched TxLINE events aren't deduped and actually settle the
+    // market — otherwise a replay of a previously-watched fixture is a no-op.
+    await this.deps.db.resetFixtureForReplay(fixtureId);
     const source = this.deps.tx.createReplaySource(fixtureId, speed);
     this.replays.set(groupId, { fixtureId, source });
     this.deps.log.info('replay_started', { groupId, fixtureId, speed });

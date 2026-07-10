@@ -152,6 +152,8 @@ export interface EngineDb {
   liveFixtures(nowMs: number, lookaheadMs: number): Promise<FixtureRow[]>;
   /** Apply a normalized event's phase/minute/score/last_seq to the fixture row. */
   updateFixtureFromEvent(event: MatchEvent): Promise<void>;
+  /** Replay prep: wipe the fixture's feed_events + rewind phase/score/last_seq. */
+  resetFixtureForReplay(fixtureId: number): Promise<void>;
   /** Name-substring fixture search used by the agent's grounded tools. */
   searchFixtures(query: string): Promise<FixtureRow[]>;
   /** Team + player dictionary for the deterministic prefilter. */
@@ -629,6 +631,30 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
           })
           .eq('fixture_id', event.fixtureId)
           .lte('last_seq', event.seq),
+      );
+    },
+
+    async resetFixtureForReplay(fixtureId) {
+      // Wipe the recorded event log so the replay's re-fetched TxLINE events
+      // insert fresh instead of deduping against the original live watch.
+      assertOk(
+        'resetFixtureForReplay.events',
+        await client.from('feed_events').delete().eq('fixture_id', fixtureId),
+      );
+      // Rewind the fixture: last_seq→0 lets the updateFixtureFromEvent monotonic
+      // guard admit the replay's events again; phase/score go back to pre-match.
+      assertOk(
+        'resetFixtureForReplay.fixture',
+        await client
+          .from('fixtures')
+          .update({
+            phase: 'NS',
+            minute: null,
+            last_seq: 0,
+            score: {},
+            updated_at: new Date().toISOString(),
+          })
+          .eq('fixture_id', fixtureId),
       );
     },
 
