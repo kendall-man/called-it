@@ -9,6 +9,12 @@ const BotUsernameSchema = z.string().regex(
 const DomainSchema = z.string().regex(
   /^(?:localhost|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+)$/,
 );
+const Base64KeyPattern = /^[A-Za-z0-9+/]{43}=$/;
+const Base64KeySchema = z.string().refine((value) => {
+  if (!Base64KeyPattern.test(value)) return false;
+  const decoded = atob(value);
+  return decoded.length === 32 && btoa(decoded) === value;
+});
 
 const WebEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -22,7 +28,7 @@ const WebEnvSchema = z.object({
   WEB_CONCIERGE_TOKEN: z.string().min(32).optional(),
   WEB_BASE_URL: z.string().url().optional(),
   WALLET_LINK_DOMAIN: DomainSchema.optional(),
-  ANALYTICS_HMAC_SECRET: z.string().regex(/^[A-Za-z0-9+/]{43}=$/).optional(),
+  ANALYTICS_HMAC_SECRET: Base64KeySchema.optional(),
   STARTER_GRANTS_ENABLED: BooleanSchema,
   WALLET_MINIAPP_ENABLED: BooleanSchema,
   STAKE_ACCEPTANCE_ENABLED: BooleanSchema,

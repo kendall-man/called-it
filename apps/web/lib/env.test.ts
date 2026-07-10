@@ -148,6 +148,30 @@ describe('web environment', () => {
     expect(parsed).not.toHaveProperty('NEXT_PUBLIC_WEB_CONCIERGE_TOKEN');
   });
 
+  it.each([
+    {
+      name: 'non-canonical Base64 padding bits',
+      secret: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQB=',
+    },
+    {
+      name: 'a decoded key shorter than 32 bytes',
+      secret: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==',
+    },
+    {
+      name: 'invalid Base64 syntax',
+      secret: 'not-base64',
+    },
+  ])('rejects an analytics key with $name', ({ secret }) => {
+    // Given an otherwise valid production environment with malformed key material
+    const source = { ...BASE_ENV, ANALYTICS_HMAC_SECRET: secret };
+
+    // When the web parser validates the analytics key
+    const parse = () => loadWebEnv(source);
+
+    // Then startup fails without reflecting any key material
+    expect(parse).toThrowError('Web environment invalid: ANALYTICS_HMAC_SECRET');
+  });
+
   it('rejects a token-bearing concierge wallet URL', () => {
     // Given a complete Mini App config with credential-like query data in its URL
     const source = {
