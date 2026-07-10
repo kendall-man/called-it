@@ -103,9 +103,29 @@ test('verified wallet challenges are single-use, private, and relink guarded', a
       await verify(client, await createChallenge(client, OTHER_USER_ID, PUBKEY_A, HASH_A, 5), OTHER_USER_ID, PUBKEY_A, HASH_A),
       { ok: false, code: 'pubkey_reserved' },
     );
+    await assert.rejects(
+      client.query(
+        'insert into wager_wallet_links (user_id, pubkey, verified_at) values ($1, $2, now())',
+        [OTHER_USER_ID, PUBKEY_A],
+      ),
+      /violates foreign key constraint|null value in column "link_history_id"/,
+    );
+    const originalHistory = await client.query<{ id: number }>(
+      'select id from wager_wallet_link_history where user_id = $1 and pubkey = $2',
+      [USER_ID, PUBKEY_A],
+    );
+    const historyRow = originalHistory.rows[0];
+    assert.ok(historyRow);
+    await assert.rejects(
+      client.query(
+        'insert into wager_wallet_links (user_id, pubkey, verified_at, link_history_id) values ($1, $2, now(), $3)',
+        [OTHER_USER_ID, PUBKEY_A, historyRow.id],
+      ),
+      /violates foreign key constraint/,
+    );
     await assertWalletFunctionPrivileges(client, url);
   });
-  record('challenge race, TTL, wrong-user, relink blockers, accepted relink and permanent pubkey reservation matched typed outcomes');
+  record('challenge race, TTL, wrong-user, relink blockers, accepted relink and permanent pubkey reservation matched typed outcomes and structural constraints');
 });
 
 test('pending stake intents preserve immutable owner-bound state and consume once', async () => {

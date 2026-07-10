@@ -1,75 +1,98 @@
-Task 8 evidence: verified wallet challenges, append-only wallet history, current link, relink guards, and pending stake intents.
-
+Task 8 verification summary
+Date: 2026-07-11
 Worktree: /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
-Temporary PostgreSQL: initialized at /tmp/calledit-task8-pg.A1vPwv, listened on 127.0.0.1:55438, stopped and removed.
 
-Implemented files:
-- packages/db/migrations/0005_wallet_identity.sql
-- packages/db/src/wager-db-wallet.ts
-- packages/db/src/wager-db-wallet.test.ts
-- packages/db/src/wager-db-core.ts
-- packages/db/src/wager-db-row-parsers.ts
-- packages/db/src/wager-types.ts
-- packages/db/src/wager-db.ts
-- packages/db/src/index.ts
-- scripts/sql-harness.wallet-identity.test.ts
-- scripts/sql-harness/schema-checks.ts
-- scripts/sql-harness.starter-grant.test.ts
-- package.json
+Green checks
 
-Comment-only correction while owning packages/db/src/wager-db-core.ts:
-- Corrected stale OPEN_MARKET_STATUSES comment so frozen/settling are described as non-terminal solvency-scan statuses, not as open staking statuses.
-- Removed stale mention of a contained Supabase cast from the WagerDbClient comment; production clients are now described as structurally accepted.
+1. DB package tests
+Command:
+  npx -y pnpm@10.33.0 --filter @calledit/db test
+Result:
+  PASS - 5 files, 43 tests
 
-Focused package verification:
-- Command: npx -y pnpm@10.33.0 --filter @calledit/db test -- wager-db-wallet.test.ts
-  Result: pass, 5 files, 44 tests.
-- Command: npx -y pnpm@10.33.0 --filter @calledit/db typecheck
-  Result: pass.
-- Command: npx -y pnpm@10.33.0 --filter @calledit/db test
-  Result: pass, 5 files, 44 tests.
-- Command: npx -y pnpm@10.33.0 --filter @calledit/db build
-  Result: pass.
+2. Wallet identity SQL harness on disposable PostgreSQL
+Command:
+  DATABASE_URL=postgresql://localhost:55439/postgres node --test --import tsx scripts/sql-harness.wallet-identity.test.ts
+Result:
+  PASS - 3 tests
+Coverage in harness:
+  fresh and upgrade migrations
+  challenge race
+  plaintext secret absence
+  wrong-user and expiry refusal
+  relink blockers
+  permanent pubkey reservation
+  owner-only active intent resolution
+  immutable intent replay/conflict checks
+  single consume
+  service-role-only RPC privileges
 
-SQL/manual DB surface verification:
-- Command: DATABASE_URL=postgresql://sublime@127.0.0.1:55438/postgres npx -y pnpm@10.33.0 exec tsx --test --test-concurrency=1 scripts/sql-harness.wallet-identity.test.ts
-  Result: pass, 3 tests. Binary observable: node:test pass plus TAP artifact.
-  Artifact: .omo/evidence/task-8-called-it-direct-onboarding-remediation.sql.tap
-- Command: DATABASE_URL=postgresql://sublime@127.0.0.1:55438/postgres npx -y pnpm@10.33.0 test:sql
-  Result: pass, 14 tests; SQL harness applied 5 migrations and cleaned disposable DB.
-  Binary observable: fresh and upgrade migration validation, function privilege inspection, challenge race, intent race, and no-mutation snapshots all passed.
+3. Engine focused verification
+Command:
+  npx -y pnpm@10.33.0 --filter @calledit/engine test -- server.test.ts module.test.ts
+Observed result:
+  PASS - vitest executed 37 files / 309 tests in this package run
+Task-8-specific confirmations:
+  POST /api/groups/:chat/users/:user/wallet returns 404
+  /wallet with a pasted pubkey fails closed
 
-Task 8 acceptance scenarios covered:
-- Fresh migration: all tracked migrations 0001-0005 applied to disposable PostgreSQL and current schema validation passed.
-- Upgrade migration: 0001-0004 plus 0005 applied and current schema validation passed.
-- Challenge privacy: tables contain only 32-byte SHA-256 hashes; no plaintext challenge/intent key columns exist.
-- Challenge concurrency: two concurrent challenge completions produced one verified link and one challenge_invalid replay.
-- Challenge no-mutation failures: expired challenge, wrong user, and wrong field/hash paths returned typed refusals with unchanged current link snapshot.
-- Append-only/current link: verified link inserted one current row and append-only history row; relink added a new history row and moved current link.
-- Relink blockers: nonzero ledger balance, non-void position, and debited/submitted withdrawal each returned typed refusal.
-- Pubkey reservation: a previously linked pubkey could not be linked to another Telegram user after relink.
-- Pending intents: immutable replay returned the same intent, swapped side returned field_mismatch, conflicting active intent returned active_intent_exists.
-- Owner-only active intent resolution: owner saw the active intent; other user received not_found.
-- Intent transition/consume concurrency: funded intent moved ready, two concurrent consumes produced one consumed result and one not_ready; no position was auto-created.
-- Privileges: anon/authenticated/public cannot execute wallet/intent RPCs; service_role can; inspected functions are security definer with search_path=public.
+4. Script typecheck
+Command:
+  npx -y pnpm@10.33.0 typecheck:scripts
+Result:
+  PASS
 
-Adversarial classes:
-- malformed input: hash format, side, lamports, expired timestamps, swapped fields, wrong user, and malformed RPC payloads rejected.
-- dirty worktree: Task 2 and unrelated Task 7 files were present; staging was restricted to Task 8 files/hunks only.
-- stale state: fresh and upgrade disposable PostgreSQL databases were recreated per test; full SQL harness cleaned each database.
-- flaky tests/concurrency: challenge and consume races used real PostgreSQL pools and advisory/row locks.
-- misleading success output: pass claims were backed by TAP and node:test output, not logs alone.
-- hung commands: long commands were bounded by tool timeouts; no running PostgreSQL process remained.
-- prompt injection, cancel/resume, repeated interruptions: not applicable; no LLM prompt surface, resumable flow, or interrupt handler was added.
+5. Programming no-excuse review
+Command:
+  npx -y pnpm@10.33.0 exec tsx /Users/sublime/Seb/tg-bot-idea/.agents/skills/programming/scripts/typescript/check-no-excuse-rules.ts packages/db/src/wager-db-contract.ts packages/db/src/wager-db-core.ts packages/db/src/wager-db.ts packages/db/src/wager-db-account.ts packages/db/src/wager-db-wallet.ts packages/db/src/wager-db-rpc.ts packages/db/src/wager-db-operations.ts packages/db/src/wager-types.ts packages/db/src/index.ts packages/db/src/wager-db.test.ts packages/db/src/wager-db-boundary.test.ts apps/engine/src/api/server.test.ts scripts/sql-harness.wallet-identity.test.ts
+Result:
+  PASS - No violations in 13 file(s).
 
-Broader verification notes:
-- Command: npx -y pnpm@10.33.0 typecheck
-  Result: failed outside Task 8. callie typecheck cannot resolve apps/concierge/agent/runtime/telegram-forwarding.test.ts import ./telegram-forwarding.js, an unrelated Task 2 worktree change.
-- Command: npx -y pnpm@10.33.0 exec turbo run build --force
-  Result: failed because web build env NEXT_PUBLIC_TELEGRAM_BOT_USERNAME and NEXT_PUBLIC_TELEGRAM_STARTGROUP were unset.
-- Command: NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=calledit_test_bot NEXT_PUBLIC_TELEGRAM_STARTGROUP=calledit_v1 npx -y pnpm@10.33.0 exec turbo run build --force
-  Result: failed outside Task 8. @calledit/engine build reports apps/engine/src/wiring.test.ts expects dependencyErrorMessage export and passes a non-string expected error value; those are unrelated Task 2 worktree changes. @calledit/db build passed inside this root build before the unrelated failure.
+6. Diff hygiene
+Command:
+  git diff --check
+Result:
+  PASS
 
-Cleanup receipt:
-- Command: pg_ctl -D /tmp/calledit-task8-pg.A1vPwv/data stop && rm -rf /tmp/calledit-task8-pg.A1vPwv && test ! -d /tmp/calledit-task8-pg.A1vPwv
-  Result: cleanup ok, temporary PostgreSQL cluster removed.
+7. File-size gate
+Result:
+  packages/db/src/wager-db-core.ts -> 197 pure LOC
+  packages/db/src/wager-db-contract.ts -> 75 pure LOC
+
+Manual QA
+
+- Artifact: .omo/evidence/task-8-manual-qa.json
+- Scenario:
+  pasted valid base58 wallet address into /wallet with a matching orphan deposit seeded
+- Result:
+  reply used signed-ownership recovery copy
+  linked=false
+  credited_ledger_key_present=false
+  orphan_owner=null
+
+Cleanup
+
+- Artifact: .omo/evidence/task-8-cleanup.txt
+- Result:
+  disposable PostgreSQL server stopped and temp cluster directory removed
+
+Unrelated blockers preserved, not changed in Task 8
+
+1. Root typecheck
+Command:
+  npx -y pnpm@10.33.0 typecheck
+Result:
+  FAIL outside Task 8 scope
+  apps/engine/src/api/server-auth-boundary.test.ts(110,9): Type 'string[]' is not assignable to type 'string'.
+
+2. Root build
+Command:
+  NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=calledit_test_bot NEXT_PUBLIC_TELEGRAM_STARTGROUP=calledit_v1 npx -y pnpm@10.33.0 exec turbo run build --force
+Result:
+  FAIL outside Task 8 scope
+  apps/engine/src/api/server-auth-boundary.test.ts(110,9): Type 'string[]' is not assignable to type 'string'.
+  apps/engine/src/api/server-http.ts(113,44): Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Notes:
+    @calledit/web build compiled before the engine failure.
+    callie eve:build also passed separately.
+

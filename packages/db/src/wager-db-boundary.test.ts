@@ -18,11 +18,9 @@ describe('table query boundary', () => {
     wallet.fake.seed('wager_wallet_links', [{ user_id: USER_ID }]);
     await expect(wallet.db.getWalletLink(USER_ID)).rejects.toThrow(DbError);
 
-    const relink = makeHarness();
-    relink.fake.seed('wager_wallet_links', [{ user_id: USER_ID, pubkey: 99 }]);
-    await expect(
-      relink.db.linkWallet({ user_id: USER_ID, pubkey: 'valid-pubkey' }),
-    ).rejects.toThrow(DbError);
+    const walletByPubkey = makeHarness();
+    walletByPubkey.fake.seed('wager_wallet_links', [{ user_id: USER_ID, pubkey: 'valid-pubkey', created_at: 99 }]);
+    await expect(walletByPubkey.db.getWalletLinkByPubkey('valid-pubkey')).rejects.toThrow(DbError);
   });
 
   it('rejects malformed settlement and status rows selected from the database', async () => {

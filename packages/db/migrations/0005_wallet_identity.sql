@@ -53,6 +53,16 @@ set link_history_id = h.id
 from wager_wallet_link_history h
 where h.user_id = l.user_id and h.pubkey = l.pubkey;
 
+alter table wager_wallet_link_history
+  add constraint wager_wallet_link_history_id_user_pubkey_key unique (id, user_id, pubkey);
+
+alter table wager_wallet_links
+  add constraint wager_wallet_links_history_match
+  foreign key (link_history_id, user_id, pubkey)
+  references wager_wallet_link_history(id, user_id, pubkey);
+
+alter table wager_wallet_links alter column link_history_id set not null;
+
 create table wager_pending_stake_intents (
   id              uuid primary key default gen_random_uuid(),
   user_id         bigint not null references users(id),

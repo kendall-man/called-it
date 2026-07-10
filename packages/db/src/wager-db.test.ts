@@ -6,15 +6,7 @@ import {
   stakePayoutLamports,
   WAGER_MULT_SCALE,
 } from './wager-db.js';
-import {
-  GROUP_ID,
-  OTHER_USER_ID,
-  UNSAFE_BIGINT,
-  UNSAFE_INTEGER,
-  USER_ID,
-  ledgerEntry,
-  makeHarness,
-} from './wager-db-test-support.js';
+import { GROUP_ID, NOW_ISO, OTHER_USER_ID, UNSAFE_BIGINT, UNSAFE_INTEGER, USER_ID, ledgerEntry, makeHarness } from './wager-db-test-support.js';
 
 describe('liability math', () => {
   it('uses the frozen MULT_SCALE of 1000', () => {
@@ -76,51 +68,32 @@ describe('group opt-in', () => {
 
 describe('wallet links', () => {
   const PUBKEY_A = 'PubkeyAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-  const PUBKEY_B = 'PubkeyBbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
-  it('links, re-links (same user), and enforces first-link-wins on pubkeys', async () => {
+  it('reads the current wallet link and updates its routing breadcrumb only', async () => {
     const { db, fake } = makeHarness();
-    expect(await db.linkWallet({ user_id: USER_ID, pubkey: PUBKEY_A })).toEqual({
-      ok: true,
-      relinked: false,
-    });
-    // Another user claiming the same pubkey loses: first-link-wins.
-    expect(await db.linkWallet({ user_id: OTHER_USER_ID, pubkey: PUBKEY_A })).toEqual({
-      ok: false,
-      reason: 'pubkey_taken',
-    });
-    // Same pubkey again is idempotent, not a re-link.
-    expect(await db.linkWallet({ user_id: USER_ID, pubkey: PUBKEY_A })).toEqual({
-      ok: true,
-      relinked: false,
-    });
-    // The original owner can move to a new pubkey (future attribution moves).
-    expect(await db.linkWallet({ user_id: USER_ID, pubkey: PUBKEY_B })).toEqual({
-      ok: true,
-      relinked: true,
-    });
-    expect(fake.rows('wager_wallet_links')).toHaveLength(1);
-    expect((await db.getWalletLink(USER_ID))?.pubkey).toBe(PUBKEY_B);
-    expect(await db.getWalletLinkByPubkey(PUBKEY_A)).toBeNull();
-    expect((await db.getWalletLinkByPubkey(PUBKEY_B))?.user_id).toBe(USER_ID);
-  });
+    fake.seed('wager_wallet_links', [{
+      user_id: USER_ID,
+      pubkey: PUBKEY_A,
+      last_wager_group_id: GROUP_ID,
+      verified_at: NOW_ISO,
+      created_at: NOW_ISO,
+    }]);
 
-  it('keeps the first verified_at timestamp and supports unlink', async () => {
-    const { db, fake } = makeHarness();
-    await db.linkWallet({ user_id: USER_ID, pubkey: PUBKEY_A, last_wager_group_id: GROUP_ID });
-    expect(fake.rows('wager_wallet_links')[0]?.last_wager_group_id).toBe(GROUP_ID);
-    await db.markWalletVerified(USER_ID);
-    const first = fake.rows('wager_wallet_links')[0]?.verified_at;
-    expect(typeof first).toBe('string');
-    // Second verification must not move the timestamp (guarded by .is null).
-    await db.markWalletVerified(USER_ID);
-    expect(fake.rows('wager_wallet_links')[0]?.verified_at).toBe(first);
+    await expect(db.getWalletLink(USER_ID)).resolves.toEqual({
+      user_id: USER_ID,
+      pubkey: PUBKEY_A,
+      last_wager_group_id: GROUP_ID,
+      verified_at: NOW_ISO,
+      created_at: NOW_ISO,
+    });
+    await expect(db.getWalletLinkByPubkey(PUBKEY_A)).resolves.toMatchObject({
+      user_id: USER_ID,
+      pubkey: PUBKEY_A,
+    });
+    await expect(db.getWalletLinkByPubkey('missing')).resolves.toBeNull();
 
     await db.setLastWagerGroup(USER_ID, GROUP_ID + 1);
     expect(fake.rows('wager_wallet_links')[0]?.last_wager_group_id).toBe(GROUP_ID + 1);
-
-    await db.unlinkWallet(USER_ID);
-    expect(await db.getWalletLink(USER_ID)).toBeNull();
   });
 });
 

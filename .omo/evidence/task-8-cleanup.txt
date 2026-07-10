@@ -1,0 +1,3 @@
+waiting for server to shut down.... done
+server stopped
+removed=/tmp/calledit-task8-pg.LP1y7A

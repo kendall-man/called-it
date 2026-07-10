@@ -7,9 +7,8 @@ import {
   isWithdrawErrorCode,
   lamportsToDb,
   parseRpcOutcome,
-  type WagerDb,
-  type WagerDbClient,
 } from './wager-db-core.js';
+import type { WagerDb, WagerDbClient } from './wager-db-contract.js';
 import type { WagerStakeErrorCode, WagerWithdrawErrorCode } from './wager-types.js';
 
 type RpcDb = Pick<WagerDb, 'wagerStake' | 'requestWithdrawal'>;

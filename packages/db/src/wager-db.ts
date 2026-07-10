@@ -2,8 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { accountDbMethods } from './wager-db-account.js';
 import {
   requireWagerDbClient,
-  type WagerDb,
 } from './wager-db-core.js';
+import type { WagerDb } from './wager-db-contract.js';
 import { operationsDbMethods } from './wager-db-operations.js';
 import { rpcDbMethods } from './wager-db-rpc.js';
 import { walletDbMethods } from './wager-db-wallet.js';
@@ -13,11 +13,13 @@ export {
   multMilli,
   stakePayoutLamports,
   WAGER_MULT_SCALE,
-  type WagerDb,
-  type WagerDbClient,
-  type WagerFilterBuilder,
-  type WagerTableBuilder,
 } from './wager-db-core.js';
+export type {
+  WagerDb,
+  WagerDbClient,
+  WagerFilterBuilder,
+  WagerTableBuilder,
+} from './wager-db-contract.js';
 
 export function createWagerDb(url: string, serviceRoleKey: string): WagerDb {
   const client = createClient(url, serviceRoleKey, {

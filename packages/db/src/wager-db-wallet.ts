@@ -3,9 +3,8 @@ import {
   isUuid,
   lamportsFromDb,
   lamportsToDb,
-  type WagerDb,
-  type WagerDbClient,
 } from './wager-db-core.js';
+import type { WagerDb, WagerDbClient } from './wager-db-contract.js';
 import { parsePendingStakeIntentRow } from './wager-db-row-parsers.js';
 import type {
   CreatePendingStakeIntentResult,

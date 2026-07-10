@@ -7,9 +7,8 @@ import {
   SETTLED_MARKET_STATUSES,
   WAGER_STATUS_ROW_ID,
   withdrawalFromRaw,
-  type WagerDb,
-  type WagerDbClient,
 } from './wager-db-core.js';
+import type { WagerDb, WagerDbClient } from './wager-db-contract.js';
 import {
   manyRows,
   maybeRow,

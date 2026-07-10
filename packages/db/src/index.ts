@@ -75,7 +75,6 @@ export type {
   WagerStakeInput,
   WagerStakeResult,
   WagerStatusRow,
-  WagerWalletLinkInsert,
   WagerWalletLinkRow,
   WagerWithdrawErrorCode,
   WagerWithdrawResult,
@@ -84,5 +83,4 @@ export type {
   VerifiedWalletLinkErrorCode,
   VerifiedWalletLinkInput,
   VerifiedWalletLinkResult,
-  WalletLinkResult,
 } from './wager-types.js';

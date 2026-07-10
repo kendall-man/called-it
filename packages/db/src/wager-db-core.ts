@@ -22,31 +22,19 @@
  *   arguments and type-checks their jsonb results.
  */
 
-import type { MarketStatus, SettlementOutcome } from '@calledit/market-engine';
+import type { MarketStatus } from '@calledit/market-engine';
 import { assertOk, DbError, type PgResult } from './errors.js';
 import type { RawDepositRow, RawWithdrawalRow } from './wager-db-row-parsers.js';
 import type {
-  WagerDepositInsert,
   WagerDepositRow,
-  WagerLedgerEntry,
-  CreatePendingStakeIntentResult,
-  MutatePendingStakeIntentResult,
-  PendingStakeIntentInput,
   WagerStakeErrorCode,
-  WagerStakeInput,
-  WagerStakeResult,
-  WagerStatusRow,
-  ResolvePendingStakeIntentResult,
-  VerifiedWalletLinkInput,
-  VerifiedWalletLinkResult,
-  WagerWalletLinkInsert,
-  WagerWalletLinkRow,
   WagerWithdrawErrorCode,
-  WagerWithdrawResult,
   WagerWithdrawalRow,
   WagerWithdrawalState,
-  WalletLinkResult,
 } from './wager-types.js';
+import type {
+  WagerDbClient,
+} from './wager-db-contract.js';
 
 // ── Shared quantization math (single JS mirror of the wager_stake SQL) ─────
 
@@ -111,9 +99,6 @@ export function lamportsToDb(op: string, value: bigint): number {
 
 // ── Constants (mirroring CHECK constraints / engine semantics) ─────────────
 
-/** Postgres unique_violation — linkWallet maps it to first-link-wins. */
-export const UNIQUE_VIOLATION = '23505';
-
 /** Non-terminal SOL market statuses used by solvency scans; stake RPCs still gate entry. */
 export const OPEN_MARKET_STATUSES: readonly MarketStatus[] = [
   'pending_lineup',
@@ -133,37 +118,6 @@ export const WAGER_STATUS_ROW_ID = 1;
 
 export function nowIso(): string {
   return new Date().toISOString();
-}
-
-// ── Minimal structural client (lets tests inject an in-memory fake) ────────
-
-export type Row = Record<string, unknown>;
-
-export interface WagerFilterBuilder extends PromiseLike<PgResult<unknown>> {
-  eq(column: string, value: unknown): WagerFilterBuilder;
-  in(column: string, values: readonly unknown[]): WagerFilterBuilder;
-  is(column: string, value: null): WagerFilterBuilder;
-  select(columns?: string): WagerFilterBuilder;
-  maybeSingle(): PromiseLike<PgResult<unknown>>;
-}
-
-export interface WagerTableBuilder {
-  select(columns?: string): WagerFilterBuilder;
-  upsert(
-    values: object,
-    options?: { onConflict?: string; ignoreDuplicates?: boolean },
-  ): WagerFilterBuilder;
-  update(values: object): WagerFilterBuilder;
-  delete(): WagerFilterBuilder;
-}
-
-/**
- * The slice of SupabaseClient the wager façade actually uses. Hermetic tests
- * implement this shape in memory; production clients are accepted by structure.
- */
-export interface WagerDbClient {
-  from(table: string): WagerTableBuilder;
-  rpc(fn: string, args: Record<string, unknown>): PromiseLike<PgResult<unknown>>;
 }
 
 function isWagerDbClient(value: unknown): value is WagerDbClient {
@@ -275,88 +229,4 @@ export function parseRpcOutcome<C extends string>(
     throw new DbError(op, { message: `unrecognized RPC error code: ${String(payload.code)}` });
   }
   throw new DbError(op, { message: 'malformed RPC payload: missing ok flag' });
-}
-
-// ── Façade interface ───────────────────────────────────────────────────────
-
-export interface WagerDb {
-  // group opt-in
-  setGroupEnabled(groupId: number, enabled: boolean, byUserId: number): Promise<void>;
-  isGroupEnabled(groupId: number): Promise<boolean>;
-
-  // wallet links
-  getWalletLink(userId: number): Promise<WagerWalletLinkRow | null>;
-  getWalletLinkByPubkey(pubkey: string): Promise<WagerWalletLinkRow | null>;
-  /**
-   * Upsert on user_id (re-linking moves future attribution and resets
-   * verification); pubkey_taken when another user already claimed the pubkey
-   * (first-link-wins via the unique constraint).
-   */
-  linkWallet(input: WagerWalletLinkInsert): Promise<WalletLinkResult>;
-  setLastWagerGroup(userId: number, groupId: number): Promise<void>;
-  /** Stamps verified_at once (first credited deposit); later calls no-op. */
-  markWalletVerified(userId: number): Promise<void>;
-  /** Ops escape hatch for the accepted link-squatting risk. */
-  unlinkWallet(userId: number): Promise<void>;
-
-  // ledger (user-global lamport balances)
-  /** Idempotent append; inserted=false when the idempotency key already exists. */
-  postWagerLedger(entry: WagerLedgerEntry): Promise<{ inserted: boolean }>;
-  /** User-global balance (sum of all ledger rows for the user). */
-  balanceLamports(userId: number): Promise<bigint>;
-  /** Σ over ALL wager_ledger_entries — total user credit the treasury owes. */
-  totalLedgerLamports(): Promise<bigint>;
-
-  // deposits (idempotent on UNIQUE(tx_sig, ix_index))
-  upsertDeposit(row: WagerDepositInsert): Promise<{ inserted: boolean }>;
-  /** Attribute a deposit exactly once; re-credits never move attribution. */
-  markDepositCredited(txSig: string, ixIndex: number, userId: number): Promise<void>;
-  /** Uncredited rows (user_id null) from this sender — the /wallet link sweep. */
-  orphanDepositsBySender(pubkey: string): Promise<WagerDepositRow[]>;
-
-  // withdrawals outbox
-  withdrawalsInState(state: WagerWithdrawalState): Promise<WagerWithdrawalRow[]>;
-  /**
-   * Persist signed-tx facts and flip to 'submitted' BEFORE broadcast. Legal
-   * from 'debited' (first sign) and 'submitted' (re-sign after blockheight
-   * expiry); any other state no-ops so terminal rows stay immutable.
-   */
-  markWithdrawalSubmitted(
-    id: string,
-    tx: { tx_sig: string; raw_tx_b64: string; last_valid_block_height: number },
-  ): Promise<void>;
-  /** Legal only from 'submitted'; no-ops otherwise. */
-  markWithdrawalConfirmed(id: string): Promise<void>;
-  /** Legal from 'debited'/'submitted'; the caller posts the withdrawal_refund credit. */
-  markWithdrawalFailed(id: string, error: string): Promise<void>;
-
-  // settlements (money-movement marker, separate from settlements.posted_at)
-  /** Feed-locked probability of the market (the peer-match ratio input). */
-  getMarketProbability(marketId: string): Promise<number | null>;
-  getSettlementOutcome(marketId: string): Promise<SettlementOutcome | null>;
-  hasSettlementApplied(marketId: string): Promise<boolean>;
-  /** Upsert-ignore on market_id; duplicates no-op. */
-  insertSettlementApplied(marketId: string): Promise<void>;
-  /** Settled/voided SOL markets missing the applied marker (sweeper input). */
-  settledSolMarketsMissingApplied(): Promise<string[]>;
-
-  // circuit breaker (wager_status single row)
-  getWagerStatus(): Promise<WagerStatusRow>;
-  setWagerStatus(paused: boolean, reason: string | null): Promise<void>;
-
-  // solvency support
-  /** Open SOL markets whose worst-case liability the solvency cron sums. */
-  openSolMarketIds(): Promise<string[]>;
-
-  // atomic security-definer RPCs (pg_advisory_xact_lock per user inside)
-  wagerStake(args: WagerStakeInput): Promise<WagerStakeResult>;
-  /** dest_pubkey is resolved from the wallet link INSIDE the function. */
-  requestWithdrawal(args: { user_id: number; lamports: bigint }): Promise<WagerWithdrawResult>;
-
-  verifyWalletLink(args: VerifiedWalletLinkInput): Promise<VerifiedWalletLinkResult>;
-  createPendingStakeIntent(args: PendingStakeIntentInput): Promise<CreatePendingStakeIntentResult>;
-  resolveActiveStakeIntent(userId: number): Promise<ResolvePendingStakeIntentResult>;
-  markStakeIntentFunded(userId: number, intentId: string): Promise<MutatePendingStakeIntentResult>;
-  consumeReadyStakeIntent(userId: number, intentId: string): Promise<ResolvePendingStakeIntentResult>;
-  cancelStakeIntent(userId: number, intentId: string): Promise<MutatePendingStakeIntentResult>;
 }

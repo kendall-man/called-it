@@ -5,11 +5,8 @@ import {
   lamportsFromDb,
   lamportsToDb,
   nowIso,
-  UNIQUE_VIOLATION,
-  type Row,
-  type WagerDb,
-  type WagerDbClient,
 } from './wager-db-core.js';
+import type { WagerDb, WagerDbClient } from './wager-db-contract.js';
 import {
   manyRows,
   maybeRow,
@@ -17,7 +14,6 @@ import {
   parseEnabledRow,
   parseLamportsRow,
   parseNumericIdRow,
-  parsePubkeyRow,
   parseWalletLinkRow,
 } from './wager-db-row-parsers.js';
 
@@ -27,10 +23,7 @@ type AccountDb = Pick<
   | 'isGroupEnabled'
   | 'getWalletLink'
   | 'getWalletLinkByPubkey'
-  | 'linkWallet'
   | 'setLastWagerGroup'
-  | 'markWalletVerified'
-  | 'unlinkWallet'
   | 'postWagerLedger'
   | 'balanceLamports'
   | 'totalLedgerLamports'
@@ -78,27 +71,6 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
       );
     },
 
-    async linkWallet(input) {
-      // Lookup-then-upsert: the lookup only feeds the cosmetic relinked flag,
-      // so its benign race window costs nothing. verified_at resets on every
-      // (re-)link — verification belongs to the linked pubkey, not the user.
-      const existing = await maybeRow(
-        'linkWallet.lookup',
-        client.from('wager_wallet_links').select('pubkey').eq('user_id', input.user_id).maybeSingle(),
-        parsePubkeyRow,
-      );
-      const row: Row = { user_id: input.user_id, pubkey: input.pubkey, verified_at: null };
-      if (input.last_wager_group_id !== undefined) {
-        row.last_wager_group_id = input.last_wager_group_id;
-      }
-      const result = await client
-        .from('wager_wallet_links')
-        .upsert(row, { onConflict: 'user_id' });
-      if (result.error?.code === UNIQUE_VIOLATION) return { ok: false, reason: 'pubkey_taken' };
-      assertOk('linkWallet', result);
-      return { ok: true, relinked: existing !== null && existing.pubkey !== input.pubkey };
-    },
-
     async setLastWagerGroup(userId, groupId) {
       assertOk(
         'setLastWagerGroup',
@@ -106,25 +78,6 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
           .from('wager_wallet_links')
           .update({ last_wager_group_id: groupId })
           .eq('user_id', userId),
-      );
-    },
-
-    async markWalletVerified(userId) {
-      // .is(null) guard keeps the FIRST verification timestamp.
-      assertOk(
-        'markWalletVerified',
-        await client
-          .from('wager_wallet_links')
-          .update({ verified_at: nowIso() })
-          .eq('user_id', userId)
-          .is('verified_at', null),
-      );
-    },
-
-    async unlinkWallet(userId) {
-      assertOk(
-        'unlinkWallet',
-        await client.from('wager_wallet_links').delete().eq('user_id', userId),
       );
     },
 

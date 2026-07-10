@@ -57,7 +57,7 @@ export interface WagerWalletLinkRow {
   pubkey: string;
   /** Notification routing only (deposit-credited group post) — never fund routing. */
   last_wager_group_id: number | null;
-  /** Set when the first deposit from this pubkey is credited. */
+  /** Set when signed ownership verification installs the current link. */
   verified_at: string | null;
   created_at: string;
 }
@@ -158,19 +158,6 @@ export interface WagerDepositInsert {
   lamports: bigint;
   slot: number;
 }
-
-export interface WagerWalletLinkInsert {
-  user_id: number;
-  pubkey: string;
-  /** Optional so callers may set routing later via setLastWagerGroup. */
-  last_wager_group_id?: number | null;
-}
-
-export type WalletLinkResult =
-  /** relinked=true when the user replaced an earlier link of their own. */
-  | { ok: true; relinked: boolean }
-  /** First-link-wins: the pubkey is already claimed by another user. */
-  | { ok: false; reason: 'pubkey_taken' };
 
 export type VerifiedWalletLinkErrorCode =
   | 'challenge_invalid'

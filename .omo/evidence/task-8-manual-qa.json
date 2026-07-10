@@ -1,0 +1,9 @@
+{
+  "input": "<redacted-pubkey>",
+  "replies": [
+    "Wallet setup requires signed ownership verification. Pasted wallet addresses are not accepted, and no account state changed. Setup is not available yet; use /me to review your account."
+  ],
+  "linked": false,
+  "credited_ledger_key_present": false,
+  "orphan_owner": null
+}

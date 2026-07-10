@@ -39,6 +39,20 @@ describe('engine application API', () => {
     });
   });
 
+  it('does not expose a raw wallet-linking mutation route', async () => {
+    const harness = await startHarness();
+    const response = await fetch(
+      `${harness.base}/api/groups/${CHAT_ID}/users/${USER_ID}/wallet`,
+      {
+        method: 'POST',
+        headers: authed,
+        body: JSON.stringify({ pubkey: 'RawWalletPubkey111111111111111111111111111' }),
+      },
+    );
+
+    expect(response.status).toBe(404);
+  });
+
   it('rejects Telegram forwarding when webhook ingress is not installed', async () => {
     const harness = await startHarness();
     const response = await fetch(`${harness.base}/api/telegram-ingress`, {
