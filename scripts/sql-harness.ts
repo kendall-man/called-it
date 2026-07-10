@@ -6,10 +6,9 @@ import {
 } from './sql-harness/runner.js';
 import {
   connectionStringForDatabase,
-  dropCreatedRoles,
-  ensureRequiredRoles,
+  postgresRoleOperations,
+  withRequiredRoles,
   withPgClient,
-  type RequiredRole,
 } from './sql-harness/postgres.js';
 import { validateCalledItSchema } from './sql-harness/schema-checks.js';
 
@@ -24,10 +23,8 @@ export async function main(): Promise<void> {
 
   const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
   const databaseName = createDisposableDatabase();
-  const createdRoles: RequiredRole[] = [];
   await withPgClient(connectionString, async (admin) => {
-    createdRoles.push(...(await ensureRequiredRoles(admin)));
-    try {
+    await withRequiredRoles(postgresRoleOperations(admin), async () => {
       await runSqlHarness({
         admin,
         migrationFiles: migrations,
@@ -49,9 +46,7 @@ export async function main(): Promise<void> {
           await withPgClient(disposableUrl, validateCalledItSchema);
         },
       });
-    } finally {
-      await dropCreatedRoles(admin, createdRoles);
-    }
+    });
   });
 
   console.log(`SQL harness applied ${migrations.length} migrations to ${databaseName} and cleaned it up`);

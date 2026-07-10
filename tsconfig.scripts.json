@@ -14,10 +14,12 @@
   },
   "include": [
     "scripts/check-workflow.ts",
+    "scripts/check-workflow.test.ts",
     "scripts/run-concierge-build.ts",
     "scripts/run-browser-tests.ts",
     "scripts/sql-harness.ts",
     "scripts/sql-harness.test.ts",
+    "scripts/sql-harness.integration.test.ts",
     "scripts/sql-harness/**/*.ts"
   ]
 }

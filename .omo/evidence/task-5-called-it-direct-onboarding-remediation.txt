@@ -112,3 +112,88 @@ Code-quality audit
 
 Shared worktree note
 - Concurrent Task 4 files are present in the worktree and were not staged or modified by this task.
+
+Independent review follow-up (supersedes earlier counts where different)
+Date: 2026-07-10
+
+Findings closed
+1. apps/concierge/package.json now exposes build -> eve:build. eve:build and root build:concierge share scripts/run-concierge-build.ts, which injects validated non-secret build placeholders and invokes the raw Eve CLI without recursion.
+2. apps/engine/package.json, apps/web/package.json, and packages/db/package.json now use strict `vitest run`; active package manifests contain no --passWithNoTests escape.
+3. Schema validation requires the exact supabase_realtime membership: public.markets, public.proofs, and public.settlements. Missing and unexpected members are both rejected.
+4. Required-role setup and each successful creation now occur inside cleanup protection. Only roles created by the harness are tracked and dropped in reverse order; pre-existing roles are preserved.
+5. Workflow YAML and Turbo dry-run JSON are accepted as unknown and structurally narrowed. Major-only action refs such as actions/checkout@v4 fail, while actions/checkout@v4.2.2 and a 40-character SHA pass.
+
+Red-green evidence
+- Turbo build parity red: `npx -y pnpm@10.33.0 exec turbo run build --dry=json --filter=callie` reported `callie#build.command=<NONEXISTENT>` before the package script. Green: the same task resolves to `pnpm run eve:build`; the focused checker test passes.
+- Floating action red: the actions/checkout@v4 fixture checker exited 0 and `rejects a major-only GitHub Action version` failed. Green: 6 workflow tests pass and the fixture is rejected as `floating actions: actions/checkout@v4`.
+- Structured YAML red: a sequence-valued jobs fixture fell through to `workflow missing command`. Green: it is rejected as `workflow jobs must be a mapping`.
+- Active package red: live `test:workflow` exited 1 and named apps/engine/package.json, apps/web/package.json, and packages/db/package.json. Green: the same command exits 0 and the fixture-only rejection test passes.
+- Publication red: after removing proofs from supabase_realtime on PostgreSQL 17.10, the validator produced `Missing expected rejection`. Green: missing public.proofs and unexpected public.groups are independently rejected, and each disposable database is dropped.
+- Partial-role red: the deterministic test ended with roles `authenticated, anon`. Green: only pre-existing `authenticated` remains; the real PostgreSQL injected-failure test proves the same catalog state.
+- Runnable build red: `npx -y pnpm@10.33.0 --filter callie build` exited 1 on missing validated build inputs. Green: it exits 0, invokes Eve, and emits apps/concierge/.output (6.1 MB total server size).
+
+Fresh happy-path verification
+1. Frozen install
+   Invocation: npx -y pnpm@10.33.0 install --frozen-lockfile
+   Exit code: 0
+   Observable: all 9 workspace projects; lockfile up to date; pnpm 10.33.0.
+
+2. Focused suites
+   - callie test: exit 0; 9 files, 42 tests passed.
+   - @calledit/engine test: exit 0; 30 files, 266 tests passed.
+   - @calledit/web test: exit 0; 6 files, 50 tests passed.
+   - @calledit/db test: exit 0; 1 file, 34 tests passed.
+   - test:workflow: exit 0; 6 tests passed; 7 workflow steps parsed; callie#build resolved to pnpm run eve:build.
+   - test:sql: exit 0; 7 tests passed; 3 tracked migrations applied and cleaned.
+
+3. Turbo build parity
+   Dry run: npx -y pnpm@10.33.0 exec turbo run build --dry
+   Exit code: 0
+   Observable: 8 packages and 8 build tasks; callie#build command is `pnpm run eve:build`, never NONEXISTENT.
+   Actual: NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=calledit_test_bot NEXT_PUBLIC_TELEGRAM_STARTGROUP=calledit_v1 npx -y pnpm@10.33.0 exec turbo run build --force
+   Exit code: 0
+   Observable: 8 successful / 8 total, 0 cached, 10.917s; Eve and Next production builds completed.
+
+4. Full root verify
+   Invocation: DATABASE_URL=postgresql://postgres@127.0.0.1:<random>/postgres npx -y pnpm@10.33.0 verify
+   Exit code: 0
+   Turbo observable: 24 successful / 24 total, 0 cached, 16.202s; all typecheck/test/build tasks forced.
+   Package tests: 69 files, 1,076 passed, 80 skipped.
+   Per package: callie 42; market-engine 195; solana 110; agent 178 passed/80 skipped; txline 201; db 34; web 50; engine 266.
+   Eve observable: Turbo callie build and explicit root build:concierge both succeeded; server size 6.1 MB.
+   Product copy: 11 checker tests passed; contract PASS across 44 files.
+   Workflow: 6 tests passed; YAML parsed with 7 steps; exact action refs accepted and major-only refs rejected.
+   SQL: 7 tests passed; 3 migrations applied to calledit_ci_5c7e18fa_50cf_4619_8952_7f5ab9858cf0 and cleaned.
+
+Fresh PostgreSQL and cleanup receipt
+- Binary: /opt/homebrew/opt/postgresql@17/bin/postgres
+- Version: PostgreSQL 17.10 (Homebrew)
+- Cluster: new initdb data directory under /tmp/calledit-task5-pg.1cLs3R, loopback trust auth, random port 60690.
+- Success: test:sql exit 0 with missing-member, extra-member, real partial-role, discovery, migration-failure cleanup, name, and deterministic role tests (7 total).
+- Publication failures: both catalog mutation tests rejected schema drift and verified the disposable database was absent.
+- Partial role failure: service_role creation was injected to fail after anon creation while authenticated pre-existed; final catalog contained only authenticated, followed by test cleanup.
+- Post-verify catalog query: `db=0`, `roles=0` for calledit_ci databases and anon/authenticated/service_role.
+- Final cleanup: pg_ctl stopped the server; /tmp/calledit-task5-pg.1cLs3R was removed; TCP port 60690 had no listener.
+
+Fresh failure-path proof
+- Bad connection: DATABASE_URL pointed to loopback port 1; test:sql exited 1 with ECONNREFUSED. Unit tests still passed and integration tests failed loudly.
+- Invalid concierge: disposable fixture /tmp/calledit-task5-invalid-concierge-20260710; forced Turbo callie typecheck exited 2 with TS2322 and `Failed: callie#typecheck`; fixture removed.
+- Malformed migration: disposable fixture /tmp/calledit-task5-bad-sql-20260710 added 9999_bad.sql; real harness exited 1 with `function definitely_not_a_real_function() does not exist`; catalog cleanup returned `db=0`, `roles=0`; fixture removed.
+- Browser entry: test:e2e exited 1 with `No browser tests found under tests/e2e; refusing to pass an empty suite`.
+
+Follow-up code-quality audit
+- Programming no-excuse checker: exit 0, `No violations in 12 file(s)` across all Task 5 TypeScript surfaces.
+- Follow-up pure LOC: check-workflow.ts 167; check-workflow.test.ts 107; run-concierge-build.ts 31; sql-harness.ts 54; sql-harness.test.ts 82; sql-harness.integration.test.ts 116; postgres.ts 75; runner.ts 55; schema-checks.ts 157. All <=250.
+- No `any`, assertion escapes, ignore directives, non-null assertions, empty catches, continue-on-error, or test weakening.
+- Active package manifests contain zero passWithNoTests occurrences; the only remaining text is the checker and its deliberate failing fixture.
+- JSON manifests parse through frozen install and package tooling; workflow YAML parses through unknown narrowing; Turbo JSON parses through unknown narrowing.
+- pnpm-lock.yaml required no change because only scripts changed; frozen install proves lock parity.
+- Task 4 readiness/server/ports/wiring/lifecycle source and tests were not edited or reverted.
+
+Direct final review gate
+- Goal and constraints: PASS; each independent-review finding maps to production behavior plus red-green evidence above.
+- Hands-on QA: PASS; actual Turbo/Eve builds, root verify, real PostgreSQL success/failure paths, and empty browser-suite refusal were executed.
+- Code quality: PASS; strict typecheck, no-excuse, pure-LOC, diff-check, and meaningful unit/integration coverage are green.
+- Security: PASS; child commands are fixed, role identifiers come from a closed union, pre-existing roles are never tracked for deletion, and no environment values were read or printed.
+- Context and scope: PASS; publication members match 0001_init.sql exactly, workspace scanning matches pnpm-workspace.yaml, and concurrent Task 4 files were excluded.
+- Review execution was direct in the dedicated worktree because the task explicitly prohibited spawning reviewers.

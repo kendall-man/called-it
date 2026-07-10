@@ -8,8 +8,9 @@
     "node": ">=24"
   },
   "scripts": {
+    "build": "pnpm run eve:build",
     "dev": "eve dev",
-    "eve:build": "eve build",
+    "eve:build": "tsx ../../scripts/run-concierge-build.ts",
     "eve:start": "eve start",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"

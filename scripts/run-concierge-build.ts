@@ -23,7 +23,7 @@ const BUILD_ENV = {
   PORT: '8080',
 } as const satisfies NodeJS.ProcessEnv;
 
-const result = spawnSync('pnpm', ['--filter', 'callie', 'eve:build'], {
+const result = spawnSync('pnpm', ['--filter', 'callie', 'exec', 'eve', 'build'], {
   stdio: 'inherit',
   env: { ...process.env, ...BUILD_ENV },
 });

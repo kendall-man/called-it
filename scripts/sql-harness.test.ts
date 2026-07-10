@@ -9,6 +9,11 @@ import {
   runSqlHarness,
   type AdminConnection,
 } from './sql-harness/runner.js';
+import {
+  withRequiredRoles,
+  type RequiredRole,
+  type RoleOperations,
+} from './sql-harness/postgres.js';
 
 test('discovers tracked SQL migrations in lexical order', async () => {
   // Given a migration directory with SQL files and unrelated files
@@ -71,4 +76,30 @@ test('creates disposable database names with the expected prefix', () => {
   assert.match(first, /^calledit_ci_[a-z0-9_]+$/);
   assert.match(second, /^calledit_ci_[a-z0-9_]+$/);
   assert.notEqual(first, second);
+});
+
+test('cleans partially created roles without dropping pre-existing roles', async () => {
+  // Given one pre-existing role and a failure after the harness creates another role
+  const existing = new Set<RequiredRole>(['authenticated']);
+  const operations: RoleOperations = {
+    roleExists: async (role) => existing.has(role),
+    createRole: async (role) => {
+      if (role === 'service_role') {
+        throw new Error('injected role creation failure');
+      }
+      existing.add(role);
+    },
+    dropRole: async (role) => {
+      existing.delete(role);
+    },
+  };
+
+  // When required-role setup fails partway through
+  await assert.rejects(
+    withRequiredRoles(operations, async () => undefined),
+    /injected role creation failure/,
+  );
+
+  // Then only the role that existed before the harness remains
+  assert.deepEqual([...existing], ['authenticated']);
 });

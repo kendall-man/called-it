@@ -41,6 +41,12 @@ const EXPECTED_FUNCTIONS = [
   'wager_stake(bigint,bigint,uuid,text,bigint,double precision,text,bigint,text)',
 ] as const;
 
+const EXPECTED_REALTIME_MEMBERS = [
+  'public.markets',
+  'public.proofs',
+  'public.settlements',
+] as const;
+
 type RelationRow = {
   readonly relname: string;
   readonly relkind: 'r' | 'v';
@@ -57,11 +63,17 @@ type FunctionRow = {
   readonly public_can_execute: boolean;
 };
 
+type PublicationMemberRow = {
+  readonly schemaname: string;
+  readonly tablename: string;
+};
+
 export async function validateCalledItSchema(client: Client): Promise<void> {
   const relationRows = await loadRelations(client);
   assertRelations(relationRows, EXPECTED_TABLES, 'r');
   assertRelations(relationRows, EXPECTED_VIEWS, 'v');
   assertPrivateTableRls(relationRows);
+  await assertRealtimePublication(client);
   await assertFunctionPrivileges(client);
 }
 
@@ -95,6 +107,29 @@ function assertPrivateTableRls(rows: readonly RelationRow[]): void {
   if (missingRls.length > 0) {
     throw new Error(`private tables without RLS: ${missingRls.join(', ')}`);
   }
+}
+
+async function assertRealtimePublication(client: Client): Promise<void> {
+  const result = await client.query<PublicationMemberRow>(
+    `select schemaname, tablename
+     from pg_publication_tables
+     where pubname = 'supabase_realtime'`,
+  );
+  const present = new Set(
+    result.rows.map((row) => `${row.schemaname}.${row.tablename}`),
+  );
+  const missing = EXPECTED_REALTIME_MEMBERS.filter((member) => !present.has(member));
+  const expected = new Set<string>(EXPECTED_REALTIME_MEMBERS);
+  const unexpected = [...present].filter((member) => !expected.has(member)).sort();
+  if (missing.length === 0 && unexpected.length === 0) {
+    return;
+  }
+
+  const differences = [
+    ...(missing.length === 0 ? [] : [`missing ${missing.join(', ')}`]),
+    ...(unexpected.length === 0 ? [] : [`unexpected ${unexpected.join(', ')}`]),
+  ];
+  throw new Error(`realtime publication membership mismatch: ${differences.join('; ')}`);
 }
 
 async function assertFunctionPrivileges(client: Client): Promise<void> {
