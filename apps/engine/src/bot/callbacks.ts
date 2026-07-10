@@ -18,6 +18,7 @@ import { mintOffer, retryOffer } from '../pipeline/offer.js';
 import { voidAbandonedMarket } from '../pipeline/void.js';
 import { composeClaimCard } from '../pipeline/render.js';
 import { renderFallback } from './copy.js';
+import { WAGER_TUNABLES } from '../wager/constants.js';
 
 async function answer(ctx: Context, text: string): Promise<void> {
   try {
@@ -246,6 +247,11 @@ async function handleStake(
     await stale(h, ctx);
     return;
   }
+  const callbackId = ctx.callbackQuery?.id;
+  if (callbackId === undefined) {
+    await stale(h, ctx);
+    return;
+  }
   // In-play cutoff — no new bets once a match is deep enough that a stake would
   // be a near-certain snipe.
   const fixture = await h.deps.db.getFixture(market.fixture_id);
@@ -263,6 +269,13 @@ async function handleStake(
     lamports,
     inPlay,
     nowMs: h.deps.now(),
+    source:
+      lamports === WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0] &&
+      h.deps.env.STARTER_GRANTS_ENABLED &&
+      h.deps.env.WALLET_MINIAPP_ENABLED &&
+      h.deps.env.STAKE_ACCEPTANCE_ENABLED
+        ? { kind: 'telegram_default_card', callbackId }
+        : { kind: 'telegram_card', callbackId },
   });
   await answer(ctx, result.reply);
   if (result.placed) await refreshStakeCard(h, chatId, market.id);

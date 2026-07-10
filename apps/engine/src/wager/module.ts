@@ -41,6 +41,7 @@ export type {
   WagerPoster,
   WagerSettlementOutcome,
   WagerStakeTapArgs,
+  WagerStakeTapSource,
 } from './port.js';
 
 function commandArg(ctx: WagerCommandCtx): string {

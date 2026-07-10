@@ -5,17 +5,18 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  dedupeReceipts,
   evidenceFromRow,
-  pickBestReceiptRow,
+  groupBoardMarketFromRow,
   receiptFromRow,
   type EvidenceFact,
+  type PublicGroupBoardMarket,
   type PublicReceipt,
 } from './receipts';
 
 export type QueryResult<T> = { ok: true; data: T } | { ok: false; message: string };
 
 const RECEIPTS_VIEW = 'public_receipts';
+const GROUP_BOARD_VIEW = 'public_group_board';
 const EVIDENCE_VIEW = 'public_evidence';
 
 const GROUP_RECEIPTS_FETCH_LIMIT = 60;
@@ -41,7 +42,7 @@ export async function fetchReceipt(
     .select('*')
     .eq('market_id', marketId);
   if (error) return { ok: false, message: error.message };
-  return { ok: true, data: pickBestReceiptRow(mapRows(data, receiptFromRow)) };
+  return { ok: true, data: mapRows(data, receiptFromRow)[0] ?? null };
 }
 
 export async function fetchEvidence(
@@ -77,7 +78,24 @@ export async function fetchGroupReceipts(
     .limit(GROUP_RECEIPTS_FETCH_LIMIT);
   if (error) return { ok: false, message: error.message };
 
-  const receipts = dedupeReceipts(mapRows(data, receiptFromRow)).slice(0, GROUP_RECEIPTS_SHOWN);
+  const receipts = mapRows(data, receiptFromRow).slice(0, GROUP_RECEIPTS_SHOWN);
   if (receipts.length === 0) return { ok: true, data: null };
   return { ok: true, data: receipts };
+}
+
+/** Aggregate-only board rows. Receipt identity is deliberately unavailable on this surface. */
+export async function fetchGroupBoard(
+  client: SupabaseClient,
+  slug: string,
+): Promise<QueryResult<PublicGroupBoardMarket[] | null>> {
+  const { data, error } = await client
+    .from(GROUP_BOARD_VIEW)
+    .select('*')
+    .eq('group_slug', slug)
+    .order('created_at', { ascending: false })
+    .limit(GROUP_RECEIPTS_FETCH_LIMIT);
+  if (error) return { ok: false, message: error.message };
+
+  const markets = mapRows(data, groupBoardMarketFromRow).slice(0, GROUP_RECEIPTS_SHOWN);
+  return { ok: true, data: markets.length === 0 ? null : markets };
 }

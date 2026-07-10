@@ -18,6 +18,12 @@ export interface CronHandles {
   stop(): void;
 }
 
+/** Durable settlement/proof work is injected by Task16's runtime composition. */
+export interface DurableRecoveryCron {
+  tick(): Promise<void>;
+  stop(): void;
+}
+
 function utcDayKey(nowMs: number): string {
   return new Date(nowMs).toISOString().slice(0, 10);
 }
@@ -124,14 +130,16 @@ export function startCrons(args: {
   say: Say;
   settler: Settler;
   supervisor: IngestSupervisor;
+  durableRecovery?: DurableRecoveryCron;
 }): CronHandles {
-  const { deps, poster, say, settler, supervisor } = args;
+  const { deps, poster, say, settler, supervisor, durableRecovery } = args;
   const timers: Array<ReturnType<typeof setInterval>> = [];
   const sweeperInFlight = new Map<string, number>();
   let slateDoneFor = '';
 
   // Boot-time kick so a fresh deploy is immediately useful.
   void syncFixtures(deps).then(() => supervisor.refresh());
+  if (durableRecovery) void durableRecovery.tick();
 
   // Wager crons (deposit watcher, withdrawal executor, solvency check) exist
   // only while the module is live; flag-off deploys run exactly the timers below.
@@ -185,9 +193,18 @@ export function startCrons(args: {
     }, ENGINE.MINUTE_TICK_MS),
   );
 
+  if (durableRecovery) {
+    timers.push(
+      setInterval(() => {
+        void durableRecovery.tick();
+      }, ENGINE.MINUTE_TICK_MS),
+    );
+  }
+
   return {
     stop() {
       for (const timer of timers) clearInterval(timer);
+      durableRecovery?.stop();
     },
   };
 }

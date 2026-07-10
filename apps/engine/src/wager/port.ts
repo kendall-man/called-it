@@ -121,9 +121,18 @@ export interface WagerStakeTapArgs {
   lamports: bigint;
   inPlay: boolean;
   nowMs: number;
-  /** At-least-once dedup key (concierge/API); omitted on button taps. */
-  idempotencyKey?: string;
+  /** Trusted engine source. Callback/API parsing owns this boundary. */
+  source: WagerStakeTapSource;
 }
+
+/**
+ * The source is server-derived, so no Telegram/API client can select starter
+ * eligibility. Only a default Telegram card tap can enter the starter branch.
+ */
+export type WagerStakeTapSource =
+  | { kind: 'telegram_default_card'; callbackId: string }
+  | { kind: 'telegram_card'; callbackId: string }
+  | { kind: 'durable_source'; idempotencyKey: string };
 
 export interface WagerModule {
   /** Always 'sol' now — every market is a SOL market. Stamped atomically at mint. */
@@ -153,4 +162,8 @@ export interface WagerModuleDeps {
   now(): number;
   /** WAGER_OPS_CHAT_ID — solvency alerts route here when set. */
   opsChatId: number | null;
+  /** The starter path is live only while every rollout guard is enabled. */
+  starterGrantsEnabled: boolean;
+  walletMiniappEnabled: boolean;
+  stakeAcceptanceEnabled: boolean;
 }

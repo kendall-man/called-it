@@ -17,9 +17,9 @@ export const WAGER_COPY = {
   unlinkedOnboarding: (): string =>
     'This table uses test SOL on Solana devnet. It has no monetary value. Open /wallet in private chat to verify a devnet wallet before placing a position.',
   paused: (): string =>
-    'New SOL positions are paused while account coverage is checked. Existing balances and withdrawal requests are unchanged.',
+    'New SOL positions are paused while account coverage is checked. No SOL moved. Check /me before trying again.',
   marketClosed: (): string =>
-    'That call is closed for new SOL positions. No SOL moved.',
+    'That call is closed for new SOL positions. No SOL moved. Choose another call.',
   starterUnavailable: (): string =>
     'The starter grant is not available. No SOL moved. Open /wallet in private chat to verify a devnet wallet.',
   budgetExhausted: (): string =>
@@ -27,10 +27,10 @@ export const WAGER_COPY = {
   walletRequired: (): string =>
     'No verified devnet wallet is available for this account. No SOL moved. Open /wallet in private chat.',
   insufficient: (balanceLamports: bigint): string =>
-    `Not enough test SOL for that position. Available balance: ${formatSolAmount(balanceLamports)} (devnet). Use /deposit to add test SOL.`,
-  pickALane: (): string => "You can't back it and doubt it — pick a lane. Your SOL agrees.",
+    `Not enough test SOL for that position. No SOL moved. Available balance: ${formatSolAmount(balanceLamports)} (devnet). Use /deposit to add test SOL.`,
+  pickALane: (): string => "You can't back it and doubt it. No SOL moved. Pick a lane.",
   capReached: (capLamports: bigint): string =>
-    `You're maxed on this call — ${formatSolAmount(capLamports)} is the ceiling per market.`,
+    `You're maxed on this call — ${formatSolAmount(capLamports)} is the ceiling per market. No SOL moved. Choose another call.`,
   stakePlaced: (name: string, sideLabel: string, lamports: bigint, multiplier: string): string =>
     `${name}'s position is recorded — ${sideLabel} with ${formatSolAmount(lamports)} at up to ×${multiplier}. Test SOL is a devnet token with no monetary value.`,
   stakeReplayed: (): string => "Already got that one — your SOL's on it.",

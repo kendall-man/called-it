@@ -48,6 +48,8 @@ export async function withMigratedDb(
           await run(client, connectionStringForDatabase(connectionString, db));
           await validateCalledItSchema(client, {
             telegram: migrations.some((migration) => migration.name === '0006_telegram_ingress.sql'),
+            settlementProofJobs: migrations.some((migration) => migration.name === '0007_settlement_proof_jobs.sql'),
+            publicProductViews: migrations.some((migration) => migration.name === '0008_public_product_views.sql'),
           });
         }),
       });

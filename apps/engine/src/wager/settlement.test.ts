@@ -87,6 +87,31 @@ describe('applySettlement — peer-matched', () => {
     expect(db.applied.has('m1')).toBe(true);
   });
 
+  it('re-run completes a partially applied void without duplicating an already credited refund', async () => {
+    // Given a crash after one idempotent refund landed but before the applied marker
+    const { deps, db } = makeFakeDeps();
+    db.settlements.set('m1', 'void');
+    db.seedMarketProbability('m1', EVEN);
+    const first = db.seedPosition({ market_id: 'm1', user_id: 1, stake: 10_000_000 });
+    const second = db.seedPosition({ market_id: 'm1', user_id: 2, stake: 20_000_000 });
+    await db.postWagerLedger({
+      user_id: first.user_id,
+      group_id: null,
+      market_id: 'm1',
+      kind: 'refund',
+      lamports: 10_000_000n,
+      idempotency_key: WAGER_KEYS.refund(first.id),
+    });
+
+    // When durable settlement recovery reapplies the whole market
+    await applySettlement(deps, 'm1');
+
+    // Then the existing credit is reused, the missing credit lands, and only then is it marked applied
+    expect(db.ledger.filter((entry) => entry.idempotency_key === WAGER_KEYS.refund(first.id))).toHaveLength(1);
+    expect(db.ledgerByKey(WAGER_KEYS.refund(second.id))?.lamports).toBe(20_000_000n);
+    expect(db.applied.has('m1')).toBe(true);
+  });
+
   it('void refunds every position (including already-voided) and pays nobody', async () => {
     const { deps, db } = makeFakeDeps();
     db.settlements.set('m1', 'void');

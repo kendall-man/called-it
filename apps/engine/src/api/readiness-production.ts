@@ -1,5 +1,5 @@
 import { SOLVENCY_PAUSE_REASON_PREFIX } from '../wager/constants.js';
-import type { EngineReadinessPorts } from './readiness-checks.js';
+import type { EngineReadinessPorts, QueueReadinessPort } from './readiness-checks.js';
 import { createSupabaseReadinessClient } from './readiness-supabase.js';
 
 export interface ProductionReadinessDatabasePort {
@@ -34,6 +34,9 @@ export interface ProductionReadinessOptions {
   readonly wagerConfigured: boolean;
   readonly proofEnabled: boolean;
   readonly settlementEnabled: boolean;
+  /** Injected durable workers expose real leased-job backlog and heartbeat. */
+  readonly proofQueue?: QueueReadinessPort;
+  readonly settlementQueue?: QueueReadinessPort;
 }
 
 export interface SupabaseProductionReadinessOptions
@@ -115,6 +118,9 @@ export function createProductionReadinessPorts(
     proof: {
       async snapshot(signal) {
         checkCancellation(signal);
+        if (options.proofQueue !== undefined) {
+          return options.proofQueue.snapshot(signal);
+        }
         return {
           enabled: options.proofEnabled,
           heartbeatAtMs: null,
@@ -126,6 +132,9 @@ export function createProductionReadinessPorts(
     settlement: {
       async snapshot(signal) {
         checkCancellation(signal);
+        if (options.settlementQueue !== undefined) {
+          return options.settlementQueue.snapshot(signal);
+        }
         return {
           enabled: options.settlementEnabled,
           heartbeatAtMs: null,

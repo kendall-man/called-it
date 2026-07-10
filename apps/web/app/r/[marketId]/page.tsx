@@ -6,7 +6,7 @@ import { AwaitingConfiguration, DataUnavailable } from '@/components/states';
 import { TimelineList } from '@/components/timeline-list';
 import { TrustBadge, type TrustSnapshot } from '@/components/trust-badge';
 import { Badge, Card, PageShell, SectionTitle } from '@/components/ui';
-import { formatMultiplier, formatProbabilityPct } from '@/lib/format';
+import { formatLamportsAsSol, formatMultiplier, formatProbabilityPct } from '@/lib/format';
 import { fetchEvidence, fetchReceipt } from '@/lib/queries';
 import type { EvidenceFact, PublicReceipt } from '@/lib/receipts';
 import {
@@ -86,22 +86,17 @@ export default async function ReceiptPage({
         </div>
       ) : null}
 
-      {/* The quoted claim */}
+      {/* Alias-only attribution and deterministic terms; raw claim text never reaches this route. */}
       <Card>
         <p className="display-type text-xs tracking-[0.25em] text-fog">On the record</p>
-        <blockquote className="mt-2">
+        <div className="mt-2">
           <p className="display-type text-3xl leading-tight text-chalk sm:text-4xl">
-            “{receipt.quotedText}”
+            {spec ? describeTerms(spec) : 'Recorded call terms'}
           </p>
-          <footer className="mt-3 text-sm text-fog">
-            — {receipt.claimerName}
-            {receipt.isReplay ? (
-              <Badge tone="neutral" className="ml-2">
-                Replay run
-              </Badge>
-            ) : null}
-          </footer>
-        </blockquote>
+          <p className="mt-3 text-sm text-fog">
+            {receipt.claimerAlias}
+          </p>
+        </div>
       </Card>
 
       {/* Terms in plain English */}
@@ -140,6 +135,46 @@ export default async function ReceiptPage({
           {provenance.blurb} Backers and doubters each locked their own multiplier at tap time, in
           devnet SOL — test tokens, not real money.
         </p>
+      </Card>
+
+      <Card>
+        <SectionTitle>Group activity</SectionTitle>
+        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
+          <div>
+            <dt className="text-fog">Happens pot</dt>
+            <dd className="mt-1 font-semibold text-chalk">
+              {formatLamportsAsSol(receipt.backPotLamports)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-fog">Does not pot</dt>
+            <dd className="mt-1 font-semibold text-chalk">
+              {formatLamportsAsSol(receipt.doubtPotLamports)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-fog">Matched</dt>
+            <dd className="mt-1 font-semibold text-chalk">
+              {formatLamportsAsSol(receipt.matchedAmountLamports)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-fog">Refunded</dt>
+            <dd className="mt-1 font-semibold text-chalk">
+              {formatLamportsAsSol(receipt.refundedAmountLamports)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-fog">Paid</dt>
+            <dd className="mt-1 font-semibold text-chalk">
+              {formatLamportsAsSol(receipt.paidAmountLamports)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-fog">Positions</dt>
+            <dd className="mt-1 font-semibold text-chalk">{receipt.positionCount}</dd>
+          </div>
+        </dl>
       </Card>
 
       {/* Trust badge (live via Realtime + in-browser proof re-check) */}

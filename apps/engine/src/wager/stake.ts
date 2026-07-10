@@ -58,14 +58,26 @@ export async function handleStakeTap(
   deps: WagerModuleDeps,
   args: WagerStakeTapArgs,
 ): Promise<{ reply: string; placed: boolean }> {
-  const { market, userId, userName, side, lamports, inPlay, nowMs, idempotencyKey } = args;
+  const { market, userId, userName, side, lamports, inPlay, nowMs, source } = args;
 
   if (lamports <= 0n) return { reply: WAGER_COPY.staleTap(), placed: false };
 
-  // Gate 1: a linked wallet is the onboarding handle — without it the user has
-  // no way to have funded (or to ever cash out) a stack.
+  const allowStarter =
+    source.kind === 'telegram_default_card' &&
+    lamports === WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0] &&
+    deps.starterGrantsEnabled &&
+    deps.walletMiniappEnabled &&
+    deps.stakeAcceptanceEnabled;
+  const idempotencyKey =
+    source.kind === 'durable_source'
+      ? source.idempotencyKey
+      : `telegram:callback:${source.callbackId}`;
+
+  // Only the atomic starter RPC path may place before a wallet is linked.
   const link = await deps.db.getWalletLink(userId);
-  if (!link) return { reply: WAGER_COPY.unlinkedOnboarding(), placed: false };
+  if (!link && !allowStarter) {
+    return { reply: WAGER_COPY.unlinkedOnboarding(), placed: false };
+  }
 
   // Gate 2: persisted circuit breaker. The wager_stake RPC re-checks this
   // atomically; the pre-check just answers fast without burning the advisory
@@ -88,8 +100,8 @@ export async function handleStakeTap(
     // delay-arbitrage pending window (reducer sees the shared row).
     state: inPlay ? 'pending' : 'active',
     placed_at_ms: nowMs,
-    allow_starter: false,
-    ...(idempotencyKey !== undefined ? { idempotency_key: idempotencyKey } : {}),
+    allow_starter: allowStarter,
+    idempotency_key: idempotencyKey,
   });
 
   if (!result.ok) {
@@ -107,9 +119,17 @@ export async function handleStakeTap(
   }
 
   if ('duplicate' in result) {
-    // At-least-once replay of the same client key — the original stake stands.
+    // The original commit is authoritative; do not refresh a card on replay.
     deps.log.info('wager_stake_duplicate', { marketId: market.id, userId, side });
-    return { reply: WAGER_COPY.stakeReplayed(), placed: false };
+    return {
+      reply: WAGER_COPY.stakePlaced(
+        userName,
+        sideLabel(side),
+        lamports,
+        multiplierLabel(lockedMultiplier),
+      ),
+      placed: false,
+    };
   }
 
   // Deposit-credited and cashout notifications route to the last group the

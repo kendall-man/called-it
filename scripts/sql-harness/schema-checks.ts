@@ -31,9 +31,15 @@ const BASE_TABLES = [
   'wager_pending_stake_intents',
 ] as const;
 
-const EXPECTED_VIEWS = [
+const LEGACY_EXPECTED_VIEWS = [
   'public_receipts',
   'public_leaderboard',
+  'public_evidence',
+] as const;
+
+const PRODUCT_EXPECTED_VIEWS = [
+  'public_receipts',
+  'public_group_board',
   'public_evidence',
 ] as const;
 
@@ -53,6 +59,38 @@ const BASE_PRIVATE_TABLES = [
   'wager_pending_stake_intents',
 ] as const;
 
+const PRODUCT_PRIVATE_TABLES = ['onboarding_events'] as const;
+
+const SETTLEMENT_PROOF_TABLES = ['settlement_proof_jobs'] as const;
+
+const SETTLEMENT_PROOF_FUNCTIONS = [
+  'settlement_record_terminal(uuid,text,bigint,bigint[],text,timestamp with time zone,integer,integer,integer,integer)',
+  'settlement_mark_posted(uuid,timestamp with time zone)',
+  'proof_record_state(uuid,text,integer,bigint,jsonb,text,text,text,timestamp with time zone)',
+  'settlement_proof_enqueue(uuid,text,timestamp with time zone,timestamp with time zone,integer,integer,integer,integer)',
+  'settlement_proof_lease(text,text,timestamp with time zone,integer)',
+  'settlement_proof_complete(uuid,text,text,uuid,timestamp with time zone)',
+  'settlement_proof_retry(uuid,text,text,uuid,text,integer,timestamp with time zone)',
+  'settlement_proof_dead_letter(uuid,text,text,uuid,text,timestamp with time zone)',
+  'settlement_terminal_gaps(integer)',
+  'settlement_reconcile_terminal_jobs(timestamp with time zone,integer,integer,integer,integer,integer,integer)',
+  'settlement_proof_backlog(text,timestamp with time zone)',
+] as const;
+
+const SETTLEMENT_PROOF_FUNCTION_NAMES = [
+  'settlement_record_terminal',
+  'settlement_mark_posted',
+  'proof_record_state',
+  'settlement_proof_enqueue',
+  'settlement_proof_lease',
+  'settlement_proof_complete',
+  'settlement_proof_retry',
+  'settlement_proof_dead_letter',
+  'settlement_terminal_gaps',
+  'settlement_reconcile_terminal_jobs',
+  'settlement_proof_backlog',
+] as const;
+
 const BASE_FUNCTIONS = [
   'wager_request_withdrawal(bigint,bigint)',
   'wager_stake(bigint,bigint,uuid,text,bigint,double precision,text,bigint,text,boolean)',
@@ -65,8 +103,13 @@ const BASE_FUNCTIONS = [
   'wager_cancel_stake_intent(bigint,uuid)',
 ] as const;
 
-const EXPECTED_REALTIME_MEMBERS = [
+const LEGACY_REALTIME_MEMBERS = [
   'public.markets',
+  'public.proofs',
+  'public.settlements',
+] as const;
+
+const PRODUCT_REALTIME_MEMBERS = [
   'public.proofs',
   'public.settlements',
 ] as const;
@@ -94,6 +137,8 @@ type PublicationMemberRow = {
 
 export interface SchemaCheckOptions {
   readonly telegram?: boolean;
+  readonly settlementProofJobs?: boolean;
+  readonly publicProductViews?: boolean;
 }
 
 export async function validateCalledItSchema(
@@ -101,9 +146,29 @@ export async function validateCalledItSchema(
   options: SchemaCheckOptions = {},
 ): Promise<void> {
   const telegram = options.telegram ?? true;
-  const expectedTables = telegram ? [...BASE_TABLES, ...TELEGRAM_TABLES] : BASE_TABLES;
-  const privateTables = telegram ? [...BASE_PRIVATE_TABLES, ...TELEGRAM_TABLES] : BASE_PRIVATE_TABLES;
-  const expectedFunctions = telegram ? [...BASE_FUNCTIONS, ...TELEGRAM_FUNCTIONS] : BASE_FUNCTIONS;
+  const settlementProofJobs = options.settlementProofJobs ?? options.telegram === undefined;
+  const publicProductViews = options.publicProductViews ?? true;
+  const expectedViews = publicProductViews ? PRODUCT_EXPECTED_VIEWS : LEGACY_EXPECTED_VIEWS;
+  const expectedRealtimeMembers = publicProductViews
+    ? PRODUCT_REALTIME_MEMBERS
+    : LEGACY_REALTIME_MEMBERS;
+  const expectedTables = [
+    ...BASE_TABLES,
+    ...(telegram ? TELEGRAM_TABLES : []),
+    ...(settlementProofJobs ? SETTLEMENT_PROOF_TABLES : []),
+    ...(publicProductViews ? PRODUCT_PRIVATE_TABLES : []),
+  ];
+  const privateTables = [
+    ...BASE_PRIVATE_TABLES,
+    ...(telegram ? TELEGRAM_TABLES : []),
+    ...(settlementProofJobs ? SETTLEMENT_PROOF_TABLES : []),
+    ...(publicProductViews ? PRODUCT_PRIVATE_TABLES : []),
+  ];
+  const expectedFunctions = [
+    ...BASE_FUNCTIONS,
+    ...(telegram ? TELEGRAM_FUNCTIONS : []),
+    ...(settlementProofJobs ? SETTLEMENT_PROOF_FUNCTIONS : []),
+  ];
   const functionNames = telegram
     ? [
         'wager_stake',
@@ -128,17 +193,22 @@ export async function validateCalledItSchema(
         'wager_consume_ready_stake_intent',
         'wager_cancel_stake_intent',
       ];
-  const relationRows = await loadRelations(client);
+  functionNames.push(...(settlementProofJobs ? SETTLEMENT_PROOF_FUNCTION_NAMES : []));
+  const relationRows = await loadRelations(client, expectedTables, expectedViews);
   assertRelations(relationRows, expectedTables, 'r');
-  assertRelations(relationRows, EXPECTED_VIEWS, 'v');
+  assertRelations(relationRows, expectedViews, 'v');
   assertPrivateTableRls(relationRows, privateTables);
   await assertNoPrivateTablePolicies(client, privateTables);
-  await assertRealtimePublication(client);
+  await assertRealtimePublication(client, expectedRealtimeMembers);
   await assertFunctionPrivileges(client, expectedFunctions, functionNames);
 }
 
-async function loadRelations(client: Client): Promise<readonly RelationRow[]> {
-  const names = [...BASE_TABLES, ...TELEGRAM_TABLES, ...EXPECTED_VIEWS];
+async function loadRelations(
+  client: Client,
+  expectedTables: readonly string[],
+  expectedViews: readonly string[],
+): Promise<readonly RelationRow[]> {
+  const names = [...expectedTables, ...expectedViews];
   const result = await client.query<RelationRow>(
     `select c.relname, c.relkind, c.relrowsecurity
      from pg_class c
@@ -181,7 +251,10 @@ async function assertNoPrivateTablePolicies(client: Client, privateTables: reado
   }
 }
 
-async function assertRealtimePublication(client: Client): Promise<void> {
+async function assertRealtimePublication(
+  client: Client,
+  expectedRealtimeMembers: readonly string[],
+): Promise<void> {
   const result = await client.query<PublicationMemberRow>(
     `select schemaname, tablename
      from pg_publication_tables
@@ -190,8 +263,8 @@ async function assertRealtimePublication(client: Client): Promise<void> {
   const present = new Set(
     result.rows.map((row) => `${row.schemaname}.${row.tablename}`),
   );
-  const missing = EXPECTED_REALTIME_MEMBERS.filter((member) => !present.has(member));
-  const expected = new Set<string>(EXPECTED_REALTIME_MEMBERS);
+  const missing = expectedRealtimeMembers.filter((member) => !present.has(member));
+  const expected = new Set<string>(expectedRealtimeMembers);
   const unexpected = [...present].filter((member) => !expected.has(member)).sort();
   if (missing.length === 0 && unexpected.length === 0) {
     return;

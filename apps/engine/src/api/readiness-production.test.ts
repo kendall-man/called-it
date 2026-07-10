@@ -77,4 +77,51 @@ describe('production readiness ports', () => {
       'cancelled before snapshot',
     );
   });
+
+  it('uses injected durable queue snapshots instead of placeholder backlog values', async () => {
+    const controller = new AbortController();
+    const ports = createProductionReadinessPorts({
+      database: {
+        probe: async () => undefined,
+        liveFixtureIds: async () => [],
+        wagerStatus: async () => ({ paused: false, reason: null }),
+      },
+      odds: { snapshot: async () => ({ kind: 'unavailable' }) },
+      liveLookaheadMs: 60_000,
+      now: () => NOW,
+      wagerEnabled: false,
+      wagerConfigured: false,
+      proofEnabled: true,
+      settlementEnabled: true,
+      proofQueue: {
+        snapshot: async (signal) => ({
+          enabled: true,
+          heartbeatAtMs: NOW,
+          backlog: signal === controller.signal ? 7 : 0,
+          oldestAgeMs: 1_000,
+        }),
+      },
+      settlementQueue: {
+        snapshot: async () => ({
+          enabled: true,
+          heartbeatAtMs: NOW,
+          backlog: 3,
+          oldestAgeMs: null,
+        }),
+      },
+    });
+
+    await expect(ports.proof.snapshot(controller.signal)).resolves.toEqual({
+      enabled: true,
+      heartbeatAtMs: NOW,
+      backlog: 7,
+      oldestAgeMs: 1_000,
+    });
+    await expect(ports.settlement.snapshot(controller.signal)).resolves.toEqual({
+      enabled: true,
+      heartbeatAtMs: NOW,
+      backlog: 3,
+      oldestAgeMs: null,
+    });
+  });
 });

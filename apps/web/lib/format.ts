@@ -26,6 +26,14 @@ export function formatMultiplier(multiplier: number): string {
   return `×${text}`;
 }
 
+export function formatLamportsAsSol(lamports: string): string {
+  const normalized = lamports.replace(/^0+(?=\d)/, '');
+  const padded = normalized.padStart(10, '0');
+  const whole = padded.slice(0, -9).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const fractional = padded.slice(-9).replace(/0+$/, '');
+  return `${fractional === '' ? whole : `${whole}.${fractional}`} SOL`;
+}
+
 /** probability in [0,1] → "9%", clamped and floored at "<1%". */
 export function formatProbabilityPct(probability: number): string {
   const clamped = Math.min(Math.max(probability, 0), 1);

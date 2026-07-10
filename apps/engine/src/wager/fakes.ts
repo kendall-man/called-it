@@ -466,6 +466,9 @@ export function makeFakeDeps(overrides: Partial<WagerModuleDeps> = {}): FakeDeps
     log: silentLog,
     now: () => 1_720_000_000_000,
     opsChatId: null,
+    starterGrantsEnabled: false,
+    walletMiniappEnabled: false,
+    stakeAcceptanceEnabled: false,
     ...overrides,
   };
   return { deps, db, chain, poster, trace };

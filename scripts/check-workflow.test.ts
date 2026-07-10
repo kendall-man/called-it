@@ -98,7 +98,8 @@ async function runRepositoryCheck(
     await mkdir(join(fixtureRoot, 'apps'), { recursive: true });
     await mkdir(join(fixtureRoot, 'packages'), { recursive: true });
     const fixtureFiles = {
-      'package.json': '{"name":"fixture","private":true}',
+      'package.json': fixturePackageJson(),
+      '.github/workflows/security.yml': securityWorkflow(),
       ...files,
     };
     for (const [path, contents] of Object.entries(fixtureFiles)) {
@@ -119,6 +120,28 @@ function workflowWithAction(action: string): string {
       - uses: ${action}
       - run: npx -y pnpm@10.33.0 install --frozen-lockfile
       - run: npx -y pnpm@10.33.0 verify
+`;
+}
+
+function fixturePackageJson(): string {
+  return JSON.stringify({
+    name: 'fixture',
+    private: true,
+    scripts: {
+      'test:dependency-policy': 'node scripts/security/dependency-policy.mjs --audit audit.json',
+      verify: 'pnpm run test:dependency-policy',
+    },
+  });
+}
+
+function securityWorkflow(): string {
+  return `jobs:
+  security:
+    steps:
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567
+      - run: npx -y pnpm@10.33.0 install --frozen-lockfile
+      - run: node scripts/security/lock-integrity.mjs
+      - run: node scripts/security/dependency-policy.mjs --audit audit.json
 `;
 }
 

@@ -123,6 +123,9 @@ export async function createProductionWagerModule<Connection, Treasury, PublicKe
     log,
     now: () => Date.now(),
     opsChatId: parseOpsChatId(env.WAGER_OPS_CHAT_ID, log),
+    starterGrantsEnabled: env.STARTER_GRANTS_ENABLED,
+    walletMiniappEnabled: env.WALLET_MINIAPP_ENABLED,
+    stakeAcceptanceEnabled: env.STAKE_ACCEPTANCE_ENABLED,
   });
 }
 

@@ -1,6 +1,7 @@
 import Link from 'next/link';
-import { formatMultiplier, formatUtc } from '@/lib/format';
+import { formatLamportsAsSol, formatMultiplier, formatUtc } from '@/lib/format';
 import type { PublicReceipt, ReceiptOutcome } from '@/lib/receipts';
+import { describeTerms, parseMarketSpec } from '@/lib/spec-terms';
 import { Badge, type BadgeTone } from './ui';
 
 const OUTCOME_CHIP: Record<ReceiptOutcome, { tone: BadgeTone; label: string }> = {
@@ -27,6 +28,8 @@ function statusChip(receipt: PublicReceipt): { tone: BadgeTone; label: string } 
 
 export function ReceiptRow({ receipt }: { receipt: PublicReceipt }) {
   const chip = statusChip(receipt);
+  const spec = parseMarketSpec(receipt.spec);
+  const terms = spec ? describeTerms(spec) : 'Recorded call terms';
   return (
     <Link
       href={`/r/${receipt.marketId}`}
@@ -35,14 +38,14 @@ export function ReceiptRow({ receipt }: { receipt: PublicReceipt }) {
       <span className="display-type w-14 shrink-0 text-right text-xl text-chalk">
         {formatMultiplier(receipt.quoteMultiplier)}
       </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-chalk">
-          “{receipt.quotedText}”
-        </span>
-        <span className="block text-[11px] text-fog">
-          {receipt.claimerName} · {formatUtc(receipt.createdAt)}
-          {receipt.isReplay ? ' · replay' : ''}
-        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold text-chalk">
+            {terms}
+          </span>
+          <span className="block text-[11px] text-fog">
+            {receipt.claimerAlias} · {formatUtc(receipt.createdAt)} · {receipt.positionCount} positions ·{' '}
+            {formatLamportsAsSol(receipt.matchedAmountLamports)} matched
+          </span>
       </span>
       <Badge tone={chip.tone}>{chip.label}</Badge>
     </Link>

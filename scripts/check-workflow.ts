@@ -4,7 +4,8 @@ import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { parse } from 'yaml';
 
-const workflowPath = '.github/workflows/ci.yml';
+const ciWorkflowPath = '.github/workflows/ci.yml';
+const securityWorkflowPath = '.github/workflows/security.yml';
 const execFileAsync = promisify(execFile);
 
 type WorkflowStep = {
@@ -21,10 +22,13 @@ type Workflow = {
 const FLOATING_ACTION = /@(?:[a-z]+|v\d+)$/i;
 
 async function main(): Promise<void> {
-  const document: unknown = parse(await readFile(workflowPath, 'utf8'));
-  const workflow = parseWorkflow(document);
-  const steps = workflow.jobs.flatMap((job) => job.steps);
-  const floatingActions = steps
+  const [ciWorkflow, securityWorkflow] = await Promise.all([
+    loadWorkflow(ciWorkflowPath),
+    loadWorkflow(securityWorkflowPath),
+  ]);
+  const ciSteps = ciWorkflow.jobs.flatMap((job) => job.steps);
+  const securitySteps = securityWorkflow.jobs.flatMap((job) => job.steps);
+  const floatingActions = [...ciSteps, ...securitySteps]
     .map((step) => step.uses)
     .filter((uses): uses is string => uses !== undefined)
     .filter((uses) => FLOATING_ACTION.test(uses));
@@ -33,26 +37,45 @@ async function main(): Promise<void> {
     throw new Error(`workflow uses floating actions: ${floatingActions.join(', ')}`);
   }
 
-  const runCommands = steps.map((step) => step.run ?? '').join('\n');
-  for (const required of [
+  assertWorkflowCommands(ciSteps, ciWorkflowPath, [
     'pnpm@10.33.0 install --frozen-lockfile',
     'pnpm@10.33.0 verify',
-  ]) {
-    if (!runCommands.includes(required)) {
-      throw new Error(`workflow missing command: ${required}`);
-    }
-  }
+  ]);
+  assertWorkflowCommands(securitySteps, securityWorkflowPath, [
+    'pnpm@10.33.0 install --frozen-lockfile',
+    'node scripts/security/lock-integrity.mjs',
+    'node scripts/security/dependency-policy.mjs --audit',
+  ]);
 
   const root = process.cwd();
   const manifestPaths = await discoverActivePackageManifests(root);
   await assertNoEmptySuiteEscapes(root, manifestPaths);
+  await assertRootVerificationSurface(root);
   const conciergeManifest = join(root, 'apps/concierge/package.json');
   if (manifestPaths.includes(conciergeManifest)) {
     const command = await loadCallieBuildCommand(root);
     console.log(`callie#build resolved to ${command}`);
   }
 
-  console.log(`${workflowPath} parsed with ${steps.length} steps and no floating actions`);
+  console.log(`${ciWorkflowPath} and ${securityWorkflowPath} parsed with ${ciSteps.length + securitySteps.length} steps and no floating actions`);
+}
+
+async function loadWorkflow(path: string): Promise<Workflow> {
+  const document: unknown = parse(await readFile(path, 'utf8'));
+  return parseWorkflow(document);
+}
+
+function assertWorkflowCommands(
+  steps: readonly WorkflowStep[],
+  path: string,
+  requiredCommands: readonly string[],
+): void {
+  const runCommands = steps.map((step) => step.run ?? '').join('\n');
+  for (const required of requiredCommands) {
+    if (!runCommands.includes(required)) {
+      throw new Error(`${path} missing command: ${required}`);
+    }
+  }
 }
 
 async function discoverActivePackageManifests(root: string): Promise<readonly string[]> {
@@ -93,6 +116,22 @@ async function assertNoEmptySuiteEscapes(
 
   if (offenders.length > 0) {
     throw new Error(`passWithNoTests found in active package manifests: ${offenders.join(', ')}`);
+  }
+}
+
+async function assertRootVerificationSurface(root: string): Promise<void> {
+  const source = await readFile(join(root, 'package.json'), 'utf8');
+  const document: unknown = JSON.parse(source);
+  if (!isRecord(document) || !isRecord(document.scripts)) {
+    throw new Error('package.json must declare scripts');
+  }
+  const dependencyPolicy = document.scripts['test:dependency-policy'];
+  const verify = document.scripts.verify;
+  if (typeof dependencyPolicy !== 'string' || !dependencyPolicy.includes('dependency-policy.mjs --audit')) {
+    throw new Error('package.json missing dependency policy script');
+  }
+  if (typeof verify !== 'string' || !verify.includes('pnpm run test:dependency-policy')) {
+    throw new Error('package.json verify missing dependency policy command');
   }
 }
 

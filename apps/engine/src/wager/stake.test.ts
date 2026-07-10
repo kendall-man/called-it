@@ -29,7 +29,7 @@ function tap(overrides: Partial<WagerStakeTapArgs> = {}): WagerStakeTapArgs {
     lamports: overrides.lamports ?? PRESET_SMALL,
     inPlay: overrides.inPlay ?? false,
     nowMs: overrides.nowMs ?? 1_000,
-    ...(overrides.idempotencyKey !== undefined ? { idempotencyKey: overrides.idempotencyKey } : {}),
+    source: overrides.source ?? { kind: 'durable_source', idempotencyKey: 'stake-test' },
   };
 }
 
@@ -59,6 +59,41 @@ describe('handleStakeTap gates', () => {
     const result = await handleStakeTap(deps, tap());
     expect(result.placed).toBe(false);
     expect(result.reply).toBe(WAGER_COPY.unlinkedOnboarding());
+    expect(db.lastStakeArgs).toBeNull();
+  });
+
+  it('limits the starter source to the exact 0.01 SOL amount', async () => {
+    const { deps, db } = makeFakeDeps({
+      starterGrantsEnabled: true,
+      walletMiniappEnabled: true,
+      stakeAcceptanceEnabled: true,
+    });
+    const result = await handleStakeTap(deps, tap({
+      lamports: PRESET_MID,
+      source: { kind: 'telegram_default_card', callbackId: 'wrong-amount' },
+    }));
+
+    expect(result).toEqual({ reply: WAGER_COPY.unlinkedOnboarding(), placed: false });
+    expect(db.lastStakeArgs).toBeNull();
+  });
+
+  it.each([
+    'starterGrantsEnabled',
+    'walletMiniappEnabled',
+    'stakeAcceptanceEnabled',
+  ] as const)('requires %s inside the wager module before a starter stake can begin', async (disabledFlag) => {
+    const { deps, db } = makeFakeDeps({
+      starterGrantsEnabled: true,
+      walletMiniappEnabled: true,
+      stakeAcceptanceEnabled: true,
+      [disabledFlag]: false,
+    });
+
+    const result = await handleStakeTap(deps, tap({
+      source: { kind: 'telegram_default_card', callbackId: `disabled-${disabledFlag}` },
+    }));
+
+    expect(result).toEqual({ reply: WAGER_COPY.unlinkedOnboarding(), placed: false });
     expect(db.lastStakeArgs).toBeNull();
   });
 
@@ -106,19 +141,23 @@ describe('handleStakeTap placement', () => {
     expect(db.lastStakeArgs?.state).toBe('pending');
   });
 
-  it('forwards the client idempotency key and reports a replay without re-staking', async () => {
+  it('forwards the durable source key and reports a replay without re-staking', async () => {
     const { deps, db } = makeFakeDeps();
     db.seedLink(USER, WALLET);
     db.seedBalance(USER, 1_000_000_000n);
 
-    const first = await handleStakeTap(deps, tap({ idempotencyKey: 'call-abc' }));
+    const first = await handleStakeTap(deps, tap({
+      source: { kind: 'durable_source', idempotencyKey: 'call-abc' },
+    }));
     expect(first.placed).toBe(true);
     expect(db.lastStakeArgs?.idempotency_key).toBe('call-abc');
 
     const positionsAfterFirst = db.positions.length;
-    const replay = await handleStakeTap(deps, tap({ idempotencyKey: 'call-abc' }));
+    const replay = await handleStakeTap(deps, tap({
+      source: { kind: 'durable_source', idempotencyKey: 'call-abc' },
+    }));
     expect(replay.placed).toBe(false);
-    expect(replay.reply).toBe(WAGER_COPY.stakeReplayed());
+    expect(replay.reply).toBe(first.reply);
     expect(db.positions.length).toBe(positionsAfterFirst); // no second position
   });
 
@@ -155,6 +194,13 @@ describe('typed RPC errors map to distinct copy', () => {
   it('every error line is distinct — no two failures read the same', () => {
     const lines = cases.map(([, line]) => line);
     expect(new Set(lines).size).toBe(lines.length);
+  });
+
+  it('every refusal says that no SOL moved and gives one recovery action', () => {
+    for (const [, line] of cases) {
+      expect(line).toMatch(/no SOL moved|unchanged/i);
+      expect(line).toMatch(/open \/wallet|use \/deposit|pick a lane|choose another call|check \/me/i);
+    }
   });
 });
 

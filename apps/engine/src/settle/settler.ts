@@ -29,6 +29,7 @@ import { quoteSpec } from '../pipeline/claims.js';
 import { marketStakeKeyboard } from '../bot/keyboards.js';
 import { statKeyForSpec } from './statKeys.js';
 import type { ProofWorker } from '../proofs/worker.js';
+import type { SettlementJournal } from './durable.js';
 
 function toEnginePosition(row: PositionRow): Position {
   return {
@@ -50,6 +51,7 @@ export class Settler {
     private readonly poster: Poster,
     private readonly say: Say,
     private readonly proofWorker: ProofWorker | null,
+    private readonly settlementJournal: SettlementJournal | null = null,
   ) {}
 
   /** Every normalized event flows through here exactly once per (fixture, seq). */
@@ -180,14 +182,26 @@ export class Settler {
     voidReason?: string,
   ): Promise<void> {
     const tier = market.spec.trustTier;
-    await this.deps.db.updateMarketStatus(market.id, outcome === 'void' ? 'voided' : 'settled');
-    await this.deps.db.insertSettlement({
-      market_id: market.id,
-      outcome,
-      deciding_seq: decidingSeq,
-      evidence_seqs: evidenceSeqs,
-      tier,
-    });
+    if (this.settlementJournal) {
+      // The Task 10 RPC writes the immutable terminal fact and settlement job
+      // in one transaction, so a process death cannot leave one without the other.
+      await this.settlementJournal.recordTerminal({
+        marketId: market.id,
+        outcome,
+        decidingSeq,
+        evidenceSeqs,
+        tier,
+      });
+    } else {
+      await this.deps.db.updateMarketStatus(market.id, outcome === 'void' ? 'voided' : 'settled');
+      await this.deps.db.insertSettlement({
+        market_id: market.id,
+        outcome,
+        deciding_seq: decidingSeq,
+        evidence_seqs: evidenceSeqs,
+        tier,
+      });
+    }
     this.deps.log.info('settled', { marketId: market.id, outcome, decidingSeq, tier });
 
     // Money moves ONLY through the wager module (every market is SOL). Its
@@ -201,10 +215,16 @@ export class Settler {
     }
     await this.postReceipt(market, outcome, voidReason);
 
-    if (tier === 'chain_proven' && outcome !== 'void' && this.proofWorker && decidingSeq !== null) {
+    if (
+      this.settlementJournal === null
+      && tier === 'chain_proven'
+      && outcome !== 'void'
+      && this.proofWorker
+      && decidingSeq !== null
+    ) {
       const statKey = statKeyForSpec(market.spec);
       if (statKey !== null) {
-        this.proofWorker.enqueue({
+        await this.proofWorker.enqueue({
           marketId: market.id,
           fixtureId: market.fixture_id,
           seq: decidingSeq,
@@ -254,6 +274,10 @@ export class Settler {
 
     this.poster.post(market.group_id, `${garnish}\n\n${receipt}`, {
       onSent: async () => {
+        if (this.settlementJournal) {
+          await this.settlementJournal.markPosted(market.id);
+          return;
+        }
         await this.deps.db.markSettlementPosted(market.id);
       },
     });

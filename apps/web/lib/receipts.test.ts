@@ -1,24 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import {
-  dedupeReceipts,
   evidenceFromRow,
-  pickBestReceiptRow,
   receiptFromRow,
   type PublicReceipt,
 } from './receipts';
+import { formatLamportsAsSol } from './format';
 
 function viewRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     market_id: '4dcb8872-2f1e-4bc5-9b43-1a2b3c4d5e6f',
     group_slug: 'x7kf9q',
-    quoted_text: 'over 2.5 easy',
-    claimer_name: 'Chris',
+    claimer_alias: 'Player A1B2C3D4',
     spec: { claimType: 'totals_ou' },
     status: 'settled',
-    is_replay: false,
+    currency: 'sol',
     price_provenance: 'market',
     quote_probability: 0.42,
     quote_multiplier: 2.4,
+    back_pot_lamports: '60000000',
+    doubt_pot_lamports: '40000000',
+    matched_amount_lamports: '80000000',
+    refunded_amount_lamports: '20000000',
+    paid_amount_lamports: '80000000',
+    position_count: 3,
     created_at: '2026-07-10T18:00:00.000Z',
     outcome: 'claim_won',
     deciding_seq: 900,
@@ -39,20 +43,58 @@ function mustMap(row: Record<string, unknown>): PublicReceipt {
 }
 
 describe('receiptFromRow', () => {
-  it('maps a complete view row', () => {
+  it('maps a complete privacy-safe view row', () => {
     const receipt = mustMap(viewRow());
     expect(receipt.marketId).toBe('4dcb8872-2f1e-4bc5-9b43-1a2b3c4d5e6f');
     expect(receipt.evidenceSeqs).toEqual([880, 900]);
     expect(receipt.tier).toBe('chain_proven');
     expect(receipt.proofStatus).toBe('pending');
-    expect(receipt.currency).toBe('rep');
+    expect(receipt.currency).toBe('sol');
+    expect(receipt).toMatchObject({
+      claimerAlias: 'Player A1B2C3D4',
+      backPotLamports: '60000000',
+      doubtPotLamports: '40000000',
+      matchedAmountLamports: '80000000',
+      refundedAmountLamports: '20000000',
+      paidAmountLamports: '80000000',
+      positionCount: 3,
+    });
   });
 
-  it('maps the market currency, defaulting to rep for legacy or invalid rows', () => {
+  it('accepts only public SOL receipt rows', () => {
     expect(mustMap(viewRow({ currency: 'sol' })).currency).toBe('sol');
-    expect(mustMap(viewRow({ currency: 'rep' })).currency).toBe('rep');
-    expect(mustMap(viewRow({ currency: 'doubloons' })).currency).toBe('rep');
-    expect(mustMap(viewRow({ currency: undefined })).currency).toBe('rep');
+    expect(receiptFromRow(viewRow({ currency: 'rep' }))).toBeNull();
+    expect(receiptFromRow(viewRow({ currency: 'doubloons' }))).toBeNull();
+    expect(receiptFromRow(viewRow({ currency: undefined }))).toBeNull();
+  });
+
+  it('never maps raw quote or identity fallbacks from a mixed view row', () => {
+    const receipt = mustMap(
+      viewRow({
+        quoted_text: 'PRIVATE CLAIM @sentinel_user',
+        claimer_name: 'Private Telegram Name',
+        username: '@sentinel_user',
+      }),
+    );
+
+    expect(receipt).not.toHaveProperty('quotedText');
+    expect(receipt).not.toHaveProperty('claimerName');
+    expect(JSON.stringify(receipt)).not.toContain('PRIVATE CLAIM');
+    expect(JSON.stringify(receipt)).not.toContain('@sentinel_user');
+    expect(JSON.stringify(receipt)).not.toContain('Private Telegram Name');
+  });
+
+  it('does not expose the replay marker even when a mixed row carries it', () => {
+    const receipt = mustMap(viewRow({ is_replay: true }));
+
+    expect(receipt).not.toHaveProperty('isReplay');
+    expect(JSON.stringify(receipt)).not.toContain('isReplay');
+  });
+
+  it('rejects rows without the alias or complete aggregate contract', () => {
+    expect(receiptFromRow(viewRow({ claimer_alias: null }))).toBeNull();
+    expect(receiptFromRow(viewRow({ matched_amount_lamports: null }))).toBeNull();
+    expect(receiptFromRow(viewRow({ position_count: 'three' }))).toBeNull();
   });
 
   it('tolerates an unsettled market (all settlement columns null)', () => {
@@ -78,33 +120,10 @@ describe('receiptFromRow', () => {
   });
 });
 
-describe('proof fan-out collapsing', () => {
-  it('prefers the verified proof row for one market', () => {
-    const rows = [
-      mustMap(viewRow({ proof_status: 'pending' })),
-      mustMap(viewRow({ proof_status: 'verified', explorer_url: 'https://explorer/tx' })),
-      mustMap(viewRow({ proof_status: 'failed' })),
-    ];
-    const best = pickBestReceiptRow(rows);
-    expect(best?.proofStatus).toBe('verified');
-    expect(best?.explorerUrl).toBe('https://explorer/tx');
-  });
-
-  it('dedupes multi-market lists preserving order', () => {
-    const marketA = viewRow();
-    const marketB = viewRow({ market_id: '99999999-2f1e-4bc5-9b43-1a2b3c4d5e6f' });
-    const deduped = dedupeReceipts([
-      mustMap(viewRow({ proof_status: null })),
-      mustMap(marketB),
-      mustMap(viewRow({ proof_status: 'verified' })),
-    ]);
-    expect(deduped).toHaveLength(2);
-    expect(deduped[0]?.marketId).toBe(marketA.market_id);
-    expect(deduped[0]?.proofStatus).toBe('verified');
-  });
-
-  it('returns null for an empty set', () => {
-    expect(pickBestReceiptRow([])).toBeNull();
+describe('formatLamportsAsSol', () => {
+  it('formats decimal lamports without converting an unsafe bigint to a number', () => {
+    expect(formatLamportsAsSol('90071992547409930000000000')).toBe('90,071,992,547,409,930 SOL');
+    expect(formatLamportsAsSol('10000001')).toBe('0.010000001 SOL');
   });
 });
 

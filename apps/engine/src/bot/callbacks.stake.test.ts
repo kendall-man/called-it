@@ -7,125 +7,149 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { Context } from 'grammy';
-import { TUNABLES } from '@calledit/market-engine';
 import { dispatchCallback } from './callbacks.js';
 import { renderFallback } from './copy.js';
-import type { HandlerCtx } from './context.js';
-import type { EngineDb, FixtureRow, MarketRow } from '../ports.js';
-import { LlmBudget } from './budget.js';
-import { createWagerModule } from '../wager/module.js';
-import { makeFakeDeps, type FakeWagerDb } from '../wager/fakes.js';
-
-const NOW = Date.parse('2026-07-06T18:00:00.000Z');
-const CHAT_ID = -100999;
-const USER_A = 8001;
-const MARKET_ID = 'a1111111-1111-4111-8111-111111111111';
-const FIXTURE_ID = 77;
-
-const PRESET_01 = 0; // 0.01 SOL = 10_000_000 lamports
-const PRESET_05 = 1; // 0.05 SOL = 50_000_000
-const PRESET_10 = 2; // 0.1 SOL = 100_000_000
-
-function fixtureAt(phase: string, minute: number | null): FixtureRow {
-  return {
-    fixture_id: FIXTURE_ID,
-    p1_name: 'Brazil',
-    p2_name: 'Norway',
-    competition_id: null,
-    p1_id: null,
-    p2_id: null,
-    kickoff_at: new Date(NOW + 3_600_000).toISOString(),
-    phase,
-    minute,
-    last_seq: 0,
-    score: {},
-    coverage_unreliable: false,
-  } as unknown as FixtureRow;
-}
-
-function market(overrides: Partial<MarketRow> = {}): MarketRow {
-  return {
-    id: MARKET_ID,
-    claim_id: 'claim-1',
-    group_id: CHAT_ID,
-    fixture_id: FIXTURE_ID,
-    spec: { claimType: 'match_winner' } as MarketRow['spec'],
-    status: 'open',
-    is_replay: false,
-    price_provenance: 'market',
-    quote_probability: 0.5,
-    quote_multiplier: 2,
-    odds_message_id: 'om-1',
-    odds_ts: NOW - 1000,
-    card_tg_message_id: null, // null ⇒ refreshStakeCard is a no-op
-    created_at: new Date(NOW).toISOString(),
-    currency: 'sol',
-    ...overrides,
-  } as MarketRow;
-}
-
-interface StakeHarness {
-  h: HandlerCtx;
-  wagerDb: FakeWagerDb;
-}
-
-function makeHarness(
-  opts: { marketRow?: MarketRow; fixture?: FixtureRow; balanceLamports?: bigint; link?: boolean } = {},
-): StakeHarness {
-  const wagerBundle = makeFakeDeps({ now: () => NOW });
-  const wager = createWagerModule(wagerBundle.deps);
-  if (opts.link ?? true) wagerBundle.db.seedLink(USER_A, 'Wa11etPubkey1111111111111111111111111111');
-  wagerBundle.db.seedBalance(USER_A, opts.balanceLamports ?? 1_000_000_000n); // default 1 SOL
-  wagerBundle.db.seedMarketProbability(MARKET_ID, 0.5);
-
-  const theMarket = opts.marketRow ?? market();
-  const theFixture = opts.fixture ?? fixtureAt('NS', null);
-  const db = {
-    getMarket: async (id: string) => (id === theMarket.id ? { ...theMarket } : null),
-    getFixture: async () => theFixture,
-    getUser: async (id: number) => ({ id, display_name: `U${id}`, username: null }),
-    upsertUser: async () => undefined,
-    ensureMembership: async () => ({ created: false }),
-    getClaim: async () => null,
-    getGroup: async () => ({ id: CHAT_ID, slug: 'g', title: 'G', web_enabled: true }),
-    positionsForMarket: async () => [],
-    setMarketCardMessage: async () => undefined,
-  } as unknown as EngineDb;
-
-  const h = {
-    deps: {
-      db,
-      wager,
-      log: { info: () => undefined, warn: () => undefined, error: () => undefined },
-      now: () => NOW,
-      env: { WEB_BASE_URL: 'https://web.test' },
-    },
-    poster: { post: () => undefined, editCard: () => undefined, stripKeyboard: () => undefined },
-    say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
-    supervisor: { replayFixture: () => null },
-    budget: new LlmBudget(1000, () => NOW),
-  } as unknown as HandlerCtx;
-
-  return { h, wagerDb: wagerBundle.db };
-}
-
-function stakeCtx(userId: number): { ctx: Context; toasts: string[] } {
-  const toasts: string[] = [];
-  const ctx = {
-    chat: { id: CHAT_ID },
-    from: { id: userId, first_name: `U${userId}` },
-    answerCallbackQuery: async (payload: { text: string }) => {
-      toasts.push(payload.text);
-    },
-  } as unknown as Context;
-  return { ctx, toasts };
-}
-
-const stake = (side: 'back' | 'doubt', presetIndex: number) =>
-  ({ t: 'stake', marketId: MARKET_ID, side, presetIndex }) as const;
+import {
+  CHAT_ID,
+  INPLAY_CUTOFF,
+  MARKET_ID,
+  PRESET_01,
+  PRESET_05,
+  PRESET_10,
+  USER_A,
+  fixtureAt,
+  makeStakeContext as stakeCtx,
+  makeStakeHarness as makeHarness,
+  stakeAction as stake,
+  stakeMarket as market,
+} from './callbacks.stake.test-support.js';
 
 describe('handleStake — SOL delegate', () => {
+  it('places the exact default Telegram tap with one atomic starter grant', async () => {
+    const hz = makeHarness({
+      link: false,
+      balanceLamports: null,
+      starterGrantsEnabled: true,
+      walletMiniappEnabled: true,
+      stakeAcceptanceEnabled: true,
+    });
+    const { ctx, toasts } = stakeCtx(USER_A, 'starter-first-tap');
+
+    await dispatchCallback(hz.h, ctx, stake('back', PRESET_01));
+
+    expect(hz.wagerDb.lastStakeArgs).toMatchObject({
+      idempotency_key: 'telegram:callback:starter-first-tap',
+      allow_starter: true,
+      lamports: 10_000_000n,
+    });
+    expect(hz.wagerDb.positions).toHaveLength(1);
+    expect(hz.wagerDb.ledger).toMatchObject([
+      { kind: 'starter_grant', lamports: 10_000_000n },
+      { kind: 'stake', lamports: -10_000_000n },
+    ]);
+    expect(toasts).toHaveLength(1);
+  });
+
+  it('replays one callback id without a second grant, position, response, or card refresh', async () => {
+    const hz = makeHarness({
+      link: false,
+      balanceLamports: null,
+      starterGrantsEnabled: true,
+      walletMiniappEnabled: true,
+      stakeAcceptanceEnabled: true,
+      refreshableCard: true,
+    });
+    const { ctx, toasts } = stakeCtx(USER_A, 'starter-replay');
+
+    await Promise.all(
+      Array.from({ length: 10 }, () => dispatchCallback(hz.h, ctx, stake('back', PRESET_01))),
+    );
+
+    expect(hz.wagerDb.positions).toHaveLength(1);
+    expect(hz.wagerDb.ledger.filter((entry) => entry.kind === 'starter_grant')).toHaveLength(1);
+    expect(hz.wagerDb.ledger.filter((entry) => entry.kind === 'stake')).toHaveLength(1);
+    expect(new Set(toasts).size).toBe(1);
+    expect(hz.cardEdits).toEqual([{ chatId: CHAT_ID, marketId: MARKET_ID, messageId: 900 }]);
+  });
+
+  it('does not issue another starter grant for a distinct later callback', async () => {
+    const hz = makeHarness({
+      link: false,
+      balanceLamports: null,
+      starterGrantsEnabled: true,
+      walletMiniappEnabled: true,
+      stakeAcceptanceEnabled: true,
+    });
+    const first = stakeCtx(USER_A, 'starter-first');
+    const second = stakeCtx(USER_A, 'starter-second');
+
+    await dispatchCallback(hz.h, first.ctx, stake('back', PRESET_01));
+    await dispatchCallback(hz.h, second.ctx, stake('back', PRESET_01));
+
+    expect(hz.wagerDb.positions).toHaveLength(1);
+    expect(hz.wagerDb.ledger.filter((entry) => entry.kind === 'starter_grant')).toHaveLength(1);
+    expect(second.toasts).toEqual([expect.stringContaining('/wallet')]);
+  });
+
+  it.each([
+    { starterGrantsEnabled: false },
+    { walletMiniappEnabled: false },
+    { stakeAcceptanceEnabled: false },
+  ])('does not start an unlinked default tap while a rollout switch is off', async (switches) => {
+    const hz = makeHarness({
+      link: false,
+      balanceLamports: null,
+      starterGrantsEnabled: true,
+      walletMiniappEnabled: true,
+      stakeAcceptanceEnabled: true,
+      ...switches,
+    });
+    const { ctx, toasts } = stakeCtx(USER_A, `starter-switch-${JSON.stringify(switches)}`);
+
+    await dispatchCallback(hz.h, ctx, stake('back', PRESET_01));
+
+    expect(hz.wagerDb.positions).toHaveLength(0);
+    expect(hz.wagerDb.ledger).toHaveLength(0);
+    expect(toasts).toEqual([expect.stringContaining('/wallet')]);
+  });
+
+  it('keeps a funded default tap on the ordinary debit path', async () => {
+    const hz = makeHarness({
+      starterGrantsEnabled: true,
+      walletMiniappEnabled: true,
+      stakeAcceptanceEnabled: true,
+    });
+    const { ctx } = stakeCtx(USER_A, 'funded-default');
+
+    await dispatchCallback(hz.h, ctx, stake('back', PRESET_01));
+
+    expect(hz.wagerDb.positions).toHaveLength(1);
+    expect(hz.wagerDb.ledger.filter((entry) => entry.kind === 'starter_grant')).toHaveLength(0);
+    expect(hz.wagerDb.ledger.filter((entry) => entry.kind === 'stake')).toHaveLength(1);
+  });
+
+  it('commits only one side when opposite first taps race', async () => {
+    const hz = makeHarness({
+      link: false,
+      balanceLamports: null,
+      starterGrantsEnabled: true,
+      walletMiniappEnabled: true,
+      stakeAcceptanceEnabled: true,
+    });
+    const back = stakeCtx(USER_A, 'starter-race-back');
+    const doubt = stakeCtx(USER_A, 'starter-race-doubt');
+
+    await Promise.all([
+      dispatchCallback(hz.h, back.ctx, stake('back', PRESET_01)),
+      dispatchCallback(hz.h, doubt.ctx, stake('doubt', PRESET_01)),
+    ]);
+
+    expect(hz.wagerDb.positions).toHaveLength(1);
+    expect(hz.wagerDb.ledger.filter((entry) => entry.kind === 'starter_grant')).toHaveLength(1);
+    expect(hz.wagerDb.ledger.filter((entry) => entry.kind === 'stake')).toHaveLength(1);
+    expect([...back.toasts, ...doubt.toasts]).toHaveLength(2);
+  });
+
   it('resolves the preset index to lamports and places one position', async () => {
     const hz = makeHarness();
     const { ctx, toasts } = stakeCtx(USER_A);
@@ -158,7 +182,7 @@ describe('handleStake — SOL delegate', () => {
   });
 
   it('refuses a stake once the match is past the in-play cutoff', async () => {
-    const hz = makeHarness({ fixture: fixtureAt('2H', TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE) });
+    const hz = makeHarness({ fixture: fixtureAt('H2', INPLAY_CUTOFF) });
     const { ctx, toasts } = stakeCtx(USER_A);
     await dispatchCallback(hz.h, ctx, stake('back', PRESET_05));
     expect(hz.wagerDb.positions).toHaveLength(0);
