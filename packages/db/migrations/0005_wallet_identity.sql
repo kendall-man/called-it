@@ -110,12 +110,19 @@ declare
   v_hash bytea := wager_decode_sha256_hex(p_challenge_hash_hex);
   v_current record;
   v_history_id bigint;
+  v_history_user_id bigint;
   v_relinked boolean := false;
 begin
   if v_hash is null or p_pubkey is null or p_pubkey = '' then
     return jsonb_build_object('ok', false, 'code', 'challenge_invalid');
   end if;
+  -- Lock order for wallet verification is stable across callers:
+  -- 1) user-scoped advisory lock
+  -- 2) target-pubkey advisory lock
+  -- 3) current-link row lock
+  -- This prevents deadlocks while serializing the global pubkey reservation.
   perform pg_advisory_xact_lock(hashtextextended('wallet:user:' || p_user_id::text, 0));
+  perform pg_advisory_xact_lock(hashtextextended('wallet:pubkey:' || p_pubkey, 0));
   update wager_wallet_challenges
   set consumed_at = now()
   where id = p_challenge_id
@@ -150,11 +157,27 @@ begin
     end if;
     v_relinked := true;
   end if;
-  select id into v_history_id from wager_wallet_link_history where pubkey = p_pubkey;
+  select id, user_id into v_history_id, v_history_user_id from wager_wallet_link_history where pubkey = p_pubkey;
+  if v_history_id is not null and v_history_user_id <> p_user_id then
+    return jsonb_build_object('ok', false, 'code', 'pubkey_reserved');
+  end if;
   if v_history_id is null then
-    insert into wager_wallet_link_history (user_id, pubkey, challenge_id)
-    values (p_user_id, p_pubkey, p_challenge_id)
-    returning id into v_history_id;
+    begin
+      insert into wager_wallet_link_history (user_id, pubkey, challenge_id)
+      values (p_user_id, p_pubkey, p_challenge_id)
+      returning id into v_history_id;
+    exception
+      when unique_violation then
+        select id, user_id into v_history_id, v_history_user_id
+        from wager_wallet_link_history
+        where pubkey = p_pubkey;
+        if v_history_id is null then
+          raise;
+        end if;
+        if v_history_user_id <> p_user_id then
+          return jsonb_build_object('ok', false, 'code', 'pubkey_reserved');
+        end if;
+    end;
   end if;
   insert into wager_wallet_links (user_id, pubkey, verified_at, link_history_id)
   values (p_user_id, p_pubkey, now(), v_history_id)
@@ -181,7 +204,13 @@ begin
   if p_expires_at <= now() then
     return jsonb_build_object('ok', false, 'code', 'expired');
   end if;
+  -- Lock order for pending intent creation is stable across callers:
+  -- 1) user-scoped advisory lock
+  -- 2) intent-key advisory lock
+  -- The per-user lock preserves the one-active-intent invariant, and the
+  -- hash-scoped lock serializes the global intent_key_hash uniqueness check.
   perform pg_advisory_xact_lock(hashtextextended('intent:user:' || p_user_id::text, 0));
+  perform pg_advisory_xact_lock(hashtextextended('intent:key:' || encode(v_hash, 'hex'), 0));
   update wager_pending_stake_intents
   set state = 'expired', updated_at = now()
   where user_id = p_user_id and state in ('pending', 'awaiting_funds', 'ready') and expires_at <= now();
@@ -199,11 +228,25 @@ begin
   if v_active.id is not null then
     return jsonb_build_object('ok', false, 'code', 'active_intent_exists', 'intent_id', v_active.id);
   end if;
-  insert into wager_pending_stake_intents
-    (user_id, group_id, market_id, side, lamports, intent_key_hash, expires_at)
-  values
-    (p_user_id, p_group_id, p_market_id, p_side, p_lamports, v_hash, p_expires_at)
-  returning id into v_id;
+  begin
+    insert into wager_pending_stake_intents
+      (user_id, group_id, market_id, side, lamports, intent_key_hash, expires_at)
+    values
+      (p_user_id, p_group_id, p_market_id, p_side, p_lamports, v_hash, p_expires_at)
+    returning id into v_id;
+  exception
+    when unique_violation then
+      select * into v_existing from wager_pending_stake_intents where intent_key_hash = v_hash;
+      if v_existing.id is null then
+        raise;
+      end if;
+      if v_existing.user_id = p_user_id and v_existing.group_id = p_group_id
+         and v_existing.market_id = p_market_id and v_existing.side = p_side
+         and v_existing.lamports = p_lamports then
+        return jsonb_build_object('ok', true, 'intent_id', v_existing.id, 'state', v_existing.state);
+      end if;
+      return jsonb_build_object('ok', false, 'code', 'field_mismatch');
+  end;
   return jsonb_build_object('ok', true, 'intent_id', v_id, 'state', 'pending');
 end;
 $$;

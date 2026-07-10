@@ -68,9 +68,23 @@ export async function enableStarterBudget(client: Client): Promise<void> {
   await client.query('update wager_starter_budget set enabled = true where id = 1');
 }
 
+export async function seedLinkedWallet(client: Client, fixture: Fixture, pubkey = `Pubkey${fixture.userId}`): Promise<{ readonly linkHistoryId: number; readonly pubkey: string }> {
+  const history = await client.query<{ id: number }>(
+    'insert into wager_wallet_link_history (user_id, pubkey, verified_at) values ($1, $2, now()) returning id',
+    [fixture.userId, pubkey],
+  );
+  const linkHistoryId = history.rows[0]?.id;
+  assert.ok(linkHistoryId !== undefined);
+  await client.query(
+    'insert into wager_wallet_links (user_id, pubkey, verified_at, link_history_id) values ($1, $2, now(), $3)',
+    [fixture.userId, pubkey, linkHistoryId],
+  );
+  return { linkHistoryId, pubkey };
+}
+
 export async function fundLinkedUser(client: Client, fixture: Fixture, lamports = 200_000_000): Promise<void> {
   await enableStarterBudget(client);
-  await client.query('insert into wager_wallet_links (user_id, pubkey) values ($1, $2)', [fixture.userId, `Pubkey${fixture.userId}`]);
+  await seedLinkedWallet(client, fixture);
   await client.query('insert into wager_ledger_entries (user_id, kind, lamports, idempotency_key) values ($1, $2, $3, $4)', [fixture.userId, 'deposit', lamports, `deposit:${fixture.userId}`]);
 }
 

@@ -2,7 +2,8 @@ TAP version 13
 ok 1 - fresh tracked migrations applied and cleaned
 ok 2 - upgraded 0001-0003 plus 0004 and 0005 applied and cleaned
 ok 3 - open and pending_lineup wrote exact linked position, +/-10000000 ledger, grant and budget rows; ten replays deduped; privileges enforced
-ok 4 - linked allow_starter=false underfunded user returned insufficient with unchanged deposit/budget state; funded user wrote one debit and position with no grant and replay dedupe
-ok 5 - disabled paused frozen settling settled voided bad-state wrong-side non-SOL history cap and injected exception returned stable codes with exact before/after state
-ok 6 - 50 same-key calls produced one exact position; distinct first taps produced success plus wallet_required; 500 real grants remained in parity and the 501st wrote nothing
-1..6
+ok 4 - starter-grant linked-wallet fixture created one current link backed by one append-only history row
+ok 5 - linked allow_starter=false underfunded user returned insufficient with unchanged deposit/budget state; funded user wrote one debit and position with no grant and replay dedupe
+ok 6 - disabled paused frozen settling settled voided bad-state wrong-side non-SOL history cap and injected exception returned stable codes with exact before/after state
+ok 7 - 50 same-key calls produced one exact position; distinct first taps produced success plus wallet_required; 500 real grants remained in parity and the 501st wrote nothing
+1..7

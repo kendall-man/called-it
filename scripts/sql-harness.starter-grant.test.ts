@@ -16,6 +16,7 @@ import {
   enableStarterBudget,
   fundLinkedUser,
   poolStake,
+  seedLinkedWallet,
   seedMarket,
   stake,
   stateSnapshot,
@@ -69,6 +70,44 @@ test('starter stake writes exact linked rows, accepts pending_lineup, and is ide
     await assertBudgetParity(client);
   });
   record('open and pending_lineup wrote exact linked position, +/-10000000 ledger, grant and budget rows; ten replays deduped; privileges enforced');
+});
+
+test('starter-grant linked-wallet fixtures seed through append-only link history under 0005', async () => {
+  const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
+  await withMigratedDb(migrations, async (client) => {
+    const fixture = await seedMarket(client, { userId: 7103, groupId: -7103 });
+    const seeded = await seedLinkedWallet(client, fixture);
+    const rows = await client.query<{
+      userId: string;
+      pubkey: string;
+      linkHistoryId: string;
+      historyUserId: string;
+      historyPubkey: string;
+      verifiedAt: string;
+    }>(`
+      select
+        l.user_id::text as "userId",
+        l.pubkey,
+        l.link_history_id::text as "linkHistoryId",
+        h.user_id::text as "historyUserId",
+        h.pubkey as "historyPubkey",
+        l.verified_at::text as "verifiedAt"
+      from wager_wallet_links l
+      join wager_wallet_link_history h on h.id = l.link_history_id
+      where l.user_id = $1
+    `, [fixture.userId]);
+    assert.equal(rows.rows.length, 1);
+    assert.deepEqual(rows.rows[0], {
+      userId: String(fixture.userId),
+      pubkey: seeded.pubkey,
+      linkHistoryId: String(seeded.linkHistoryId),
+      historyUserId: String(fixture.userId),
+      historyPubkey: seeded.pubkey,
+      verifiedAt: rows.rows[0]?.verifiedAt ?? '',
+    });
+    assert.ok((rows.rows[0]?.verifiedAt ?? '').length > 0);
+  });
+  record('starter-grant linked-wallet fixture created one current link backed by one append-only history row');
 });
 
 test('linked non-starter stakes preserve insufficient state and spend only deposited funds', async () => {

@@ -2,26 +2,35 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { Pool, type Client } from 'pg';
+import { Pool } from 'pg';
 import { discoverMigrationFiles } from './sql-harness/runner.js';
-import { withPgClient } from './sql-harness/postgres.js';
 import { validateCalledItSchema } from './sql-harness/schema-checks.js';
 import {
   seedMarket,
-  stateSnapshot,
   withMigratedDb,
 } from './sql-harness/starter-grant-support.js';
+import {
+  assertWalletFunctionPrivileges,
+  countRows,
+  createChallenge,
+  createIntent,
+  GROUP_ID,
+  HASH_A,
+  HASH_B,
+  INTENT_HASH,
+  linkSnapshot,
+  MIGRATIONS_DIR,
+  OTHER_USER_ID,
+  PUBKEY_A,
+  PUBKEY_B,
+  rpc,
+  secretSnapshot,
+  seedWalletFixtures,
+  USER_ID,
+  verify,
+} from './sql-harness/wallet-identity-support.js';
 
-const MIGRATIONS_DIR = join(process.cwd(), 'packages/db/migrations');
 const TAP_PATH = join(process.cwd(), '.omo/evidence/task-8-called-it-direct-onboarding-remediation.sql.tap');
-const USER_ID = 8501;
-const OTHER_USER_ID = 8502;
-const GROUP_ID = -8501;
-const PUBKEY_A = 'WalletIdentityPubkeyA111111111111111111111111';
-const PUBKEY_B = 'WalletIdentityPubkeyB222222222222222222222222';
-const HASH_A = 'a'.repeat(64);
-const HASH_B = 'b'.repeat(64);
-const INTENT_HASH = 'c'.repeat(64);
 const tapLines: string[] = ['TAP version 13'];
 let tapCount = 0;
 
@@ -160,102 +169,6 @@ test('pending stake intents preserve immutable owner-bound state and consume onc
   });
   record('owner-only active intent resolution, immutable field mismatch, active conflict, funding and single consume were enforced');
 });
-
-type RpcJson = Record<string, unknown> & { readonly ok: boolean; readonly code?: string; readonly intent_id?: string; readonly intent?: { readonly user_id: number } };
-
-async function seedWalletFixtures(client: Client): Promise<void> {
-  await client.query('insert into users (id, display_name) values ($1, $2), ($3, $4)', [USER_ID, 'u', OTHER_USER_ID, 'o']);
-}
-
-async function createChallenge(client: Client | Pool, userId: number, pubkey: string, hash: string, ttlMinutes: number): Promise<string> {
-  const result = await client.query<{ id: string }>(
-    `insert into wager_wallet_challenges (user_id, pubkey, challenge_hash, expires_at)
-     values ($1, $2, decode($3, 'hex'), now() + ($4 || ' minutes')::interval)
-     returning id`,
-    [userId, pubkey, hash, ttlMinutes],
-  );
-  const row = result.rows[0];
-  assert.ok(row);
-  return row.id;
-}
-
-async function verify(client: Client | Pool, id: string, userId: number, pubkey: string, hash: string): Promise<RpcJson> {
-  return rpc(client, 'wager_verify_wallet_link($1,$2,$3,$4)', [id, userId, pubkey, hash]);
-}
-
-async function createIntent(
-  client: Client,
-  marketId: string,
-  hash: string,
-  side: 'back' | 'doubt',
-  lamports: number,
-  ttlMinutes = 10,
-): Promise<RpcJson> {
-  return rpc(client, 'wager_create_pending_stake_intent($1,$2,$3,$4,$5,$6,$7)', [
-    USER_ID,
-    GROUP_ID,
-    marketId,
-    side,
-    lamports,
-    hash,
-    new Date(Date.now() + ttlMinutes * 60_000).toISOString(),
-  ]);
-}
-
-async function rpc(client: Client | Pool, signature: string, params: readonly unknown[]): Promise<RpcJson> {
-  const result = await client.query<{ result: RpcJson }>(`select ${signature} as result`, params);
-  const row = result.rows[0];
-  assert.ok(row);
-  return row.result;
-}
-
-async function countRows(client: Client, table: string): Promise<number> {
-  const result = await client.query<{ count: string }>(`select count(*) from ${table}`);
-  return Number(result.rows[0]?.count ?? '0');
-}
-
-async function linkSnapshot(client: Client): Promise<unknown> {
-  const result = await client.query(
-    'select user_id::text, pubkey from wager_wallet_links order by user_id, pubkey',
-  );
-  return result.rows;
-}
-
-async function secretSnapshot(client: Client): Promise<{ readonly challengeRaw: string; readonly intentRaw: string; readonly challengeHashBytes: number; readonly intentHashBytes: number | null }> {
-  const result = await client.query(
-    `select
-       (select count(*)::text from information_schema.columns where table_name in ('wager_wallet_challenges','wager_pending_stake_intents') and column_name in ('challenge','challenge_material','intent_key','intent_secret')) as "challengeRaw",
-       (select count(*)::text from information_schema.columns where table_name = 'wager_pending_stake_intents' and column_name in ('intent_key','intent_secret')) as "intentRaw",
-       (select octet_length(challenge_hash) from wager_wallet_challenges limit 1) as "challengeHashBytes",
-       (select octet_length(intent_key_hash) from wager_pending_stake_intents limit 1) as "intentHashBytes"`,
-  );
-  const row = result.rows[0];
-  assert.ok(row);
-  return row;
-}
-
-async function assertWalletFunctionPrivileges(client: Client, url: string): Promise<void> {
-  const result = await client.query<{ service: boolean; anon: boolean; authenticated: boolean; public: boolean }>(
-    `select bool_and(has_function_privilege('service_role', p.oid, 'EXECUTE')) as service,
-            bool_or(has_function_privilege('anon', p.oid, 'EXECUTE')) as anon,
-            bool_or(has_function_privilege('authenticated', p.oid, 'EXECUTE')) as authenticated,
-            bool_or(has_function_privilege('public', p.oid, 'EXECUTE')) as public
-     from pg_proc p
-     join pg_namespace n on n.oid = p.pronamespace
-     where n.nspname = 'public'
-       and (p.proname like 'wager_%wallet%' or p.proname like 'wager_%stake_intent%')`,
-  );
-  assert.deepEqual(result.rows[0], { service: true, anon: false, authenticated: false, public: false });
-  for (const role of ['anon', 'authenticated'] as const) {
-    await withPgClient(url, async (roleClient) => {
-      await roleClient.query(`set role ${role}`);
-      await assert.rejects(
-        roleClient.query("select wager_resolve_active_stake_intent(1)"),
-        /permission denied/,
-      );
-    });
-  }
-}
 
 function record(message: string): void {
   tapCount += 1;

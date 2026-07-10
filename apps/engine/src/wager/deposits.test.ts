@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autoCreditOrphanDeposits, createDepositWatcher } from './deposits.js';
+import { classifyOrphanDepositsForOps, createDepositWatcher } from './deposits.js';
 import { depositCursorStream, WAGER_KEYS, WAGER_TUNABLES } from './constants.js';
 import { makeFakeDeps } from './fakes.js';
 import type { WagerIncomingTransfer } from './port.js';
@@ -132,23 +132,30 @@ describe('deposit watcher', () => {
   });
 });
 
-describe('orphan auto-credit at wallet verification', () => {
-  it('credits prior orphan deposits from the newly linked sender', async () => {
+describe('legacy orphan deposits remain ops-only reconciliation items', () => {
+  it('classifies matching orphan deposits without crediting or attributing them', async () => {
     const { deps, db } = makeFakeDeps();
     db.seedOrphanDeposit({ tx_sig: 'old1', ix_index: 0, sender_pubkey: SENDER, lamports: 5_000_000n });
     db.seedOrphanDeposit({ tx_sig: 'old2', ix_index: 1, sender_pubkey: SENDER, lamports: 2_000_000n });
     db.seedOrphanDeposit({ tx_sig: 'other', ix_index: 0, sender_pubkey: 'SomeoneElse', lamports: 9_000_000n });
 
-    const sweep = await autoCreditOrphanDeposits(deps, USER, SENDER);
+    const summary = await classifyOrphanDepositsForOps(deps, SENDER);
 
-    expect(sweep.creditedCount).toBe(2);
-    expect(sweep.creditedLamports).toBe(7_000_000n);
-    expect(await db.balanceLamports(USER)).toBe(7_000_000n);
-    expect(db.deposits.get('old1:0')?.user_id).toBe(USER);
+    expect(summary).toEqual({
+      orphanCount: 2,
+      totalLamports: 7_000_000n,
+      creditableCount: 2,
+      dustCount: 0,
+      reason: 'ops_reconciliation_required',
+    });
+    expect(await db.balanceLamports(USER)).toBe(0n);
+    expect(db.ledger).toHaveLength(0);
+    expect(db.deposits.get('old1:0')?.user_id).toBeNull();
+    expect(db.deposits.get('old1:0')?.credited_at).toBeNull();
     expect(db.deposits.get('other:0')?.user_id).toBeNull(); // someone else's orphan untouched
   });
 
-  it('leaves sub-minimum orphan dust uncredited', async () => {
+  it('reports dust separately and still leaves the orphan untouched', async () => {
     const { deps, db } = makeFakeDeps();
     db.seedOrphanDeposit({
       tx_sig: 'dust',
@@ -156,35 +163,33 @@ describe('orphan auto-credit at wallet verification', () => {
       sender_pubkey: SENDER,
       lamports: WAGER_TUNABLES.MIN_DEPOSIT_LAMPORTS - 1n,
     });
-    const sweep = await autoCreditOrphanDeposits(deps, USER, SENDER);
-    expect(sweep.creditedCount).toBe(0);
-    expect(await db.balanceLamports(USER)).toBe(0n);
-  });
-
-  it('is idempotent across repeated links', async () => {
-    const { deps, db } = makeFakeDeps();
-    db.seedOrphanDeposit({ tx_sig: 'old1', ix_index: 0, sender_pubkey: SENDER, lamports: 5_000_000n });
-    await autoCreditOrphanDeposits(deps, USER, SENDER);
-    const again = await autoCreditOrphanDeposits(deps, USER, SENDER);
-    expect(again.creditedCount).toBe(0);
-    expect(await db.balanceLamports(USER)).toBe(5_000_000n);
-  });
-
-  it('converges when the credited stamp crashed after the ledger post', async () => {
-    const { deps, db } = makeFakeDeps();
-    db.seedOrphanDeposit({ tx_sig: 'old1', ix_index: 0, sender_pubkey: SENDER, lamports: 5_000_000n });
-    // Simulate: ledger post landed, markDepositCredited never did.
-    await db.postWagerLedger({
-      user_id: USER,
-      group_id: null,
-      market_id: null,
-      kind: 'deposit',
-      lamports: 5_000_000n,
-      idempotency_key: WAGER_KEYS.deposit('old1', 0),
+    const summary = await classifyOrphanDepositsForOps(deps, SENDER);
+    expect(summary).toEqual({
+      orphanCount: 1,
+      totalLamports: WAGER_TUNABLES.MIN_DEPOSIT_LAMPORTS - 1n,
+      creditableCount: 0,
+      dustCount: 1,
+      reason: 'ops_reconciliation_required',
     });
-    const sweep = await autoCreditOrphanDeposits(deps, USER, SENDER);
-    expect(sweep.creditedCount).toBe(0); // no NEW credit…
-    expect(db.deposits.get('old1:0')?.user_id).toBe(USER); // …but the stamp converged
-    expect(await db.balanceLamports(USER)).toBe(5_000_000n);
+    expect(await db.balanceLamports(USER)).toBe(0n);
+    expect(db.deposits.get('dust:0')?.credited_at).toBeNull();
+  });
+
+  it('returns a no-op summary when the sender has no orphan deposits', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.seedOrphanDeposit({
+      tx_sig: 'other',
+      ix_index: 0,
+      sender_pubkey: 'SomeoneElse',
+      lamports: 5_000_000n,
+    });
+    expect(await classifyOrphanDepositsForOps(deps, SENDER)).toEqual({
+      orphanCount: 0,
+      totalLamports: 0n,
+      creditableCount: 0,
+      dustCount: 0,
+      reason: 'none',
+    });
+    expect(db.ledger).toHaveLength(0);
   });
 });
