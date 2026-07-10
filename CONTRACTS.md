@@ -10,8 +10,9 @@ privacy, and copy must agree here, in `README.md`, `docs/PRD-called-it-mvp.md`,
   duplicated local unions.
 - `packages/market-engine` is pure: no I/O, environment reads, clocks, random values,
   database code, Telegram code, or model calls.
-- The engine is the single writer. The concierge mutates only through the private engine
-  API. Browser code never receives engine/service-role credentials or writes Supabase.
+- The engine is the single writer. The concierge reads scoped private engine routes and
+  forwards Telegram ingress, but has no arbitrary money-mutation route. Browser code never
+  receives engine/service-role credentials or writes Supabase.
 - Every externally replayable mutation is idempotent and reports only after the durable
   effect commits.
 - SOL/test SOL on Solana devnet is the only current economy. It has no monetary value; the
@@ -137,7 +138,11 @@ The engine owns grammY behavior, trusted command/callback handling, group readin
 consent, offers, positions, TxLINE ingest, settlement, proof jobs, chat delivery, and the
 private HTTP API.
 
-- Bot updates are durably accepted and routed before acknowledgement.
+- Public engine health is only `GET /api/live` and `GET /api/ready`.
+- Private route credentials are scoped: concierge read/quote routes, Telegram ingress, and
+  operations status are separate tokens with wrong-scope requests rejected.
+- Current Telegram ingress is a typed transitional port that acknowledges only after the
+  bot handler resolves; durable ingress acceptance remains later work.
 - Group-ready delivery is idempotent across membership and versioned-start updates.
 - Position callbacks bind trusted user, group, market, side, amount, and source key.
 - Default offer rows use the exact contract labels; larger choices are requester-scoped.
@@ -148,12 +153,13 @@ private HTTP API.
 
 ## `apps/concierge`
 
-The Eve app owns addressed conversation and private API tool calls. It imports no workspace
-package, writes no database, and never computes a product fact.
+The Eve app owns addressed conversation and scoped private API tool calls. It imports no
+workspace package, writes no database, and never computes a product fact.
 
 - Identity comes from the verified Telegram/session principal, not model text.
 - A quote is read-only and never substitutes for speaker consent.
-- A mutation uses the exact trusted requester and durable idempotency key.
+- Position commits are not a model-facing direct tool; Callie points members to the
+  engine-owned Telegram card or private account action.
 - Callie relays committed/refused/pending state honestly and keeps the three-part recovery
   facts intact.
 - Instructions contain the SOL direct flow, starter disclaimer, `/me`/`/table` boundary,

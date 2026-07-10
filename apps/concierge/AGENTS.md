@@ -12,7 +12,7 @@ mutation source of truth.
 | --- | --- | --- |
 | Agent model/limits | `agent/agent.ts` | GLM via Anthropic-compatible AI SDK provider |
 | Telegram ingress | `agent/channels/telegram.ts` | Conversation gating and engine forwarding |
-| Engine client | `agent/lib/engine-api.ts` | Typed fetch client and trusted Telegram identity |
+| Engine client | `agent/lib/engine-api.ts` | Private route-scoped fetch client and trusted Telegram identity |
 | Tools | `agent/tools/` | API-backed tools plus disabled shell/fs/web built-ins |
 | Instructions | `agent/instructions/` | Direct flow, consent, SOL rules, receipts, voice |
 | Plan/rationale | `docs/eve-concierge-plan.md` | Architecture and deployment notes |
@@ -21,7 +21,8 @@ mutation source of truth.
 
 - Do not import `@calledit/*` workspace packages here; tools talk to the engine API.
 - Never trust model-supplied user identity. Use `telegramIdentity(ctx.session)`.
-- Mutating tools must rely on engine validation, locks, and idempotency.
+- Callie has no arbitrary money-mutation tool; position commits stay on the engine-owned
+  Telegram card/account path.
 - Shell, filesystem, and open-web tools are disabled by design.
 - Installation is setup and the first consented live offer is onboarding; Callie does not
   insert a simulated flow before it.
@@ -48,8 +49,9 @@ npx -y pnpm@10.33.0 --filter callie eve:build
 
 - `callie` has no `build` script, so root `turbo run build` skips it.
 - `package.json` declares Node >=24, while the repo root says Node >=22.
-- Env used here includes `TELEGRAM_BOT_TOKEN`, `CONCIERGE_BOT_USERNAME`,
-  `ENGINE_API_URL`, `ENGINE_API_TOKEN`, `GLM_API_KEY`, and optional `GLM_BASE_URL`.
+- Env used here includes `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`,
+  `ENGINE_PRIVATE_API_URL`, route-scoped engine tokens, `WEB_CONCIERGE_TOKEN`,
+  `GLM_API_KEY`, and `GLM_BASE_URL`.
 - Telegram privacy mode must be disabled for the single-ingress forwarding design.
 - `group_ready` and `position_placed` are the only activation events; Callie must not report
   either before the engine returns the committed transition.

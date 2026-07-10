@@ -34,8 +34,9 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
 
   bot.command('settings', async (ctx) => {
     if (!isGroup(ctx.chat.type) || !ctx.from) return;
-    const group = await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', ctx.from);
-    const admin = await isGroupAdmin(h, () => ctx.getChatMember(ctx.from!.id));
+    const from = ctx.from;
+    const group = await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', from);
+    const admin = await isGroupAdmin(h, () => ctx.getChatMember(from.id));
     if (!admin) {
       h.poster.post(ctx.chat.id, await h.say('admin_only'), {
         replyToMessageId: ctx.message?.message_id,
@@ -49,8 +50,9 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
 
   bot.command('replay', async (ctx) => {
     if (!isGroup(ctx.chat.type) || !ctx.from) return;
-    const group = await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', ctx.from);
-    const admin = await isGroupAdmin(h, () => ctx.getChatMember(ctx.from!.id));
+    const from = ctx.from;
+    const group = await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', from);
+    const admin = await isGroupAdmin(h, () => ctx.getChatMember(from.id));
     const replyTo = ctx.message?.message_id;
     if (!admin) {
       h.poster.post(ctx.chat.id, await h.say('admin_only'), { replyToMessageId: replyTo });
@@ -83,15 +85,6 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
         break;
       }
     }
-    // TEMP DIAG: surface exactly why /replay gates (remove after debugging).
-    h.deps.log.info('replay_diag', {
-      groupId: group.id,
-      fixtureId,
-      hasActiveReplay: activeReplay,
-      openMarkets: openMarkets.length,
-      replayFlags: openMarkets.map((m) => m.is_replay),
-      liveBetInPlay,
-    });
     if (activeReplay) {
       h.poster.post(ctx.chat.id, await h.say('replay_blocked_active'), { replyToMessageId: replyTo });
       return;

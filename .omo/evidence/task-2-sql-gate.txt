@@ -1,0 +1,30 @@
+
+> calledit@ test:sql /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+> pnpm run typecheck:scripts && tsx --test --test-concurrency=1 scripts/sql-harness.test.ts scripts/sql-harness.integration.test.ts scripts/sql-harness.starter-grant.test.ts && tsx scripts/sql-harness.ts
+
+
+> calledit@ typecheck:scripts /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+> tsc -p tsconfig.scripts.json --noEmit
+
+✔ detects missing realtime publication membership and cleans the database (91.680625ms)
+✔ detects unexpected realtime publication membership and cleans the database (86.247083ms)
+✔ cleans real roles after partial setup failure and preserves pre-existing roles (3.934834ms)
+✔ starter-grant migrations apply fresh and as 0001-0003 upgrade (167.782375ms)
+(node:91682) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✔ starter stake writes exact linked rows, accepts pending_lineup, and is idempotent and private (103.38ms)
+✔ every starter refusal and injected exception preserves the exact prior state (107.007958ms)
+✔ concurrency grants once per user and the real 501st eligible user is refused (369.140083ms)
+✔ discovers tracked SQL migrations in lexical order (3.963291ms)
+✔ drops the disposable database when migration application fails (0.295291ms)
+✔ creates disposable database names with the expected prefix (0.215416ms)
+✔ cleans partially created roles without dropping pre-existing roles (0.147875ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1120.318459
+SQL harness applied 4 migrations to calledit_ci_ac5accc5_5172_4695_8275_69605c0ff523 and cleaned it up

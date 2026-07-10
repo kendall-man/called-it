@@ -13,9 +13,8 @@ const COMMENT_TOKENS = new Set([
   ts.SyntaxKind.SingleLineCommentTrivia,
   ts.SyntaxKind.MultiLineCommentTrivia,
 ]);
-const TASK_ONE_TYPESCRIPT_PATHS = [
+const TASK_ONE_TYPESCRIPT_PATHS: readonly string[] = [
   'apps/concierge/agent/tools/get_my_wallet.ts',
-  'apps/concierge/agent/tools/place_stake.ts',
   'apps/concierge/agent/tools/quote_claim.ts',
   'apps/engine/src/bot/copy.test.ts',
   'apps/engine/src/bot/copy.ts',
@@ -29,7 +28,7 @@ const TASK_ONE_TYPESCRIPT_PATHS = [
   'scripts/check-product-copy.test.ts',
   'scripts/check-product-copy.ts',
   'scripts/product-copy-contract.ts',
-] as const;
+];
 
 function runChecker(args: readonly string[]) {
   return spawnSync(process.execPath, ['--import', 'tsx', CHECKER_PATH, ...args], {
@@ -116,7 +115,7 @@ test('includes every active landing, engine copy, fallback, and concierge surfac
     'apps/engine/src/wager/copy.ts',
     'packages/agent/src/templates.ts',
     'apps/concierge/agent/instructions/00-callie.md',
-    'apps/concierge/agent/tools/place_stake.ts',
+    'apps/concierge/agent/tools/quote_claim.ts',
   ];
 
   // When
@@ -254,10 +253,10 @@ test('keeps every audited Task 1 TypeScript surface at or below 250 pure lines',
   const limit = 250;
 
   // When
-  const counts = TASK_ONE_TYPESCRIPT_PATHS.map((path) => [
+  const counts = TASK_ONE_TYPESCRIPT_PATHS.map((path): readonly [string, number] => [
     path,
     countPureLines(join(REPO_ROOT, path)),
-  ] as const);
+  ]);
 
   // Then
   for (const [path, count] of counts) {

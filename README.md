@@ -71,7 +71,8 @@ the account is private member state.
 ## Privacy And Proof
 
 The engine is the single writer. The browser reads only curated public views, and the Eve
-concierge reaches mutations only through the private engine API.
+concierge uses only route-scoped private engine reads, quotes, and Telegram ingress
+forwarding. Position commits stay on the engine-owned Telegram card or private account path.
 
 - A public receipt identifies the confirmed speaker by a random, stable per-group alias
   such as `Player A1B2C3D4`.
@@ -114,8 +115,8 @@ scripts/
 ```
 
 The engine owns all writes. The web never writes directly to Supabase. The concierge does
-not import workspace domain packages and does not compute prices, balances, settlement, or
-proof outcomes.
+not import workspace domain packages, has no arbitrary money-mutation route, and does not
+compute prices, balances, settlement, or proof outcomes.
 
 ## Development
 

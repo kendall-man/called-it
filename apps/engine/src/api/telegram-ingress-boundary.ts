@@ -1,7 +1,7 @@
 import type { Update } from 'grammy/types';
 import { z } from 'zod';
 
-type TelegramUpdateMutation = (update: Update) => Promise<void>;
+type TelegramIngressMutation = (update: Update) => Promise<void>;
 
 const telegramUserSchema = z.object({
   id: z.number().int(),
@@ -189,8 +189,8 @@ const dispatchableUpdateSchema = z.union([
   membershipUpdateSchema,
 ]);
 
-export function createTelegramUpdateHandler(
-  mutate: TelegramUpdateMutation,
+export function createTelegramIngressHandler(
+  mutate: TelegramIngressMutation,
 ): (input: unknown) => Promise<void> {
   return async (input) => {
     const update: Update = dispatchableUpdateSchema.parse(input);

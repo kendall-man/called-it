@@ -18,7 +18,6 @@ export const TEST_ENV = loadEnv({
   ENGINE_CONCIERGE_TOKEN: 'concierge-token-000000000000000000',
   ENGINE_TELEGRAM_TOKEN: 'telegram-token-0000000000000000000',
   ENGINE_OPS_TOKEN: 'operations-token-00000000000000000',
-  ENGINE_API_TOKEN: 'test-engine-api-token-0123456789',
   PORT: '8790',
   TELEGRAM_INGRESS: 'poll',
   WAGER_MODE_ENABLED: 'false',

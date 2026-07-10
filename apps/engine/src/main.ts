@@ -28,7 +28,7 @@ import { Settler } from './settle/settler.js';
 import { IngestSupervisor } from './ingest/supervisor.js';
 import { startCrons } from './cron/index.js';
 import { startEngineApi } from './api/server.js';
-import { createTelegramUpdateHandler } from './api/telegram-update-boundary.js';
+import { createTelegramIngressHandler } from './api/telegram-ingress-boundary.js';
 import {
   createEngineReadinessChecks,
   type EngineReadinessPolicy,
@@ -136,9 +136,6 @@ async function main(): Promise<void> {
 
   const crons = startCrons({ deps, poster, say, settler, supervisor });
   const webhookIngress = env.TELEGRAM_INGRESS === 'webhook';
-  if (webhookIngress && !env.ENGINE_API_TOKEN) {
-    throw new Error('TELEGRAM_INGRESS=webhook requires ENGINE_API_TOKEN (updates arrive via the API)');
-  }
   let runner: ReturnType<typeof run> | null = null;
   let webhookWorkerReady = false;
   const drainState = new DrainState();
@@ -184,7 +181,9 @@ async function main(): Promise<void> {
     drainState,
     ...(webhookIngress
       ? {
-          handleTelegramUpdate: createTelegramUpdateHandler((update) => bot.handleUpdate(update)),
+          telegramIngress: {
+            accept: createTelegramIngressHandler((update) => bot.handleUpdate(update)),
+          },
         }
       : {}),
   });

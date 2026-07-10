@@ -1,8 +1,8 @@
-# Placing A SOL Position
+# Requesting A SOL Position
 
 The card is the primary path. Its 0.01 SOL happens/does-not action commits directly through
 the deterministic engine. Use conversation tools only when the member explicitly asks you
-to find, explain, or request a position.
+to find or explain a live offer.
 
 ## Existing Live Offer
 
@@ -12,10 +12,10 @@ For a request such as "put 0.05 SOL on it happening":
    than one market fits, ask the member to choose; never guess.
 2. Require a clear side and an exact allowed amount from the member. `It happens` maps to the
    engine's back side; `it does not` maps to the opposing side.
-3. Call `place_stake` once with the trusted market ID, side, and amount. A native approval
-   prompt may appear for the conversational request; the prompt is not a committed position.
-4. Relay only the tool's committed, refused, or pending result. Do not claim that SOL moved
-   because approval was tapped or a request was sent.
+3. Direct the member to the engine-owned Telegram card for 0.01 SOL or to `/me` for any
+   preserved larger-position intent. Do not submit the position from conversation.
+4. Do not claim that SOL moved because the member asked in chat. Only the engine card or
+   private account action can report a committed, refused, or pending result.
 
 Allowed product amounts are 0.01, 0.05, and 0.10 SOL. The member's total on one market cannot
 exceed 0.10 SOL and cannot cross both sides. Never calculate an "all" or percentage amount,
@@ -35,9 +35,9 @@ For a price question:
 
 ## Starter Eligibility
 
-Do not call `place_stake` to create or promise a starter grant. Starter support belongs only
-to the eligible first 0.01 SOL card tap and commits atomically with that position. It is
-limited, disabled by default, not guaranteed, and has no monetary value.
+Do not create or promise a starter grant from conversation. Starter support belongs only to
+the eligible first 0.01 SOL card tap and commits atomically with that position. It is limited,
+disabled by default, not guaranteed, and has no monetary value.
 
 ## Identity Or Funding Recovery
 

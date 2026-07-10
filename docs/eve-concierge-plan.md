@@ -34,7 +34,7 @@ step, but it must not insert a tutorial before the real product.
 ## Topology
 
 ```text
-Telegram update
+Telegram webhook event
   -> verified webhook envelope and durable routing decision
      -> deterministic engine path for commands, callbacks, service updates,
         claims, cards, positions, settlement, and receipts
@@ -92,18 +92,20 @@ period, or turn a quote into consent.
 ### Positions
 
 The default product action is the card's 0.01 SOL side tap. A conversational request must
-name a unique live market, side, and exact allowed amount before a position tool is called.
-Callie never chooses an amount, changes a refused request, switches sides, or retries a
-mutation after an uncertain response.
+name a unique live market, side, and exact allowed amount before Callie points the member
+to the engine-owned card or private `/me` action. Callie never chooses an amount, submits a
+position from conversation, changes a refusal, switches sides, or tells a member to retry
+after an uncertain response.
 
 For 0.05/0.10 SOL identity or funding recovery, the engine preserves one bound intent and
 returns a private account action. Callie must say that funding alone does not place the
 position and that final confirmation is still required.
 
-### Mutations
+### Event Writes
 
-Every mutating call carries a durable idempotency key and returns a typed committed/refused/
-pending result. The engine's result is authoritative. Callie may rephrase it only if all
+Callie may send only allowlisted anonymous product events through the server-side bridge or
+route Telegram ingress to the engine. It has no arbitrary money-mutation tool. The engine's
+committed/refused/pending result is authoritative, and Callie may rephrase it only if all
 three recovery facts remain intact.
 
 ## Starter Grant Language

@@ -35,7 +35,7 @@ scripts/
 | Cross-package contracts | `CONTRACTS.md` | Consent, money, privacy, and app boundaries |
 | Engine boot/wiring | `apps/engine/src/main.ts`, `apps/engine/src/wiring.ts` | `wiring.ts` is the only direct sibling-package import hub |
 | Bot flow/cards/callbacks | `apps/engine/src/bot/`, `apps/engine/src/pipeline/` | Consumer-facing copy has strict vocabulary rules |
-| Engine HTTP API | `apps/engine/src/api/server.ts` | Concierge integration surface; bearer-auth except `/api/health` |
+| Engine HTTP API | `apps/engine/src/api/server.ts` | Route-scoped private API; only `/api/live` and `/api/ready` are public |
 | Settlement truth | `packages/market-engine/src/reduce.ts` | Pure state machine; engine persists/applies effects |
 | Public web receipts | `apps/web/app/r/[marketId]/page.tsx`, `apps/web/lib/queries.ts` | Aliases, compiled terms, aggregate SOL only |
 | Concierge agent/tools | `apps/concierge/agent/` | No workspace imports; tools call the engine API |
@@ -75,8 +75,8 @@ npx -y pnpm@10.33.0 --dir apps/web exec next dev --hostname 127.0.0.1 --port 302
   and `/g/missing-group` returned intentional 404 pages.
 - Browser smoke: Brave rendered the landing page at `http://127.0.0.1:3020/` with the
   expected headings, CTA links, and trust strip visible in the accessibility tree.
-- Engine API smoke against mock deps: `/api/health` returned 200 and unauthenticated
-  `/api/fixtures` returned 401.
+- Historical engine API smoke used legacy `/api/health`; current health probes are
+  `/api/live` and `/api/ready`, and scoped private routes reject unauthenticated callers.
 
 ## Conventions
 
@@ -84,7 +84,8 @@ npx -y pnpm@10.33.0 --dir apps/web exec next dev --hostname 127.0.0.1 --port 302
 - ESM and explicit `.js` import specifiers in package/app TS that compiles to Node.
 - Domain types flow from `@calledit/market-engine`; do not duplicate unions elsewhere.
 - `packages/market-engine` must stay pure: no I/O, no clocks, no environment reads.
-- The engine is the single writer. Web reads public views; concierge mutates only via engine API.
+- The engine is the single writer. Web reads public views; concierge reads scoped engine
+  routes and forwards Telegram ingress, but has no arbitrary money-mutation route.
 - SOL/test SOL is the only current economy. Test SOL has no monetary value.
 - Installation is setup; one real ready message and a consented live offer are onboarding.
 - Explicit author mentions/own `/bookit` proceed; passive or friend-triggered calls require
@@ -102,8 +103,8 @@ npx -y pnpm@10.33.0 --dir apps/web exec next dev --hostname 127.0.0.1 --port 302
 ## Gotchas
 
 - Do not read or print `.env` values. `.env.example` is safe and documents the public contract.
-- `.env.example` currently does not list every optional env used by newer engine/concierge code
-  (`ENGINE_API_TOKEN`, `TELEGRAM_INGRESS`, concierge `ENGINE_API_URL`, etc.).
+- `.env.example` is the route-scoped env inventory: engine route tokens are separate from
+  the concierge private engine origin and the server-only web bridge token.
 - README says Node >=22, while `apps/concierge/package.json` declares Node >=24.
 - LSP TypeScript server was not installed in this session; rely on `tsc`/Turbo for diagnostics.
 - There is no `.github/workflows` CI in the tracked tree.

@@ -16,7 +16,7 @@ test-SOL positions, settlement, proofs, durable jobs, cron work, and the private
 | Ingest | `src/ingest/` | Live/replay source supervision and fixture mapping |
 | Settlement | `src/settle/settler.ts` | Applies market-engine reducer effects to DB/chat |
 | Proofs | `src/proofs/` | TxLINE stat proof fetch, Solana submit, proof rows |
-| HTTP API | `src/api/server.ts` | Concierge-facing API; token auth except health |
+| HTTP API | `src/api/server.ts` | Route-scoped private API; public live/ready only |
 | SOL positions | `src/wager/` | Devnet SOL, independently gated, treasury keypair only |
 
 ## Conventions
@@ -51,8 +51,8 @@ npx -y pnpm@10.33.0 --filter @calledit/engine build
 
 - Running `src/main.ts` with real env can connect to Telegram/TxLINE. Prefer tests or a small
   API driver for local audits unless intentionally exercising the live bot.
-- `TELEGRAM_INGRESS=webhook` requires `ENGINE_API_TOKEN`; polling and webhook cannot both own
-  the same Telegram token.
+- `TELEGRAM_INGRESS=webhook` means the concierge forwards to `/api/telegram-ingress`
+  with the Telegram route token; polling and webhook cannot both own the same Telegram bot.
 - `WAGER_TREASURY_KEYPAIR_B58` must never equal `SOLANA_KEYPAIR_B58`; env validation rejects it.
 - SOL/test SOL is the only current consumer economy and always carries the no-monetary-value
   notice where setup or funding is explained.

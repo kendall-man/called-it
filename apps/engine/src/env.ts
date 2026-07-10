@@ -33,19 +33,14 @@ const EnvSchema = z.object({
   ENGINE_CONCIERGE_TOKEN: z.string().min(32),
   ENGINE_TELEGRAM_TOKEN: z.string().min(32),
   ENGINE_OPS_TOKEN: z.string().min(32),
-  /**
-   * Optional: bearer token for the engine's HTTP API (the concierge agent's
-   * integration surface). Absent → the API never starts listening.
-   */
-  ENGINE_API_TOKEN: z.string().min(24, 'use a long random token').optional(),
   /** HTTP port for the engine API (Railway injects PORT). */
   PORT: z.coerce.number().int().positive().default(8790),
   /**
    * How Telegram updates reach this process. 'poll' long-polls getUpdates
    * (default, standalone). 'webhook' means the concierge owns the bot's
    * webhook and forwards non-conversational updates to POST
-   * /api/telegram-update — the engine must NOT poll (setWebhook makes
-   * getUpdates return 409) and requires ENGINE_API_TOKEN.
+   * /api/telegram-ingress — the engine must NOT poll (setWebhook makes
+   * getUpdates return 409).
    */
   TELEGRAM_INGRESS: z.enum(['poll', 'webhook']).default('poll'),
   /** Wager-mode master switch — anything but the literal 'true' means OFF. */
@@ -129,11 +124,11 @@ const EnvSchema = z.object({
     addPairIssue('READINESS_CHECK_TIMEOUT_MS', 'SHUTDOWN_DRAIN_TIMEOUT_MS');
   }
 
-  const routeTokenPairs = [
+  const routeTokenPairs: ReadonlyArray<readonly [string, string, string, string]> = [
     ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN],
     ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN],
     ['ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN, 'ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN],
-  ] as const;
+  ];
   for (const [leftName, leftToken, rightName, rightToken] of routeTokenPairs) {
     if (leftToken === rightToken) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: [leftName], message: 'must be unique' });

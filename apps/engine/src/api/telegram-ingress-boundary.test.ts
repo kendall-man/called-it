@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Update } from 'grammy/types';
-import { createTelegramUpdateHandler } from './telegram-update-boundary.js';
+import { createTelegramIngressHandler } from './telegram-ingress-boundary.js';
 
-describe('Telegram update boundary', () => {
+describe('Telegram ingress boundary', () => {
   it('dispatches a valid text update to the bot mutation', async () => {
     // Given
     const received: Update[] = [];
-    const handle = createTelegramUpdateHandler(async (update) => {
+    const handle = createTelegramIngressHandler(async (update) => {
       received.push(update);
     });
     const input = {
@@ -38,7 +38,7 @@ describe('Telegram update boundary', () => {
   it('rejects a malformed text update before bot mutation', async () => {
     // Given
     let mutationCount = 0;
-    const handle = createTelegramUpdateHandler(async () => {
+    const handle = createTelegramIngressHandler(async () => {
       mutationCount += 1;
     });
     const input = {
@@ -63,7 +63,7 @@ describe('Telegram update boundary', () => {
   it('dispatches a valid callback update to the bot mutation', async () => {
     // Given
     const received: Update[] = [];
-    const handle = createTelegramUpdateHandler(async (update) => {
+    const handle = createTelegramIngressHandler(async (update) => {
       received.push(update);
     });
     const input = {
@@ -91,7 +91,7 @@ describe('Telegram update boundary', () => {
   it('dispatches a valid membership update to the bot mutation', async () => {
     // Given
     const received: Update[] = [];
-    const handle = createTelegramUpdateHandler(async (update) => {
+    const handle = createTelegramIngressHandler(async (update) => {
       received.push(update);
     });
     const member = { id: 100, is_bot: true, first_name: 'Called It' };

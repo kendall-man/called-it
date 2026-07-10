@@ -40,16 +40,29 @@ key, or treasury key may use a `NEXT_PUBLIC_` name.
 
 The three engine route tokens are at least 32 characters and pairwise distinct.
 They grant only their named route scope. `WEB_CONCIERGE_TOKEN` is also distinct
-and grants no engine route. The retired shared `ENGINE_API_TOKEN` and public
-engine URL are not part of the contract.
+and grants no engine route. A shared engine bearer and public engine URL are not
+part of the contract.
 
 For the initial split, provision all route credentials with intake disabled,
 deploy the accepting engine, then deploy the concierge callers. Verify a
-negative request with a different scope and a matching request before revoking
-the retired shared credential. A later replacement also disables intake and
-updates the accepting service before its caller; the contract does not claim a
-dual-token overlap. Never put a token in a URL, query string, body, log, health
-response, deployment manifest, or evidence file.
+negative request with a different scope and a matching request before enabling
+traffic. A later replacement also disables intake and updates the accepting
+service before its caller; the contract does not claim a dual-token overlap.
+Never put a token in a URL, query string, body, log, health response, deployment
+manifest, or evidence file.
+
+Exact engine route scopes:
+
+| Scope | Routes |
+| --- | --- |
+| Public | `GET /api/live`, `GET /api/ready` |
+| Concierge | `GET /api/groups/:chatId/snapshot`, `GET /api/groups/:chatId/users/:userId/wallet`, `GET /api/markets/:marketId`, `GET /api/fixtures`, `POST /api/quote` |
+| Telegram | `POST /api/telegram-ingress` |
+| Operations | `GET /api/ops/status` |
+
+The current Telegram ingress adapter is transitional until durable ingress
+queues land. It still acknowledges only after the typed update boundary and bot
+handler resolve; this is not evidence of durable persistence.
 
 ## Session keyring
 

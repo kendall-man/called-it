@@ -7,7 +7,7 @@
  *     → the eve agent (Callie)
  *   everything else (plain group chatter for claim detection, /commands,
  *   card-button callback queries)
- *     → forwarded verbatim to the engine's /api/telegram-update, where the
+ *     → forwarded verbatim to the engine's /api/telegram-ingress, where the
  *       existing grammY handlers process it exactly as if polled
  *
  * eve answers its own HITL callbacks (approval keyboards) before
@@ -41,7 +41,7 @@ export default telegramChannel({
     }
     syntheticUpdateId += 1;
     await forwardTelegramUpdate({ update_id: syntheticUpdateId, message: message.raw }).catch(
-      (err) => console.error('[ingress] forward message failed:', String(err)),
+      () => console.error('[ingress] forward message failed: engine_forward_failed'),
     );
     return null; // handled — do not start an agent session
   },
@@ -50,7 +50,7 @@ export default telegramChannel({
     // eve already consumed its own HITL callbacks; these are the engine's.
     syntheticUpdateId += 1;
     await forwardTelegramUpdate({ update_id: syntheticUpdateId, callback_query: query.raw }).catch(
-      (err) => console.error('[ingress] forward callback failed:', String(err)),
+      () => console.error('[ingress] forward callback failed: engine_forward_failed'),
     );
   },
 });

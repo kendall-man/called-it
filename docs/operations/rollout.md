@@ -25,7 +25,8 @@ sequence with isolated resources before production starts.
 3. Require `GET /api/ready` to return 200 with all capabilities intentionally
    disabled. A disabled capability is ready; a required dependency is not.
 4. Run route-auth negatives: missing credentials are rejected and each valid
-   credential is rejected outside its scope.
+   credential is rejected outside its scope. Verify public access only for
+   engine `GET /api/live` and `GET /api/ready`.
 5. Deploy concierge.
 6. Require concierge `GET /api/live` and `GET /api/ready` to return 200, with
    its private engine readiness check inside the configured timeout.

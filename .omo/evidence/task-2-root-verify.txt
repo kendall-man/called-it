@@ -1,0 +1,517 @@
+
+> calledit@ verify /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+> NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=calledit_test_bot NEXT_PUBLIC_TELEGRAM_STARTGROUP=calledit_v1 turbo run typecheck test build --force && pnpm run build:concierge && pnpm run verify:product-copy && pnpm run test:workflow && pnpm run test:sql
+
+
+   • Packages in scope: @calledit/agent, @calledit/db, @calledit/engine, @calledit/market-engine, @calledit/solana, @calledit/txline, @calledit/web, callie
+   • Running typecheck, test, build in 8 packages
+   • Remote caching disabled, using shared worktree cache
+
+@calledit/market-engine:typecheck: cache bypass, force executing 333f7a089d013f03
+callie:test: cache bypass, force executing 0482c9ef106f46fa
+@calledit/solana:build: cache bypass, force executing 08d897bdd6897a85
+callie:typecheck: cache bypass, force executing e0bdfd624b453c42
+callie:build: cache bypass, force executing 8a212a42e27f4e00
+@calledit/market-engine:test: cache bypass, force executing 82fa4b310687e551
+@calledit/market-engine:build: cache bypass, force executing db8dc10223e9fbf5
+@calledit/solana:test: cache bypass, force executing 1ac1bc3e6366ba7c
+@calledit/solana:typecheck: cache bypass, force executing c4f8e33568b6e37c
+@calledit/market-engine:build:
+@calledit/market-engine:build: > @calledit/market-engine@0.1.0 build /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/market-engine
+@calledit/market-engine:build: > tsc -p tsconfig.json
+@calledit/market-engine:build:
+callie:typecheck:
+callie:typecheck: > callie@0.1.0 typecheck /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/concierge
+callie:typecheck: > tsc -p tsconfig.json --noEmit
+callie:typecheck:
+@calledit/solana:typecheck:
+@calledit/solana:typecheck: > @calledit/solana@0.1.0 typecheck /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/solana
+@calledit/solana:typecheck: > tsc -p tsconfig.json --noEmit
+@calledit/solana:typecheck:
+callie:build:
+callie:build: > callie@0.1.0 build /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/concierge
+callie:build: > pnpm run eve:build
+callie:build:
+@calledit/solana:test:
+@calledit/solana:test: > @calledit/solana@0.1.0 test /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/solana
+@calledit/solana:test: > vitest run
+@calledit/solana:test:
+@calledit/solana:build:
+@calledit/solana:build: > @calledit/solana@0.1.0 build /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/solana
+@calledit/solana:build: > tsc -p tsconfig.json
+@calledit/solana:build:
+callie:test:
+callie:test: > callie@0.1.0 test /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/concierge
+callie:test: > vitest run
+callie:test:
+@calledit/market-engine:typecheck:
+@calledit/market-engine:typecheck: > @calledit/market-engine@0.1.0 typecheck /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/market-engine
+@calledit/market-engine:typecheck: > tsc -p tsconfig.json --noEmit
+@calledit/market-engine:typecheck:
+@calledit/market-engine:test:
+@calledit/market-engine:test: > @calledit/market-engine@0.1.0 test /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/market-engine
+@calledit/market-engine:test: > vitest run
+@calledit/market-engine:test:
+@calledit/solana:test:
+@calledit/solana:test:  RUN  v3.2.6 /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/solana
+@calledit/solana:test:
+callie:build:
+callie:build: > callie@0.1.0 eve:build /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/concierge
+callie:build: > tsx ../../scripts/run-concierge-build.ts
+callie:build:
+callie:test:
+callie:test:  RUN  v2.1.9 /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/concierge
+callie:test:
+@calledit/market-engine:test:
+@calledit/market-engine:test:  RUN  v3.2.6 /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/market-engine
+@calledit/market-engine:test:
+callie:test:  ✓ agent/runtime/lifecycle.test.ts (9 tests) 7ms
+@calledit/market-engine:test:  ✓ src/evaluate.test.ts (33 tests) 6ms
+@calledit/market-engine:test:  ✓ src/price.test.ts (30 tests) 9ms
+@calledit/market-engine:test:  ✓ src/compile.test.ts (77 tests) 10ms
+@calledit/solana:test:  ✓ src/wallet.test.ts (4 tests) 237ms
+callie:test:  ✓ agent/instructions.test.ts (1 test) 4ms
+callie:test:  ✓ agent/runtime/readiness.test.ts (8 tests) 6ms
+callie:test:  ✓ agent/runtime/health.test.ts (2 tests) 3ms
+@calledit/market-engine:test:  ✓ src/reduce.test.ts (55 tests) 17ms
+@calledit/solana:test:  ✓ src/deposits.test.ts (30 tests) 32ms
+@calledit/market-engine:test:
+@calledit/market-engine:test:  Test Files  4 passed (4)
+@calledit/market-engine:test:       Tests  195 passed (195)
+@calledit/market-engine:test:    Start at  16:57:41
+@calledit/market-engine:test:    Duration  1.12s (transform 934ms, setup 0ms, collect 1.47s, tests 41ms, environment 0ms, prepare 988ms)
+@calledit/market-engine:test:
+callie:test:  ✓ agent/runtime/session-intake.test.ts (1 test) 3ms
+callie:test:  ✓ agent/runtime/telegram-intake.test.ts (2 tests) 1ms
+callie:test:  ✓ agent/env.test.ts (16 tests) 141ms
+callie:test:  ✓ agent/lib/engine-api.test.ts (3 tests) 199ms
+@calledit/solana:test:  ✓ src/transfer.test.ts (35 tests) 168ms
+callie:test:  ✓ agent/runtime/engine-readiness.test.ts (1 test) 181ms
+@calledit/solana:test:  ✓ src/verify.test.ts (27 tests) 330ms
+callie:test:
+callie:test:  Test Files  9 passed (9)
+callie:test:       Tests  43 passed (43)
+callie:test:    Start at  16:57:41
+callie:test:    Duration  1.39s (transform 919ms, setup 0ms, collect 2.31s, tests 544ms, environment 1ms, prepare 1.78s)
+callie:test:
+@calledit/solana:test:  ✓ src/activation.test.ts (6 tests) 326ms
+@calledit/solana:test: stderr | src/txoracle.test.ts
+@calledit/solana:test: bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
+@calledit/solana:test:
+@calledit/solana:test:  ✓ src/txoracle.test.ts (8 tests) 78ms
+@calledit/solana:test:
+@calledit/solana:test:  Test Files  6 passed (6)
+@calledit/solana:test:       Tests  110 passed (110)
+@calledit/solana:test:    Start at  16:57:41
+@calledit/solana:test:    Duration  1.70s (transform 591ms, setup 0ms, collect 3.47s, tests 1.17s, environment 17ms, prepare 1.51s)
+@calledit/solana:test:
+@calledit/txline:test: cache bypass, force executing 1c2396c0e7b94e3b
+@calledit/db:test: cache bypass, force executing f6c425e8299cf930
+@calledit/txline:build: cache bypass, force executing edbd5ed05d95ce70
+@calledit/db:build: cache bypass, force executing 56fe391745fdb092
+@calledit/agent:build: cache bypass, force executing 21f71c9dba719401
+@calledit/agent:test: cache bypass, force executing c1ac529fcc5af597
+@calledit/agent:typecheck: cache bypass, force executing b5da67102f2a133f
+@calledit/txline:typecheck: cache bypass, force executing 862b6541acbfe1bd
+@calledit/db:test:
+@calledit/db:test: > @calledit/db@0.1.0 test /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/db
+@calledit/db:test: > vitest run
+@calledit/db:test:
+@calledit/txline:test:
+@calledit/txline:test: > @calledit/txline@0.1.0 test /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/txline
+@calledit/txline:test: > vitest run
+@calledit/txline:test:
+@calledit/db:build:
+@calledit/db:build: > @calledit/db@0.1.0 build /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/db
+@calledit/db:build: > tsc -p tsconfig.json
+@calledit/db:build:
+@calledit/txline:build:
+@calledit/txline:build: > @calledit/txline@0.1.0 build /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/txline
+@calledit/txline:build: > tsc -p tsconfig.json
+@calledit/txline:build:
+@calledit/db:typecheck: cache bypass, force executing 4ebf48ce852c907c
+@calledit/agent:test:
+@calledit/agent:test: > @calledit/agent@0.1.0 test /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/agent
+@calledit/agent:test: > vitest run
+@calledit/agent:test:
+@calledit/agent:build:
+@calledit/agent:build: > @calledit/agent@0.1.0 build /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/agent
+@calledit/agent:build: > tsc -p tsconfig.json
+@calledit/agent:build:
+@calledit/agent:typecheck:
+@calledit/agent:typecheck: > @calledit/agent@0.1.0 typecheck /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/agent
+@calledit/agent:typecheck: > tsc -p tsconfig.json --noEmit
+@calledit/agent:typecheck:
+callie:build: Warning [discover/unsupported-directory]: Ignoring unsupported directory "runtime/" in the agent root.
+callie:build:   source: /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/concierge/agent/runtime
+@calledit/txline:typecheck:
+@calledit/txline:typecheck: > @calledit/txline@0.1.0 typecheck /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/txline
+@calledit/txline:typecheck: > tsc -p tsconfig.json --noEmit
+@calledit/txline:typecheck:
+@calledit/db:test:
+@calledit/db:test:  RUN  v3.2.6 /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/db
+@calledit/db:test:
+@calledit/db:typecheck:
+@calledit/db:typecheck: > @calledit/db@0.1.0 typecheck /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/db
+@calledit/db:typecheck: > tsc -p tsconfig.json --noEmit
+@calledit/db:typecheck:
+@calledit/txline:test:
+@calledit/txline:test:  RUN  v3.2.6 /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/txline
+@calledit/txline:test:
+@calledit/agent:test:
+@calledit/agent:test:  RUN  v3.2.6 /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/packages/agent
+@calledit/agent:test:
+@calledit/db:test:  ✓ src/wager-db.test.ts (13 tests) 7ms
+@calledit/db:test:  ✓ src/wager-db-funds.test.ts (15 tests) 9ms
+@calledit/db:test:  ✓ src/wager-db-rpc.test.ts (7 tests) 18ms
+callie:build: [nitro] ✔ Generated public .output/public
+callie:build: [nitro] ℹ Building server (builder: rolldown, preset: node-server, compatibility date: 2026-07-10)
+@calledit/db:test:
+@calledit/db:test:  Test Files  3 passed (3)
+@calledit/db:test:       Tests  35 passed (35)
+@calledit/db:test:    Start at  16:57:44
+@calledit/db:test:    Duration  839ms (transform 196ms, setup 0ms, collect 871ms, tests 34ms, environment 0ms, prepare 590ms)
+@calledit/db:test:
+@calledit/txline:test:  ✓ src/sse.test.ts (9 tests) 6ms
+@calledit/web:typecheck: cache bypass, force executing 23e3f6adcbac1171
+@calledit/txline:test:  ✓ src/normalize-odds-devnet.test.ts (10 tests) 4ms
+@calledit/txline:test:  ✓ src/normalize-odds.test.ts (18 tests) 10ms
+@calledit/txline:test:  ✓ src/normalize-odds-period.test.ts (47 tests) 11ms
+@calledit/txline:test:  ✓ src/client.test.ts (17 tests) 26ms
+@calledit/txline:test:  ✓ src/normalize-scores.test.ts (85 tests) 88ms
+@calledit/agent:test:  ✓ src/classify.test.ts (8 tests) 4ms
+@calledit/agent:test:  ✓ src/parse.test.ts (10 tests) 5ms
+@calledit/agent:test:  ✓ src/prefilter.test.ts (67 tests) 12ms
+@calledit/agent:test:  ✓ src/persona.test.ts (47 tests) 40ms
+@calledit/agent:test:  ✓ src/golden.test.ts (126 tests | 80 skipped) 13ms
+@calledit/agent:test:
+@calledit/agent:test:  Test Files  5 passed (5)
+@calledit/agent:test:       Tests  178 passed | 80 skipped (258)
+@calledit/agent:test:    Start at  16:57:44
+@calledit/agent:test:    Duration  1.02s (transform 385ms, setup 0ms, collect 1.46s, tests 73ms, environment 0ms, prepare 548ms)
+@calledit/agent:test:
+@calledit/txline:test:  ✓ src/replay-source.test.ts (8 tests) 371ms
+@calledit/txline:test:  ✓ src/live-source.test.ts (7 tests) 371ms
+@calledit/txline:test:
+@calledit/txline:test:  Test Files  8 passed (8)
+@calledit/txline:test:       Tests  201 passed (201)
+@calledit/txline:test:    Start at  16:57:44
+@calledit/txline:test:    Duration  1.40s (transform 977ms, setup 0ms, collect 3.06s, tests 887ms, environment 1ms, prepare 1.62s)
+@calledit/txline:test:
+@calledit/web:build: cache bypass, force executing 967efa83460764aa
+@calledit/web:test: cache bypass, force executing 8a520af2d7f8c0e4
+@calledit/web:typecheck:
+@calledit/web:typecheck: > @calledit/web@0.1.0 typecheck /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/web
+@calledit/web:typecheck: > tsc --noEmit
+@calledit/web:typecheck:
+@calledit/web:build:
+@calledit/web:build: > @calledit/web@0.1.0 build /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/web
+@calledit/web:build: > next build
+@calledit/web:build:
+callie:build: ℹ Generated .output/nitro.json
+callie:build: [nitro] ✔ Server built in 1198ms
+@calledit/web:test:
+@calledit/web:test: > @calledit/web@0.1.0 test /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/web
+@calledit/web:test: > vitest run
+@calledit/web:test:
+callie:build:   ├─ .output/server/_libs/@ai-sdk/anthropic+[...].mjs (512 kB) (96.8 kB gzip)
+callie:build:   ├─ .output/server/_libs/ai-sdk__gateway+vercel__oidc.mjs (91.2 kB) (17.6 kB gzip)
+callie:build:   ├─ .output/server/_libs/ai.mjs (272 kB) (49 kB gzip)
+callie:build:   ├─ .output/server/_libs/eve.mjs (5.15 MB) (1.24 MB gzip)
+callie:build:   ├─ .output/server/_libs/h3+rou3+srvx.mjs (43.8 kB) (11.6 kB gzip)
+callie:build:   ├─ .output/server/_libs/hookable.mjs (1.37 kB) (605 B gzip)
+callie:build:   ├─ .output/server/_libs/ufo.mjs (2.39 kB) (794 B gzip)
+callie:build:   ├─ .output/server/_libs/vercel__oidc.mjs (2.9 kB) (1.08 kB gzip)
+callie:build:   ├─ .output/server/_runtime.mjs (1.71 kB) (777 B gzip)
+callie:build:   └─ .output/server/index.mjs (16.3 kB) (4.02 kB gzip)
+callie:build: Σ Total size: 6.09 MB (1.42 MB gzip)
+callie:build: [nitro] ✔ You can preview this build using npx nitro preview
+callie:build: [BUILD] built output at /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/concierge/.output
+@calledit/web:test:
+@calledit/web:test:  RUN  v3.2.6 /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/web
+@calledit/web:test:
+@calledit/web:test:  ✓ app/page.test.ts (1 test) 1ms
+@calledit/web:test:  ✓ lib/spec-terms.test.ts (14 tests) 5ms
+@calledit/web:test:  ✓ lib/receipts.test.ts (9 tests) 11ms
+@calledit/web:test:  ✓ lib/timeline.test.ts (4 tests) 6ms
+@calledit/web:test:  ✓ lib/format.test.ts (7 tests) 2ms
+@calledit/web:test:  ✓ lib/env.test.ts (15 tests) 39ms
+@calledit/web:test:
+@calledit/web:test:  Test Files  6 passed (6)
+@calledit/web:test:       Tests  50 passed (50)
+@calledit/web:test:    Start at  16:57:46
+@calledit/web:test:    Duration  482ms (transform 199ms, setup 0ms, collect 361ms, tests 65ms, environment 1ms, prepare 426ms)
+@calledit/web:test:
+@calledit/engine:test: cache bypass, force executing 5cd4f964a1378ca5
+@calledit/engine:build: cache bypass, force executing d789ef78fc9727da
+@calledit/web:build:  ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+@calledit/web:build:  We detected multiple lockfiles and selected the directory of /Users/sublime/Seb/tg-bot-idea/pnpm-lock.yaml as the root directory.
+@calledit/web:build:  To silence this warning, set `outputFileTracingRoot` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+@calledit/web:build:    See https://nextjs.org/docs/app/api-reference/config/next-config-js/output#caveats for more information.
+@calledit/web:build:  Detected additional lockfiles:
+@calledit/web:build:    * /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/pnpm-lock.yaml
+@calledit/web:build:
+@calledit/engine:typecheck: cache bypass, force executing 2bd8a73f9404855c
+@calledit/web:build:    ▲ Next.js 15.5.20
+@calledit/web:build:
+@calledit/web:build:    Creating an optimized production build ...
+@calledit/engine:build:
+@calledit/engine:build: > @calledit/engine@0.1.0 build /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/engine
+@calledit/engine:build: > tsc -p tsconfig.json
+@calledit/engine:build:
+@calledit/engine:test:
+@calledit/engine:test: > @calledit/engine@0.1.0 test /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/engine
+@calledit/engine:test: > vitest run
+@calledit/engine:test:
+@calledit/engine:typecheck:
+@calledit/engine:typecheck: > @calledit/engine@0.1.0 typecheck /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/engine
+@calledit/engine:typecheck: > tsc -p tsconfig.json --noEmit
+@calledit/engine:typecheck:
+@calledit/engine:test:
+@calledit/engine:test:  RUN  v3.2.6 /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/engine
+@calledit/engine:test:
+@calledit/engine:test:  ✓ src/api/readiness.test.ts (6 tests) 2ms
+@calledit/engine:test:  ✓ src/wager/constants.test.ts (12 tests) 13ms
+@calledit/engine:test:  ✓ src/proofs/mapping.test.ts (5 tests) 2ms
+@calledit/engine:test:  ✓ src/wager/pot.test.ts (12 tests) 232ms
+@calledit/engine:test: stderr | src/api/ingress.test.ts
+@calledit/engine:test: bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
+@calledit/engine:test:
+@calledit/engine:test: stderr | src/api/server-auth.test.ts
+@calledit/engine:test: bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
+@calledit/engine:test:
+@calledit/engine:test:  ✓ src/bot/callbacks.test.ts (17 tests) 7ms
+@calledit/engine:test: stderr | src/api/server.test.ts
+@calledit/engine:test: bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
+@calledit/engine:test:
+@calledit/engine:test: stderr | src/api/ingress-auth-redaction.test.ts
+@calledit/engine:test: bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
+@calledit/engine:test:
+@calledit/engine:test: stderr | src/api/server-health.test.ts
+@calledit/engine:test: bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
+@calledit/engine:test:
+@calledit/engine:test:  ✓ src/bot/copy.test.ts (3 tests) 7ms
+@calledit/engine:test:  ✓ src/wager/stake.test.ts (19 tests) 8ms
+@calledit/engine:test: stderr | src/bot/callbacks.stake.test.ts
+@calledit/engine:test: bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
+@calledit/engine:test:
+@calledit/engine:test:  ✓ src/env.rollout.test.ts (7 tests) 3ms
+@calledit/engine:test:  ✓ src/api/ingress.test.ts (2 tests) 22ms
+@calledit/engine:test:  ✓ src/api/ingress-auth-redaction.test.ts (3 tests) 46ms
+@calledit/engine:test:  ✓ src/api/server-health.test.ts (5 tests) 55ms
+@calledit/engine:test:  ✓ src/api/server.test.ts (4 tests) 59ms
+@calledit/engine:test:  ✓ src/wager/withdrawals.test.ts (15 tests) 6ms
+@calledit/engine:test:  ✓ src/api/server-auth.test.ts (5 tests) 72ms
+@calledit/engine:test:  ✓ src/bot/callbacks.stake.test.ts (7 tests) 4ms
+@calledit/engine:test:  ✓ src/api/shutdown.test.ts (4 tests) 20ms
+@calledit/engine:test:  ✓ src/wager/solvency.test.ts (9 tests) 3ms
+@calledit/engine:test:  ✓ src/wager/deposits.test.ts (13 tests) 3ms
+@calledit/engine:test:  ✓ src/wager/format.test.ts (32 tests) 4ms
+@calledit/engine:test:  ✓ src/ingest/fixtureMap.test.ts (3 tests) 2ms
+@calledit/engine:test:  ✓ src/env.test.ts (10 tests) 4ms
+@calledit/engine:test:  ✓ src/pipeline/claims.test.ts (10 tests) 9ms
+@calledit/engine:test:  ✓ src/wager/settlement.test.ts (11 tests) 3ms
+@calledit/engine:test:  ✓ src/api/readiness-supabase.test.ts (2 tests) 20ms
+@calledit/engine:test:  ✓ src/bot/sendQueue.test.ts (5 tests) 2ms
+@calledit/engine:test:  ✓ src/wiring-proof.test.ts (1 test) 5ms
+@calledit/engine:test:  ✓ src/bot/callbackData.test.ts (4 tests) 2ms
+@calledit/engine:test:  ✓ src/api/readiness-http.test.ts (1 test) 3ms
+@calledit/engine:test:  ✓ src/api/readiness-checks.test.ts (12 tests) 3ms
+@calledit/engine:test:  ✓ src/api/readiness-production.test.ts (2 tests) 2ms
+@calledit/engine:test:  ✓ src/api/telegram-ingress-boundary.test.ts (4 tests) 6ms
+@calledit/engine:test:  ✓ src/api/readiness-queues.test.ts (10 tests) 7ms
+@calledit/engine:test:  ✓ src/bot/cards.test.ts (6 tests) 2ms
+@calledit/web:build:  ✓ Compiled successfully in 1908ms
+@calledit/web:build:    Linting and checking validity of types ...
+@calledit/engine:test: stderr | src/wager/module.test.ts
+@calledit/engine:test: bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
+@calledit/engine:test:
+@calledit/engine:test:  ✓ src/wager/module.test.ts (17 tests) 6ms
+@calledit/engine:test:
+@calledit/engine:test:  Test Files  34 passed (34)
+@calledit/engine:test:       Tests  278 passed (278)
+@calledit/engine:test:    Start at  16:57:47
+@calledit/engine:test:    Duration  1.82s (transform 980ms, setup 0ms, collect 6.11s, tests 647ms, environment 3ms, prepare 2.36s)
+@calledit/engine:test:
+@calledit/web:build:    Collecting page data ...
+@calledit/web:build:    Generating static pages (0/4) ...
+@calledit/web:build:    Generating static pages (1/4)
+@calledit/web:build:    Generating static pages (2/4)
+@calledit/web:build:    Generating static pages (3/4)
+@calledit/web:build:  ✓ Generating static pages (4/4)
+@calledit/web:build:    Finalizing page optimization ...
+@calledit/web:build:    Collecting build traces ...
+@calledit/web:build:
+@calledit/web:build: Route (app)                                 Size  First Load JS
+@calledit/web:build: ┌ ○ /                                      162 B         105 kB
+@calledit/web:build: ├ ○ /_not-found                            121 B         102 kB
+@calledit/web:build: ├ ƒ /g/[slug]                              165 B         105 kB
+@calledit/web:build: └ ƒ /r/[marketId]                        92.9 kB         198 kB
+@calledit/web:build: + First Load JS shared by all             102 kB
+@calledit/web:build:   ├ chunks/558-239c31f73a257451.js       45.8 kB
+@calledit/web:build:   ├ chunks/567e3fde-8c71b67cb98676f3.js  54.2 kB
+@calledit/web:build:   └ other shared chunks (total)          1.89 kB
+@calledit/web:build:
+@calledit/web:build:
+@calledit/web:build: ○  (Static)   prerendered as static content
+@calledit/web:build: ƒ  (Dynamic)  server-rendered on demand
+@calledit/web:build:
+
+ Tasks:    24 successful, 24 total
+Cached:    0 cached, 24 total
+  Time:    12.625s
+
+
+> calledit@ build:concierge /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+> pnpm --filter callie eve:build
+
+
+> callie@0.1.0 eve:build /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/concierge
+> tsx ../../scripts/run-concierge-build.ts
+
+[nitro] ✔ Generated public .output/public
+[nitro] ℹ Building server (builder: rolldown, preset: node-server, compatibility date: 2026-07-10)
+ℹ Generated .output/nitro.json
+[nitro] ✔ Server built in 323ms
+  ├─ .output/server/_libs/@ai-sdk/anthropic+[...].mjs (512 kB) (96.8 kB gzip)
+  ├─ .output/server/_libs/ai-sdk__gateway+vercel__oidc.mjs (91.2 kB) (17.6 kB gzip)
+  ├─ .output/server/_libs/ai.mjs (272 kB) (49 kB gzip)
+  ├─ .output/server/_libs/eve.mjs (5.15 MB) (1.24 MB gzip)
+  ├─ .output/server/_libs/h3+rou3+srvx.mjs (43.8 kB) (11.6 kB gzip)
+  ├─ .output/server/_libs/hookable.mjs (1.37 kB) (605 B gzip)
+  ├─ .output/server/_libs/ufo.mjs (2.39 kB) (794 B gzip)
+  ├─ .output/server/_libs/vercel__oidc.mjs (2.9 kB) (1.08 kB gzip)
+  ├─ .output/server/_runtime.mjs (1.71 kB) (777 B gzip)
+  └─ .output/server/index.mjs (16.3 kB) (4.02 kB gzip)
+Σ Total size: 6.09 MB (1.42 MB gzip)
+[nitro] ✔ You can preview this build using npx nitro preview
+[BUILD] built output at /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/concierge/.output
+
+> calledit@ verify:product-copy /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+> pnpm run typecheck:product-copy && tsx --test scripts/check-product-copy.test.ts && tsx scripts/check-product-copy.ts
+
+
+> calledit@ typecheck:product-copy /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+> tsc -p tsconfig.product-copy.json
+
+✔ reports both contract violations when a fixture mixes Practice Rep with a placeholder CTA (47.976042ms)
+✔ rejects a malformed UTF-8 fixture at the CLI boundary (46.516583ms)
+✔ reports every tracked product-copy surface when the contract is clean (54.922625ms)
+✔ includes every active landing, engine copy, fallback, and concierge surface (53.155458ms)
+✔ allows a historical migration label split across adjacent lines (45.693416ms)
+✔ does not let an unrelated negative sentence exempt active Rep copy (47.675083ms)
+✔ rejects simulated onboarding, misleading starter funds, and a real-value claim (50.2465ms)
+✔ rejects real devnet SOL, cashout, load-stack, demo, and assigned hash CTA drift (48.193625ms)
+✔ prints CLI usage without scanning when help is requested (45.51625ms)
+✔ keeps the checker CLI below 250 non-comment lines (0.266875ms)
+✔ keeps every audited Task 1 TypeScript surface at or below 250 pure lines (5.033333ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 669.914542
+SCAN guidance README.md
+SCAN guidance DESIGN.md
+SCAN guidance CONTRACTS.md
+SCAN guidance AGENTS.md
+SCAN guidance apps/engine/AGENTS.md
+SCAN guidance apps/concierge/AGENTS.md
+SCAN guidance apps/web/AGENTS.md
+SCAN guidance docs/PRD-called-it-mvp.md
+SCAN guidance docs/eve-concierge-plan.md
+PASS guidance (9 files)
+SCAN bot apps/engine/src/bot/copy.ts
+SCAN bot apps/engine/src/bot/fallback-copy.ts
+SCAN bot apps/engine/src/wager/copy.ts
+SCAN bot packages/agent/src/templates.ts
+PASS bot (4 files)
+SCAN concierge apps/concierge/agent/instructions/00-callie.md
+SCAN concierge apps/concierge/agent/instructions/10-house-rules.md
+SCAN concierge apps/concierge/agent/instructions/10-placing-bets.md
+SCAN concierge apps/concierge/agent/instructions/10-receipts-and-proof.md
+SCAN concierge apps/concierge/agent/instructions/10-voice.md
+SCAN concierge apps/concierge/agent/tools/bash.ts
+SCAN concierge apps/concierge/agent/tools/get_group_snapshot.ts
+SCAN concierge apps/concierge/agent/tools/get_market_status.ts
+SCAN concierge apps/concierge/agent/tools/get_my_wallet.ts
+SCAN concierge apps/concierge/agent/tools/glob.ts
+SCAN concierge apps/concierge/agent/tools/grep.ts
+SCAN concierge apps/concierge/agent/tools/list_todays_matches.ts
+SCAN concierge apps/concierge/agent/tools/quote_claim.ts
+SCAN concierge apps/concierge/agent/tools/read_file.ts
+SCAN concierge apps/concierge/agent/tools/todo.ts
+SCAN concierge apps/concierge/agent/tools/web_fetch.ts
+SCAN concierge apps/concierge/agent/tools/web_search.ts
+SCAN concierge apps/concierge/agent/tools/write_file.ts
+PASS concierge (18 files)
+SCAN web apps/web/app/g/[slug]/page.tsx
+SCAN web apps/web/app/layout.tsx
+SCAN web apps/web/app/not-found.tsx
+SCAN web apps/web/app/page.tsx
+SCAN web apps/web/app/r/[marketId]/page.tsx
+SCAN web apps/web/components/evidence-list.tsx
+SCAN web apps/web/components/receipt-row.tsx
+SCAN web apps/web/components/states.tsx
+SCAN web apps/web/components/timeline-list.tsx
+SCAN web apps/web/components/trust-badge.tsx
+SCAN web apps/web/components/ui.tsx
+SCAN web apps/web/lib/spec-terms.ts
+PASS web (12 files)
+Product copy contract: PASS (43 files)
+
+> calledit@ test:workflow /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+> pnpm run typecheck:scripts && tsx --test scripts/check-workflow.test.ts && tsx scripts/check-workflow.ts
+
+
+> calledit@ typecheck:scripts /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+> tsc -p tsconfig.scripts.json --noEmit
+
+✔ rejects a major-only GitHub Action version (131.02175ms)
+✔ rejects a workflow whose jobs value is not a mapping (109.891209ms)
+✔ rejects passWithNoTests in an active package manifest (108.19875ms)
+✔ requires Turbo to resolve the concierge build command (899.338209ms)
+✔ accepts the exact action reference actions/checkout@v4.2.2 (108.14325ms)
+✔ accepts the exact action reference actions/checkout@0123456789abcdef0123456789abcdef01234567 (107.024709ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1517.219042
+callie#build resolved to pnpm run eve:build
+.github/workflows/ci.yml parsed with 7 steps and no floating actions
+
+> calledit@ test:sql /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+> pnpm run typecheck:scripts && tsx --test --test-concurrency=1 scripts/sql-harness.test.ts scripts/sql-harness.integration.test.ts scripts/sql-harness.starter-grant.test.ts && tsx scripts/sql-harness.ts
+
+
+> calledit@ typecheck:scripts /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+> tsc -p tsconfig.scripts.json --noEmit
+
+✔ detects missing realtime publication membership and cleans the database (101.425667ms)
+✔ detects unexpected realtime publication membership and cleans the database (85.992959ms)
+✔ cleans real roles after partial setup failure and preserves pre-existing roles (4.081833ms)
+✔ starter-grant migrations apply fresh and as 0001-0003 upgrade (168.057459ms)
+(node:94987) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✔ starter stake writes exact linked rows, accepts pending_lineup, and is idempotent and private (110.801333ms)
+✔ every starter refusal and injected exception preserves the exact prior state (107.537875ms)
+✔ concurrency grants once per user and the real 501st eligible user is refused (372.439792ms)
+✔ discovers tracked SQL migrations in lexical order (3.922833ms)
+✔ drops the disposable database when migration application fails (0.308083ms)
+✔ creates disposable database names with the expected prefix (0.236084ms)
+✔ cleans partially created roles without dropping pre-existing roles (0.143875ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1152.212208
+SQL harness applied 4 migrations to calledit_ci_c068478a_d671_4b9f_8af9_116efcd7f4b1 and cleaned it up

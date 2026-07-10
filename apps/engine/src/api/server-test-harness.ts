@@ -5,14 +5,16 @@ import type { Poster } from '../bot/poster.js';
 import { createWagerModule } from '../wager/module.js';
 import { makeFakeDeps, type FakeWagerDb } from '../wager/fakes.js';
 import { DrainState, createReadinessEvaluator, type ReadinessEvaluator } from './readiness.js';
-import { startEngineApi } from './server.js';
+import { startEngineApi, type TelegramIngressPort } from './server.js';
 import { TEST_ENV } from './server-test-env.js';
 
 export const NOW = Date.parse('2026-07-08T12:00:00.000Z');
 export const CHAT_ID = -100555;
 export const USER_ID = 9001;
 export const MARKET_ID = '11111111-2222-4333-8444-555555555555';
-export const TOKEN = 'test-engine-api-token-0123456789';
+export const CONCIERGE_TOKEN = TEST_ENV.ENGINE_CONCIERGE_TOKEN;
+export const TELEGRAM_TOKEN = TEST_ENV.ENGINE_TELEGRAM_TOKEN;
+export const OPS_TOKEN = TEST_ENV.ENGINE_OPS_TOKEN;
 export const PUBKEY = 'Wa11etPubkey1111111111111111111111111111';
 
 export const FIXTURE: FixtureRow = {
@@ -195,14 +197,16 @@ export async function startHarness(options: {
   market?: MarketRow;
   readiness?: ReadinessEvaluator;
   drainState?: DrainState;
-  apiToken?: string | null;
+  log?: Logger;
+  telegramIngress?: TelegramIngressPort;
+  handleTelegramUpdate?: (update: Record<string, unknown>) => Promise<void>;
 } = {}): Promise<ApiHarness> {
   const wagerBundle = makeFakeDeps({ now: () => NOW });
   const wager = createWagerModule(wagerBundle.deps);
   if (options.link ?? true) wagerBundle.db.seedLink(USER_ID, PUBKEY);
   wagerBundle.db.seedBalance(USER_ID, options.balanceLamports ?? 1_000_000_000n);
   wagerBundle.db.seedMarketProbability(MARKET_ID, 0.5);
-  const log = createLogger();
+  const log = options.log ?? createLogger();
   const deps = createDeps(createDb(options.market ?? MARKET), wager, log);
   const drainState = options.drainState ?? new DrainState();
   const readiness = options.readiness ?? createReadinessEvaluator({
@@ -212,14 +216,26 @@ export async function startHarness(options: {
   const env = {
     ...TEST_ENV,
     PORT: 0,
-    ENGINE_API_TOKEN: options.apiToken === null ? undefined : options.apiToken ?? TOKEN,
   };
   const poster: Poster = {
     post: () => undefined,
     editCard: () => undefined,
     stripKeyboard: () => undefined,
   };
-  const server = startEngineApi({ deps, poster, env, log, readiness, drainState });
+  const server = startEngineApi({
+    deps,
+    poster,
+    env,
+    log,
+    readiness,
+    drainState,
+    ...(options.telegramIngress
+      ? { telegramIngress: options.telegramIngress }
+      : {}),
+    ...(options.handleTelegramUpdate
+      ? { telegramIngress: { accept: options.handleTelegramUpdate } }
+      : {}),
+  });
   activeServer = server;
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
@@ -227,7 +243,10 @@ export async function startHarness(options: {
   return { base: `http://127.0.0.1:${address.port}`, wagerDb: wagerBundle.db };
 }
 
-export const authed = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
+export const authed = {
+  authorization: `Bearer ${CONCIERGE_TOKEN}`,
+  'content-type': 'application/json',
+};
 
 export function stakeBody(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({

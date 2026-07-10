@@ -56,13 +56,40 @@ describe('engine API route credentials', () => {
 
     // Then it preserves the envelope and does not use the concierge token
     expect(captured).toHaveLength(1);
-    expect(captured[0]?.url).toBe('http://engine.railway.internal:8790/api/telegram-update');
+    expect(captured[0]?.url).toBe('http://engine.railway.internal:8790/api/telegram-ingress');
     expect(captured[0]?.init?.method).toBe('POST');
     expect(captured[0]?.init?.body).toBe(JSON.stringify(update));
     expect(captured[0]?.init?.headers).toMatchObject({
       authorization: `Bearer ${BASE_ENV.ENGINE_TELEGRAM_TOKEN}`,
       'content-type': 'application/json',
     });
+  });
+
+  it('does not reflect upstream bodies when engine calls fail', async () => {
+    stubEnv();
+    const fetchStub = async (
+      input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ): Promise<Response> => {
+      captured.push({ url: String(input), init });
+      return Response.json(
+        {
+          authorization: `Bearer ${BASE_ENV.ENGINE_CONCIERGE_TOKEN}`,
+          initData: 'telegram-init-data',
+          walletPrivateKey: 'wallet-secret-material',
+          signature: 'signed-message-bytes',
+        },
+        { status: 500 },
+      );
+    };
+    vi.stubGlobal('fetch', fetchStub);
+    const { engineApi } = await import('./engine-api.js');
+
+    await expect(engineApi.snapshot(42)).rejects.toThrow('engine api /api/groups/42/snapshot → 500');
+    await expect(engineApi.snapshot(42)).rejects.not.toThrow(BASE_ENV.ENGINE_CONCIERGE_TOKEN);
+    await expect(engineApi.snapshot(42)).rejects.not.toThrow('telegram-init-data');
+    await expect(engineApi.snapshot(42)).rejects.not.toThrow('wallet-secret-material');
+    await expect(engineApi.snapshot(42)).rejects.not.toThrow('signed-message-bytes');
   });
 });
 

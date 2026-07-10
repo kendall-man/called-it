@@ -69,13 +69,6 @@ export interface EngineQuote {
   options?: EngineQuoteOption[];
 }
 
-export type EngineStakeResult =
-  /** 200: the stake reached the wager desk; `reply` explains it (placed,
-   * idempotent replay, insufficient balance, paused, …). Relay `reply`. */
-  | { placed: boolean; reply: string }
-  /** 404/409/503: the market was unknown, closed, or the desk is down. */
-  | { error: string; status?: string };
-
 export interface EngineFixture {
   fixtureId: number;
   home: string;
@@ -104,11 +97,11 @@ function config(scope: EngineRouteScope): { readonly base: string; readonly toke
 }
 
 function createCaller(scope: EngineRouteScope) {
-  return async function call<T>(
+  return async function call(
     method: 'GET' | 'POST',
     path: string,
     body?: unknown,
-  ): Promise<T> {
+  ): Promise<unknown> {
     const { base, token } = config(scope);
     const res = await fetch(`${base}${path}`, {
       method,
@@ -119,12 +112,10 @@ function createCaller(scope: EngineRouteScope) {
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-    // Engine guard rejections (422) and stake conflicts (409) carry structured
-    // JSON the tools relay to the model — only transport-level failures throw.
-    const parsed = (await res.json().catch(() => null)) as T | null;
+    const parsed = await res.json().catch(() => null);
     if (parsed === null) throw new Error(`engine api ${path} → ${res.status} (no body)`);
-    if (!res.ok && res.status !== 409 && res.status !== 422 && res.status !== 404) {
-      throw new Error(`engine api ${path} → ${res.status}: ${JSON.stringify(parsed).slice(0, 200)}`);
+    if (!res.ok && res.status !== 422 && res.status !== 404) {
+      throw new Error(`engine api ${path} → ${res.status}`);
     }
     return parsed;
   };
@@ -133,56 +124,35 @@ function createCaller(scope: EngineRouteScope) {
 const call = createCaller('concierge');
 const callTelegram = createCaller('telegram');
 
-/**
- * Single-ingress forwarding: hand a raw Telegram update to the engine so its
- * grammY handlers (claim detection, commands, card buttons) process it exactly
- * as if it had been polled. Fire-and-forget semantics; the engine acks fast.
- */
 export async function forwardTelegramUpdate(update: Record<string, unknown>): Promise<void> {
-  await callTelegram<{ ok: boolean }>('POST', '/api/telegram-update', update);
+  await callTelegram('POST', '/api/telegram-ingress', update);
 }
 
 export const engineApi = {
-  snapshot: (chatId: number) => call<EngineSnapshot>('GET', `/api/groups/${chatId}/snapshot`),
+  snapshot: (chatId: number) => call('GET', `/api/groups/${chatId}/snapshot`),
   wallet: (chatId: number, userId: number) =>
-    call<EngineWallet>('GET', `/api/groups/${chatId}/users/${userId}/wallet`),
+    call('GET', `/api/groups/${chatId}/users/${userId}/wallet`),
   quote: (chatId: number, text: string) =>
-    call<EngineQuote>('POST', '/api/quote', { chatId, text }),
-  stake: (input: {
-    chatId: number;
-    marketId: string;
-    userId: number;
-    displayName: string;
-    username: string | null;
-    side: 'back' | 'doubt';
-    amount: number;
-    idempotencyKey: string;
-  }) => call<EngineStakeResult>('POST', '/api/stake', input),
+    call('POST', '/api/quote', { chatId, text }),
   market: (marketId: string) =>
-    call<EngineMarket | { error: string }>('GET', `/api/markets/${marketId}`),
+    call('GET', `/api/markets/${marketId}`),
   fixtures: (hours?: number) =>
-    call<{ fixtures: EngineFixture[] }>(
+    call(
       'GET',
       `/api/fixtures${hours !== undefined ? `?hours=${hours}` : ''}`,
     ),
 };
 
-/**
- * Trusted Telegram identity — read from the session auth principal the
- * Telegram channel derived from the WEBHOOK payload, never from anything the
- * model wrote. This is the N4 invariant: nobody can stake as someone else by
- * naming them.
- */
 export function telegramIdentity(
   session: unknown,
 ): { chatId: number; userId: number; username: string | null } | null {
-  const current = (
-    session as {
-      auth?: { current?: { authenticator?: string; attributes?: Record<string, unknown> } };
-    }
-  )?.auth?.current;
-  if (!current || current.authenticator !== 'telegram-webhook') return null;
-  const attributes = current.attributes ?? {};
+  if (!isRecord(session)) return null;
+  const auth = session['auth'];
+  if (!isRecord(auth)) return null;
+  const current = auth['current'];
+  if (!isRecord(current) || current['authenticator'] !== 'telegram-webhook') return null;
+  const attributesValue = current['attributes'];
+  const attributes = isRecord(attributesValue) ? attributesValue : {};
   const chatId = Number(attributes['chat_id']);
   const userId = Number(attributes['user_id']);
   if (!Number.isFinite(chatId) || !Number.isFinite(userId)) return null;
@@ -190,8 +160,11 @@ export function telegramIdentity(
   return { chatId, userId, username: typeof username === 'string' ? username : null };
 }
 
-/** Uniform reply when a tool runs outside a Telegram group session. */
-export const NOT_TELEGRAM = {
+export const NOT_TELEGRAM: Readonly<{ error: string; hint: string }> = {
   error: 'no_telegram_identity',
   hint: 'This action only works from the Telegram group chat.',
-} as const;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}

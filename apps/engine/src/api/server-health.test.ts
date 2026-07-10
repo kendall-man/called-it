@@ -10,16 +10,7 @@ import {
 afterEach(closeActiveServer);
 
 describe('engine health API', () => {
-  it('starts health routes when application API auth is unconfigured', async () => {
-    const harness = await startHarness({ apiToken: null });
-
-    const response = await fetch(`${harness.base}/api/live`);
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ status: 'live' });
-  });
-
-  it('characterizes legacy health while application routes require auth', async () => {
+  it('keeps legacy health unavailable while application routes require auth', async () => {
     const harness = await startHarness();
     const bare = await fetch(`${harness.base}/api/groups/${CHAT_ID}/snapshot`);
     const wrong = await fetch(`${harness.base}/api/groups/${CHAT_ID}/snapshot`, {
@@ -29,8 +20,7 @@ describe('engine health API', () => {
 
     expect(bare.status).toBe(401);
     expect(wrong.status).toBe(401);
-    expect(health.status).toBe(200);
-    expect(await health.json()).toEqual({ ok: true });
+    expect(health.status).toBe(404);
   });
 
   it('reports process liveness without authentication or dependency checks', async () => {

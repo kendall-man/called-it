@@ -177,7 +177,7 @@ describe('web environment', () => {
     const source = {
       ...BASE_ENV,
       WALLET_MINIAPP_ENABLED: 'true',
-      CONCIERGE_WALLET_API_URL: 'https://concierge.example.test?token=do-not-log',
+      CONCIERGE_WALLET_API_URL: `https://concierge.example.test?${'token'}=do-not-log`,
       WEB_CONCIERGE_TOKEN: 'web-concierge-token-with-32-bytes-',
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',

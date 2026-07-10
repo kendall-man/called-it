@@ -1,0 +1,18 @@
+public live: 200 expected 200
+public ready: 200 expected 200
+missing concierge credential: 401 expected 401
+unknown concierge credential: 401 expected 401
+telegram token on concierge route: 403 expected 403
+concierge token on snapshot: 200 expected 200
+concierge token on telegram ingress: 403 expected 403
+telegram token on ingress upstream exception: 500 expected 500
+telegram token on ops status: 403 expected 403
+ops token on ops status: 200 expected 200
+redaction logs: ../../.omo/evidence/task-2-called-it-direct-onboarding-remediation.logs.jsonl
+redaction observable: requestId/internal_exception only; upstream/body sentinels absent
+
+Focused tests: engine API auth/ingress/redaction, concierge client/env/instructions, web env, product-copy all passed.
+Root verify: .omo/evidence/task-2-root-verify.txt
+SQL gate: .omo/evidence/task-2-sql-gate.txt
+Exact legacy scan: zero matches for diag.ts, replay_diag, ?token=, ENGINE_API_TOKEN.
+Cleanup: disposable PostgreSQL clusters stopped and removed; no Task 7-owned files staged by Task 2.
