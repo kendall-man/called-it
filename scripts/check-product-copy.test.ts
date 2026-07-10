@@ -111,6 +111,8 @@ test('includes every active landing, engine copy, fallback, and concierge surfac
   const expectedPaths = [
     'apps/web/app/page.tsx',
     'apps/engine/src/bot/copy.ts',
+    'apps/engine/src/bot/bot.ts',
+    'apps/engine/src/bot/commands.ts',
     'apps/engine/src/bot/fallback-copy.ts',
     'apps/engine/src/wager/copy.ts',
     'packages/agent/src/templates.ts',

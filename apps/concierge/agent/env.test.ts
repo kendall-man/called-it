@@ -122,6 +122,40 @@ describe('concierge runtime environment', () => {
     expect(invoke).toThrowError(`Concierge environment invalid: ${variables}`);
   });
 
+  it.each([
+    ['ENGINE_CONCIERGE_TOKEN', BASE_ENV.ENGINE_CONCIERGE_TOKEN],
+    ['ENGINE_TELEGRAM_TOKEN', BASE_ENV.ENGINE_TELEGRAM_TOKEN],
+    ['ENGINE_OPS_TOKEN', 'operations-route-token-with-32-bytes'],
+  ])('rejects WEB_CONCIERGE_TOKEN reuse of %s without echoing values', (routeName, token) => {
+    // Given every engine route credential is visible to the concierge parser
+    const source = {
+      ...BASE_ENV,
+      ENGINE_OPS_TOKEN: 'operations-route-token-with-32-bytes',
+      WEB_CONCIERGE_TOKEN: token,
+    };
+
+    // When the concierge parser audits the shared deployment environment
+    const parse = () => loadConciergeEnv(source, NOW_EPOCH_MS);
+
+    // Then startup names both variables without reflecting credential material
+    const variables = [routeName, 'WEB_CONCIERGE_TOKEN'].sort().join(', ');
+    expect(parse).toThrowError(`Concierge environment invalid: ${variables}`);
+  });
+
+  it('strips the audit-only operations credential from concierge runtime config', () => {
+    // Given a distinct operations credential is visible in a shared environment
+    const source = {
+      ...BASE_ENV,
+      ENGINE_OPS_TOKEN: 'operations-route-token-with-32-bytes',
+    };
+
+    // When the concierge parser audits and returns runtime config
+    const parsed = loadConciergeEnv(source, NOW_EPOCH_MS);
+
+    // Then concierge code cannot consume the operations credential
+    expect(parsed).not.toHaveProperty('ENGINE_OPS_TOKEN');
+  });
+
   it('accepts a previous key only for the bounded overlap and exposes redacted metadata', () => {
     // Given a complete current and previous keyring expiring in ten minutes
     const expiresAt = new Date(NOW_EPOCH_MS + 10 * 60 * 1_000).toISOString();

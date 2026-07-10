@@ -9,20 +9,23 @@ export interface TelegramIntakeMessage {
 
 export type TelegramIntakeRoute = 'concierge' | 'engine' | 'draining';
 
-function isConversational(message: TelegramIntakeMessage, botUsername: string): boolean {
+function isConversational(message: TelegramIntakeMessage): boolean {
   if (message.from?.isBot) return false;
   const text = `${message.text} ${message.caption}`.trim();
   if (text.startsWith('/')) return false;
-  if (message.chat.type === 'private') return true;
-  if (botUsername === '') return false;
-  return text.toLowerCase().includes(`@${botUsername.toLowerCase()}`);
+  return message.chat.type === 'private';
 }
 
 export function routeTelegramIntake(
   message: TelegramIntakeMessage,
-  botUsername: string,
   lifecycle: ConciergeLifecycle,
 ): TelegramIntakeRoute {
   if (!lifecycle.acceptsIntake()) return 'draining';
-  return isConversational(message, botUsername) ? 'concierge' : 'engine';
+  return isConversational(message) ? 'concierge' : 'engine';
+}
+
+export function routeTelegramCallbackIntake(
+  lifecycle: ConciergeLifecycle,
+): 'engine' | 'draining' {
+  return lifecycle.acceptsIntake() ? 'engine' : 'draining';
 }

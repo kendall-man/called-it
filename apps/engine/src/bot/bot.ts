@@ -4,16 +4,29 @@
  */
 
 import type { Bot } from 'grammy';
+import type { Logger } from '../log.js';
 import type { HandlerCtx } from './context.js';
 import { registerCommands } from './commands.js';
 import { registerCallbacks } from './callbacks.js';
 import { registerDetection } from './detection.js';
 import { tableUrl } from '../pipeline/render.js';
 
-export function registerBotHandlers(bot: Bot, h: HandlerCtx): void {
+export interface BotErrorRegistrar {
+  catch(handler: (error: { readonly error: unknown }) => unknown): void;
+}
+
+function botFailureReason(error: unknown): 'bot_handler_exception' | 'unknown_exception' {
+  return error instanceof Error ? 'bot_handler_exception' : 'unknown_exception';
+}
+
+export function registerBotErrorHandler(bot: BotErrorRegistrar, log: Logger): void {
   bot.catch((err) => {
-    h.deps.log.error('bot_update_failed', { error: String(err.error) });
+    log.error('bot_update_failed', { reason: botFailureReason(err.error) });
   });
+}
+
+export function registerBotHandlers(bot: Bot, h: HandlerCtx): void {
+  registerBotErrorHandler(bot, h.deps.log);
 
   bot.on('my_chat_member', async (ctx) => {
     const chat = ctx.chat;
@@ -45,6 +58,5 @@ export const BOT_COMMANDS = [
   { command: 'bookit', description: 'Reply to a claim to put it on the record' },
   { command: 'table', description: 'The group leaderboard' },
   { command: 'settings', description: 'How chatty should I be? (admins)' },
-  { command: 'replay', description: 'Re-run a finished match (admins)' },
   { command: 'help', description: 'How this works' },
 ] as const;

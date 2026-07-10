@@ -134,6 +134,36 @@ describe('loadEnv', () => {
     expect(parse).toThrowError('Engine environment invalid: ENGINE_OPS_TOKEN');
   });
 
+  it.each([
+    ['ENGINE_CONCIERGE_TOKEN', BASE_ENV.ENGINE_CONCIERGE_TOKEN],
+    ['ENGINE_TELEGRAM_TOKEN', BASE_ENV.ENGINE_TELEGRAM_TOKEN],
+    ['ENGINE_OPS_TOKEN', BASE_ENV.ENGINE_OPS_TOKEN],
+  ])('rejects WEB_CONCIERGE_TOKEN reuse of %s without echoing values', (routeName, token) => {
+    // Given the web bridge credential duplicates an engine route credential
+    const source = { ...BASE_ENV, WEB_CONCIERGE_TOKEN: token };
+
+    // When the engine parser audits the shared deployment environment
+    const parse = () => loadEnv(source);
+
+    // Then startup names both variables without reflecting credential material
+    const variables = [routeName, 'WEB_CONCIERGE_TOKEN'].sort().join(', ');
+    expect(parse).toThrowError(`Engine environment invalid: ${variables}`);
+  });
+
+  it('strips the audit-only web credential from engine runtime config', () => {
+    // Given a distinct web bridge credential is visible in a shared environment
+    const source = {
+      ...BASE_ENV,
+      WEB_CONCIERGE_TOKEN: 'distinct-web-bridge-token-with-32-bytes',
+    };
+
+    // When the engine parser audits and returns runtime config
+    const parsed = loadEnv(source);
+
+    // Then engine code cannot consume the web credential
+    expect(parsed).not.toHaveProperty('WEB_CONCIERGE_TOKEN');
+  });
+
   it('rejects malformed analytics key material', () => {
     // Given analytics HMAC material that is not a canonical 32-byte base64 key
     const source = { ...BASE_ENV, ANALYTICS_HMAC_SECRET: 'not-base64' };

@@ -33,6 +33,7 @@ const EnvSchema = z.object({
   ENGINE_CONCIERGE_TOKEN: z.string().min(32),
   ENGINE_TELEGRAM_TOKEN: z.string().min(32),
   ENGINE_OPS_TOKEN: z.string().min(32),
+  WEB_CONCIERGE_TOKEN: z.string().min(32).optional(),
   /** HTTP port for the engine API (Railway injects PORT). */
   PORT: z.coerce.number().int().positive().default(8790),
   /**
@@ -128,6 +129,9 @@ const EnvSchema = z.object({
     ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN],
     ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN],
     ['ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN, 'ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN],
+    ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN ?? ''],
+    ['ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN, 'WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN ?? ''],
+    ['ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN, 'WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN ?? ''],
   ];
   for (const [leftName, leftToken, rightName, rightToken] of routeTokenPairs) {
     if (leftToken === rightToken) {
@@ -191,11 +195,14 @@ const EnvSchema = z.object({
     });
   }
 
-}).transform((env) => ({
-  ...env,
-  GLM_BASE_URL: env.GLM_BASE_URL ?? 'https://api.z.ai/api/anthropic',
-  SOLANA_RPC_URL: env.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com',
-}));
+}).transform((env) => {
+  const { WEB_CONCIERGE_TOKEN: _auditOnly, ...runtime } = env;
+  return {
+    ...runtime,
+    GLM_BASE_URL: runtime.GLM_BASE_URL ?? 'https://api.z.ai/api/anthropic',
+    SOLANA_RPC_URL: runtime.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com',
+  };
+});
 
 export type Env = z.infer<typeof EnvSchema>;
 

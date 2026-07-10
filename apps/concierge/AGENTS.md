@@ -2,9 +2,10 @@
 
 ## Overview
 
-Eve-powered Telegram concierge ("callie") for the SOL-only beta. It handles addressed
-conversation and calls the private engine HTTP API; the engine remains the sole product and
-mutation source of truth.
+Eve-powered Telegram concierge ("callie") for the SOL-only beta. It handles private
+conversation and calls the private engine HTTP API; until the semantic prefilter ships,
+every group update goes to the engine. The engine remains the sole product and mutation
+source of truth.
 
 ## Where To Look
 

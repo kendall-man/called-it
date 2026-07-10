@@ -23,6 +23,7 @@ const RawConciergeEnvSchema = z.object({
   ENGINE_PRIVATE_API_URL: z.string().url(),
   ENGINE_CONCIERGE_TOKEN: z.string().min(32),
   ENGINE_TELEGRAM_TOKEN: z.string().min(32),
+  ENGINE_OPS_TOKEN: z.string().min(32).optional(),
   WEB_CONCIERGE_TOKEN: z.string().min(32),
   WEB_BASE_URL: z.string().url(),
   WALLET_LINK_DOMAIN: z.string().regex(/^(?:localhost|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+)$/),
@@ -49,11 +50,14 @@ function createConciergeEnvSchema(nowEpochMs: number) {
     };
     const routeTokenPairs = [
       ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN],
+      ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN],
       ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN, 'WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN],
+      ['ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN, 'ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN],
       ['ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN, 'WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN],
+      ['ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN, 'WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN],
     ] as const;
     for (const [leftName, leftToken, rightName, rightToken] of routeTokenPairs) {
-      if (leftToken === rightToken) {
+      if (leftToken !== undefined && leftToken === rightToken) {
         addPairIssue(leftName, rightName);
       }
     }
@@ -160,6 +164,7 @@ function createConciergeEnvSchema(nowEpochMs: number) {
       ACCOUNT_SESSION_KEY_PREVIOUS,
       ACCOUNT_SESSION_KEY_PREVIOUS_KID,
       ACCOUNT_SESSION_KEY_PREVIOUS_EXPIRES_AT,
+      ENGINE_OPS_TOKEN: _auditOnly,
       ...runtime
     } = env;
     let keyring: AccountSessionKeyring | null = null;

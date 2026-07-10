@@ -153,8 +153,10 @@ private HTTP API.
 
 ## `apps/concierge`
 
-The Eve app owns addressed conversation and scoped private API tool calls. It imports no
-workspace package, writes no database, and never computes a product fact.
+The Eve app owns private conversation and scoped private API tool calls. Until the semantic
+prefilter ships, every group message, including explicit Callie mentions, routes to the
+engine. Eve imports no workspace package, writes no database, and never computes a product
+fact.
 
 - Identity comes from the verified Telegram/session principal, not model text.
 - A quote is read-only and never substitutes for speaker consent.

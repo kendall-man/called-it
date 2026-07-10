@@ -1,5 +1,5 @@
 /**
- * Commands: /start /help /settings /replay /bookit.
+ * Commands: /start /help /settings /bookit.
  * /bookit and @mention are the consent-free trigger path (privacy mode ON
  * delivers commands and replies in every group).
  */
@@ -46,64 +46,6 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
     h.poster.post(ctx.chat.id, await h.say('settings_intro'), {
       keyboard: settingsKeyboard(group.chattiness, group.web_enabled),
     });
-  });
-
-  bot.command('replay', async (ctx) => {
-    if (!isGroup(ctx.chat.type) || !ctx.from) return;
-    const from = ctx.from;
-    const group = await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', from);
-    const admin = await isGroupAdmin(h, () => ctx.getChatMember(from.id));
-    const replyTo = ctx.message?.message_id;
-    if (!admin) {
-      h.poster.post(ctx.chat.id, await h.say('admin_only'), { replyToMessageId: replyTo });
-      return;
-    }
-    const arg = (ctx.match ?? '').toString().trim();
-    if (arg.toLowerCase() === 'stop') {
-      const stopped = h.supervisor.stopReplay(group.id);
-      h.poster.post(ctx.chat.id, await h.say(stopped ? 'replay_stopped' : 'stale'), {
-        replyToMessageId: replyTo,
-      });
-      return;
-    }
-    const fixtureId = Number.parseInt(arg, 10);
-    if (!Number.isFinite(fixtureId) || fixtureId <= 0) {
-      h.poster.post(ctx.chat.id, await h.say('replay_unknown_fixture'), { replyToMessageId: replyTo });
-      return;
-    }
-    const activeReplay = h.supervisor.hasActiveReplay(group.id);
-    // Only a non-replay market with real money on it blocks a replay — the
-    // broker auto-mints offer markets from banter, and an untouched zero-bet
-    // one must never brick a demo.
-    const openMarkets = await h.deps.db.openMarketsForGroup(group.id);
-    let liveBetInPlay = false;
-    for (const market of openMarkets) {
-      if (market.is_replay) continue;
-      const positions = await h.deps.db.positionsForMarket(market.id);
-      if (positions.some((position) => position.state !== 'void')) {
-        liveBetInPlay = true;
-        break;
-      }
-    }
-    if (activeReplay) {
-      h.poster.post(ctx.chat.id, await h.say('replay_blocked_active'), { replyToMessageId: replyTo });
-      return;
-    }
-    if (liveBetInPlay) {
-      h.poster.post(ctx.chat.id, await h.say('replay_blocked_live'), { replyToMessageId: replyTo });
-      return;
-    }
-    const fixture = await h.deps.db.getFixture(fixtureId);
-    if (!fixture) {
-      h.poster.post(ctx.chat.id, await h.say('replay_unknown_fixture'), { replyToMessageId: replyTo });
-      return;
-    }
-    h.supervisor.startReplay(group.id, fixtureId);
-    h.poster.post(
-      ctx.chat.id,
-      await h.say('replay_started', { fixture: `${fixture.p1_name} vs ${fixture.p2_name}` }),
-      { replyToMessageId: replyTo },
-    );
   });
 
   bot.command('bookit', async (ctx) => {

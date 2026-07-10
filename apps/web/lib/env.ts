@@ -26,6 +26,9 @@ const WebEnvSchema = z.object({
   NEXT_PUBLIC_TELEGRAM_STARTGROUP: z.literal('calledit_v1').optional(),
   CONCIERGE_WALLET_API_URL: z.string().url().optional(),
   WEB_CONCIERGE_TOKEN: z.string().min(32).optional(),
+  ENGINE_CONCIERGE_TOKEN: z.string().min(32).optional(),
+  ENGINE_TELEGRAM_TOKEN: z.string().min(32).optional(),
+  ENGINE_OPS_TOKEN: z.string().min(32).optional(),
   WEB_BASE_URL: z.string().url().optional(),
   WALLET_LINK_DOMAIN: DomainSchema.optional(),
   ANALYTICS_HMAC_SECRET: Base64KeySchema.optional(),
@@ -138,6 +141,24 @@ const WebEnvSchema = z.object({
   if (env.STARTER_GRANTS_ENABLED && !env.STAKE_ACCEPTANCE_ENABLED) {
     addPairIssue('STARTER_GRANTS_ENABLED', 'STAKE_ACCEPTANCE_ENABLED');
   }
+  const routeTokens = [
+    ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN],
+    ['ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN],
+    ['ENGINE_OPS_TOKEN', env.ENGINE_OPS_TOKEN],
+  ] as const;
+  for (const [name, token] of routeTokens) {
+    if (token !== undefined && token === env.WEB_CONCIERGE_TOKEN) {
+      addPairIssue(name, 'WEB_CONCIERGE_TOKEN');
+    }
+  }
+}).transform((env) => {
+  const {
+    ENGINE_CONCIERGE_TOKEN: _conciergeAuditOnly,
+    ENGINE_TELEGRAM_TOKEN: _telegramAuditOnly,
+    ENGINE_OPS_TOKEN: _opsAuditOnly,
+    ...runtime
+  } = env;
+  return runtime;
 });
 
 export type WebEnv = Readonly<z.infer<typeof WebEnvSchema>>;

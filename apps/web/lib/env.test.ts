@@ -149,6 +149,46 @@ describe('web environment', () => {
   });
 
   it.each([
+    'ENGINE_CONCIERGE_TOKEN',
+    'ENGINE_TELEGRAM_TOKEN',
+    'ENGINE_OPS_TOKEN',
+  ])('rejects WEB_CONCIERGE_TOKEN reuse of %s without echoing values', (routeName) => {
+    // Given one credential is supplied for the web bridge and an engine route
+    const token = 'shared-route-token-with-at-least-32-bytes';
+    const source = {
+      ...BASE_ENV,
+      WEB_CONCIERGE_TOKEN: token,
+      [routeName]: token,
+    };
+
+    // When the web parser audits its server environment
+    const parse = () => loadWebEnv(source);
+
+    // Then startup names both variables without reflecting credential material
+    const variables = [routeName, 'WEB_CONCIERGE_TOKEN'].sort().join(', ');
+    expect(parse).toThrowError(`Web environment invalid: ${variables}`);
+  });
+
+  it('strips audit-only engine credentials from web runtime config', () => {
+    // Given distinct engine credentials are visible in a shared server environment
+    const source = {
+      ...BASE_ENV,
+      ENGINE_CONCIERGE_TOKEN: 'concierge-route-token-with-32-bytes',
+      ENGINE_TELEGRAM_TOKEN: 'telegram-route-token-with-32-bytes-',
+      ENGINE_OPS_TOKEN: 'operations-route-token-with-32-bytes',
+      WEB_CONCIERGE_TOKEN: 'web-bridge-token-with-at-least-32-bytes',
+    };
+
+    // When the web parser audits and returns runtime config
+    const parsed = loadWebEnv(source);
+
+    // Then web code cannot consume any engine route credential
+    expect(parsed).not.toHaveProperty('ENGINE_CONCIERGE_TOKEN');
+    expect(parsed).not.toHaveProperty('ENGINE_TELEGRAM_TOKEN');
+    expect(parsed).not.toHaveProperty('ENGINE_OPS_TOKEN');
+  });
+
+  it.each([
     {
       name: 'non-canonical Base64 padding bits',
       secret: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQB=',

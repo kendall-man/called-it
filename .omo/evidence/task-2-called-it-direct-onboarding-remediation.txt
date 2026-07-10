@@ -1,18 +1,69 @@
-public live: 200 expected 200
-public ready: 200 expected 200
-missing concierge credential: 401 expected 401
-unknown concierge credential: 401 expected 401
-telegram token on concierge route: 403 expected 403
-concierge token on snapshot: 200 expected 200
-concierge token on telegram ingress: 403 expected 403
-telegram token on ingress upstream exception: 500 expected 500
-telegram token on ops status: 403 expected 403
-ops token on ops status: 200 expected 200
-redaction logs: ../../.omo/evidence/task-2-called-it-direct-onboarding-remediation.logs.jsonl
-redaction observable: requestId/internal_exception only; upstream/body sentinels absent
+Task2 follow-up baseline: 5526c7c67f2cb09eebb5b14dd6b4a6ae2ba7afa2
 
-Focused tests: engine API auth/ingress/redaction, concierge client/env/instructions, web env, product-copy all passed.
-Root verify: .omo/evidence/task-2-root-verify.txt
-SQL gate: .omo/evidence/task-2-sql-gate.txt
-Exact legacy scan: zero matches for diag.ts, replay_diag, ?token=, ENGINE_API_TOKEN.
-Cleanup: disposable PostgreSQL clusters stopped and removed; no Task 7-owned files staged by Task 2.
+Immutable review findings closed:
+- Telegram routing matrix: private conversation -> Eve; private commands/bot messages,
+  every group message including explicit mentions/captions, and callbacks -> engine;
+  draining rejects both message and callback intake. 10 focused tests passed.
+- Explicit group mention path observed in engine detection: mention text is stripped and
+  offered with the author as claimer, confidence null, announce true.
+- Public replay registration and handler removed from bot.ts/commands.ts. Both files are
+  now default product-copy surfaces; product-copy passed across 45 files.
+- server-write.ts exports only handleQuoteRequest; dead direct-stake schema/handler/imports
+  removed after Task7 commit without changing Task7 quote catch narrowing or DB work.
+- bot.catch logs only bot_update_failed plus stable reason; adversarial secret-bearing Error
+  test passed and raw unknown values are never stringified.
+- Engine, concierge, and web env parsers reject WEB_CONCIERGE_TOKEN equality with every
+  engine route token using variable-name-only errors. Audit-only route fields are stripped.
+- Recursive body/query credential rejection covers normalized apiToken, access_token,
+  engine-token, bearer, authorization, initData, signature, signedMessage, wallet, and
+  privateKey variants. Nested arrays/objects reject; benign walletAddress, marketKey,
+  tokenSymbol, and signatureRequired fields remain accepted.
+
+Live curl QA against an ephemeral mock engine:
+- public live: 200 expected 200
+- public ready: 200 expected 200
+- missing credential: 401 expected 401
+- unknown credential: 401 expected 401
+- Telegram token on concierge snapshot: 403 expected 403
+- concierge token on snapshot: 200 expected 200
+- nested access_token in quote body: 401 expected 401
+- Telegram ingress upstream exception: 500 expected 500
+- ops token on ops status: 200 expected 200
+- structured error log: requestId and internal_exception only
+- Authorization/initData/privateKey/signature/signedMessage/upstream/body sentinels absent
+
+Verification:
+- Post-Task7 focused rerun at HEAD 57da8a1: engine 52, concierge 33, web 19 tests passed.
+- Engine full tests: 36 files, 305 tests passed.
+- Concierge full tests: 9 files, 55 tests passed.
+- Web full tests: 6 files, 54 tests passed.
+- Engine, concierge, and web strict typechecks passed.
+- Engine production build, web Next production build, and Eve build passed.
+- Product-copy typecheck/tests/default scan passed; bot.ts and commands.ts scanned.
+- Exact legacy scan returned zero for diag.ts, replay_diag, ?token=, ENGINE_API_TOKEN.
+- Public replay/direct-stake/raw bot error scans returned zero.
+- No-excuse audit: 0 violations across 18 Task2 TypeScript files.
+- Pure LOC: every touched/new Task2 TypeScript file <=250; maximum 213.
+- Task2 diff whitespace check passed.
+
+Debugging hypotheses with runtime evidence:
+- Routing hypothesis confirmed: failing test observed group mention -> concierge; fixed test
+  and full suite observe group mention -> engine.
+- Surface-coverage hypothesis confirmed: failing product-copy test omitted bot.ts; fixed
+  default scan reports bot.ts and commands.ts and rejects replay command registration syntax.
+- Boundary-normalization hypothesis confirmed: failing HTTP tests returned 200 for apiToken,
+  access_token, engine-token, bearer, and wallet keys; fixed tests and live curl return 401.
+
+Final review lanes:
+- Goal/constraints: PASS; every immutable finding mapped to code, tests, and evidence.
+- Hands-on QA: PASS; live server driven by the system curl binary.
+- Code quality: PASS; strict typechecks, <=250 pure LOC, no-excuse and diff checks clean.
+- Security: PASS; scoped status matrix, recursive credential rejection, env isolation, and
+  adversarial redaction all observed.
+- Context mining: PASS; git history, command registrations, callers, docs, env examples,
+  and product-copy surfaces checked; stale interim routing docs corrected.
+
+Ownership and cleanup:
+- Concurrent DB changes appeared after the clean baseline and were preserved untouched.
+- Task2 staging must exclude packages/db and its untracked DB boundary files.
+- Temporary manual-QA/build artifacts are removed before commit; no listener remains.

@@ -8,18 +8,14 @@ const CREDENTIAL_FIELD_NAMES = new Set([
   'authorization',
   'auth',
   'token',
-  'key',
-  'api_key',
-  'api-token',
+  'apikey',
+  'bearer',
   'initdata',
-  'init_data',
   'signedmessage',
-  'signed_message',
   'signature',
   'privatekey',
-  'private_key',
   'walletprivatekey',
-  'wallet_private_key',
+  'wallet',
 ]);
 
 export type RouteScope = 'concierge' | 'telegram' | 'ops';
@@ -93,7 +89,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function hasCredentialSearchParam(url: URL): boolean {
   for (const name of url.searchParams.keys()) {
-    if (CREDENTIAL_FIELD_NAMES.has(normalizeCredentialName(name))) return true;
+    if (isCredentialName(name)) return true;
   }
   return false;
 }
@@ -102,7 +98,7 @@ export function hasCredentialField(value: unknown): boolean {
   if (Array.isArray(value)) return value.some((item) => hasCredentialField(item));
   if (!isRecord(value)) return false;
   for (const [name, fieldValue] of Object.entries(value)) {
-    if (CREDENTIAL_FIELD_NAMES.has(normalizeCredentialName(name))) return true;
+    if (isCredentialName(name)) return true;
     if (hasCredentialField(fieldValue)) return true;
   }
   return false;
@@ -114,8 +110,13 @@ export function redactedFailureReason(error: unknown): string {
     : 'internal_exception';
 }
 
-function normalizeCredentialName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+function isCredentialName(name: string): boolean {
+  const normalized = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return (
+    CREDENTIAL_FIELD_NAMES.has(normalized) ||
+    normalized.endsWith('token') ||
+    normalized.endsWith('privatekey')
+  );
 }
 
 function credentialEntries(

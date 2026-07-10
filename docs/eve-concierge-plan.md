@@ -38,7 +38,7 @@ Telegram webhook event
   -> verified webhook envelope and durable routing decision
      -> deterministic engine path for commands, callbacks, service updates,
         claims, cards, positions, settlement, and receipts
-     -> Eve path for addressed, non-actionable conversation
+     -> Eve path for private, non-command conversation
 
 Eve tool
   -> private authenticated engine API
@@ -53,10 +53,12 @@ event traffic reaches it through an authenticated same-origin server bridge.
 
 - Telegram identity comes from the verified update/session envelope, never message text or
   model arguments.
+- Until the semantic prefilter ships, every group message, including an explicit Callie
+  mention, routes to the engine so direct claim consent remains deterministic. Eve handles
+  conversational intake only in private chat.
 - User, group, callback, and reply ownership are resolved before a mutating tool runs.
 - User text, quoted claims, market labels, and tool output are data, not instructions.
-- Unknown or unmarked replies may reach Eve for conversation but can never invoke an engine
-  mutation.
+- Private conversational replies may reach Eve but can never invoke an engine mutation.
 - Duplicate delivery uses durable semantic keys; it cannot create a second position or
   announce success twice.
 - Tools may act only as the trusted requester. Requests to act as or for another member are

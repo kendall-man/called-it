@@ -9,6 +9,18 @@ import {
 } from './server-test-harness.js';
 
 const jsonHeaders = { 'content-type': 'application/json' };
+const CREDENTIAL_NAMES = [
+  'apiToken',
+  'access_token',
+  'engine-token',
+  'bearer',
+  'authorization',
+  'initData',
+  'signature',
+  'signedMessage',
+  'wallet',
+  'privateKey',
+] as const;
 
 function bearer(token: string): Record<string, string> {
   return { ...jsonHeaders, authorization: `Bearer ${token}` };
@@ -100,5 +112,69 @@ describe('engine route-scoped credentials', () => {
 
     expect(query.status).toBe(401);
     expect(body.status).toBe(401);
+  });
+
+  it.each(CREDENTIAL_NAMES)('rejects normalized credential query key %s', async (name) => {
+    // Given a valid route credential and a credential-like query parameter
+    const harness = await startHarness();
+    const url = new URL('/api/fixtures', harness.base);
+    url.searchParams.set(name, 'credential-material');
+
+    // When the caller sends the request
+    const response = await fetch(url, { headers: bearer(CONCIERGE_TOKEN) });
+
+    // Then authentication fails before route handling
+    expect(response.status).toBe(401);
+  });
+
+  it.each(CREDENTIAL_NAMES)('rejects nested credential body key %s', async (name) => {
+    // Given credential material is hidden in a nested object inside an array
+    const harness = await startHarness();
+    const body = {
+      chatId: CHAT_ID,
+      text: 'Spain win',
+      metadata: { entries: [{ [name]: 'credential-material' }] },
+    };
+
+    // When the caller submits the quote request
+    const response = await fetch(`${harness.base}/api/quote`, {
+      method: 'POST',
+      headers: bearer(CONCIERGE_TOKEN),
+      body: JSON.stringify(body),
+    });
+
+    // Then authentication fails before parsing the domain payload
+    expect(response.status).toBe(401);
+  });
+
+  it('allows benign domain keys that resemble credential names', async () => {
+    // Given query and body metadata describe domain state rather than credentials
+    const harness = await startHarness();
+    const fixtures = new URL('/api/fixtures', harness.base);
+    fixtures.searchParams.set('tokenSymbol', 'SOL');
+    fixtures.searchParams.set('walletAddress', 'public-address');
+    fixtures.searchParams.set('marketKey', 'market-reference');
+    fixtures.searchParams.set('signatureRequired', 'false');
+
+    // When callers send both read and quote requests
+    const queryResponse = await fetch(fixtures, { headers: bearer(CONCIERGE_TOKEN) });
+    const bodyResponse = await fetch(`${harness.base}/api/quote`, {
+      method: 'POST',
+      headers: bearer(CONCIERGE_TOKEN),
+      body: JSON.stringify({
+        chatId: CHAT_ID,
+        text: 'Spain win',
+        metadata: {
+          tokenSymbol: 'SOL',
+          walletAddress: 'public-address',
+          marketKey: 'market-reference',
+          signatureRequired: false,
+        },
+      }),
+    });
+
+    // Then both requests reach normal domain handling
+    expect(queryResponse.status).toBe(200);
+    expect(bodyResponse.status).toBe(200);
   });
 });

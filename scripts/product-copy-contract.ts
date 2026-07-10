@@ -54,6 +54,8 @@ export const TRACKED_SURFACES: readonly Surface[] = [
   {
     name: 'bot',
     entries: [
+      'apps/engine/src/bot/bot.ts',
+      'apps/engine/src/bot/commands.ts',
       'apps/engine/src/bot/copy.ts',
       'apps/engine/src/bot/fallback-copy.ts',
       'apps/engine/src/wager/copy.ts',
@@ -84,7 +86,7 @@ const RULES: readonly Rule[] = [
   {
     id: 'onboarding.demo-or-replay',
     pattern:
-      /(?:\B\/replay\b|\b(?:demo|replay)\s+(?:group|market|mode|onboarding|tutorial|walkthrough)\b|\b(?:join|run|start|try|watch)\b.{0,40}\b(?:demo|replay)\b)/i,
+      /(?:\B\/replay\b|\.command\(\s*['"]replay['"]|\bcommand\s*:\s*['"]replay['"]|\b(?:demo|replay)\s+(?:group|market|mode|onboarding|tutorial|walkthrough)\b|\b(?:join|run|start|try|watch)\b.{0,40}\b(?:demo|replay)\b)/i,
     policyScope: 'contracts',
   },
   {
