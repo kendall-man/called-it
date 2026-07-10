@@ -28,6 +28,7 @@ import { Settler } from './settle/settler.js';
 import { IngestSupervisor } from './ingest/supervisor.js';
 import { startCrons } from './cron/index.js';
 import { startEngineApi } from './api/server.js';
+import { createTelegramUpdateHandler } from './api/telegram-update-boundary.js';
 import {
   createEngineReadinessChecks,
   type EngineReadinessPolicy,
@@ -183,8 +184,7 @@ async function main(): Promise<void> {
     drainState,
     ...(webhookIngress
       ? {
-          handleTelegramUpdate: (update: Record<string, unknown>) =>
-            bot.handleUpdate(update as unknown as Parameters<typeof bot.handleUpdate>[0]),
+          handleTelegramUpdate: createTelegramUpdateHandler((update) => bot.handleUpdate(update)),
         }
       : {}),
   });

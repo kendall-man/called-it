@@ -23,6 +23,94 @@ Invocation: npx -y pnpm@10.33.0 --filter @calledit/engine typecheck
 
 Observable exit_code: 0
 
+Typed webhook update boundary final gate
+timestamp: 2026-07-10T16:12:55+05:30
+base_head: 8835aeadcf97bc520b85f90e72aeb4b0bde6c925
+
+Implementation
+--------------
+- apps/engine/src/main.ts now delegates webhook records to createTelegramUpdateHandler.
+- apps/engine/src/api/telegram-update-boundary.ts parses the three update variants that can
+  mutate this engine: message:text, callback_query:data, and my_chat_member.
+- Parsed updates are inferred by Zod and assigned directly to grammY Update. There is no type
+  assertion, any, ignore/expect-error, non-null assertion, or raw structural pass-through.
+- The parser preserves command entities and one-level reply context used by /bookit and passive
+  claim detection. Malformed nested user fields reject before the bot mutation callback.
+- Four pre-existing catch-narrowing findings in Task 4 production files were made behavior-neutral
+  with Error.toString()/String(error) narrowing so the required complete production scan is clean.
+
+TDD red-to-green
+----------------
+- Valid text update RED: parser seam returned "Telegram update parser is not implemented"; exit 1.
+- Malformed nested update RED: numeric username reached mutation and resolved; exit 1.
+- Callback update RED: callback_query was rejected by the text-only schema; exit 1.
+- Membership update RED: my_chat_member was rejected by the text/callback union; exit 1.
+- Command/reply preservation RED: entities and reply_to_message were stripped; exit 1.
+- Final GREEN invocation:
+  npx -y pnpm@10.33.0 --dir apps/engine exec vitest run src/api/ingress.test.ts src/api/telegram-update-boundary.test.ts
+- Final GREEN result: 2 files passed, 6 tests passed, exit 0.
+
+Full Task 4 production no-excuse scan
+-------------------------------------
+Invocation: npx -y pnpm@10.33.0 exec tsx /Users/sublime/Seb/tg-bot-idea/.agents/skills/programming/scripts/typescript/check-no-excuse-rules.ts <31 files below>
+Result: No violations in 31 file(s). Exit 0.
+Files:
+- apps/concierge/agent/channels/health.ts
+- apps/concierge/agent/channels/telegram.ts
+- apps/concierge/agent/hooks/lifecycle.ts
+- apps/concierge/agent/runtime/engine-readiness.ts
+- apps/concierge/agent/runtime/health.ts
+- apps/concierge/agent/runtime/lifecycle.ts
+- apps/concierge/agent/runtime/process-lifecycle.ts
+- apps/concierge/agent/runtime/readiness.ts
+- apps/concierge/agent/runtime/session-intake.ts
+- apps/concierge/agent/runtime/telegram-intake.ts
+- apps/engine/src/api/readiness-checks.ts
+- apps/engine/src/api/readiness-http.ts
+- apps/engine/src/api/readiness-production.ts
+- apps/engine/src/api/readiness-supabase.ts
+- apps/engine/src/api/readiness.ts
+- apps/engine/src/api/server-http.ts
+- apps/engine/src/api/server-read.ts
+- apps/engine/src/api/server-write.ts
+- apps/engine/src/api/server.ts
+- apps/engine/src/api/shutdown.ts
+- apps/engine/src/api/telegram-update-boundary.ts
+- apps/engine/src/main.ts
+- apps/engine/src/ports.ts
+- apps/engine/src/ports/database.ts
+- apps/engine/src/ports/dependencies.ts
+- apps/engine/src/ports/rows.ts
+- apps/engine/src/ports/services.ts
+- apps/engine/src/wiring-agent.ts
+- apps/engine/src/wiring-proof.ts
+- apps/engine/src/wiring-wager.ts
+- apps/engine/src/wiring.ts
+
+LOC receipt (nonblank, non-line-comment)
+---------------------------------------
+- apps/engine/src/main.ts: 250 -> 250
+- apps/engine/src/api/telegram-update-boundary.ts: new -> 187
+- apps/engine/src/api/telegram-update-boundary.test.ts: new -> 91
+- apps/engine/src/api/server-write.ts: 169 -> 170
+- apps/engine/src/wiring-proof.ts: 52 -> 53
+- apps/engine/src/wiring-wager.ts: 220 -> 222
+
+Additional verification already completed this turn
+---------------------------------------------------
+- Engine full typecheck: PASS, exit 0.
+- Engine build: PASS, exit 0.
+- Built HTTP API boundary QA: valid HTTP 200, malformed HTTP 200 under the existing ack-then-process
+  contract, received update ids [501] only, and malformed input emitted forwarded_update_failed.
+- Scoped git diff --check: PASS before evidence update.
+
+Cleanup
+-------
+- /tmp/task4-webhook-qa.mjs removed and absence verified.
+- .debug-journal.md removed and temporary git/info/exclude entry removed.
+- Active Task 5 package, wager, database, migration, SQL-harness, and orchestration artifacts were
+  left untouched and will not be staged.
+
 Scenario: focused readiness production and Supabase tests
 Invocation: npx -y pnpm@10.33.0 --dir apps/engine exec vitest run src/api/readiness-production.test.ts src/api/readiness-supabase.test.ts
 
@@ -59,3 +147,99 @@ Observable exit_code: 0
 Scenario: git diff whitespace/conflict marker scan
 Invocation: git diff --check -- apps/engine/src/wiring.ts apps/engine/src/api/readiness-production.ts .omo/evidence/task-4-wiring-split-follow-up.txt
 Observable exit_code: 0
+
+Task 4 webhook boundary takeover receipt
+========================================
+Timestamp: 2026-07-10T16:16:48+05:30
+Captured artifact: .omo/evidence/task-4-wiring-split-follow-up.txt
+
+Implementation state
+--------------------
+- apps/engine/src/main.ts already delegates webhook updates through createTelegramUpdateHandler.
+- apps/engine/src/api/telegram-update-boundary.ts parses unknown input with Zod before calling
+  the grammY mutation callback, then assigns the parsed value directly to Update.
+- No production patch was required in this takeover pass; Task 7-owned files were left unstaged
+  and untouched.
+
+Scenario: legacy webhook assertion absent
+Invocation: rg -n "as unknown as Parameters<typeof bot\.handleUpdate>\[0\]" apps/engine/src/main.ts apps/engine/src/api/telegram-update-boundary.ts; printf 'rg_exit_code=%s\n' $?
+Binary observable: rg_exit_code=1, meaning no matches.
+Captured artifact path: .omo/evidence/task-4-wiring-split-follow-up.txt
+
+Scenario: boundary unit tests and engine ingress tests
+Invocation: npx -y pnpm@10.33.0 --filter @calledit/engine exec vitest run src/api/telegram-update-boundary.test.ts src/api/ingress.test.ts
+Binary observable: Test Files 2 passed (2); Tests 6 passed (6); exit_code 0.
+Specific malformed-input observable: "rejects a malformed text update before bot mutation" passed,
+which asserts the mutation count remains 0 after a numeric username is rejected.
+Captured artifact path: .omo/evidence/task-4-wiring-split-follow-up.txt
+
+Scenario: engine typecheck
+Invocation: npx -y pnpm@10.33.0 --filter @calledit/engine typecheck
+Binary observable: tsc -p tsconfig.json --noEmit; exit_code 0.
+Captured artifact path: .omo/evidence/task-4-wiring-split-follow-up.txt
+
+Scenario: engine build
+Invocation: npx -y pnpm@10.33.0 --filter @calledit/engine build
+Binary observable: tsc -p tsconfig.json; exit_code 0.
+Captured artifact path: .omo/evidence/task-4-wiring-split-follow-up.txt
+
+Scenario: Task 4 production no-excuse scan generated from commits
+List generation:
+  commits=(2428275 75b7a5d dc2954b 8835aea)
+  git diff-tree --no-commit-id --name-only -r each commit
+  plus apps/engine/src/api/telegram-update-boundary.ts and apps/engine/src/main.ts
+  filtered to .ts/.tsx files and excluding test/spec/fixture/harness files
+Invocation: npx -y pnpm@10.33.0 exec tsx /Users/sublime/Seb/tg-bot-idea/.agents/skills/programming/scripts/typescript/check-no-excuse-rules.ts <31 files>
+Binary observable: No violations in 31 file(s). exit_code 0.
+Files:
+- apps/concierge/agent/channels/health.ts
+- apps/concierge/agent/channels/telegram.ts
+- apps/concierge/agent/hooks/lifecycle.ts
+- apps/concierge/agent/runtime/engine-readiness.ts
+- apps/concierge/agent/runtime/health.ts
+- apps/concierge/agent/runtime/lifecycle.ts
+- apps/concierge/agent/runtime/process-lifecycle.ts
+- apps/concierge/agent/runtime/readiness.ts
+- apps/concierge/agent/runtime/session-intake.ts
+- apps/concierge/agent/runtime/telegram-intake.ts
+- apps/engine/src/api/readiness-checks.ts
+- apps/engine/src/api/readiness-http.ts
+- apps/engine/src/api/readiness-production.ts
+- apps/engine/src/api/readiness-supabase.ts
+- apps/engine/src/api/readiness.ts
+- apps/engine/src/api/server-http.ts
+- apps/engine/src/api/server-read.ts
+- apps/engine/src/api/server-write.ts
+- apps/engine/src/api/server.ts
+- apps/engine/src/api/shutdown.ts
+- apps/engine/src/api/telegram-update-boundary.ts
+- apps/engine/src/main.ts
+- apps/engine/src/ports.ts
+- apps/engine/src/ports/database.ts
+- apps/engine/src/ports/dependencies.ts
+- apps/engine/src/ports/rows.ts
+- apps/engine/src/ports/services.ts
+- apps/engine/src/wiring-agent.ts
+- apps/engine/src/wiring-proof.ts
+- apps/engine/src/wiring-wager.ts
+- apps/engine/src/wiring.ts
+Captured artifact path: .omo/evidence/task-4-wiring-split-follow-up.txt
+
+Scenario: pure LOC check for Task 4 owned TS files
+Invocation: awk '!/^[[:space:]]*$/ && !/^[[:space:]]*(\/\/|#|--)/ { n += 1 } END { print n + 0 }' <file>
+Binary observable:
+- apps/engine/src/main.ts: 250
+- apps/engine/src/api/telegram-update-boundary.ts: 187
+- apps/engine/src/api/telegram-update-boundary.test.ts: 91
+Captured artifact path: .omo/evidence/task-4-wiring-split-follow-up.txt
+
+Scenario: scoped diff whitespace/conflict-marker check
+Invocation: git diff --check -- apps/engine/src/main.ts apps/engine/src/api/telegram-update-boundary.ts apps/engine/src/api/telegram-update-boundary.test.ts .omo/evidence/task-4-wiring-split-follow-up.txt
+Binary observable: exit_code 0.
+Captured artifact path: .omo/evidence/task-4-wiring-split-follow-up.txt
+
+Scenario: product copy gate
+Invocation: skipped by request because this boundary takeover changed no product-copy manifest
+or user-facing copy.
+Binary observable: no product-copy files in Task 4 boundary diff.
+Captured artifact path: .omo/evidence/task-4-wiring-split-follow-up.txt
