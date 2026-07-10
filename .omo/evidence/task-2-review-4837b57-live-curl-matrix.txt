@@ -1,0 +1,33 @@
+SOURCE: direct-onboarding worktree HEAD live harness; mock dependencies
+BOUND: every curl uses --max-time 5; launcher has 300s self-shutdown and 310s outer alarm
+AUTH_VALUES: synthetic tracked test-fixture tokens held in shell variables; raw values are not emitted
+public_live	expected=200	actual=200	curl_exit=0	PASS	GET /api/live, no auth	body={"status":"live"}
+public_ready	expected=200	actual=200	curl_exit=0	PASS	GET /api/ready, no auth	body={"status":"ready","reasons":[]}
+unknown_route_clean	expected=404	actual=404	curl_exit=0	PASS	GET unknown route, no auth	body={"error":"not_found"}
+concierge_missing	expected=401	actual=401	curl_exit=0	PASS	GET snapshot, no auth	body={"error":"unauthorized"}
+concierge_unknown	expected=401	actual=401	curl_exit=0	PASS	GET snapshot, unknown bearer	body={"error":"unauthorized"}
+concierge_wrong_scope	expected=403	actual=403	curl_exit=0	PASS	GET snapshot, Telegram bearer	body={"error":"forbidden"}
+concierge_matching	expected=200	actual=200	curl_exit=0	PASS	GET snapshot, concierge bearer	body={"group":{"id":-100555,"title":"Test Group"},"markets":[{"marketId":"11111111-2222-4333-8444-555555555555","terms":"Spain to win (in 90 minutes)","currency":"sol","status":"open","fixtureId":42,"isReplay":false,"trustTier":"chain_proven","probability":0.5,"backers":0,"doubters":0,"forLamports":"0","againstLamports":"0","forSol":"0","againstSol":"0","matchedPct":0}]}
+telegram_missing	expected=401	actual=401	curl_exit=0	PASS	POST ingress, no auth	body={"error":"unauthorized"}
+telegram_unknown	expected=401	actual=401	curl_exit=0	PASS	POST ingress, unknown bearer	body={"error":"unauthorized"}
+telegram_wrong_scope	expected=403	actual=403	curl_exit=0	PASS	POST ingress, concierge bearer	body={"error":"forbidden"}
+telegram_matching	expected=200	actual=200	curl_exit=0	PASS	POST ingress, Telegram bearer	body={"ok":true}
+ops_missing	expected=401	actual=401	curl_exit=0	PASS	GET ops status, no auth	body={"error":"unauthorized"}
+ops_unknown	expected=401	actual=401	curl_exit=0	PASS	GET ops status, unknown bearer	body={"error":"unauthorized"}
+ops_wrong_scope	expected=403	actual=403	curl_exit=0	PASS	GET ops status, Telegram bearer	body={"error":"forbidden"}
+ops_matching	expected=200	actual=200	curl_exit=0	PASS	GET ops status, ops bearer	body={"status":"ready","reasons":[],"draining":false}
+malformed_basic	expected=401	actual=401	curl_exit=0	PASS	GET snapshot, Basic scheme	body={"error":"unauthorized"}
+malformed_empty_bearer	expected=401	actual=401	curl_exit=0	PASS	GET snapshot, empty Bearer value	body={"error":"unauthorized"}
+lowercase_bearer_scheme	expected=200	actual=200	curl_exit=0	PASS	GET snapshot, RFC case-insensitive bearer scheme	body={"group":{"id":-100555,"title":"Test Group"},"markets":[{"marketId":"11111111-2222-4333-8444-555555555555","terms":"Spain to win (in 90 minutes)","currency":"sol","status":"open","fixtureId":42,"isReplay":false,"trustTier":"chain_proven","probability":0.5,"backers":0,"doubters":0,"forLamports":"0","againstLamports":"0","forSol":"0","againstSol":"0","matchedPct":0}]}
+duplicate_authorization	expected=401	actual=401	curl_exit=0	PASS	GET snapshot, matching bearer plus second wrong Authorization field	body={"error":"unauthorized"}
+protected_query_credential	expected=401	actual=401	curl_exit=0	PASS	GET fixtures, matching auth plus token query key	body={"error":"unauthorized"}
+public_query_credential	expected=401	actual=401	curl_exit=0	PASS	GET live, token query key	body={"error":"unauthorized"}
+unknown_route_query_credential	expected=401	actual=401	curl_exit=0	PASS	GET unknown route, token query key	body={"error":"unauthorized"}
+post_body_credential	expected=401	actual=401	curl_exit=0	PASS	POST quote, matching auth plus token JSON field	body={"error":"unauthorized"}
+get_body_credential	expected=401	actual=401	curl_exit=0	PASS	GET fixtures, matching auth plus token JSON body	body={"error":"unauthorized"}
+public_get_body_credential	expected=401	actual=401	curl_exit=0	PASS	GET live, token JSON body	body={"error":"unauthorized"}
+unknown_get_body_credential	expected=401	actual=401	curl_exit=0	PASS	GET unknown route, token JSON body	body={"error":"unauthorized"}
+proof_material_allowed	expected=200	actual=200	curl_exit=0	PASS	POST quote, matching auth plus signed proof material	body={"kind":"ok","options":[{"key":"ok","label":"As stated","terms":"Spain to win (in 90 minutes)","trustTier":"chain_proven","fixtureId":42,"quote":{"kind":"ok","probability":0.5,"backMultiplier":2,"provenance":"market"}}]}
+malformed_json	expected=400	actual=400	curl_exit=0	PASS	POST quote, matching auth plus malformed JSON	body={"error":"bad_request","detail":"Expected object, received null"}
+upstream_exception	expected=500	actual=500	curl_exit=0	PASS	POST ingress, matching auth; mock dependency throws sentinel-bearing Error	body={"error":"internal","requestId":"0197533c-35c7-4687-9d89-9b551d65258e"}
+MATRIX_FAILURES: 0

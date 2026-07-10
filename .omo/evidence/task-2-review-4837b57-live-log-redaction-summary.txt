@@ -1,0 +1,10 @@
+SOURCE: live direct-onboarding engine stderr
+authorization_occurrences=0
+telegram_init_data_occurrences=0
+signature_occurrences=0
+wallet_pubkey_occurrences=0
+raw_error_occurrences=0
+json_event_count=3
+event=engine_api_up keys=event,level,port
+event=price keys=claimType,event,fixtureId,level,multiplier,probability,provenance
+event=engine_api_unhandled keys=event,level,reason,requestId

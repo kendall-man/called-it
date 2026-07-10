@@ -17,9 +17,6 @@ const CREDENTIAL_NAMES = [
   'bearer',
   'authorization',
   'initData',
-  'signature',
-  'signedMessage',
-  'wallet',
   'privateKey',
 ] as const;
 
@@ -180,6 +177,9 @@ describe('engine route-scoped credentials', () => {
           marketKey: 'market-reference',
           signatureRequired: false,
         },
+        signature: 'proof-signature',
+        signedMessage: 'proof-message',
+        wallet: 'public-wallet',
       }),
     });
 

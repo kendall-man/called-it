@@ -11,11 +11,8 @@ const CREDENTIAL_FIELD_NAMES = new Set([
   'apikey',
   'bearer',
   'initdata',
-  'signedmessage',
-  'signature',
   'privatekey',
   'walletprivatekey',
-  'wallet',
 ]);
 
 export type RouteScope = 'concierge' | 'telegram' | 'ops';
@@ -36,10 +33,8 @@ export function authorizeRoute(
   credentials: RouteCredentials,
   allowed: ReadonlySet<RouteScope>,
 ): AuthorizationResult {
-  const header = req.headers.authorization;
-  if (!header?.startsWith('Bearer ')) return { kind: 'unauthorized' };
-  const presentedToken = header.slice('Bearer '.length);
-  if (presentedToken.length === 0) return { kind: 'unauthorized' };
+  const presentedToken = extractBearerToken(req);
+  if (presentedToken === null) return { kind: 'unauthorized' };
   const presented = createHash('sha256').update(presentedToken).digest();
   const matches: RouteScope[] = [];
   for (const [scope, token] of credentialEntries(credentials)) {
@@ -109,6 +104,17 @@ export function redactedFailureReason(error: unknown): string {
   return error instanceof Error && error.name === 'ZodError'
     ? 'invalid_payload'
     : 'internal_exception';
+}
+
+function extractBearerToken(req: IncomingMessage): string | null {
+  const values = req.headersDistinct.authorization
+    ?? (req.headers.authorization === undefined ? [] : [req.headers.authorization]);
+  if (values.length !== 1) return null;
+  const [header] = values;
+  if (header === undefined) return null;
+  const match = /^bearer[ \t]+(.+)$/i.exec(header);
+  const presentedToken = match?.[1]?.trim();
+  return presentedToken && presentedToken.length > 0 ? presentedToken : null;
 }
 
 function isCredentialName(name: string): boolean {

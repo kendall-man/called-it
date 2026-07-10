@@ -68,6 +68,12 @@ async function route(
 ): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://engine.local');
   const path = url.pathname;
+  if (hasCredentialSearchParam(url)) {
+    sendJson(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const body = await readBodyWithoutCredentials(req, res);
+  if (body.kind === 'rejected') return;
   if (path === '/api/live') {
     sendJson(res, 200, { status: 'live' });
     return;
@@ -80,10 +86,6 @@ async function route(
   const routeScope = allowedScopes(req.method ?? 'GET', path);
   if (routeScope === null) {
     sendJson(res, 404, { error: 'not_found' });
-    return;
-  }
-  if (hasCredentialSearchParam(url)) {
-    sendJson(res, 401, { error: 'unauthorized' });
     return;
   }
   const authorization = authorizeRoute(req, credentials, routeScope);
@@ -131,9 +133,7 @@ async function route(
     return;
   }
   if (req.method === 'POST' && path === '/api/quote') {
-    const body = await readBodyWithoutCredentials(req, res);
-    if (body === undefined) return;
-    await handleQuoteRequest(options, quoteBudget, body, res);
+    await handleQuoteRequest(options, quoteBudget, body.value, res);
     return;
   }
   if (req.method === 'POST' && path === '/api/telegram-ingress') {
@@ -141,8 +141,7 @@ async function route(
       sendJson(res, 409, { error: 'not_webhook_ingress' });
       return;
     }
-    const update = await readBodyWithoutCredentials(req, res);
-    if (update === undefined) return;
+    const update = body.value;
     if (!isRecord(update)) {
       sendJson(res, 400, { error: 'bad_request' });
       return;
@@ -176,13 +175,28 @@ function allowedScopes(method: string, path: string): ReadonlySet<RouteScope> | 
 async function readBodyWithoutCredentials(
   req: IncomingMessage,
   res: ServerResponse,
-): Promise<unknown | undefined> {
+): Promise<
+  | { readonly kind: 'rejected'; readonly value: undefined }
+  | { readonly kind: 'ok'; readonly value: unknown }
+> {
+  if (!requestHasBody(req)) {
+    return { kind: 'ok', value: undefined };
+  }
   const body = await readJson(req);
   if (hasCredentialField(body)) {
     sendJson(res, 401, { error: 'unauthorized' });
-    return undefined;
+    return { kind: 'rejected', value: undefined };
   }
-  return body;
+  return { kind: 'ok', value: body };
+}
+
+function requestHasBody(req: IncomingMessage): boolean {
+  const contentLengthHeader = req.headers['content-length'];
+  const contentLength = Array.isArray(contentLengthHeader)
+    ? contentLengthHeader[0]
+    : contentLengthHeader;
+  if (contentLength !== undefined) return contentLength !== '0';
+  return req.headers['transfer-encoding'] !== undefined;
 }
 
 function concierge(): ReadonlySet<RouteScope> {

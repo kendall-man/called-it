@@ -1,0 +1,24 @@
+COMMAND: perl -e 'alarm shift; exec @ARGV' 180 npx -y pnpm@10.33.0 --dir apps/engine exec vitest run src/api/server-auth.test.ts src/api/server-auth-boundary.test.ts
+
+
+ RUN  v3.2.6 /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/engine
+
+ ✓ src/api/server-auth-boundary.test.ts (5 tests) 12ms
+ ✓ src/api/server-auth.test.ts (22 tests) 54ms
+
+ Test Files  2 passed (2)
+      Tests  27 passed (27)
+   Start at  00:47:06
+   Duration  455ms (transform 197ms, setup 0ms, collect 468ms, tests 66ms, environment 0ms, prepare 65ms)
+
+
+EXIT_STATUS: 0
+
+COMMAND: perl -e 'alarm shift; exec @ARGV' 180 npx -y pnpm@10.33.0 --dir apps/engine run typecheck
+
+
+> @calledit/engine@0.1.0 typecheck /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/engine
+> tsc -p tsconfig.json --noEmit
+
+
+EXIT_STATUS: 0

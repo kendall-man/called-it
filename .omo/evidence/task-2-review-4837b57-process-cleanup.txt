@@ -1,0 +1,2 @@
+launcher_process_matches=absent
+RESULT: live launcher is closed after verification

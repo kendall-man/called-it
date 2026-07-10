@@ -1,0 +1,23 @@
+COMMAND: perl -e 'alarm shift; exec @ARGV' 180 npx -y pnpm@10.33.0 --dir apps/concierge exec vitest run agent/lib/engine-api.test.ts
+
+
+ RUN  v2.1.9 /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/concierge
+
+ ✓ agent/lib/engine-api.test.ts (3 tests) 52ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  00:47:06
+   Duration  267ms (transform 35ms, setup 0ms, collect 23ms, tests 52ms, environment 0ms, prepare 41ms)
+
+
+EXIT_STATUS: 0
+
+COMMAND: perl -e 'alarm shift; exec @ARGV' 180 npx -y pnpm@10.33.0 --dir apps/concierge run typecheck
+
+
+> callie@0.1.0 typecheck /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding/apps/concierge
+> tsc -p tsconfig.json --noEmit
+
+
+EXIT_STATUS: 0

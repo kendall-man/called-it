@@ -1,0 +1,3 @@
+{"level":"info","event":"engine_api_up","port":0}
+{"level":"info","event":"price","fixtureId":42,"claimType":"match_winner","probability":0.5,"multiplier":2,"provenance":"market"}
+{"level":"error","event":"engine_api_unhandled","requestId":"0197533c-35c7-4687-9d89-9b551d65258e","reason":"internal_exception"}
