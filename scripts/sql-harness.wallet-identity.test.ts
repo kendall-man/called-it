@@ -48,7 +48,7 @@ test('wallet identity migrations apply fresh and as 0001-0004 upgrade', async ()
     const fifth = migrations.find((migration) => migration.name === '0005_wallet_identity.sql');
     assert.ok(fifth);
     await client.query(fifth.sql);
-    await validateCalledItSchema(client);
+    await validateCalledItSchema(client, { telegram: false });
   });
   record('upgraded 0001-0004 plus 0005 applied and cleaned');
 });

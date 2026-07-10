@@ -20,6 +20,11 @@
     "scripts/sql-harness.ts",
     "scripts/sql-harness.test.ts",
     "scripts/sql-harness.integration.test.ts",
+    "scripts/sql-harness.telegram-ingress.test.ts",
+    "scripts/sql-harness.telegram-ingress-recovery.test.ts",
+    "scripts/check-telegram-evidence.ts",
+    "scripts/check-telegram-evidence.test.ts",
+    "scripts/task-9/**/*.ts",
     "scripts/sql-harness/**/*.ts"
   ]
 }

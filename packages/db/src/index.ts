@@ -84,3 +84,26 @@ export type {
   VerifiedWalletLinkInput,
   VerifiedWalletLinkResult,
 } from './wager-types.js';
+export {
+  createTelegramDb,
+  telegramDbFromClient,
+  type TelegramDb,
+  type TelegramDbClient,
+} from './telegram-db.js';
+export type {
+  TelegramActionResult,
+  TelegramDbCode,
+  TelegramDeliverySnapshot,
+  TelegramLeaseOwnershipItem,
+  TelegramLeaseUpdateItem,
+  TelegramOutboundState,
+  TelegramPersistResult,
+  TelegramPlanOutboundResult,
+  TelegramPruneDeliveryResult,
+  TelegramResolveOwnedMessageResult,
+  TelegramRoutingDecision,
+  TelegramStartOutboundResult,
+  TelegramUpdateState,
+  TelegramWorkerHeartbeatSnapshot,
+  TelegramWorkerKind,
+} from './telegram-types.js';

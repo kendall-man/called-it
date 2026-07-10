@@ -46,7 +46,9 @@ export async function withMigratedDb(
         }),
         validateSchema: async (db) => withDisposable(connectionString, db, async (client) => {
           await run(client, connectionStringForDatabase(connectionString, db));
-          await validateCalledItSchema(client);
+          await validateCalledItSchema(client, {
+            telegram: migrations.some((migration) => migration.name === '0006_telegram_ingress.sql'),
+          });
         }),
       });
     });

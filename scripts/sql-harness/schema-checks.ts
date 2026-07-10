@@ -1,6 +1,11 @@
 import type { Client } from 'pg';
+import {
+  TELEGRAM_FUNCTION_NAMES,
+  TELEGRAM_FUNCTIONS,
+  TELEGRAM_TABLES,
+} from './telegram-ingress-contract.js';
 
-const EXPECTED_TABLES = [
+const BASE_TABLES = [
   'groups',
   'users',
   'memberships',
@@ -32,7 +37,7 @@ const EXPECTED_VIEWS = [
   'public_evidence',
 ] as const;
 
-const PRIVATE_TABLES = [
+const BASE_PRIVATE_TABLES = [
   'wager_groups',
   'wager_wallet_links',
   'wager_ledger_entries',
@@ -48,7 +53,7 @@ const PRIVATE_TABLES = [
   'wager_pending_stake_intents',
 ] as const;
 
-const EXPECTED_FUNCTIONS = [
+const BASE_FUNCTIONS = [
   'wager_request_withdrawal(bigint,bigint)',
   'wager_stake(bigint,bigint,uuid,text,bigint,double precision,text,bigint,text,boolean)',
   'wager_decode_sha256_hex(text)',
@@ -87,17 +92,53 @@ type PublicationMemberRow = {
   readonly tablename: string;
 };
 
-export async function validateCalledItSchema(client: Client): Promise<void> {
+export interface SchemaCheckOptions {
+  readonly telegram?: boolean;
+}
+
+export async function validateCalledItSchema(
+  client: Client,
+  options: SchemaCheckOptions = {},
+): Promise<void> {
+  const telegram = options.telegram ?? true;
+  const expectedTables = telegram ? [...BASE_TABLES, ...TELEGRAM_TABLES] : BASE_TABLES;
+  const privateTables = telegram ? [...BASE_PRIVATE_TABLES, ...TELEGRAM_TABLES] : BASE_PRIVATE_TABLES;
+  const expectedFunctions = telegram ? [...BASE_FUNCTIONS, ...TELEGRAM_FUNCTIONS] : BASE_FUNCTIONS;
+  const functionNames = telegram
+    ? [
+        'wager_stake',
+        'wager_request_withdrawal',
+        'wager_decode_sha256_hex',
+        'wager_verify_wallet_link',
+        'wager_create_pending_stake_intent',
+        'wager_resolve_active_stake_intent',
+        'wager_mark_stake_intent_funded',
+        'wager_consume_ready_stake_intent',
+        'wager_cancel_stake_intent',
+        ...TELEGRAM_FUNCTION_NAMES,
+      ]
+    : [
+        'wager_stake',
+        'wager_request_withdrawal',
+        'wager_decode_sha256_hex',
+        'wager_verify_wallet_link',
+        'wager_create_pending_stake_intent',
+        'wager_resolve_active_stake_intent',
+        'wager_mark_stake_intent_funded',
+        'wager_consume_ready_stake_intent',
+        'wager_cancel_stake_intent',
+      ];
   const relationRows = await loadRelations(client);
-  assertRelations(relationRows, EXPECTED_TABLES, 'r');
+  assertRelations(relationRows, expectedTables, 'r');
   assertRelations(relationRows, EXPECTED_VIEWS, 'v');
-  assertPrivateTableRls(relationRows);
+  assertPrivateTableRls(relationRows, privateTables);
+  await assertNoPrivateTablePolicies(client, privateTables);
   await assertRealtimePublication(client);
-  await assertFunctionPrivileges(client);
+  await assertFunctionPrivileges(client, expectedFunctions, functionNames);
 }
 
 async function loadRelations(client: Client): Promise<readonly RelationRow[]> {
-  const names = [...EXPECTED_TABLES, ...EXPECTED_VIEWS];
+  const names = [...BASE_TABLES, ...TELEGRAM_TABLES, ...EXPECTED_VIEWS];
   const result = await client.query<RelationRow>(
     `select c.relname, c.relkind, c.relrowsecurity
      from pg_class c
@@ -120,11 +161,23 @@ function assertRelations(
   }
 }
 
-function assertPrivateTableRls(rows: readonly RelationRow[]): void {
+function assertPrivateTableRls(rows: readonly RelationRow[], privateTables: readonly string[]): void {
   const byName = new Map(rows.map((row) => [row.relname, row]));
-  const missingRls = PRIVATE_TABLES.filter((name) => byName.get(name)?.relrowsecurity !== true);
+  const missingRls = privateTables.filter((name) => byName.get(name)?.relrowsecurity !== true);
   if (missingRls.length > 0) {
     throw new Error(`private tables without RLS: ${missingRls.join(', ')}`);
+  }
+}
+
+async function assertNoPrivateTablePolicies(client: Client, privateTables: readonly string[]): Promise<void> {
+  const result = await client.query<{ readonly tablename: string }>(
+    `select tablename
+     from pg_policies
+     where schemaname = 'public' and tablename = any($1::text[])`,
+    [privateTables],
+  );
+  if (result.rows.length > 0) {
+    throw new Error(`private tables with unexpected RLS policies: ${result.rows.map((row) => row.tablename).join(', ')}`);
   }
 }
 
@@ -151,7 +204,11 @@ async function assertRealtimePublication(client: Client): Promise<void> {
   throw new Error(`realtime publication membership mismatch: ${differences.join('; ')}`);
 }
 
-async function assertFunctionPrivileges(client: Client): Promise<void> {
+async function assertFunctionPrivileges(
+  client: Client,
+  expectedFunctions: readonly string[],
+  functionNames: readonly string[],
+): Promise<void> {
   const result = await client.query<FunctionRow>(
     `select
        p.oid::regprocedure::text as signature,
@@ -164,20 +221,10 @@ async function assertFunctionPrivileges(client: Client): Promise<void> {
      from pg_proc p
      join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = any($1::text[])`,
-    [[
-      'wager_stake',
-      'wager_request_withdrawal',
-      'wager_decode_sha256_hex',
-      'wager_verify_wallet_link',
-      'wager_create_pending_stake_intent',
-      'wager_resolve_active_stake_intent',
-      'wager_mark_stake_intent_funded',
-      'wager_consume_ready_stake_intent',
-      'wager_cancel_stake_intent',
-    ]],
+    [functionNames],
   );
   const bySignature = new Map(result.rows.map((row) => [row.signature, row]));
-  for (const signature of EXPECTED_FUNCTIONS) {
+  for (const signature of expectedFunctions) {
     const row = bySignature.get(signature);
     if (row === undefined) {
       throw new Error(`missing function: ${signature}`);
