@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "scripts/check-workflow.ts",
+    "scripts/run-concierge-build.ts",
+    "scripts/run-browser-tests.ts",
+    "scripts/sql-harness.ts",
+    "scripts/sql-harness.test.ts",
+    "scripts/sql-harness/**/*.ts"
+  ]
+}

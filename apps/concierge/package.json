@@ -12,7 +12,7 @@
     "eve:build": "eve build",
     "eve:start": "eve start",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.9",

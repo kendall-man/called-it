@@ -1,0 +1,114 @@
+Task 5 evidence: CI and build parity before feature work
+Date: 2026-07-10
+Worktree: /Users/sublime/Seb/tg-bot-idea/.claude/worktrees/direct-onboarding
+Branch: codex/direct-onboarding
+
+Owned changes
+- Added .github/workflows/ci.yml with Node 24.11.1, pnpm 10.33.0 frozen install, PostgreSQL 17.5 service, forced root verify, exact action tags, pnpm-store cache only, and failure artifact upload.
+- Added root scripts: verify, build:concierge, test:sql, test:workflow, test:e2e, typecheck:scripts.
+- Removed callie --passWithNoTests and added focused concierge Vitest coverage for engine auth, Telegram ingress forwarding, and instruction loading.
+- Added real PostgreSQL migration/schema harness under scripts/sql-harness* using node-postgres against a disposable database.
+
+Happy path evidence
+1. Frozen install
+   Invocation: npx -y pnpm@10.33.0 install --frozen-lockfile
+   Exit code: 0
+   Observable: "Lockfile is up to date" and "Done ... using pnpm v10.33.0".
+
+2. Focused concierge tests and typecheck
+   Invocation: npx -y pnpm@10.33.0 --filter callie exec vitest run agent/lib/engine-api.test.ts agent/instructions.test.ts
+   Exit code: 0
+   Observable: 2 test files passed, 3 tests passed.
+   Invocation: npx -y pnpm@10.33.0 --filter callie typecheck
+   Exit code: 0
+   Observable: tsc -p tsconfig.json --noEmit completed.
+   Invocation: npx -y pnpm@10.33.0 --filter callie test
+   Exit code: 0
+   Observable: 8 test files passed, 41 tests passed.
+
+3. Workflow/YAML gate
+   Invocation: npx -y pnpm@10.33.0 run test:workflow
+   Exit code: 0
+   Observable: ".github/workflows/ci.yml parsed with 7 steps and no floating actions".
+
+4. Browser entry does not falsely pass an empty suite
+   Invocation: npx -y pnpm@10.33.0 run test:e2e
+   Exit code: 1
+   Observable: "No browser tests found under tests/e2e; refusing to pass an empty suite".
+
+5. Real SQL harness manual QA
+   PostgreSQL binary: /opt/homebrew/opt/postgresql@17/bin/postgres
+   PostgreSQL version: PostgreSQL 17.10 (Homebrew) on aarch64-apple-darwin25.4.0
+   Setup: initdb temp data dir, random TCP port, local trust auth, pg_ctl start, trap cleanup.
+   Invocation: DATABASE_URL=postgresql://postgres@127.0.0.1:<random>/postgres npx -y pnpm@10.33.0 run test:sql
+   Exit code: 0
+   Observable: SQL harness applied 3 migrations to calledit_ci_ab6366e3_5b71_43cc_8635_d38c3eb724fd and cleaned it up.
+   Cleanup observable: select count(*) from pg_database where datname like 'calledit_ci_%' returned 0; trap printed "cleanup: removed temporary postgres data and logs".
+
+6. Full root verify
+   Setup: fresh temp PostgreSQL 17.10 cluster on random port 57168.
+   Invocation: DATABASE_URL=postgresql://postgres@127.0.0.1:57168/postgres npx -y pnpm@10.33.0 verify
+   Exit code: 0
+   Turbo observable: 23 successful tasks, 23 total, 0 cached, forced cache bypass shown for task execution, 16.413s.
+   Package test observables:
+   - callie: 8 test files, 41 tests passed.
+   - @calledit/market-engine: 4 test files, 195 tests passed.
+   - @calledit/solana: 6 test files, 110 tests passed.
+   - @calledit/agent: 5 test files, 178 passed, 80 skipped.
+   - @calledit/txline: 8 test files, 201 tests passed.
+   - @calledit/db: 1 test file, 34 tests passed.
+   - @calledit/web: 6 test files, 50 tests passed.
+   - @calledit/engine: 29 test files, 265 tests passed.
+   Build observables: seven normal build tasks ran in Turbo; Next production build compiled and generated 4 static pages.
+   Eve observable: pnpm run build:concierge exited 0; eve build produced apps/concierge/.output and reported total server size 6.1 MB.
+   Product copy observable: Product copy contract PASS across 44 files.
+   Workflow observable: CI YAML parsed with 7 steps and no floating actions.
+   SQL observable: SQL harness applied 3 migrations to calledit_ci_fa7a1bfd_e0f7_4c9c_8b43_82108ec1efd6 and cleaned it up.
+   Cleanup observable: leftover calledit_ci database count returned 0; trap printed "cleanup: removed temporary postgres data and logs".
+
+Failure path evidence
+1. Missing database URL fails SQL harness
+   Invocation: DATABASE_URL= npx -y pnpm@10.33.0 run test:sql
+   Exit code: 1
+   Observable: "DATABASE_URL or POSTGRES_URL is required for real PostgreSQL SQL tests".
+
+2. Bad database connection fails
+   Invocation: DATABASE_URL=postgresql://postgres@127.0.0.1:1/postgres npx -y pnpm@10.33.0 run test:sql
+   Exit code: 1
+   Observable: "connect ECONNREFUSED 127.0.0.1:1".
+
+3. Invalid concierge TypeScript fixture fails local verify and the equivalent concierge CI stage
+   Setup: disposable copy /tmp/calledit-invalid-concierge.* with apps/concierge/agent/type-invalid.fixture.ts containing a string assigned to number.
+   Invocation: npx -y pnpm@10.33.0 verify
+   Exit code: 2
+   Observable: callie:typecheck reported TS2322 at agent/type-invalid.fixture.ts; Turbo failed callie#typecheck.
+   Invocation: npx -y pnpm@10.33.0 --filter callie typecheck
+   Exit code: 2
+   Observable: TS2322 at agent/type-invalid.fixture.ts.
+   Cleanup observable: "cleanup: removed invalid concierge fixture copy".
+
+4. Malformed migration fails and cleanup runs
+   Setup: disposable copy /tmp/calledit-bad-sql.* with packages/db/migrations/9999_bad.sql calling definitely_not_a_real_function().
+   PostgreSQL version: PostgreSQL 17.10 (Homebrew) on aarch64-apple-darwin25.4.0.
+   Invocation: DATABASE_URL=postgresql://postgres@127.0.0.1:55479/postgres npx -y pnpm@10.33.0 run test:sql
+   Exit code: 1
+   Observable: "function definitely_not_a_real_function() does not exist".
+   Cleanup observable: leftover calledit_ci database count returned 0; "cleanup: removed malformed migration copy and postgres data".
+
+Code-quality audit
+- New/touched Todo 5 TypeScript pure LOC:
+  apps/concierge/agent/lib/engine-api.test.ts 72
+  apps/concierge/agent/instructions.test.ts 31
+  scripts/sql-harness.test.ts 57
+  scripts/sql-harness.ts 59
+  scripts/sql-harness/runner.ts 55
+  scripts/sql-harness/postgres.ts 50
+  scripts/sql-harness/schema-checks.ts 126
+  scripts/check-workflow.ts 40
+  scripts/run-concierge-build.ts 31
+  scripts/run-browser-tests.ts 35
+- Owned scope scan for @ts-ignore, @ts-expect-error, as any, : any, continue-on-error, passWithNoTests, and empty catch returned no matches.
+- YAML/JSON parse cleanly: CI YAML parsed; package JSON and lockfile were consumed by frozen install.
+
+Shared worktree note
+- Concurrent Task 4 files are present in the worktree and were not staged or modified by this task.
