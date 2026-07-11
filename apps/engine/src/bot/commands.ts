@@ -5,6 +5,7 @@
 
 import type { Bot } from 'grammy';
 import { InlineKeyboard } from 'grammy';
+import type { User } from 'grammy/types';
 import type { EngineDb } from '../ports.js';
 import type { Env } from '../env.js';
 import type { Poster } from './poster.js';
@@ -19,6 +20,14 @@ import {
   planGroupReadiness,
 } from './onboarding.js';
 import { isBetaGroupAllowed } from './beta-access.js';
+import {
+  leaderboardText,
+  personalStatsText,
+  TELEGRAM_MESSAGE_LIMIT,
+} from '../points/presentation.js';
+
+const GROUP_LEADERBOARD_LIMIT = 10;
+const GROUP_RANK_LIMIT = 100;
 
 function isGroup(chatType: string): boolean {
   return chatType === 'group' || chatType === 'supergroup';
@@ -34,6 +43,7 @@ export function bookitConsent(
 export interface NavigationCommandContext {
   readonly chat: { readonly id: number; readonly type: string; readonly title?: string };
   readonly me: { readonly username: string };
+  readonly from?: User | undefined;
 }
 
 export interface NavigationCommandBot {
@@ -42,11 +52,19 @@ export interface NavigationCommandBot {
 
 export interface NavigationHandlerCtx {
   readonly deps: {
-    readonly db: Pick<EngineDb, 'upsertGroup' | 'markGroupReady'>;
+    readonly db: Pick<
+      EngineDb,
+      'upsertGroup' | 'markGroupReady' | 'leaderboard' | 'groupPlayerStats'
+    >;
     readonly env: Pick<Env, 'WEB_BASE_URL' | 'DEPLOYMENT_ENV' | 'BETA_ALLOWED_GROUP_IDS'>;
   };
   readonly poster: Pick<Poster, 'post'>;
   readonly say: Say;
+  readonly refreshMember: (input: {
+    readonly chatId: number;
+    readonly chatTitle: string;
+    readonly user: User;
+  }) => Promise<void>;
 }
 
 function installKeyboard(botUsername: string): InlineKeyboard {
@@ -55,6 +73,50 @@ function installKeyboard(botUsername: string): InlineKeyboard {
 
 function boardKeyboard(boardUrl: string): InlineKeyboard {
   return new InlineKeyboard().url('Open group board', boardUrl);
+}
+
+async function acceptsGroupCommand(
+  ctx: NavigationCommandContext,
+  h: NavigationHandlerCtx,
+): Promise<boolean> {
+  if (!isGroup(ctx.chat.type)) {
+    h.poster.post(ctx.chat.id, await h.say('group_only_recovery'));
+    return false;
+  }
+  return isBetaGroupAllowed(h.deps.env, ctx.chat.id);
+}
+
+async function topTenText(h: NavigationHandlerCtx, groupId: number): Promise<string> {
+  const entries = await h.deps.db.leaderboard(groupId, GROUP_LEADERBOARD_LIMIT);
+  return leaderboardText(
+    {
+      entries: entries.map((entry) => ({
+        username: entry.username,
+        displayName: entry.display_name,
+        points: entry.points,
+        wins: entry.wins,
+        losses: entry.losses,
+      })),
+      limit: GROUP_LEADERBOARD_LIMIT,
+    },
+    TELEGRAM_MESSAGE_LIMIT,
+  );
+}
+
+function isValidSender(user: User | undefined): user is User {
+  return user !== undefined && !user.is_bot && Number.isSafeInteger(user.id) && user.id > 0;
+}
+
+async function runPointsCommand(
+  ctx: NavigationCommandContext,
+  h: NavigationHandlerCtx,
+  action: () => Promise<void>,
+): Promise<void> {
+  try {
+    await action();
+  } catch {
+    h.poster.post(ctx.chat.id, await h.say('points_unavailable'));
+  }
 }
 
 export function registerNavigationCommands(bot: NavigationCommandBot, h: NavigationHandlerCtx): void {
@@ -81,19 +143,68 @@ export function registerNavigationCommands(bot: NavigationCommandBot, h: Navigat
   });
 
   bot.command('table', async (ctx) => {
-    if (!isGroup(ctx.chat.type)) {
-      h.poster.post(ctx.chat.id, await h.say('group_only_recovery'));
-      return;
-    }
-    if (!isBetaGroupAllowed(h.deps.env, ctx.chat.id)) return;
-    const group = await h.deps.db.upsertGroup({ id: ctx.chat.id, title: ctx.chat.title ?? '' });
-    const boardUrl = groupBoardUrl(h.deps.env.WEB_BASE_URL, group.slug);
-    h.poster.post(ctx.chat.id, await h.say('table_link'), { keyboard: boardKeyboard(boardUrl) });
+    if (!(await acceptsGroupCommand(ctx, h))) return;
+    await runPointsCommand(ctx, h, async () => {
+      const group = await h.deps.db.upsertGroup({ id: ctx.chat.id, title: ctx.chat.title ?? '' });
+      const boardUrl = groupBoardUrl(h.deps.env.WEB_BASE_URL, group.slug);
+      h.poster.post(ctx.chat.id, await topTenText(h, ctx.chat.id), {
+        keyboard: boardKeyboard(boardUrl),
+      });
+    });
+  });
+
+  bot.command('leaderboard', async (ctx) => {
+    if (!(await acceptsGroupCommand(ctx, h))) return;
+    await runPointsCommand(ctx, h, async () => {
+      await h.deps.db.upsertGroup({ id: ctx.chat.id, title: ctx.chat.title ?? '' });
+      h.poster.post(ctx.chat.id, await topTenText(h, ctx.chat.id));
+    });
+  });
+
+  bot.command('mystats', async (ctx) => {
+    if (!(await acceptsGroupCommand(ctx, h))) return;
+    const sender = ctx.from;
+    if (!isValidSender(sender)) return;
+    await runPointsCommand(ctx, h, async () => {
+      await h.refreshMember({
+        chatId: ctx.chat.id,
+        chatTitle: ctx.chat.title ?? '',
+        user: sender,
+      });
+      const stats = await h.deps.db.groupPlayerStats(ctx.chat.id, sender.id);
+      const board = await h.deps.db.leaderboard(ctx.chat.id, GROUP_RANK_LIMIT);
+      const rankIndex = board.findIndex((entry) => entry.user_id === sender.id);
+      h.poster.post(
+        ctx.chat.id,
+        personalStatsText(
+          {
+            rank: rankIndex !== -1
+              ? rankIndex + 1
+              : stats.wins > 0 || stats.losses > 0
+                ? 'outside_top_100'
+                : null,
+            points: stats.points,
+            wins: stats.wins,
+            losses: stats.losses,
+            currentStreak: stats.current_streak,
+            bestStreak: stats.best_streak,
+          },
+          TELEGRAM_MESSAGE_LIMIT,
+        ),
+      );
+    });
   });
 }
 
 export function registerCommands(bot: Bot, h: HandlerCtx): void {
-  registerNavigationCommands(bot, h);
+  registerNavigationCommands(bot, {
+    deps: h.deps,
+    poster: h.poster,
+    say: h.say,
+    refreshMember: async ({ chatId, chatTitle, user }) => {
+      await ensureChatContext(h, chatId, chatTitle, user);
+    },
+  });
 
   bot.command('settings', async (ctx) => {
     if (!isGroup(ctx.chat.type) || !ctx.from) return;

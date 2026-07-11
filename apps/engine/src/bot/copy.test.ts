@@ -109,6 +109,18 @@ describe('fallback copy bank', () => {
     }
   });
 
+  it('lists every active group command in the real help copy', () => {
+    expect(renderFallback('help')).toContain(
+      'Commands: /bookit · /leaderboard · /mystats · /table · /help',
+    );
+  });
+
+  it('keeps points dependency failures fixed and redacted', () => {
+    expect(renderFallback('points_unavailable', { message: 'database secret' })).toBe(
+      'Points are temporarily unavailable. Try again shortly.',
+    );
+  });
+
   it('keeps privacy-critical guidance deterministic instead of using persona output', async () => {
     // Given a persona adapter that would return stale product language
     let personaCalls = 0;
@@ -134,7 +146,12 @@ describe('fallback copy bank', () => {
       },
     };
     const say = createSay(agent, log);
-    const keys = ['intro', 'help', 'group_ready'] as const satisfies readonly TemplateKey[];
+    const keys = [
+      'intro',
+      'help',
+      'group_ready',
+      'points_unavailable',
+    ] as const satisfies readonly TemplateKey[];
 
     // When the contract-sensitive keys are rendered through the public copy API
     const lines = await Promise.all(keys.map((key) => say(key, SAMPLE_VARS)));

@@ -63,7 +63,7 @@ async function expireClaims(deps: Deps): Promise<void> {
 const SWEEPER_RETRY_GUARD_MS = 5 * 60_000;
 
 /** Re-posts receipts for settled-but-unposted markets (crash between settle and send). */
-async function sweepUnpostedSettlements(
+export async function sweepUnpostedSettlements(
   deps: Deps,
   settler: Settler,
   inFlight: Map<string, number>,

@@ -56,6 +56,7 @@ export type TemplateKey =
   | 'group_ready'
   | 'private_start'
   | 'group_only_recovery'
+  | 'points_unavailable'
   | 'table_link'
   | 'detection_enabled'
   | 'detection_disabled';
@@ -78,7 +79,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
       '• I settle every result from the official feed and post a proof receipt.',
       '',
       'Private account: /me · Group board: /table',
-      'Commands: /bookit (your own claim) · /settings (admins) · /table · /help',
+      'Commands: /bookit · /leaderboard · /mystats · /table · /help',
       'Test SOL is a devnet token with no monetary value.',
     ].join('\n'),
   dm_start: (vars) =>
@@ -157,6 +158,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     `Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Each offer has two fixed 0.01 test-SOL choices: "It happens" or "It does not." Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test SOL is devnet-only with no monetary value. Board: ${value(vars, 'webUrl', 'the group board')}`,
   private_start: () => 'Called It lives in group chats. Add it to a group to make a football call.',
   group_only_recovery: () => 'Open this command in the group where you want to use Called It.',
+  points_unavailable: () => 'Points are temporarily unavailable. Try again shortly.',
   table_link: () => 'Open the group board.',
   detection_enabled: () =>
     "Always-on detection is live — big shouts get priced automatically. I'll keep the rest of the chat out of it.",

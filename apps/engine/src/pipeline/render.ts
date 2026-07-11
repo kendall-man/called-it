@@ -4,8 +4,12 @@
  */
 
 import type { Deps, MarketRow, PositionRow } from '../ports.js';
+import type { PositionParticipant } from '../ports/rows.js';
 import { claimCardText, type SideTally } from '../bot/cards.js';
+import type { ParticipantIdentity } from '../points/presentation.js';
 import { computePots } from '../wager/pot.js';
+
+const PARTICIPANTS_PER_SIDE_LIMIT = 5;
 
 /** Card tallies over non-void positions (a fresh in-play tap shows at once). */
 export function tally(positions: PositionRow[]): { back: SideTally; doubt: SideTally } {
@@ -34,15 +38,44 @@ export interface ComposedCard {
   text: string;
 }
 
+function participantKey(value: PositionParticipant): string {
+  return `${value.user_id}:${value.side}`;
+}
+
+function participantSides(
+  participants: readonly PositionParticipant[],
+  market: Pick<MarketRow, 'id' | 'group_id'>,
+): { back: readonly ParticipantIdentity[]; doubt: readonly ParticipantIdentity[] } {
+  const back: ParticipantIdentity[] = [];
+  const doubt: ParticipantIdentity[] = [];
+  const seen = new Set<string>();
+  for (const participant of participants) {
+    if (participant.market_id !== market.id || participant.group_id !== market.group_id) continue;
+    const key = participantKey(participant);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const side = participant.side === 'back' ? back : doubt;
+    if (side.length < PARTICIPANTS_PER_SIDE_LIMIT) {
+      side.push({
+        username: participant.username,
+        displayName: participant.display_name,
+      });
+    }
+  }
+  return { back, doubt };
+}
+
 export async function composeClaimCard(deps: Deps, market: MarketRow): Promise<ComposedCard | null> {
-  const [claim, positions, group] = await Promise.all([
+  const [claim, positions, group, participants] = await Promise.all([
     deps.db.getClaim(market.claim_id),
     deps.db.positionsForMarket(market.id),
     deps.db.getGroup(market.group_id),
+    deps.db.positionParticipantsForMarket(market.id),
   ]);
   if (!claim || !group) return null;
-  const claimer = await deps.db.getUser(claim.claimer_user_id);
   const nonVoid = positions.filter((p) => p.state !== 'void');
+  const claimer = await deps.db.getUser(claim.claimer_user_id);
+  const identities = participantSides(participants, market);
   const { back, doubt } = tally(nonVoid);
   const pots = computePots(nonVoid, market.quote_probability);
   const footer = deps.wager?.cardFooter();
@@ -55,6 +88,8 @@ export async function composeClaimCard(deps: Deps, market: MarketRow): Promise<C
     provenance: market.price_provenance,
     back,
     doubt,
+    backParticipants: identities.back,
+    doubtParticipants: identities.doubt,
     matchedPct: pots.matchedPct,
     isReplay: market.is_replay,
     receiptUrl: receiptUrl(deps, market.id),

@@ -40,6 +40,8 @@ export const PRIVATE_BOT_COMMANDS = [
 
 export const GROUP_BOT_COMMANDS = [
   { command: 'bookit', description: 'Book an explicit call' },
+  { command: 'leaderboard', description: 'View the group top 10' },
+  { command: 'mystats', description: 'View your group stats' },
   { command: 'table', description: 'Open the group board' },
   { command: 'help', description: 'How Called It works' },
 ] as const;

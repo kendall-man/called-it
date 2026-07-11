@@ -5,8 +5,24 @@
  */
 
 import type { MarketSpec, MarketStatus, SettlementOutcome } from '@calledit/market-engine';
+import {
+  normalizeInlineText,
+  telegramMessageBody,
+} from './message-budget.js';
+import {
+  leaderboardText,
+  settlementPointsText,
+  sideListText,
+  TELEGRAM_MESSAGE_LIMIT,
+  type LeaderboardPlayer,
+  type ParticipantIdentity,
+} from '../points/presentation.js';
 import { formatSolAmount } from '../wager/format.js';
 import { fullMatchMultiplier } from '../wager/pot.js';
+
+const QUOTED_TEXT_LIMIT = 512;
+const PERSON_NAME_LIMIT = 64;
+const ENTITY_NAME_LIMIT = 96;
 
 /** ×9 for big numbers, one decimal below 10 (×2.5), never odds notation. */
 export function formatMultiplier(multiplier: number): string {
@@ -39,7 +55,7 @@ function thresholdPhrase(comparator: MarketSpec['comparator'], threshold: number
 
 /** Plain-English terms derived from the compiled spec — the receipt's promise. */
 export function describeTerms(spec: MarketSpec): string {
-  const entity = spec.entityRef.name;
+  const entity = normalizeInlineText(spec.entityRef.name, ENTITY_NAME_LIMIT, 'the selection');
   switch (spec.claimType) {
     case 'match_winner':
       return `${entity} to win (${periodPhrase(spec)})`;
@@ -101,6 +117,8 @@ export interface ClaimCardInput {
   provenance: 'market' | 'modelled';
   back: SideTally;
   doubt: SideTally;
+  readonly backParticipants?: readonly ParticipantIdentity[];
+  readonly doubtParticipants?: readonly ParticipantIdentity[];
   /** 0..100 — matched fraction of the total staked pot. */
   matchedPct: number;
   isReplay: boolean;
@@ -112,9 +130,13 @@ export interface ClaimCardInput {
 export function claimCardText(input: ClaimCardInput): string {
   const backMult = formatMultiplier(fullMatchMultiplier(input.probability, 'back'));
   const againstMult = formatMultiplier(fullMatchMultiplier(input.probability, 'doubt'));
+  const showsParticipants =
+    input.backParticipants !== undefined || input.doubtParticipants !== undefined;
+  const quote = normalizeInlineText(input.quotedText, QUOTED_TEXT_LIMIT, 'Call unavailable');
+  const claimer = normalizeInlineText(input.claimerName, PERSON_NAME_LIMIT, 'the claimer');
   const lines = [
     `🎙 THE CALL${input.isReplay ? ' · REPLAY' : ''}`,
-    `“${input.quotedText}” — ${input.claimerName}`,
+    `“${quote}” — ${claimer}`,
     '',
     `📋 ${describeTerms(input.spec)}`,
     `📈 Feed says ${formatProbabilityPct(input.probability)}% — back pays ${backMult}, against ${againstMult} if matched (${provenanceChip(input.provenance)})`,
@@ -123,11 +145,18 @@ export function claimCardText(input: ClaimCardInput): string {
     `⚡ Backing it: ${formatSolAmount(input.back.stakeLamports)} (${input.back.count} in)`,
     `🛑 Against it: ${formatSolAmount(input.doubt.stakeLamports)} (${input.doubt.count} in)`,
     `🤝 Matched: ${input.matchedPct}%`,
+    ...(showsParticipants
+      ? [
+          `It happens: ${sideListText(input.backParticipants ?? [], TELEGRAM_MESSAGE_LIMIT, input.back.count)}`,
+          `It does not: ${sideListText(input.doubtParticipants ?? [], TELEGRAM_MESSAGE_LIMIT, input.doubt.count)}`,
+          'Choices and results are visible in this group.',
+        ]
+      : []),
     '',
     `Receipt: ${input.receiptUrl}`,
   ];
   if (input.footer !== undefined && input.footer.length > 0) lines.push('', input.footer);
-  return lines.join('\n');
+  return telegramMessageBody(lines.join('\n'));
 }
 
 export interface ReceiptCardInput {
@@ -140,12 +169,20 @@ export interface ReceiptCardInput {
   payoutsLine: string;
   isReplay: boolean;
   receiptUrl: string;
+  readonly points?: {
+    readonly winnerCount: number;
+    readonly missCount: number;
+    readonly winners: readonly ParticipantIdentity[];
+    readonly misses: readonly ParticipantIdentity[];
+    readonly leaderboard: readonly LeaderboardPlayer[];
+  };
 }
 
 export function outcomeLine(outcome: SettlementOutcome, claimerName: string): string {
+  const claimer = normalizeInlineText(claimerName, PERSON_NAME_LIMIT, 'the claimer');
   switch (outcome) {
     case 'claim_won':
-      return `CALLED IT — ${claimerName} was right.`;
+      return `CALLED IT — ${claimer} was right.`;
     case 'claim_lost':
       return `Not this time — the call goes down.`;
     case 'void':
@@ -156,15 +193,26 @@ export function outcomeLine(outcome: SettlementOutcome, claimerName: string): st
 export function receiptCardText(input: ReceiptCardInput): string {
   const backMult = formatMultiplier(fullMatchMultiplier(input.probability, 'back'));
   const againstMult = formatMultiplier(fullMatchMultiplier(input.probability, 'doubt'));
+  const quote = normalizeInlineText(input.quotedText, QUOTED_TEXT_LIMIT, 'Call unavailable');
+  const claimer = normalizeInlineText(input.claimerName, PERSON_NAME_LIMIT, 'the claimer');
   const lines = [
     `🧾 RECEIPT${input.isReplay ? ' · REPLAY' : ''}`,
-    `“${input.quotedText}” — ${input.claimerName}`,
+    `“${quote}” — ${claimer}`,
     '',
     `📋 ${describeTerms(input.spec)}`,
     `📈 Locked at the call: ${formatProbabilityPct(input.probability)}% — back ${backMult}, against ${againstMult} (${provenanceChip(input.provenance)})`,
     `🏁 ${outcomeLine(input.outcome, input.claimerName)}`,
   ];
   if (input.payoutsLine.length > 0) lines.push(`💠 ${input.payoutsLine}`);
-  lines.push(`🔏 ${trustTierLine(input.spec.trustTier)}`, '', `Receipt: ${input.receiptUrl}`);
-  return lines.join('\n');
+  lines.push(`🔏 ${trustTierLine(input.spec.trustTier)}`);
+  if (input.points !== undefined && input.outcome !== 'void') {
+    const settlement = settlementPointsText(input.points, TELEGRAM_MESSAGE_LIMIT);
+    if (settlement.length > 0) lines.push('', settlement);
+    lines.push(
+      '',
+      leaderboardText({ entries: input.points.leaderboard, limit: 5 }, TELEGRAM_MESSAGE_LIMIT),
+    );
+  }
+  lines.push('', `Receipt: ${input.receiptUrl}`);
+  return telegramMessageBody(lines.join('\n'));
 }

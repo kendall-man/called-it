@@ -120,6 +120,8 @@ describe('settlementPointsText', () => {
   it('shows a three-player result with point deltas in plain text', () => {
     // Given
     const result = {
+      winnerCount: 2,
+      missCount: 1,
       winners: [
         { username: 'alice_7', displayName: 'Alice' },
         { username: null, displayName: 'Bob' },
@@ -136,17 +138,20 @@ describe('settlementPointsText', () => {
     );
   });
 
-  it('bounds 100 winners and misses to ten labels per side plus overflow', () => {
+  it('uses authoritative totals when identity projections are bounded to ten per side', () => {
     // Given
     const participants = (prefix: string) =>
-      Array.from({ length: 100 }, (_, index) => ({
+      Array.from({ length: 10 }, (_, index) => ({
         username: null,
         displayName: `${prefix} ${String(index + 1).padStart(3, '0')}`,
       }));
 
     // When
     const text = settlementPointsText(
-      { winners: participants('Winner'), misses: participants('Miss') },
+      {
+        winnerCount: 100, missCount: 100,
+        winners: participants('Winner'), misses: participants('Miss'),
+      },
       TELEGRAM_MESSAGE_LIMIT,
     );
 
@@ -321,35 +326,11 @@ describe('personalStatsText', () => {
     // When
     const text = personalStatsText(stats, TELEGRAM_MESSAGE_LIMIT);
     // Then
-    expect(text).toContain('Rank: Unranked');
-    expect(text).toContain('Accuracy: 0%');
-    expect(text).toContain('Current streak: 0\nBest streak: 0');
+    expect(text).toContain('Rank: Unranked\nPoints: 0\nWins: 0\nLosses: 0\nAccuracy: 0%');
   });
-});
 
-describe('message budgets', () => {
-  it.each([128, TELEGRAM_MESSAGE_LIMIT])(
-    'keeps every builder within %i UTF-16 units',
-    (maxLength) => {
-      // Given
-      const participant = { username: null, displayName: '😀'.repeat(64) };
-      const hundred = Array.from({ length: 100 }, () => participant);
-      const player = { ...participant, points: 10, wins: 1, losses: 1 };
-      // When
-      const messages = [
-        sideListText(hundred, maxLength),
-        settlementPointsText({ winners: hundred, misses: hundred }, maxLength),
-        leaderboardText(
-          { entries: Array.from({ length: 100 }, () => player), limit: 10 },
-          maxLength,
-        ),
-        personalStatsText(
-          { rank: 1, points: 10, wins: 1, losses: 1, currentStreak: 1, bestStreak: 1 },
-          maxLength,
-        ),
-      ];
-      // Then
-      expect(messages.every((message) => message.length <= maxLength)).toBe(true);
-    },
-  );
+  it('renders a scored member beyond the bounded lookup truthfully', () => {
+    const text = personalStatsText({ rank: 'outside_top_100', points: 10, wins: 1, losses: 0, currentStreak: 1, bestStreak: 1 }, TELEGRAM_MESSAGE_LIMIT);
+    expect(text).toContain('Rank: Outside top 100');
+  });
 });

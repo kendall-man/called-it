@@ -21,6 +21,7 @@ import {
   retryQuoteKeyboard,
 } from '../bot/keyboards.js';
 import type { TemplateKey } from '../bot/copy.js';
+import { composeTelegramMessage } from '../bot/message-budget.js';
 import { composeClaimCard } from './render.js';
 import {
   checkMintWindow,
@@ -161,9 +162,12 @@ export async function mintOffer(
   if (!card) return { minted: true };
   const claimer = await h.deps.db.getUser(claim.claimer_user_id);
   const garnish = await h.say('offer_live', { claimer: claimer?.display_name ?? 'legend' });
-  const pendingNote =
-    market.status === 'pending_lineup' ? `\n${await h.say('pending_lineup_note')}` : '';
-  h.poster.post(claim.group_id, `${garnish}${pendingNote}\n\n${card.text}`, {
+  const pendingNote = market.status === 'pending_lineup' ? await h.say('pending_lineup_note') : '';
+  h.poster.post(claim.group_id, composeTelegramMessage({
+    body: card.text,
+    garnish,
+    note: pendingNote,
+  }), {
     replyToMessageId: claim.tg_message_id,
     keyboard: offerKeyboard(market),
     onSent: async (messageId) => {

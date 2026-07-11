@@ -78,7 +78,13 @@ describe('onboarding scopes and lifecycle', () => {
       { commands: GROUP_BOT_COMMANDS, scope: 'all_group_chats' },
     ]);
     expect(PRIVATE_BOT_COMMANDS.map((command) => command.command)).toEqual(['start', 'help']);
-    expect(GROUP_BOT_COMMANDS.map((command) => command.command)).toEqual(['bookit', 'table', 'help']);
+    expect(GROUP_BOT_COMMANDS.map((command) => command.command)).toEqual([
+      'bookit',
+      'leaderboard',
+      'mystats',
+      'table',
+      'help',
+    ]);
   });
 
   it('posts one ready message across group start and admin lifecycle updates', async () => {

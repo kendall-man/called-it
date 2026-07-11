@@ -1,9 +1,18 @@
+import {
+  TELEGRAM_MESSAGE_LIMIT,
+  truncateUtf16,
+} from '../bot/message-budget.js';
+
+export { TELEGRAM_MESSAGE_LIMIT };
+
 export type ParticipantIdentity = {
   readonly username: string | null;
   readonly displayName: string | null;
 };
 
 export type SettlementPointsInput = {
+  readonly winnerCount: number;
+  readonly missCount: number;
   readonly winners: readonly ParticipantIdentity[];
   readonly misses: readonly ParticipantIdentity[];
 };
@@ -20,7 +29,7 @@ export type LeaderboardInput = {
 };
 
 export type PersonalStats = {
-  readonly rank: number | null;
+  readonly rank: number | null | 'outside_top_100';
   readonly points: number;
   readonly wins: number;
   readonly losses: number;
@@ -28,34 +37,22 @@ export type PersonalStats = {
   readonly bestStreak: number;
 };
 
-export const TELEGRAM_MESSAGE_LIMIT = 4_096;
-
 const TELEGRAM_USERNAME = /^(?![0-9]{5,32}$)[A-Za-z0-9_]{5,32}$/;
 const NON_VISIBLE_RUN = /[\p{White_Space}\p{Cc}\p{Cf}\p{Cs}]+/gu;
 const PARTICIPANT_LABEL_CODE_POINTS = 32;
 const SIDE_LIST_LIMIT = 5;
 const SETTLEMENT_LIST_LIMIT = 10;
-const TRUNCATION_MARKER = '...';
-
-function utf16Prefix(text: string, maxLength: number): string {
-  let prefix = '';
-  for (const character of text) {
-    if (prefix.length + character.length > maxLength) break;
-    prefix += character;
+function participantList(
+  participants: readonly ParticipantIdentity[],
+  limit: number,
+  totalCount: number,
+): string {
+  const normalizedTotal = normalizedCount(totalCount) ?? participants.length;
+  const labels = participants.slice(0, Math.min(limit, normalizedTotal)).map(participantLabel);
+  const overflow = Math.max(0, normalizedTotal - labels.length);
+  if (labels.length === 0) {
+    return `${normalizedTotal} ${normalizedTotal === 1 ? 'player' : 'players'}`;
   }
-  return prefix;
-}
-
-function withinBudget(text: string, maxLength: number): string {
-  const budget = Number.isFinite(maxLength) ? Math.max(0, Math.floor(maxLength)) : 0;
-  if (text.length <= budget) return text;
-  if (budget <= TRUNCATION_MARKER.length) return TRUNCATION_MARKER.slice(0, budget);
-  return `${utf16Prefix(text, budget - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
-}
-
-function participantList(participants: readonly ParticipantIdentity[], limit: number): string {
-  const labels = participants.slice(0, limit).map(participantLabel);
-  const overflow = participants.length - labels.length;
   return overflow > 0 ? [...labels, `and ${overflow} more`].join(', ') : labels.join(', ');
 }
 
@@ -90,11 +87,16 @@ export function participantLabel(participant: unknown): string {
 export function sideListText(
   participants: readonly ParticipantIdentity[],
   maxLength: number,
+  totalCount = participants.length,
 ): string {
-  if (participants.length > 0) {
-    return withinBudget(participantList(participants, SIDE_LIST_LIMIT), maxLength);
+  const normalizedTotal = normalizedCount(totalCount) ?? participants.length;
+  if (normalizedTotal > 0) {
+    return truncateUtf16(
+      participantList(participants, SIDE_LIST_LIMIT, normalizedTotal),
+      maxLength,
+    );
   }
-  return withinBudget('No one yet', maxLength);
+  return truncateUtf16('No one yet', maxLength);
 }
 
 export function settlementPointsText(
@@ -102,14 +104,18 @@ export function settlementPointsText(
   maxLength: number,
 ): string {
   const lines = ['Points'];
-  if (input.winners.length > 0) {
-    lines.push(`Winners (+10 points): ${participantList(input.winners, SETTLEMENT_LIST_LIMIT)}`);
+  if (input.winnerCount > 0) {
+    lines.push(
+      `Winners (+10 points): ${participantList(input.winners, SETTLEMENT_LIST_LIMIT, input.winnerCount)}`,
+    );
   }
-  if (input.misses.length > 0) {
-    lines.push(`Misses (+0 points): ${participantList(input.misses, SETTLEMENT_LIST_LIMIT)}`);
+  if (input.missCount > 0) {
+    lines.push(
+      `Misses (+0 points): ${participantList(input.misses, SETTLEMENT_LIST_LIMIT, input.missCount)}`,
+    );
   }
   if (lines.length === 1) return '';
-  return withinBudget(lines.join('\n'), maxLength);
+  return truncateUtf16(lines.join('\n'), maxLength);
 }
 
 export function formatAccuracy(wins: number, losses: number): string {
@@ -138,7 +144,7 @@ export function ordinalRank(rank: number): string {
 }
 
 export function emptyLeaderboardText(maxLength: number): string {
-  return withinBudget('Group leaderboard\nNo settled calls yet.', maxLength);
+  return truncateUtf16('Group leaderboard\nNo settled calls yet.', maxLength);
 }
 
 export function leaderboardText(input: LeaderboardInput, maxLength: number): string {
@@ -148,12 +154,16 @@ export function leaderboardText(input: LeaderboardInput, maxLength: number): str
     const losses = `${entry.losses} ${entry.losses === 1 ? 'loss' : 'losses'}`;
     return `${ordinalRank(index + 1)}. ${participantLabel(entry)} - ${entry.points} points, ${wins}, ${losses}, ${formatAccuracy(entry.wins, entry.losses)} accuracy`;
   });
-  return withinBudget(['Group leaderboard', ...rows].join('\n'), maxLength);
+  return truncateUtf16(['Group leaderboard', ...rows].join('\n'), maxLength);
 }
 
 export function personalStatsText(stats: PersonalStats, maxLength: number): string {
-  const rank = stats.rank === null ? 'Unranked' : ordinalRank(stats.rank);
-  return withinBudget(
+  const rank = stats.rank === null
+    ? 'Unranked'
+    : stats.rank === 'outside_top_100'
+      ? 'Outside top 100'
+      : ordinalRank(stats.rank);
+  return truncateUtf16(
     [
       'Your group stats',
       `Rank: ${rank}`,

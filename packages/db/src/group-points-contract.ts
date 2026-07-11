@@ -9,6 +9,7 @@ import type {
 
 export interface GroupPointsFilterBuilder extends PromiseLike<PgResult<unknown>> {
   eq(column: string, value: unknown): GroupPointsFilterBuilder;
+  neq(column: string, value: unknown): GroupPointsFilterBuilder;
   order(column: string, options: { readonly ascending: boolean }): GroupPointsFilterBuilder;
   limit(value: number): GroupPointsFilterBuilder;
   maybeSingle(): PromiseLike<PgResult<unknown>>;

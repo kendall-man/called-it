@@ -24,6 +24,7 @@ import { LlmBudget } from './bot/budget.js';
 import { BOT_COMMANDS, registerBotHandlers } from './bot/bot.js';
 import type { HandlerCtx } from './bot/context.js';
 import { Settler } from './settle/settler.js';
+import { createGroupPointsService } from './points/service.js';
 import { createSettlementReconciler } from './settle/settlement-reconciler.js';
 import { IngestSupervisor } from './ingest/supervisor.js';
 import { startCrons } from './cron/index.js';
@@ -96,7 +97,8 @@ async function main(): Promise<void> {
   assertWagerBootable(env, deps.wager !== null);
 
   const say = createSay(deps.agent, log);
-  const settler = new Settler(deps, poster, say, null);
+  const points = createGroupPointsService({ db: deps.db, log });
+  const settler = new Settler(deps, poster, say, points, null);
   const supervisor = new IngestSupervisor(deps, settler);
   const settlementReconciler = createSettlementReconciler(deps, log);
 

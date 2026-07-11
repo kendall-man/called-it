@@ -24,6 +24,11 @@ class ScriptedQuery implements PromiseLike<PgResult<unknown>> {
     return this;
   }
 
+  neq(column: string, value: unknown): ScriptedQuery {
+    this.calls.push({ method: 'neq', args: [column, value] });
+    return this;
+  }
+
   order(column: string, options: { readonly ascending: boolean }): ScriptedQuery {
     this.calls.push({ method: 'order', args: [column, options] });
     return this;
@@ -48,9 +53,20 @@ class ScriptedQuery implements PromiseLike<PgResult<unknown>> {
 }
 
 export function queryDb(response: PgResult<unknown>, calls: QueryCall[] = []): GroupPointsDb {
+  return queryDbResponses([response], calls);
+}
+
+export function queryDbResponses(
+  responses: readonly PgResult<unknown>[],
+  calls: QueryCall[] = [],
+): GroupPointsDb {
+  let responseIndex = 0;
   return groupPointsDbFromClient({
     from(table: string) {
       calls.push({ method: 'from', args: [table] });
+      const response = responses[responseIndex];
+      if (response === undefined) throw new TypeError('unexpected table query');
+      responseIndex += 1;
       return new ScriptedQuery(response, calls);
     },
     async rpc() {

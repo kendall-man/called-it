@@ -6,6 +6,8 @@ import {
   formatMultiplier,
   formatProbabilityPct,
   receiptCardText,
+  type ClaimCardInput,
+  type ReceiptCardInput,
 } from './cards.js';
 
 const TEAM_SPEC: MarketSpec = {
@@ -28,6 +30,32 @@ const COMEBACK_SPEC: MarketSpec = {
   anchor: { seq: 41, scoreP1: 1, scoreP2: 0 },
   trustTier: 'oracle_resolved',
 };
+
+const CLAIM_INPUT = {
+  quotedText: 'France score twice today, easy',
+  claimerName: 'Dee',
+  spec: TEAM_SPEC,
+  status: 'open',
+  probability: 0.42,
+  provenance: 'modelled',
+  back: { count: 2, stakeLamports: 50_000_000n },
+  doubt: { count: 1, stakeLamports: 30_000_000n },
+  matchedPct: 60,
+  isReplay: false,
+  receiptUrl: 'https://example.test/r/abc',
+} satisfies ClaimCardInput;
+
+const RECEIPT_INPUT = {
+  quotedText: CLAIM_INPUT.quotedText,
+  claimerName: CLAIM_INPUT.claimerName,
+  spec: TEAM_SPEC,
+  outcome: 'claim_won',
+  probability: CLAIM_INPUT.probability,
+  provenance: CLAIM_INPUT.provenance,
+  payoutsLine: 'Dee collects 0.08 SOL. (devnet)',
+  isReplay: false,
+  receiptUrl: CLAIM_INPUT.receiptUrl,
+} satisfies ReceiptCardInput;
 
 describe('formatters', () => {
   it('renders multipliers as ×N, never odds notation', () => {
@@ -57,18 +85,22 @@ describe('describeTerms', () => {
 });
 
 describe('cards', () => {
-  const card = claimCardText({
-    quotedText: 'France score twice today, easy',
-    claimerName: 'Dee',
-    spec: TEAM_SPEC,
-    status: 'open',
-    probability: 0.42,
-    provenance: 'modelled',
-    back: { count: 2, stakeLamports: 50_000_000n },
-    doubt: { count: 1, stakeLamports: 30_000_000n },
-    matchedPct: 60,
-    isReplay: false,
-    receiptUrl: 'https://example.test/r/abc',
+  const card = claimCardText(CLAIM_INPUT);
+
+  it('keeps the existing financial totals and receipt lines unchanged', () => {
+    const receipt = receiptCardText(RECEIPT_INPUT);
+
+    expect(card).toContain(
+      [
+        '⚡ Backing it: 0.05 SOL (2 in)',
+        '🛑 Against it: 0.03 SOL (1 in)',
+        '🤝 Matched: 60%',
+        '',
+        'Receipt: https://example.test/r/abc',
+      ].join('\n'),
+    );
+    expect(receipt).toContain('💠 Dee collects 0.08 SOL. (devnet)');
+    expect(receipt).toMatch(/Receipt: https:\/\/example\.test\/r\/abc$/);
   });
 
   it('claim card carries terms, feed price, SOL pots, matched %, and the receipt link', () => {
@@ -84,18 +116,100 @@ describe('cards', () => {
     expect(card).toContain('https://example.test/r/abc');
   });
 
-  it('cards carry no fiat currency and no odds notation', () => {
-    const receipt = receiptCardText({
-      quotedText: 'France score twice today, easy',
-      claimerName: 'Dee',
-      spec: TEAM_SPEC,
-      outcome: 'claim_won',
-      probability: 0.42,
-      provenance: 'modelled',
-      payoutsLine: 'Dee collects 0.08 SOL. (devnet)',
-      isReplay: true,
-      receiptUrl: 'https://example.test/r/abc',
+  it('shows participant sides with the ongoing group disclosure', () => {
+    const namedCard = claimCardText({
+      ...CLAIM_INPUT,
+      backParticipants: [
+        { username: 'alice_7', displayName: 'Alice' },
+        { username: null, displayName: 'Bob' },
+      ],
+      doubtParticipants: [{ username: 'carol_9', displayName: 'Carol' }],
     });
+
+    expect(namedCard).toContain(
+      [
+        'It happens: @alice_7, Bob',
+        'It does not: @carol_9',
+        'Choices and results are visible in this group.',
+      ].join('\n'),
+    );
+  });
+
+  it('caps and sanitizes 100 participant identities within the Telegram limit', () => {
+    const participants = Array.from({ length: 100 }, (_, index) => ({
+      username: index < 5 ? `player_${index}` : 'undefined',
+      displayName: `\u0000\u202e Player ${index} 🏆`.repeat(4),
+    }));
+    const boundedCard = claimCardText({
+      ...CLAIM_INPUT,
+      back: { count: 100, stakeLamports: 1_000_000_000n },
+      doubt: { count: 0, stakeLamports: 0n },
+      backParticipants: participants,
+      doubtParticipants: [],
+      matchedPct: 0,
+    });
+
+    expect(boundedCard).toContain(
+      'It happens: @player_0, @player_1, @player_2, @player_3, @player_4, and 95 more',
+    );
+    expect(boundedCard).toContain('It does not: No one yet');
+    expect(boundedCard).not.toMatch(/[\u0000\u202e]/u);
+    expect(boundedCard.length).toBeLessThanOrEqual(4_096);
+  });
+
+  it('appends settlement points and the top five leaderboard rows to a final result', () => {
+    const leaderboard = Array.from({ length: 6 }, (_, index) => ({
+      username: `player_${index}`,
+      displayName: `Player ${index}`,
+      points: 60 - index * 10,
+      wins: 6 - index,
+      losses: index,
+    }));
+    const receipt = receiptCardText({
+      ...RECEIPT_INPUT,
+      points: {
+        winnerCount: 1,
+        missCount: 1,
+        winners: [{ username: 'alice_7', displayName: 'Alice' }],
+        misses: [{ username: null, displayName: 'Bob' }],
+        leaderboard,
+      },
+    });
+
+    expect(receipt).toContain(
+      ['Points', 'Winners (+10 points): @alice_7', 'Misses (+0 points): Bob'].join('\n'),
+    );
+    expect(receipt).toContain('1st. @player_0 - 60 points, 6 wins, 0 losses, 100% accuracy');
+    expect(receipt).toContain('5th. @player_4 - 20 points, 2 wins, 4 losses, 33% accuracy');
+    expect(receipt).not.toContain('@player_5');
+    expect(receipt).toContain('💠 Dee collects 0.08 SOL. (devnet)');
+    expect(receipt).toContain('Receipt: https://example.test/r/abc');
+  });
+
+  it('omits points sections when points are absent or the result is void', () => {
+    const withoutPoints = receiptCardText({ ...RECEIPT_INPUT, outcome: 'claim_lost' });
+    const voidReceipt = receiptCardText({
+      ...RECEIPT_INPUT,
+      outcome: 'void',
+      points: {
+        winnerCount: 1,
+        missCount: 0,
+        winners: [{ username: 'alice_7', displayName: 'Alice' }],
+        misses: [{ username: null, displayName: 'Bob' }],
+        leaderboard: [
+          { username: 'alice_7', displayName: 'Alice', points: 10, wins: 1, losses: 0 },
+        ],
+      },
+    });
+
+    for (const text of [withoutPoints, voidReceipt]) {
+      expect(text).not.toContain('\nPoints\n');
+      expect(text).not.toContain('Group leaderboard');
+    }
+  });
+
+  it('cards carry no fiat currency and no odds notation', () => {
+    const receipt = receiptCardText({ ...RECEIPT_INPUT, isReplay: true });
     for (const text of [card, receipt]) {
       expect(text).not.toMatch(/[$£€]/);
       expect(text).not.toMatch(/\bRep\b/); // no play-money leftovers
