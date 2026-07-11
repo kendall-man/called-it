@@ -309,7 +309,10 @@ as $$
     select 1
     from markets m
     join groups g on g.id = m.group_id
-    where m.id = p_market_id and g.web_enabled
+    where m.id = p_market_id
+      and g.web_enabled
+      and m.currency = 'sol'
+      and not m.is_replay
   );
 $$;
 

@@ -1,54 +1,30 @@
-import type { EvidenceFact } from '@/lib/receipts';
+import { describeEvidenceFact, type EvidenceFact } from '@/lib/receipts';
 import { Badge } from './ui';
 import { cx } from '@/lib/cx';
 
-/** Feed-event kinds → spectator copy. Unknown kinds fall back to the raw kind. */
-const KIND_COPY: Record<string, string> = {
-  goal: 'Goal',
-  goal_amended: 'Goal amended',
-  goal_discarded: 'Goal chalked off',
-  card: 'Card shown',
-  var_check: 'VAR check',
-  var_end: 'VAR resolved',
-  phase_change: 'Phase change',
-  lineup: 'Lineups in',
-  possible_event: 'Something brewing',
-  odds_suspension: 'Data pause',
-  coverage_warning: 'Coverage wobble',
-  stat_update: 'Stat update',
-  other: 'Feed note',
-};
-
-const GOAL_TYPE_COPY: Record<string, string> = {
-  head: 'header',
-  shot: 'shot',
-  own_goal: 'own goal',
-  penalty: 'from the spot',
-  other: '',
-};
-
-function factLabel(fact: EvidenceFact): string {
-  const kind = KIND_COPY[fact.kind] ?? fact.kind;
-  const scorer = fact.playerName ? ` — ${fact.playerName}` : '';
-  const flourish =
-    fact.goalType && GOAL_TYPE_COPY[fact.goalType]
-      ? ` (${GOAL_TYPE_COPY[fact.goalType]})`
-      : '';
-  return `${kind}${scorer}${flourish}`;
-}
+export type EvidenceState = 'ready' | 'not_ready' | 'unavailable';
 
 export function EvidenceList({
   facts,
   decidingSeq,
+  state = 'ready',
 }: {
-  facts: EvidenceFact[];
+  facts: readonly EvidenceFact[];
   decidingSeq: number | null;
+  state?: EvidenceState;
 }) {
-  if (facts.length === 0) {
+  if (state === 'unavailable') {
+    return (
+      <p className="text-sm leading-relaxed text-fog">
+        Public evidence details are unavailable right now. The recorded outcome and SOL totals have
+        not changed.
+      </p>
+    );
+  }
+  if (state === 'not_ready' || facts.length === 0) {
     return (
       <p className="text-sm text-fog">
-        Evidence lands here as the match talks — derived facts only, straight from the verified
-        feed.
+        No deciding event is recorded yet. Evidence appears after the match is settled.
       </p>
     );
   }
@@ -67,9 +43,9 @@ export function EvidenceList({
               {fact.minute !== null ? `${fact.minute}′` : '—'}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-chalk">{factLabel(fact)}</p>
+              <p className="text-sm font-semibold text-chalk">{describeEvidenceFact(fact)}</p>
               <p className="text-[11px] text-fog">
-                seq {fact.seq} · {fact.confirmed ? 'confirmed' : 'unconfirmed'}
+                Feed sequence {fact.seq} - {fact.confirmed ? 'confirmed' : 'not yet confirmed'}
               </p>
             </div>
             {isDecider ? <Badge tone="pitch">The decider</Badge> : null}

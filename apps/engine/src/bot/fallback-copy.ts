@@ -53,6 +53,10 @@ export type TemplateKey =
   | 'replay_stopped'
   | 'bookit_needs_reply'
   | 'window_closed'
+  | 'group_ready'
+  | 'private_start'
+  | 'group_only_recovery'
+  | 'table_link'
   | 'detection_enabled'
   | 'detection_disabled';
 
@@ -147,6 +151,11 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   replay_stopped: () => 'Internal fixture run stopped.',
   bookit_needs_reply: () => 'Reply /bookit to the claim you want on the record.',
   window_closed: () => 'Too late for that one — the window is closed.',
+  group_ready: (vars) =>
+    `Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Each offer has two fixed 0.01 test-SOL choices: "It happens" or "It does not." Test SOL is devnet-only with no monetary value. Board: ${value(vars, 'webUrl', 'the group board')}`,
+  private_start: () => 'Called It lives in group chats. Add it to a group to make a football call.',
+  group_only_recovery: () => 'Open this command in the group where you want to use Called It.',
+  table_link: () => 'Open the group board.',
   detection_enabled: () =>
     "Always-on detection is live — big shouts get priced automatically. I'll keep the rest of the chat out of it.",
   detection_disabled: () =>

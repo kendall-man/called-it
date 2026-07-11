@@ -15,17 +15,17 @@ import { WAGER_TUNABLES } from './constants.js';
 export const WAGER_COPY = {
   // ── stake gates & results ────────────────────────────────────────────────
   unlinkedOnboarding: (): string =>
-    'This table uses test SOL on Solana devnet. It has no monetary value. Open /wallet in private chat to verify a devnet wallet before placing a position.',
+    'This beta only supports its one starter position. No SOL moved. Try a listed 0.01 SOL call.',
   paused: (): string =>
-    'New SOL positions are paused while account coverage is checked. No SOL moved. Check /me before trying again.',
+    'Starter positions are temporarily paused. No SOL moved. Try another allowlisted beta group later.',
   marketClosed: (): string =>
     'That call is closed for new SOL positions. No SOL moved. Choose another call.',
   starterUnavailable: (): string =>
-    'The starter grant is not available. No SOL moved. Open /wallet in private chat to verify a devnet wallet.',
+    'The starter position is not available. No SOL moved. Try another allowlisted beta group later.',
   budgetExhausted: (): string =>
-    'The starter grant budget is used up. No SOL moved. Open /wallet in private chat to continue with your own test SOL.',
+    'The starter position budget is used up. No SOL moved. Try another allowlisted beta group later.',
   walletRequired: (): string =>
-    'No verified devnet wallet is available for this account. No SOL moved. Open /wallet in private chat.',
+    'This beta only supports its one starter position. No SOL moved. Try another allowlisted beta group later.',
   insufficient: (balanceLamports: bigint): string =>
     `Not enough test SOL for that position. No SOL moved. Available balance: ${formatSolAmount(balanceLamports)} (devnet). Use /deposit to add test SOL.`,
   pickALane: (): string => "You can't back it and doubt it. No SOL moved. Pick a lane.",
@@ -78,7 +78,7 @@ export const WAGER_COPY = {
 
   // ── card & receipt furniture ─────────────────────────────────────────────
   cardFooter: (): string =>
-    'Test SOL is a devnet token with no monetary value. Use /me for account status.',
+    'Test SOL is a devnet token with no monetary value.',
   payoutsLineVoid: (): string => 'Call off — every SOL stake returned. (devnet)',
   payoutsLineNone: (): string => 'No SOL changed hands. (devnet)',
   payoutPart: (name: string, lamports: bigint): string =>

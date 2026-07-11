@@ -11,6 +11,8 @@
 import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import type { GamePhase, MarketStatus, MatchEvent } from '@calledit/market-engine';
+import { botOnboardingDbFromClient } from './bot-onboarding-db.js';
+import type { BotGroupReadyResult, BotOnboardingVersion } from './bot-onboarding-types.js';
 import { assertOk, unwrapMaybe, unwrapRows, type PgResult } from './errors.js';
 import type {
   Chattiness,
@@ -84,6 +86,10 @@ export interface EngineDb {
   // groups
   upsertGroup(input: { id: number; title: string }): Promise<GroupRow>;
   getGroup(id: number): Promise<GroupRow | null>;
+  markGroupReady(input: {
+    groupId: number;
+    onboardingVersion: BotOnboardingVersion;
+  }): Promise<BotGroupReadyResult>;
   setGroupChattiness(id: number, chattiness: Chattiness): Promise<void>;
   setGroupAdmin(id: number, isAdmin: boolean): Promise<void>;
   setGroupWebEnabled(id: number, enabled: boolean): Promise<void>;
@@ -167,6 +173,7 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
   const client = createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  const onboarding = botOnboardingDbFromClient(client);
 
   return {
     // ── groups ─────────────────────────────────────────────────────────────
@@ -204,6 +211,10 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
         'getGroup',
         await client.from('groups').select('*').eq('id', id).maybeSingle(),
       );
+    },
+
+    markGroupReady(input) {
+      return onboarding.markGroupReady(input);
     },
 
     async setGroupChattiness(id, chattiness) {

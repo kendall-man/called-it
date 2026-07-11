@@ -9,6 +9,7 @@ import type {
 import type { Chattiness } from '../localTypes.js';
 import type {
   ClaimRow,
+  BotGroupReadyMarkerResult,
   ClaimStatus,
   FixtureRow,
   FixtureUpsert,
@@ -25,6 +26,10 @@ import type {
 export interface EngineDb {
   upsertGroup(input: { id: number; title: string }): Promise<GroupRow>;
   getGroup(id: number): Promise<GroupRow | null>;
+  markGroupReady?(input: {
+    groupId: number;
+    onboardingVersion: 'calledit_v1';
+  }): Promise<BotGroupReadyMarkerResult>;
   setGroupChattiness(id: number, chattiness: Chattiness): Promise<void>;
   setGroupAdmin(id: number, isAdmin: boolean): Promise<void>;
   setGroupWebEnabled(id: number, enabled: boolean): Promise<void>;

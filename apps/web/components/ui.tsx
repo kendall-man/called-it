@@ -72,7 +72,10 @@ export function Badge({
 
 export function Wordmark() {
   return (
-    <Link href="/" className="display-type text-lg tracking-tight text-chalk">
+    <Link
+      href="/"
+      className="display-type text-lg tracking-tight text-chalk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+    >
       Called&nbsp;<span className="text-pitch-400">It</span>
       <span aria-hidden className="ml-1 text-pitch-400">
         ✓
@@ -84,12 +87,19 @@ export function Wordmark() {
 export function PageShell({
   topRight,
   children,
+  width = 'reading',
 }: {
   topRight?: ReactNode;
   children: ReactNode;
+  width?: 'reading' | 'board';
 }) {
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-xl flex-col px-4 pb-14 pt-5 sm:px-6">
+    <div
+      className={cx(
+        'mx-auto flex min-h-dvh w-full flex-col px-4 pb-14 pt-5 sm:px-6',
+        width === 'board' ? 'max-w-5xl' : 'max-w-xl',
+      )}
+    >
       <header className="mb-6 flex items-center justify-between">
         <Wordmark />
         {topRight}

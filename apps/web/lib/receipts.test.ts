@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  describeEvidenceFact,
   evidenceFromRow,
+  groupBoardMarketFromRow,
   receiptFromRow,
+  type PublicGroupBoardMarket,
   type PublicReceipt,
 } from './receipts';
 import { formatLamportsAsSol } from './format';
@@ -10,8 +13,15 @@ function viewRow(overrides: Record<string, unknown> = {}): Record<string, unknow
   return {
     market_id: '4dcb8872-2f1e-4bc5-9b43-1a2b3c4d5e6f',
     group_slug: 'x7kf9q',
-    claimer_alias: 'Player A1B2C3D4',
-    spec: { claimType: 'totals_ou' },
+    spec: {
+      claimType: 'totals_ou',
+      fixtureId: 42,
+      entityRef: { kind: 'team', participant: 1, name: 'France' },
+      comparator: 'gte',
+      threshold: 2,
+      period: 'FT_90',
+      trustTier: 'chain_proven',
+    },
     status: 'settled',
     currency: 'sol',
     price_provenance: 'market',
@@ -36,6 +46,13 @@ function viewRow(overrides: Record<string, unknown> = {}): Record<string, unknow
   };
 }
 
+function mustMapBoard(row: Record<string, unknown>): PublicGroupBoardMarket {
+  const mapped = groupBoardMarketFromRow(row);
+  expect(mapped).not.toBeNull();
+  if (!mapped) throw new Error('Expected a public group-board row');
+  return mapped;
+}
+
 function mustMap(row: Record<string, unknown>): PublicReceipt {
   const mapped = receiptFromRow(row);
   expect(mapped).not.toBeNull();
@@ -51,7 +68,11 @@ describe('receiptFromRow', () => {
     expect(receipt.proofStatus).toBe('pending');
     expect(receipt.currency).toBe('sol');
     expect(receipt).toMatchObject({
-      claimerAlias: 'Player A1B2C3D4',
+      terms: {
+        text: '2 goals or more in the match',
+        period: 'In 90 minutes — extra time and shootouts don’t count',
+        trustTier: 'chain_proven',
+      },
       backPotLamports: '60000000',
       doubtPotLamports: '40000000',
       matchedAmountLamports: '80000000',
@@ -74,6 +95,7 @@ describe('receiptFromRow', () => {
         quoted_text: 'PRIVATE CLAIM @sentinel_user',
         claimer_name: 'Private Telegram Name',
         username: '@sentinel_user',
+        validate_stat_tx: 'private-public-key-like-value',
       }),
     );
 
@@ -82,6 +104,14 @@ describe('receiptFromRow', () => {
     expect(JSON.stringify(receipt)).not.toContain('PRIVATE CLAIM');
     expect(JSON.stringify(receipt)).not.toContain('@sentinel_user');
     expect(JSON.stringify(receipt)).not.toContain('Private Telegram Name');
+    expect(JSON.stringify(receipt)).not.toContain('private-public-key-like-value');
+  });
+
+  it('never maps a participant alias from a mixed view row', () => {
+    const receipt = mustMap(viewRow({ claimer_alias: 'Player DEADBEEF' }));
+
+    expect(receipt).not.toHaveProperty('claimerAlias');
+    expect(JSON.stringify(receipt)).not.toContain('Player DEADBEEF');
   });
 
   it('does not expose the replay marker even when a mixed row carries it', () => {
@@ -91,8 +121,7 @@ describe('receiptFromRow', () => {
     expect(JSON.stringify(receipt)).not.toContain('isReplay');
   });
 
-  it('rejects rows without the alias or complete aggregate contract', () => {
-    expect(receiptFromRow(viewRow({ claimer_alias: null }))).toBeNull();
+  it('rejects rows without a complete aggregate contract', () => {
     expect(receiptFromRow(viewRow({ matched_amount_lamports: null }))).toBeNull();
     expect(receiptFromRow(viewRow({ position_count: 'three' }))).toBeNull();
   });
@@ -117,6 +146,43 @@ describe('receiptFromRow', () => {
     expect(receiptFromRow(viewRow({ market_id: null }))).toBeNull();
     expect(receiptFromRow(viewRow({ status: 'imaginary' }))).toBeNull();
     expect(receiptFromRow(viewRow({ quote_multiplier: 'x9' }))).toBeNull();
+    expect(receiptFromRow(viewRow({ spec: { claimType: 'totals_ou' } }))).toBeNull();
+    expect(receiptFromRow(viewRow({ deciding_seq: -1 }))).toBeNull();
+    expect(receiptFromRow(viewRow({ evidence_seqs: [900, '901'] }))).toBeNull();
+  });
+});
+
+describe('groupBoardMarketFromRow', () => {
+  it('maps exact public SOL aggregates without any identity fields', () => {
+    const market = mustMapBoard(
+      viewRow({
+        refunded_amount_lamports: '20000000',
+        paid_amount_lamports: '80000000',
+        position_count: 3,
+        claimer_alias: undefined,
+        quoted_text: 'PRIVATE CLAIM @sentinel_user',
+        claimer_name: 'Private Telegram Name',
+        wallet: 'Private wallet address',
+      }),
+    );
+
+    expect(market).toMatchObject({
+      backPotLamports: '60000000',
+      doubtPotLamports: '40000000',
+      matchedAmountLamports: '80000000',
+      refundedAmountLamports: '20000000',
+      paidAmountLamports: '80000000',
+      positionCount: 3,
+    });
+    expect(JSON.stringify(market)).not.toContain('PRIVATE CLAIM');
+    expect(JSON.stringify(market)).not.toContain('Private Telegram Name');
+    expect(JSON.stringify(market)).not.toContain('wallet address');
+    expect(market).not.toHaveProperty('claimerAlias');
+  });
+
+  it('rejects a non-SOL or incomplete aggregate row', () => {
+    expect(groupBoardMarketFromRow(viewRow({ currency: 'rep' }))).toBeNull();
+    expect(groupBoardMarketFromRow(viewRow({ paid_amount_lamports: null }))).toBeNull();
   });
 });
 
@@ -136,7 +202,6 @@ describe('evidenceFromRow', () => {
         kind: 'goal',
         confirmed: true,
         minute: 67,
-        player_name: 'Mbappé',
         goal_type: 'penalty',
       }),
     ).toEqual({
@@ -145,12 +210,34 @@ describe('evidenceFromRow', () => {
       kind: 'goal',
       confirmed: true,
       minute: 67,
-      playerName: 'Mbappé',
       goalType: 'penalty',
     });
   });
 
   it('rejects rows without identity columns', () => {
     expect(evidenceFromRow({ seq: 900, kind: 'goal' })).toBeNull();
+  });
+
+  it('renders only allowlisted public event copy', () => {
+    expect(
+      describeEvidenceFact({
+        fixtureId: 42,
+        seq: 900,
+        kind: 'goal',
+        confirmed: true,
+        minute: 67,
+        goalType: 'penalty',
+      }),
+    ).toBe('Goal (from the spot)');
+    expect(
+      describeEvidenceFact({
+        fixtureId: 42,
+        seq: 901,
+        kind: 'upstream_provider_private_code',
+        confirmed: false,
+        minute: null,
+        goalType: null,
+      }),
+    ).toBe('Verified match event');
   });
 });

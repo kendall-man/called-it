@@ -13,7 +13,7 @@ import {
   type PublicReceipt,
 } from './receipts';
 
-export type QueryResult<T> = { ok: true; data: T } | { ok: false; message: string };
+export type QueryResult<T> = { ok: true; data: T } | { ok: false };
 
 const RECEIPTS_VIEW = 'public_receipts';
 const GROUP_BOARD_VIEW = 'public_group_board';
@@ -22,13 +22,61 @@ const EVIDENCE_VIEW = 'public_evidence';
 const GROUP_RECEIPTS_FETCH_LIMIT = 60;
 const GROUP_RECEIPTS_SHOWN = 12;
 
-function mapRows<T>(rows: unknown, mapRow: (row: Record<string, unknown>) => T | null): T[] {
-  if (!Array.isArray(rows)) return [];
+export const PUBLIC_RECEIPT_SELECT = [
+  'market_id',
+  'group_slug',
+  'spec',
+  'status',
+  'currency',
+  'price_provenance',
+  'quote_probability',
+  'quote_multiplier',
+  'back_pot_lamports',
+  'doubt_pot_lamports',
+  'matched_amount_lamports',
+  'refunded_amount_lamports',
+  'paid_amount_lamports',
+  'position_count',
+  'created_at',
+  'outcome',
+  'deciding_seq',
+  'evidence_seqs',
+  'tier',
+  'settled_at',
+  'proof_status',
+  'explorer_url',
+  'merkle_proof',
+].join(',');
+
+export const PUBLIC_GROUP_BOARD_SELECT = [
+  'market_id',
+  'group_slug',
+  'spec',
+  'status',
+  'currency',
+  'price_provenance',
+  'quote_probability',
+  'quote_multiplier',
+  'back_pot_lamports',
+  'doubt_pot_lamports',
+  'matched_amount_lamports',
+  'refunded_amount_lamports',
+  'paid_amount_lamports',
+  'position_count',
+  'created_at',
+  'outcome',
+  'settled_at',
+].join(',');
+
+const PUBLIC_EVIDENCE_SELECT = ['fixture_id', 'seq', 'kind', 'confirmed', 'minute', 'goal_type'].join(',');
+
+function mapRows<T>(rows: unknown, mapRow: (row: unknown) => T | null): T[] | null {
+  if (!Array.isArray(rows)) return null;
   const mapped: T[] = [];
   for (const row of rows) {
-    if (typeof row !== 'object' || row === null) continue;
-    const value = mapRow(row as Record<string, unknown>);
-    if (value !== null) mapped.push(value);
+    const value = mapRow(row);
+    if (value === null) return null;
+    mapped.push(value);
   }
   return mapped;
 }
@@ -39,26 +87,29 @@ export async function fetchReceipt(
 ): Promise<QueryResult<PublicReceipt | null>> {
   const { data, error } = await client
     .from(RECEIPTS_VIEW)
-    .select('*')
-    .eq('market_id', marketId);
-  if (error) return { ok: false, message: error.message };
-  return { ok: true, data: mapRows(data, receiptFromRow)[0] ?? null };
+    .select(PUBLIC_RECEIPT_SELECT)
+    .eq('market_id', marketId)
+    .limit(2);
+  const receipts = mapRows(data, receiptFromRow);
+  if (error || receipts === null || receipts.length > 1) return { ok: false };
+  return { ok: true, data: receipts[0] ?? null };
 }
 
 export async function fetchEvidence(
   client: SupabaseClient,
   fixtureId: number,
-  seqs: number[],
+  seqs: readonly number[],
 ): Promise<QueryResult<EvidenceFact[]>> {
   if (seqs.length === 0) return { ok: true, data: [] };
   const { data, error } = await client
     .from(EVIDENCE_VIEW)
-    .select('*')
+    .select(PUBLIC_EVIDENCE_SELECT)
     .eq('fixture_id', fixtureId)
     .in('seq', seqs)
     .order('seq', { ascending: true });
-  if (error) return { ok: false, message: error.message };
-  return { ok: true, data: mapRows(data, evidenceFromRow) };
+  const facts = mapRows(data, evidenceFromRow);
+  if (error || facts === null) return { ok: false };
+  return { ok: true, data: facts };
 }
 
 /**
@@ -72,13 +123,14 @@ export async function fetchGroupReceipts(
 ): Promise<QueryResult<PublicReceipt[] | null>> {
   const { data, error } = await client
     .from(RECEIPTS_VIEW)
-    .select('*')
+    .select(PUBLIC_RECEIPT_SELECT)
     .eq('group_slug', slug)
     .order('created_at', { ascending: false })
     .limit(GROUP_RECEIPTS_FETCH_LIMIT);
-  if (error) return { ok: false, message: error.message };
+  const mapped = mapRows(data, receiptFromRow);
+  if (error || mapped === null) return { ok: false };
 
-  const receipts = mapRows(data, receiptFromRow).slice(0, GROUP_RECEIPTS_SHOWN);
+  const receipts = mapped.slice(0, GROUP_RECEIPTS_SHOWN);
   if (receipts.length === 0) return { ok: true, data: null };
   return { ok: true, data: receipts };
 }
@@ -90,12 +142,13 @@ export async function fetchGroupBoard(
 ): Promise<QueryResult<PublicGroupBoardMarket[] | null>> {
   const { data, error } = await client
     .from(GROUP_BOARD_VIEW)
-    .select('*')
+    .select(PUBLIC_GROUP_BOARD_SELECT)
     .eq('group_slug', slug)
     .order('created_at', { ascending: false })
     .limit(GROUP_RECEIPTS_FETCH_LIMIT);
-  if (error) return { ok: false, message: error.message };
+  const mapped = mapRows(data, groupBoardMarketFromRow);
+  if (error || mapped === null) return { ok: false };
 
-  const markets = mapRows(data, groupBoardMarketFromRow).slice(0, GROUP_RECEIPTS_SHOWN);
+  const markets = mapped.slice(0, GROUP_RECEIPTS_SHOWN);
   return { ok: true, data: markets.length === 0 ? null : markets };
 }

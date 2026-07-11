@@ -1,11 +1,7 @@
 /**
- * Behavior tests for the claim-flow callback handlers under the broker pivot,
- * exercised through dispatchCallback with an in-memory DB, a stubbed wager
- * module, and a recording poster. The flow collapsed to: option-pick prices +
- * mints immediately (no confirm gate); the "prove" button is now just a
- * re-parse retry; decline kills a pre-mint claim or voids a zero-bet market.
- * Focus areas: pricing failure keeps the flow alive, the per-claim lock mints
- * exactly one market, degenerate quotes refuse, and the TTL slides.
+ * Claim-flow callbacks exercised through dispatchCallback with an in-memory
+ * DB, a stubbed wager module, and a recording poster. The suite covers owner
+ * consent and deterministic clarify/mint behavior.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -117,8 +113,10 @@ interface Harness {
   patches: Array<Record<string, unknown>>;
   markets: MarketRow[];
   settlements: Array<Record<string, unknown>>;
+  strippedKeyboardMessageIds: number[];
   getClaim: () => ClaimRow;
   parseCalls: () => number;
+  setNow: (nowMs: number) => void;
 }
 
 interface HarnessConfig {
@@ -137,7 +135,9 @@ function makeHarness(config: HarnessConfig): Harness {
   const patches: Array<Record<string, unknown>> = [];
   const markets: MarketRow[] = [];
   const settlements: Array<Record<string, unknown>> = [];
+  const strippedKeyboardMessageIds: number[] = [];
   let parseCount = 0;
+  let now = NOW;
 
   const db = {
     getClaim: async (id: string) => (id === claim.id ? { ...claim } : null),
@@ -200,7 +200,7 @@ function makeHarness(config: HarnessConfig): Harness {
     proofSubmitter: null,
     env: { WEB_BASE_URL: 'https://web.test' },
     log: { info: () => undefined, warn: () => undefined, error: () => undefined },
-    now: () => NOW,
+    now: () => now,
   } as unknown as Deps;
 
   const h = {
@@ -210,11 +210,13 @@ function makeHarness(config: HarnessConfig): Harness {
         posts.push({ chatId, text, options });
       },
       editCard: () => undefined,
-      stripKeyboard: () => undefined,
+      stripKeyboard: (_chatId: number, messageId: number) => {
+        strippedKeyboardMessageIds.push(messageId);
+      },
     },
     say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
     supervisor: { replayFixture: () => null },
-    budget: new LlmBudget(config.llmBudget ?? 1000, () => NOW),
+    budget: new LlmBudget(config.llmBudget ?? 1000, () => now),
   } as unknown as HandlerCtx;
 
   return {
@@ -223,8 +225,12 @@ function makeHarness(config: HarnessConfig): Harness {
     patches,
     markets,
     settlements,
+    strippedKeyboardMessageIds,
     getClaim: () => claim,
     parseCalls: () => parseCount,
+    setNow: (nextNow) => {
+      now = nextNow;
+    },
   };
 }
 
@@ -242,6 +248,7 @@ function fakeCtx(userId = CLAIMER_ID): { ctx: Context; toasts: string[] } {
   const ctx = {
     chat: { id: CHAT_ID },
     from: { id: userId, first_name: 'Dee' },
+    callbackQuery: { id: `callback-${userId}`, message: { message_id: 777 } },
     answerCallbackQuery: async (payload: { text: string }) => {
       toasts.push(payload.text);
     },
@@ -257,8 +264,27 @@ function keyboardData(post: RecordedPost): string[] {
   });
 }
 
-describe('option pick prices and mints (broker offer flow)', () => {
-  it('mints one SOL market and posts an offer card with stake + decline buttons', async () => {
+function keyboardLabels(post: RecordedPost): string[] {
+  const keyboard = post.options.keyboard;
+  if (!keyboard) return [];
+  return keyboard.inline_keyboard.flat().map((button) => button.text);
+}
+
+function rawParse() {
+  return {
+    claimType: 'match_winner' as const,
+    fixtureId: FIXTURE_ID,
+    entityName: 'Egypt',
+    entityKind: 'team' as const,
+    comparator: 'gte' as const,
+    threshold: 1,
+    period: 'FT_90' as const,
+    unresolved: null,
+  };
+}
+
+describe('option pick prices and mints', () => {
+  it('mints one SOL market and posts the two fixed starter outcomes', async () => {
     const harness = makeHarness({ claim: claimRow('clarifying', clarifyEnvelope()) });
     await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
 
@@ -266,9 +292,11 @@ describe('option pick prices and mints (broker offer flow)', () => {
     expect(harness.markets[0]).toMatchObject({ currency: 'sol', quote_probability: 0.6 });
     expect(harness.getClaim().status).toBe('confirmed');
     const offer = harness.posts.at(-1)!;
-    const buttons = keyboardData(offer);
-    expect(buttons.some((d) => d.startsWith('st:'))).toBe(true); // stake buttons
-    expect(buttons).toContain(`nx:${CLAIM_ID}`); // decline
+    expect(keyboardLabels(offer)).toEqual([
+      'It happens · 0.01 SOL',
+      'It does not · 0.01 SOL',
+    ]);
+    expect(keyboardData(offer)).not.toContain(`nx:${CLAIM_ID}`);
   });
 
   it('keeps a clarifying claim pickable on a transient price failure, then mints on retry — no LLM parse', async () => {
@@ -351,6 +379,53 @@ describe('option pick prices and mints (broker offer flow)', () => {
     await dispatchCallback(harness.h, other.ctx, { t: 'option', claimId: CLAIM_ID, key: '0' });
     expect(harness.markets).toHaveLength(0);
     expect(other.toasts.some((t) => t.toLowerCase().includes('dee'))).toBe(true);
+  });
+});
+
+describe('speaker confirmation', () => {
+  it('does not mint a passive claim until its exact author confirms', async () => {
+    const harness = makeHarness({ claim: claimRow('awaiting_confirm'), parse: rawParse });
+    const other = fakeCtx(OTHER_ID);
+
+    await dispatchCallback(harness.h, other.ctx, { t: 'confirm', claimId: CLAIM_ID });
+    expect(harness.markets).toHaveLength(0);
+    expect(harness.getClaim().status).toBe('awaiting_confirm');
+
+    await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'confirm', claimId: CLAIM_ID });
+    expect(harness.markets).toHaveLength(1);
+    expect(harness.getClaim().status).toBe('confirmed');
+  });
+
+  it('never mints when the author declines or confirms after the two-minute deadline', async () => {
+    const declined = makeHarness({ claim: claimRow('awaiting_confirm'), parse: rawParse });
+    await dispatchCallback(declined.h, fakeCtx().ctx, { t: 'decline', claimId: CLAIM_ID });
+    await dispatchCallback(declined.h, fakeCtx().ctx, { t: 'confirm', claimId: CLAIM_ID });
+    expect(declined.markets).toHaveLength(0);
+    expect(declined.getClaim().status).toBe('declined');
+
+    const expired = makeHarness({
+      claim: { ...claimRow('awaiting_confirm'), expires_at: new Date(NOW + 120_000).toISOString() },
+      parse: rawParse,
+    });
+    expired.setNow(NOW + 120_001);
+    await dispatchCallback(expired.h, fakeCtx().ctx, { t: 'confirm', claimId: CLAIM_ID });
+    expect(expired.markets).toHaveLength(0);
+    expect(expired.getClaim().status).toBe('expired');
+    expect(expired.strippedKeyboardMessageIds).toContain(777);
+  });
+
+  it('serializes replayed confirmation callbacks to one market', async () => {
+    const harness = makeHarness({ claim: claimRow('awaiting_confirm'), parse: rawParse });
+    const first = fakeCtx();
+    const replay = fakeCtx();
+
+    await Promise.all([
+      dispatchCallback(harness.h, first.ctx, { t: 'confirm', claimId: CLAIM_ID }),
+      dispatchCallback(harness.h, replay.ctx, { t: 'confirm', claimId: CLAIM_ID }),
+    ]);
+
+    expect(harness.markets).toHaveLength(1);
+    expect(harness.getClaim().status).toBe('confirmed');
   });
 });
 

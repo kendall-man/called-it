@@ -1,47 +1,93 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { ReceiptRow } from '@/components/receipt-row';
+import { BoardMarketRow, ReceiptRow } from '@/components/receipt-row';
 import { AwaitingConfiguration, DataUnavailable } from '@/components/states';
 import { Badge, Card, PageShell, SectionTitle } from '@/components/ui';
-import { fetchGroupReceipts } from '@/lib/queries';
+import { fetchGroupBoard, fetchGroupReceipts } from '@/lib/queries';
+import type { PublicGroupBoardMarket } from '@/lib/receipts';
 import { createAnonServerClient } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'On the record' };
+export const metadata: Metadata = { title: 'Group board' };
 
-/** Slugs are unguessable tokens; anything absurd is a guaranteed miss. */
-const MAX_SLUG_LENGTH = 80;
+const PUBLIC_GROUP_SLUG = /^[A-Za-z0-9_-]{1,80}$/;
+
+function isActiveMarket(market: PublicGroupBoardMarket): boolean {
+  return market.status !== 'settled' && market.status !== 'voided';
+}
 
 export default async function GroupPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  if (!slug || slug.length > MAX_SLUG_LENGTH) notFound();
+  if (!PUBLIC_GROUP_SLUG.test(slug)) notFound();
 
   const client = createAnonServerClient();
   if (!client) return <AwaitingConfiguration />;
 
-  const result = await fetchGroupReceipts(client, slug);
-  if (!result.ok) return <DataUnavailable />;
-  const receipts = result.data;
-  if (!receipts) notFound();
+  const [boardResult, receiptResult] = await Promise.all([
+    fetchGroupBoard(client, slug),
+    fetchGroupReceipts(client, slug),
+  ]);
+  if (!boardResult.ok || !receiptResult.ok) return <DataUnavailable retryHref={`/g/${slug}`} />;
+  if (!boardResult.data) {
+    if (receiptResult.data) return <DataUnavailable retryHref={`/g/${slug}`} />;
+    notFound();
+  }
+
+  const activeMarkets = boardResult.data.filter(isActiveMarket);
+  const recentReceipts = (receiptResult.data ?? []).filter(
+    (receipt) => receipt.status === 'settled' || receipt.status === 'voided',
+  );
+  const latestReceipt = recentReceipts[0] ?? receiptResult.data?.[0] ?? null;
 
   return (
-    <PageShell topRight={<Badge tone="pitch">Group ledger</Badge>}>
-      <div className="mt-2">
-        <h1 className="display-type text-5xl text-chalk">On the record</h1>
-        <p className="mt-2 text-sm text-fog">
-          Every call this group has put on the record — priced off the live feed, backed or bet
-          against in devnet SOL, and settled without arguments.
+    <PageShell width="board" topRight={<Badge tone="pitch">Group board</Badge>}>
+      <div>
+        <h1 className="display-type text-4xl text-chalk sm:text-5xl">Group board</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-fog">
+          Public SOL totals for this group. Calls show compiled terms and group-wide amounts only.
         </p>
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <SectionTitle>Active calls</SectionTitle>
+          {activeMarkets.length === 0 ? (
+            <p className="mt-3 text-sm leading-relaxed text-fog">
+              There are no active calls right now. Completed calls remain below with their final public totals.
+            </p>
+          ) : (
+            <div className="mt-2">
+              {activeMarkets.map((market) => (
+                <BoardMarketRow key={market.marketId} market={market} />
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <SectionTitle>Latest receipt</SectionTitle>
+          {latestReceipt ? (
+            <div className="mt-2">
+              <ReceiptRow receipt={latestReceipt} />
+            </div>
+          ) : (
+            <p className="mt-3 text-sm leading-relaxed text-fog">
+              No receipt is ready yet. Open an active call to see its current public totals.
+            </p>
+          )}
+        </Card>
+      </div>
+
       <Card>
-        <SectionTitle>The calls</SectionTitle>
-        {receipts.length === 0 ? (
-          <p className="mt-3 text-sm text-fog">Nothing on the record yet.</p>
+        <SectionTitle>Recent receipts</SectionTitle>
+        {recentReceipts.length === 0 ? (
+          <p className="mt-3 text-sm leading-relaxed text-fog">
+            No settled receipt is public yet. This board will add one after a call reaches its final state.
+          </p>
         ) : (
-          <div className="mt-2 -mx-2">
-            {receipts.map((receipt) => (
+          <div className="mt-2">
+            {recentReceipts.map((receipt) => (
               <ReceiptRow key={receipt.marketId} receipt={receipt} />
             ))}
           </div>

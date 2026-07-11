@@ -1,9 +1,7 @@
 /**
- * Detect → offer → mint, collapsed. Callie is a broker: the moment a claim is
- * detected (or triggered) she parses it, prices it, and — if it compiles
- * cleanly — mints the SOL market and posts ONE offer card with Back / Against
- * buttons. Ambiguous claims get an options card (claimer picks, then it mints);
- * infrastructure blips leave a "Run it back" retry. No prove → confirm gate.
+ * Explicit speaker intent parses, prices, and mints directly. Passive or
+ * friend-triggered claims persist an owner-only confirmation gate first, so
+ * neither terms nor a public quote leave the engine before the speaker agrees.
  *
  * The mint price LOCKS the FOR↔AGAINST settlement ratio (wager/pot.ts), so the
  * one-market-per-claim guard must stay inside the caller's claim lock (there is
@@ -15,7 +13,13 @@ import { TUNABLES } from '@calledit/market-engine';
 import type { ClaimRow, Deps, GroupRow } from '../ports.js';
 import type { HandlerCtx } from '../bot/context.js';
 import { describeTerms } from '../bot/cards.js';
-import { offerKeyboard, optionsKeyboard, retryParseKeyboard, retryQuoteKeyboard } from '../bot/keyboards.js';
+import {
+  confirmKeyboard,
+  offerKeyboard,
+  optionsKeyboard,
+  retryParseKeyboard,
+  retryQuoteKeyboard,
+} from '../bot/keyboards.js';
 import type { TemplateKey } from '../bot/copy.js';
 import { composeClaimCard } from './render.js';
 import {
@@ -24,6 +28,7 @@ import {
   isDegenerateQuote,
   proveClaim,
   quoteSpec,
+  SPEAKER_CONFIRM_TTL_MS,
   type ParseEnvelope,
   type ProveOutcome,
 } from './claims.js';
@@ -31,6 +36,10 @@ import {
 /** The claim TTL is an inactivity deadline; every meaningful step pushes it out. */
 function extendedClaimExpiry(deps: Deps): string {
   return new Date(deps.now() + TUNABLES.UNCONFIRMED_CLAIM_TTL_MS).toISOString();
+}
+
+function confirmationExpiry(deps: Deps): string {
+  return new Date(deps.now() + SPEAKER_CONFIRM_TTL_MS).toISOString();
 }
 
 /** Copy key for each way a quote can fail — three situations, three messages. */
@@ -121,6 +130,17 @@ export async function mintOffer(
   }
 
   const isReplay = h.supervisor.replayFixture(group.id) === spec.fixtureId;
+  const pricedEnvelope: ParseEnvelope = {
+    ...envelope,
+    chosen: spec,
+    quote: {
+      probability: quote.probability,
+      multiplier: quote.multiplier,
+      provenance: quote.provenance,
+      oddsMessageId: quote.oddsMessageId,
+      oddsTsMs: quote.oddsTsMs,
+    },
+  };
   const market = await createMarketFromClaim(h.deps, {
     claim,
     group,
@@ -135,6 +155,7 @@ export async function mintOffer(
     isReplay,
     fixture,
   });
+  await h.deps.db.updateClaim(claim.id, { parse: pricedEnvelope });
 
   const card = await composeClaimCard(h.deps, market);
   if (!card) return { minted: true };
@@ -144,7 +165,7 @@ export async function mintOffer(
     market.status === 'pending_lineup' ? `\n${await h.say('pending_lineup_note')}` : '';
   h.poster.post(claim.group_id, `${garnish}${pendingNote}\n\n${card.text}`, {
     replyToMessageId: claim.tg_message_id,
-    keyboard: offerKeyboard(h.deps, market, claim.id),
+    keyboard: offerKeyboard(market),
     onSent: async (messageId) => {
       await h.deps.db.setMarketCardMessage(market.id, messageId);
     },
@@ -206,11 +227,17 @@ export async function routeProveOutcome(
   }
   const envelope = outcome.envelope;
   await h.deps.db.updateClaim(claim.id, { parse: envelope });
-  if (envelope.kind === 'ok') {
-    await mintOffer(h, claim, group, envelope, 'ok');
-    return;
+  switch (envelope.kind) {
+    case 'ok':
+      await mintOffer(h, claim, group, envelope, 'ok');
+      return;
+    case 'clarify':
+    case 'counter_offer':
+      await postOptions(h, claim, envelope);
+      return;
+    case 'awaiting_confirm':
+      return;
   }
-  await postOptions(h, claim, envelope);
 }
 
 export interface OfferArgs {
@@ -222,6 +249,28 @@ export interface OfferArgs {
   confidence: number | null;
   /** true for @mention/"book it" triggers — posts retry/reject feedback. */
   announce: boolean;
+  /** Omitted callers fail closed into owner confirmation. */
+  consent?: 'explicit' | 'awaiting_confirm';
+}
+
+async function postConfirmationGate(h: HandlerCtx, claim: ClaimRow): Promise<void> {
+  const claimer = await h.deps.db.getUser(claim.claimer_user_id);
+  const name = claimer?.display_name ?? 'The author';
+  h.poster.post(
+    claim.group_id,
+    `${name}, confirm this is your call. No offer goes live until you do.`,
+    {
+      replyToMessageId: claim.tg_message_id,
+      keyboard: confirmKeyboard(claim.id),
+      onSent: async (messageId) => {
+        const current = await h.deps.db.getClaim(claim.id);
+        if (current?.status !== 'awaiting_confirm') return;
+        await h.deps.db.updateClaim(claim.id, {
+          parse: { raw: null, kind: 'awaiting_confirm', options: [], gateMessageId: messageId },
+        });
+      },
+    },
+  );
 }
 
 /**
@@ -230,7 +279,8 @@ export interface OfferArgs {
  * so and passive detections stay silent.
  */
 export async function offerClaim(h: HandlerCtx, args: OfferArgs): Promise<void> {
-  if (!h.budget.allow(args.group.id)) {
+  const consent = args.consent ?? 'awaiting_confirm';
+  if (consent === 'explicit' && !h.budget.allow(args.group.id)) {
     h.deps.log.info('llm_budget_exhausted', { groupId: args.group.id });
     if (args.announce) {
       h.poster.post(args.chatId, await h.say('budget_spent'), {
@@ -244,16 +294,20 @@ export async function offerClaim(h: HandlerCtx, args: OfferArgs): Promise<void> 
     claimer_user_id: args.claimer.id,
     tg_message_id: args.sourceMessageId,
     quoted_text: args.text,
-    status: 'clarifying',
+    status: consent === 'explicit' ? 'clarifying' : 'awaiting_confirm',
     classifier_confidence: args.confidence,
-    expires_at: extendedClaimExpiry(h.deps),
+    expires_at: consent === 'explicit' ? extendedClaimExpiry(h.deps) : confirmationExpiry(h.deps),
   });
   h.deps.log.info('offer_claim', {
     claimId: claim.id,
     groupId: args.chatId,
     confidence: args.confidence,
-    trigger: args.announce,
+    consent,
   });
+  if (consent !== 'explicit') {
+    await postConfirmationGate(h, claim);
+    return;
+  }
   // In a replaying group, pin the parse to the replayed fixture (else ambiguous
   // team names — several active fixtures for one team — reject and go silent).
   const replayFixtureId = h.supervisor.replayFixture(args.chatId) ?? undefined;

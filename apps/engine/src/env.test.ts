@@ -22,6 +22,7 @@ describe('loadEnv', () => {
       PORT: 8790,
       TELEGRAM_INGRESS: 'poll',
       WAGER_MODE_ENABLED: 'false',
+      BETA_ALLOWED_GROUP_IDS: [],
     });
   });
 
@@ -78,13 +79,12 @@ describe('loadEnv', () => {
   });
 
   it('accepts a complete production configuration with all capabilities enabled safely', () => {
-    // Given webhook transport, an isolated treasury, and enforced coverage
+    // Given direct engine polling, an isolated treasury, and enforced coverage
     const source = {
       ...BASE_ENV,
       DEPLOYMENT_ENV: 'production',
-      TELEGRAM_INGRESS: 'webhook',
-      TELEGRAM_WEBHOOK_SECRET_TOKEN: 'webhook-secret-token-with-32-bytes',
-      WEB_CONCIERGE_TOKEN_SHA256: sha256('web-concierge-token-with-32-bytes-'),
+      TELEGRAM_INGRESS: 'poll',
+      BETA_ALLOWED_GROUP_IDS: '-100123',
       GLM_BASE_URL: 'https://api.z.ai/api/anthropic',
       SOLANA_RPC_URL: 'https://api.devnet.solana.com',
       WEB_BASE_URL: 'https://web.example.test',
@@ -94,7 +94,7 @@ describe('loadEnv', () => {
       TREASURY_COVERAGE_ENFORCED: 'true',
       STAKE_ACCEPTANCE_ENABLED: 'true',
       STARTER_GRANTS_ENABLED: 'true',
-      WALLET_MINIAPP_ENABLED: 'true',
+      WALLET_MINIAPP_ENABLED: 'false',
     };
 
     // When the engine parses its environment
@@ -102,11 +102,33 @@ describe('loadEnv', () => {
 
     // Then each independent switch is enabled as a typed value
     expect(parsed).toMatchObject({
+      BETA_ALLOWED_GROUP_IDS: [-100123],
       STARTER_GRANTS_ENABLED: true,
-      WALLET_MINIAPP_ENABLED: true,
+      WALLET_MINIAPP_ENABLED: false,
       STAKE_ACCEPTANCE_ENABLED: true,
       TREASURY_COVERAGE_ENFORCED: true,
     });
+  });
+
+  it('requires a valid non-empty group allowlist outside development', () => {
+    const deployed = {
+      ...BASE_ENV,
+      DEPLOYMENT_ENV: 'production',
+      TELEGRAM_INGRESS: 'poll',
+      GLM_BASE_URL: 'https://api.z.ai/api/anthropic',
+      SOLANA_RPC_URL: 'https://api.devnet.solana.com',
+      WEB_BASE_URL: 'https://web.example.test',
+      WALLET_LINK_DOMAIN: 'web.example.test',
+    };
+
+    expect(() => loadEnv(deployed)).toThrowError('Engine environment invalid: BETA_ALLOWED_GROUP_IDS');
+    expect(() => loadEnv({ ...deployed, BETA_ALLOWED_GROUP_IDS: '100123' })).toThrowError(
+      'Engine environment invalid: BETA_ALLOWED_GROUP_IDS',
+    );
+    expect(
+      loadEnv({ ...deployed, BETA_ALLOWED_GROUP_IDS: '-100123, -100456' })
+        .BETA_ALLOWED_GROUP_IDS,
+    ).toEqual([-100123, -100456]);
   });
 
   it('rejects omitted provider URLs in production instead of applying local defaults', () => {
@@ -114,9 +136,8 @@ describe('loadEnv', () => {
     const source = {
       ...BASE_ENV,
       DEPLOYMENT_ENV: 'production',
-      TELEGRAM_INGRESS: 'webhook',
-      TELEGRAM_WEBHOOK_SECRET_TOKEN: 'webhook-secret-token-with-32-bytes',
-      WEB_CONCIERGE_TOKEN_SHA256: sha256('web-concierge-token-with-32-bytes-'),
+      TELEGRAM_INGRESS: 'poll',
+      BETA_ALLOWED_GROUP_IDS: '-100123',
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
     };
@@ -171,24 +192,21 @@ describe('loadEnv', () => {
     expect(parsed).not.toHaveProperty('WEB_CONCIERGE_TOKEN_SHA256');
   });
 
-  it('requires the web bridge fingerprint in deployed environments', () => {
-    // Given production omits the cross-runtime web credential fingerprint
+  it('does not require a deferred web bridge fingerprint in the beta', () => {
+    // Given production does not configure the deferred web bridge
     const source = {
       ...BASE_ENV,
       DEPLOYMENT_ENV: 'production',
-      TELEGRAM_INGRESS: 'webhook',
-      TELEGRAM_WEBHOOK_SECRET_TOKEN: 'webhook-secret-token-with-32-bytes',
+      TELEGRAM_INGRESS: 'poll',
+      BETA_ALLOWED_GROUP_IDS: '-100123',
       GLM_BASE_URL: 'https://api.z.ai/api/anthropic',
       SOLANA_RPC_URL: 'https://api.devnet.solana.com',
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
     };
 
-    // When the engine parses its deployed environment
-    const parse = () => loadEnv(source);
-
-    // Then startup fails without requiring the raw web credential
-    expect(parse).toThrowError('Engine environment invalid: WEB_CONCIERGE_TOKEN_SHA256');
+    // Then direct beta startup succeeds without a bridge credential.
+    expect(loadEnv(source).TELEGRAM_INGRESS).toBe('poll');
   });
 
   it('rejects malformed analytics key material', () => {
@@ -203,10 +221,11 @@ describe('loadEnv', () => {
   });
 
   it('rejects unsafe production transport settings before startup', () => {
-    // Given production is configured for polling, plain HTTP, and no webhook secret
+    // Given production has an unsafe public web origin
     const source = {
       ...BASE_ENV,
       DEPLOYMENT_ENV: 'production',
+      BETA_ALLOWED_GROUP_IDS: '-100123',
       GLM_BASE_URL: 'https://api.z.ai/api/anthropic',
       SOLANA_RPC_URL: 'https://api.devnet.solana.com',
     };
@@ -214,10 +233,8 @@ describe('loadEnv', () => {
     // When the engine parses its environment
     const parse = () => loadEnv(source);
 
-    // Then every unsafe transport variable is named without configuration values
-    expect(parse).toThrowError(
-      'Engine environment invalid: TELEGRAM_INGRESS, TELEGRAM_WEBHOOK_SECRET_TOKEN, WEB_BASE_URL',
-    );
+    // Then startup names the unsafe origin without requiring deferred webhook state.
+    expect(parse).toThrowError('Engine environment invalid: WEB_BASE_URL');
   });
 
   it('rejects a wallet link domain that differs from the configured web origin', () => {

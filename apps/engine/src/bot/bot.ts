@@ -1,6 +1,6 @@
 /**
- * grammY bot assembly: middleware order is commands → callbacks → detection,
- * plus the my_chat_member consent hook (admin promotion = passive detection).
+ * grammY bot assembly: scoped commands, group lifecycle onboarding, then
+ * commands → callbacks → detection.
  */
 
 import type { Bot } from 'grammy';
@@ -9,7 +9,15 @@ import type { HandlerCtx } from './context.js';
 import { registerCommands } from './commands.js';
 import { registerCallbacks } from './callbacks.js';
 import { registerDetection } from './detection.js';
-import { tableUrl } from '../pipeline/render.js';
+import type { EngineDb } from '../ports.js';
+import type { Env } from '../env.js';
+import type { Poster } from './poster.js';
+import {
+  claimGroupReadiness,
+  groupReadyMarkerStore,
+  readyMessageForGroup,
+} from './onboarding.js';
+import { isBetaGroupAllowed } from './beta-access.js';
 
 export interface BotErrorRegistrar {
   catch(handler: (error: { readonly error: unknown }) => unknown): void;
@@ -25,12 +33,72 @@ export function registerBotErrorHandler(bot: BotErrorRegistrar, log: Logger): vo
   });
 }
 
-export function registerBotHandlers(bot: Bot, h: HandlerCtx): void {
-  registerBotErrorHandler(bot, h.deps.log);
+export const PRIVATE_BOT_COMMANDS = [
+  { command: 'start', description: 'Add Called It to a group' },
+  { command: 'help', description: 'How Called It works' },
+] as const;
 
+export const GROUP_BOT_COMMANDS = [
+  { command: 'bookit', description: 'Book an explicit call' },
+  { command: 'table', description: 'Open the group board' },
+  { command: 'help', description: 'How Called It works' },
+] as const;
+
+/** The legacy main hook clears Telegram's default scope; user scopes are exact. */
+export const BOT_COMMANDS = [] as const;
+
+type BotCommandScope =
+  | { readonly type: 'all_private_chats' }
+  | { readonly type: 'all_group_chats' };
+
+export interface BotCommandScopeApi {
+  setMyCommands(
+    commands: readonly { readonly command: string; readonly description: string }[],
+    options: { readonly scope: BotCommandScope },
+  ): Promise<unknown>;
+}
+
+export async function configureScopedBotCommands(api: BotCommandScopeApi): Promise<void> {
+  await api.setMyCommands(PRIVATE_BOT_COMMANDS, { scope: { type: 'all_private_chats' } });
+  await api.setMyCommands(GROUP_BOT_COMMANDS, { scope: { type: 'all_group_chats' } });
+}
+
+export interface GroupLifecycleContext {
+  readonly chat: { readonly id: number; readonly type: string; readonly title?: string };
+  readonly myChatMember: {
+    readonly new_chat_member: { readonly status: string };
+    readonly old_chat_member: { readonly status: string };
+  };
+}
+
+export interface GroupLifecycleBot {
+  on(
+    filter: 'my_chat_member',
+    handler: (ctx: GroupLifecycleContext) => Promise<unknown>,
+  ): void;
+}
+
+export interface GroupLifecycleHandlerCtx {
+  readonly deps: {
+    readonly db: Pick<EngineDb, 'upsertGroup' | 'setGroupAdmin' | 'markGroupReady'>;
+    readonly env: Pick<Env, 'WEB_BASE_URL' | 'DEPLOYMENT_ENV' | 'BETA_ALLOWED_GROUP_IDS'>;
+    readonly log: Pick<Logger, 'info' | 'warn'>;
+  };
+  readonly poster: Pick<Poster, 'post'>;
+}
+
+function isGroupChat(chatType: string): boolean {
+  return chatType === 'group' || chatType === 'supergroup';
+}
+
+export function registerGroupLifecycleHandlers(bot: GroupLifecycleBot, h: GroupLifecycleHandlerCtx): void {
   bot.on('my_chat_member', async (ctx) => {
     const chat = ctx.chat;
-    if (chat.type !== 'group' && chat.type !== 'supergroup') return;
+    if (!isGroupChat(chat.type)) return;
+    if (!isBetaGroupAllowed(h.deps.env, chat.id)) {
+      h.deps.log.info('beta_group_not_allowlisted', { groupId: chat.id });
+      return;
+    }
     const next = ctx.myChatMember.new_chat_member.status;
     const previous = ctx.myChatMember.old_chat_member.status;
     const group = await h.deps.db.upsertGroup({ id: chat.id, title: chat.title ?? '' });
@@ -38,25 +106,35 @@ export function registerBotHandlers(bot: Bot, h: HandlerCtx): void {
 
     if (next === 'administrator') {
       await h.deps.db.setGroupAdmin(chat.id, true);
-      h.poster.post(chat.id, await h.say('detection_enabled'));
+    } else if (next === 'member') {
+      await h.deps.db.setGroupAdmin(chat.id, false);
+    } else {
       return;
     }
-    if (next === 'member') {
-      await h.deps.db.setGroupAdmin(chat.id, false);
-      const joined = previous === 'left' || previous === 'kicked';
-      const key = joined ? 'intro' : 'detection_disabled';
-      h.poster.post(chat.id, await h.say(key, { webUrl: tableUrl(h.deps, group.slug) }));
+
+    const marker = await claimGroupReadiness(groupReadyMarkerStore(h.deps.db), group.id);
+    if (!marker.ok) {
+      h.deps.log.warn('group_readiness_rejected', { groupId: chat.id, code: marker.code });
+      return;
+    }
+
+    if (marker.created) {
+      h.poster.post(chat.id, readyMessageForGroup({ group, webBaseUrl: h.deps.env.WEB_BASE_URL }));
     }
   });
+}
+
+export function registerBotHandlers(bot: Bot, h: HandlerCtx): void {
+  registerBotErrorHandler(bot, h.deps.log);
+  void configureScopedBotCommands(bot.api).catch((error: unknown) => {
+    h.deps.log.warn('set_scoped_commands_failed', {
+      reason: error instanceof Error ? 'bot_api_error' : 'unknown_error',
+    });
+  });
+
+  registerGroupLifecycleHandlers(bot, h);
 
   registerCommands(bot, h);
   registerCallbacks(bot, h);
   registerDetection(bot, h);
 }
-
-export const BOT_COMMANDS = [
-  { command: 'bookit', description: 'Reply to a claim to put it on the record' },
-  { command: 'table', description: 'The group leaderboard' },
-  { command: 'settings', description: 'How chatty should I be? (admins)' },
-  { command: 'help', description: 'How this works' },
-] as const;

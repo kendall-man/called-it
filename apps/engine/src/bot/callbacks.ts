@@ -19,6 +19,7 @@ import { voidAbandonedMarket } from '../pipeline/void.js';
 import { composeClaimCard } from '../pipeline/render.js';
 import { renderFallback } from './copy.js';
 import { WAGER_TUNABLES } from '../wager/constants.js';
+import { isBetaGroupAllowed } from './beta-access.js';
 
 async function answer(ctx: Context, text: string): Promise<void> {
   try {
@@ -34,6 +35,16 @@ async function stale(h: HandlerCtx, ctx: Context): Promise<void> {
 
 function claimIsExpired(claim: ClaimRow, nowMs: number): boolean {
   return claim.expires_at !== null && Date.parse(claim.expires_at) <= nowMs;
+}
+
+function callbackMessageId(ctx: Context): number | null {
+  return ctx.callbackQuery?.message?.message_id ?? null;
+}
+
+function stripCallbackKeyboard(h: HandlerCtx, ctx: Context): void {
+  const chatId = ctx.chat?.id;
+  const messageId = callbackMessageId(ctx);
+  if (chatId !== undefined && messageId !== null) h.poster.stripKeyboard(chatId, messageId);
 }
 
 /**
@@ -98,10 +109,7 @@ async function handleProve(h: HandlerCtx, ctx: Context, claimId: string): Promis
     return;
   }
   const { claim, group } = loaded;
-  if (
-    (claim.status !== 'nudged' && claim.status !== 'detected') ||
-    claimIsExpired(claim, h.deps.now())
-  ) {
+  if (claim.status !== 'nudged' || claimIsExpired(claim, h.deps.now())) {
     await stale(h, ctx);
     return;
   }
@@ -118,6 +126,46 @@ async function handleProve(h: HandlerCtx, ctx: Context, claimId: string): Promis
     status: 'clarifying',
     expires_at: extendedClaimExpiry(h),
   });
+  await retryOffer(h, claim, group);
+}
+
+/** Owner-only confirmation of a passive or friend-triggered claim. */
+async function handleConfirm(h: HandlerCtx, ctx: Context, claimId: string): Promise<void> {
+  const loaded = await loadClaimForChat(h, ctx, claimId);
+  if (!loaded) {
+    await stale(h, ctx);
+    return;
+  }
+  const { claim, group } = loaded;
+  if (claim.status !== 'awaiting_confirm') {
+    await stale(h, ctx);
+    return;
+  }
+  if (ctx.from?.id !== claim.claimer_user_id) {
+    const claimer = await h.deps.db.getUser(claim.claimer_user_id);
+    await answer(
+      ctx,
+      await h.say('not_your_shout', { claimer: claimer?.display_name ?? 'the author' }),
+    );
+    return;
+  }
+  if (claimIsExpired(claim, h.deps.now())) {
+    await h.deps.db.updateClaim(claim.id, { status: 'expired' });
+    stripCallbackKeyboard(h, ctx);
+    await stale(h, ctx);
+    return;
+  }
+  if (!h.budget.allow(group.id)) {
+    h.deps.log.info('llm_budget_exhausted', { groupId: group.id, claimId: claim.id });
+    await answer(ctx, await h.say('budget_spent'));
+    return;
+  }
+  await answer(ctx, await h.say('prove_ack'));
+  await h.deps.db.updateClaim(claim.id, {
+    status: 'clarifying',
+    expires_at: extendedClaimExpiry(h),
+  });
+  stripCallbackKeyboard(h, ctx);
   await retryOffer(h, claim, group);
 }
 
@@ -176,6 +224,13 @@ async function handleDecline(h: HandlerCtx, ctx: Context, claimId: string): Prom
     return;
   }
 
+  if (claim.status === 'awaiting_confirm' && claimIsExpired(claim, h.deps.now())) {
+    await h.deps.db.updateClaim(claim.id, { status: 'expired' });
+    stripCallbackKeyboard(h, ctx);
+    await stale(h, ctx);
+    return;
+  }
+
   // Post-mint decline: only if nobody has bet yet — then void the market.
   if (claim.status === 'confirmed') {
     const openMarkets = await h.deps.db.openMarketsForGroup(claim.group_id);
@@ -196,12 +251,13 @@ async function handleDecline(h: HandlerCtx, ctx: Context, claimId: string): Prom
   }
 
   // Pre-mint decline: kill the claim before any offer card exists.
-  const declinable: ClaimRow['status'][] = ['nudged', 'detected', 'clarifying'];
+  const declinable: ClaimRow['status'][] = ['awaiting_confirm', 'nudged', 'detected', 'clarifying'];
   if (!declinable.includes(claim.status)) {
     await stale(h, ctx);
     return;
   }
   await h.deps.db.updateClaim(claim.id, { status: 'declined' });
+  if (claim.status === 'awaiting_confirm') stripCallbackKeyboard(h, ctx);
   await answer(ctx, await h.say('confirm_declined'));
 }
 
@@ -271,9 +327,7 @@ async function handleStake(
     nowMs: h.deps.now(),
     source:
       lamports === WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0] &&
-      h.deps.env.STARTER_GRANTS_ENABLED &&
-      h.deps.env.WALLET_MINIAPP_ENABLED &&
-      h.deps.env.STAKE_ACCEPTANCE_ENABLED
+      h.deps.env.STARTER_GRANTS_ENABLED && h.deps.env.STAKE_ACCEPTANCE_ENABLED
         ? { kind: 'telegram_default_card', callbackId }
         : { kind: 'telegram_card', callbackId },
   });
@@ -363,6 +417,9 @@ export async function dispatchCallback(
         handleOption(h, ctx, action.claimId, action.key),
       );
       break;
+    case 'confirm':
+      await withClaimLock(h, ctx, action.claimId, () => handleConfirm(h, ctx, action.claimId));
+      break;
     case 'decline':
       await withClaimLock(h, ctx, action.claimId, () => handleDecline(h, ctx, action.claimId));
       break;
@@ -381,6 +438,11 @@ export async function dispatchCallback(
 
 export function registerCallbacks(bot: Bot, h: HandlerCtx): void {
   bot.on('callback_query:data', async (ctx) => {
+    const chatId = ctx.chat?.id;
+    if (chatId === undefined || !isBetaGroupAllowed(h.deps.env, chatId)) {
+      await stale(h, ctx);
+      return;
+    }
     const action = decodeCallback(ctx.callbackQuery.data);
     if (!action) {
       await answer(ctx, renderFallback('stale'));

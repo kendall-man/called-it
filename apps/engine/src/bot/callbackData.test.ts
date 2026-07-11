@@ -13,8 +13,9 @@ const ROUND_TRIPS: CallbackAction[] = [
   { t: 'prove', claimId: CLAIM_ID },
   { t: 'option', claimId: CLAIM_ID, key: '0' },
   { t: 'option', claimId: CLAIM_ID, key: 'up' },
+  { t: 'confirm', claimId: CLAIM_ID },
   { t: 'decline', claimId: CLAIM_ID },
-  { t: 'stake', marketId: MARKET_ID, side: 'back', presetIndex: 2 },
+  { t: 'stake', marketId: MARKET_ID, side: 'back', presetIndex: 0 },
   { t: 'stake', marketId: MARKET_ID, side: 'doubt', presetIndex: 0 },
   { t: 'chattiness', mode: 'react_only' },
   { t: 'web', enabled: false },
@@ -53,11 +54,11 @@ describe('callback data codec', () => {
     }
   });
 
-  it('treats removed confirm/wager buttons from an older build as stale', () => {
-    // The pivot dropped the confirm gate and the devnet-SOL settings toggle, so
-    // any surviving `cf:` / `wg:` button must decode to null (ship has sailed).
-    expect(decodeCallback(`cf:${CLAIM_ID}`)).toBeNull();
+  it('keeps only the beta consent and fixed-stake callbacks live', () => {
     expect(decodeCallback('wg:1')).toBeNull();
     expect(decodeCallback('wg:0')).toBeNull();
+    expect(decodeCallback(`st:${MARKET_ID}:b:1`)).toBeNull();
+    expect(decodeCallback(`am:${MARKET_ID}`)).toBeNull();
+    expect(decodeCallback(`ap:${MARKET_ID}:abCD_123:b:1`)).toBeNull();
   });
 });

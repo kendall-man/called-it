@@ -44,9 +44,6 @@
 
   body {
     background-color: var(--color-night-950);
-    background-image:
-      radial-gradient(60rem 40rem at 85% -10%, rgb(22 200 111 / 0.09), transparent 60%),
-      radial-gradient(50rem 35rem at -10% 15%, rgb(240 185 11 / 0.06), transparent 55%);
     color: var(--color-chalk);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
@@ -61,7 +58,7 @@
 @utility display-type {
   font-family: var(--font-display);
   font-weight: 800;
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
   text-transform: uppercase;
   line-height: 0.95;
 }

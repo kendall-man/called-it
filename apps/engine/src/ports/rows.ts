@@ -26,6 +26,15 @@ export interface GroupRow {
   is_admin: boolean;
 }
 
+export type BotGroupReadyMarkerResult =
+  | {
+      readonly ok: true;
+      readonly created: boolean;
+      readonly groupId: number;
+      readonly onboardingVersion: 'calledit_v1';
+    }
+  | { readonly ok: false; readonly code: 'invalid_input' | 'group_not_found' };
+
 export interface UserRow {
   id: number;
   display_name: string;

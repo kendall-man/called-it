@@ -22,7 +22,6 @@ const PRIVATE_SENTINELS = [
 
 const RECEIPT_COLUMNS = [
   'back_pot_lamports',
-  'claimer_alias',
   'created_at',
   'currency',
   'deciding_seq',
@@ -77,7 +76,7 @@ test('privacy-safe public SOL migration applies fresh and as a 0001-0007 upgrade
   await withPrivacyDatabase(migrations, async () => undefined, assertUpgradeBoundary);
 });
 
-test('public product views retain only aliases, deterministic specs, and aggregate SOL facts', async () => {
+test('public product views retain deterministic specs and aggregate SOL facts only', async () => {
   const migrations = await requiredMigrations();
   await withPrivacyDatabase(migrations, async (client, url) => {
     await seedPrivacyFixtures(client);
@@ -98,6 +97,10 @@ async function requiredMigrations(): Promise<readonly MigrationFile[]> {
   for (const name of ['0007_settlement_proof_jobs.sql', '0008_public_product_views.sql']) {
     assert.ok(migrations.some((migration) => migration.name === name), `missing ${name}`);
   }
+  assert.ok(
+    migrations.some((migration) => migration.name === '0012_public_receipt_aggregates.sql'),
+    'missing public receipt aggregate migration',
+  );
   return migrations;
 }
 
@@ -199,6 +202,12 @@ async function seedPrivacyFixtures(client: Client): Promise<void> {
     "insert into markets (id, claim_id, group_id, fixture_id, spec, price_provenance, quote_probability, quote_multiplier, currency, is_replay) values ('00000000-0000-4000-8000-000000000403', '00000000-0000-4000-8000-000000000303', 101, 301, '{\"claimType\":\"totals_ou\",\"line\":2.5}'::jsonb, 'market', 0.5, 2, 'sol', true)",
   );
   await client.query(
+    "insert into settlements (market_id, outcome, tier) values ('00000000-0000-4000-8000-000000000403', 'void', 'oracle_resolved')",
+  );
+  await client.query(
+    "insert into proofs (market_id, kind, status) values ('00000000-0000-4000-8000-000000000403', 'stat', 'unavailable')",
+  );
+  await client.query(
     "insert into feed_events (fixture_id, seq, ts_ms, received_at_ms, kind, payload) values (301, 1, 1, 1, 'goal', '{\"minute\":10,\"detail\":{\"playerName\":\"Safe Player\",\"goalType\":\"open_play\"},\"private\":\"PRIVATE CLAIM: striker scores before halftime\"}'::jsonb)",
   );
   await client.query(
@@ -295,11 +304,14 @@ async function assertAliasContract(client: Client): Promise<void> {
 
 async function assertPublicAccessContract(client: Client, url: string): Promise<void> {
   await withPgClient(url, async (roleClient) => {
-    await roleClient.query('set role anon');
+    await roleClient.query('set session authorization anon');
     const receipts = await roleClient.query<{ readonly count: string }>('select count(*)::text as count from public_receipts');
     assert.equal(receipts.rows[0]?.count, '1');
     const settlements = await roleClient.query<{ readonly count: string }>('select count(*)::text as count from settlements');
     assert.equal(settlements.rows[0]?.count, '1');
+    const proofs = await roleClient.query<{ readonly market_id: string }>('select market_id from proofs order by market_id');
+    assert.ok(proofs.rows.length > 0);
+    assert.ok(proofs.rows.every((row) => row.market_id === '00000000-0000-4000-8000-000000000401'));
     await assert.rejects(roleClient.query('select * from groups'), /permission denied/);
     await assert.rejects(roleClient.query('select * from onboarding_events'), /permission denied/);
   });

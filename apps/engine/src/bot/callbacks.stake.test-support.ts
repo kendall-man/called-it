@@ -15,8 +15,6 @@ export const USER_A = 8001;
 export const MARKET_ID = 'a1111111-1111-4111-8111-111111111111';
 export const FIXTURE_ID = 77;
 export const PRESET_01 = 0;
-export const PRESET_05 = 1;
-export const PRESET_10 = 2;
 
 export function fixtureAt(phase: FixtureRow['phase'], minute: number | null): FixtureRow {
   return {
@@ -74,7 +72,6 @@ export interface StakeHarnessOptions {
   balanceLamports?: bigint | null;
   link?: boolean;
   starterGrantsEnabled?: boolean;
-  walletMiniappEnabled?: boolean;
   stakeAcceptanceEnabled?: boolean;
   starterBudgetEnabled?: boolean;
   refreshableCard?: boolean;
@@ -215,7 +212,7 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
   const wagerBundle = makeFakeDeps({
     now: () => NOW,
     starterGrantsEnabled: opts.starterGrantsEnabled ?? false,
-    walletMiniappEnabled: opts.walletMiniappEnabled ?? false,
+    walletMiniappEnabled: false,
     stakeAcceptanceEnabled: opts.stakeAcceptanceEnabled ?? false,
   });
   installAtomicStarterRpc(wagerBundle.db, opts.starterBudgetEnabled ?? true);
@@ -276,7 +273,7 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
       env: {
         WEB_BASE_URL: 'https://web.test',
         STARTER_GRANTS_ENABLED: opts.starterGrantsEnabled ?? false,
-        WALLET_MINIAPP_ENABLED: opts.walletMiniappEnabled ?? false,
+        WALLET_MINIAPP_ENABLED: false,
         STAKE_ACCEPTANCE_ENABLED: opts.stakeAcceptanceEnabled ?? false,
       },
     },
@@ -315,7 +312,7 @@ export function makeStakeContext(
   return { ctx, toasts };
 }
 
-export const stakeAction = (side: 'back' | 'doubt', presetIndex: number) =>
+export const stakeAction = (side: 'back' | 'doubt', presetIndex: 0) =>
   ({ t: 'stake', marketId: MARKET_ID, side, presetIndex }) as const;
 
 export const INPLAY_CUTOFF = TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE;

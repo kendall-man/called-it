@@ -1,7 +1,5 @@
 /** Consumer-facing number/date formatting. Game-show register: "×9 back", never odds notation. */
 
-const REP_FORMAT = new Intl.NumberFormat('en-US');
-
 /** Fixed-locale, fixed-zone date formatting so server and client render identically. */
 const UTC_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
@@ -13,10 +11,6 @@ const UTC_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
 
 const MULTIPLIER_DECIMALS = 1;
 const PERCENT_FLOOR = 1;
-
-export function formatRep(points: number): string {
-  return REP_FORMAT.format(points);
-}
 
 /** Renders as "×9" (whole) or "×9.4" — never bookmaker odds notation. */
 export function formatMultiplier(multiplier: number): string {

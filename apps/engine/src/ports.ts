@@ -1,5 +1,6 @@
 export type {
   ClaimRow,
+  BotGroupReadyMarkerResult,
   ClaimStatus,
   FixtureRow,
   FixtureUpsert,

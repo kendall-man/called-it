@@ -6,6 +6,27 @@ const Sha256FingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const Base64KeySchema = z.string().regex(/^[A-Za-z0-9+/]{43}=$/).refine(
   (value) => Buffer.from(value, 'base64').toString('base64') === value,
 );
+const BetaGroupAllowlistSchema = z.string().default('').transform((value, ctx) => {
+  const text = value.trim();
+  if (text === '') return [];
+  const groupIds: number[] = [];
+  const seen = new Set<number>();
+  for (const rawGroupId of text.split(',')) {
+    const candidate = rawGroupId.trim();
+    if (!/^-\d+$/.test(candidate)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must contain negative Telegram group ids' });
+      return z.NEVER;
+    }
+    const groupId = Number(candidate);
+    if (!Number.isSafeInteger(groupId) || groupId >= 0 || seen.has(groupId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must contain unique safe Telegram group ids' });
+      return z.NEVER;
+    }
+    seen.add(groupId);
+    groupIds.push(groupId);
+  }
+  return groupIds;
+});
 
 /**
  * Environment contract — exactly the names declared in the repo-root
@@ -17,6 +38,7 @@ const EnvSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(10, 'BotFather token required'),
   TELEGRAM_BOT_USERNAME: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{3,30}[Bb][Oo][Tt]$/),
   TELEGRAM_WEBHOOK_SECRET_TOKEN: z.string().min(32).optional(),
+  BETA_ALLOWED_GROUP_IDS: BetaGroupAllowlistSchema,
   GLM_API_KEY: z.string().min(1, 'GLM (Z.ai) key required for the agent'),
   GLM_BASE_URL: z.string().url().optional(),
   SUPABASE_URL: z.string().url(),
@@ -93,14 +115,23 @@ const EnvSchema = z.object({
       message: 'required in deployed environments',
     });
   }
-  if (deployed && env.TELEGRAM_INGRESS !== 'webhook') {
+  // The allowlisted beta has one direct engine-bot ingress. Keep webhook
+  // routing disabled until the separate concierge delivery program is resumed.
+  if (deployed && env.TELEGRAM_INGRESS !== 'poll') {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['TELEGRAM_INGRESS'],
-      message: 'deployed environments require webhook ingress',
+      message: 'allowlisted beta requires direct polling ingress',
     });
   }
-  if ((deployed || env.TELEGRAM_INGRESS === 'webhook') && env.TELEGRAM_WEBHOOK_SECRET_TOKEN === undefined) {
+  if (deployed && env.BETA_ALLOWED_GROUP_IDS.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['BETA_ALLOWED_GROUP_IDS'],
+      message: 'required in deployed beta environments',
+    });
+  }
+  if (env.TELEGRAM_INGRESS === 'webhook' && env.TELEGRAM_WEBHOOK_SECRET_TOKEN === undefined) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['TELEGRAM_WEBHOOK_SECRET_TOKEN'],
@@ -126,14 +157,6 @@ const EnvSchema = z.object({
   if (env.READINESS_CHECK_TIMEOUT_MS >= env.SHUTDOWN_DRAIN_TIMEOUT_MS) {
     addPairIssue('READINESS_CHECK_TIMEOUT_MS', 'SHUTDOWN_DRAIN_TIMEOUT_MS');
   }
-  if (deployed && env.WEB_CONCIERGE_TOKEN_SHA256 === undefined) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['WEB_CONCIERGE_TOKEN_SHA256'],
-      message: 'required in deployed environments',
-    });
-  }
-
   const routeTokens = [
     ['ENGINE_CONCIERGE_TOKEN', env.ENGINE_CONCIERGE_TOKEN],
     ['ENGINE_TELEGRAM_TOKEN', env.ENGINE_TELEGRAM_TOKEN],

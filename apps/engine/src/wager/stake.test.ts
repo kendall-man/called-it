@@ -79,7 +79,6 @@ describe('handleStakeTap gates', () => {
 
   it.each([
     'starterGrantsEnabled',
-    'walletMiniappEnabled',
     'stakeAcceptanceEnabled',
   ] as const)('requires %s inside the wager module before a starter stake can begin', async (disabledFlag) => {
     const { deps, db } = makeFakeDeps({
@@ -199,7 +198,7 @@ describe('typed RPC errors map to distinct copy', () => {
   it('every refusal says that no SOL moved and gives one recovery action', () => {
     for (const [, line] of cases) {
       expect(line).toMatch(/no SOL moved|unchanged/i);
-      expect(line).toMatch(/open \/wallet|use \/deposit|pick a lane|choose another call|check \/me/i);
+      expect(line).toMatch(/try another allowlisted beta group|pick a lane|choose another call|check \/me|use \/deposit|open \/wallet/i);
     }
   });
 });

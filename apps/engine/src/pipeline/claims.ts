@@ -11,9 +11,12 @@ import type { ClaimRow, Deps, FixtureRow, GroupRow, MarketRow } from '../ports.j
 import { buildCompileContext, readGoals } from './context.js';
 
 /** Stored in claims.parse (jsonb): the raw parse plus compiled candidates. */
+/** A passive or friend-triggered call expires unless its author confirms within two minutes. */
+export const SPEAKER_CONFIRM_TTL_MS = 2 * 60_000;
+
 export interface ParseEnvelope {
   raw: RawClaimParse | null;
-  kind: 'ok' | 'clarify' | 'counter_offer';
+  kind: 'ok' | 'clarify' | 'counter_offer' | 'awaiting_confirm';
   question?: string;
   reason?: string;
   options: Array<{ key: string; label: string; spec: MarketSpec }>;
@@ -37,7 +40,15 @@ export function readEnvelope(claim: ClaimRow): ParseEnvelope | null {
   const parsed = claim.parse;
   if (!parsed || typeof parsed !== 'object') return null;
   const env = parsed as Partial<ParseEnvelope>;
-  if (!Array.isArray(env.options) || typeof env.kind !== 'string') return null;
+  if (
+    !Array.isArray(env.options) ||
+    (env.kind !== 'ok' &&
+      env.kind !== 'clarify' &&
+      env.kind !== 'counter_offer' &&
+      env.kind !== 'awaiting_confirm')
+  ) {
+    return null;
+  }
   return env as ParseEnvelope;
 }
 
@@ -282,7 +293,7 @@ export async function createMarketFromClaim(deps: Deps, args: CreateMarketArgs):
     odds_ts: quote.oddsTsMs,
     ...(currency !== undefined ? { currency } : {}),
   });
-  await deps.db.updateClaim(claim.id, { status: 'confirmed' });
+  await deps.db.updateClaim(claim.id, { status: 'confirmed', expires_at: null });
   deps.log.info('market_minted', {
     marketId: market.id,
     claimId: claim.id,

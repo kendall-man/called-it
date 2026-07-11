@@ -66,7 +66,6 @@ export async function handleStakeTap(
     source.kind === 'telegram_default_card' &&
     lamports === WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0] &&
     deps.starterGrantsEnabled &&
-    deps.walletMiniappEnabled &&
     deps.stakeAcceptanceEnabled;
   const idempotencyKey =
     source.kind === 'durable_source'

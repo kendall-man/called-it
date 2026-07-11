@@ -1,35 +1,52 @@
 /** Full-card degraded states: unconfigured deploy and data-source hiccups. */
+import Link from 'next/link';
 import { Card, PageShell, Badge } from './ui';
 
 export function AwaitingConfiguration() {
   return (
     <PageShell topRight={<Badge tone="flood">Warming up</Badge>}>
       <Card className="mt-10 text-center">
-        <p className="display-type text-3xl text-chalk">Studio lights are off</p>
+        <h1 className="display-type text-3xl text-chalk">Public records are not ready</h1>
         <p className="mt-3 text-sm leading-relaxed text-fog">
-          This page isn’t wired to its data source yet. Once the deploy sets{' '}
-          <code className="rounded bg-night-800 px-1.5 py-0.5 text-xs text-chalk">
-            NEXT_PUBLIC_SUPABASE_URL
-          </code>{' '}
-          and{' '}
-          <code className="rounded bg-night-800 px-1.5 py-0.5 text-xs text-chalk">
-            NEXT_PUBLIC_SUPABASE_ANON_KEY
-          </code>
-          , the receipts go live.
+          This deployment cannot show public group data yet. No SOL moved and no saved call changed.
         </p>
+        <Link
+          href="/"
+          className="display-type mt-5 inline-flex min-h-11 items-center rounded-xl border border-line bg-night-800 px-4 text-sm text-chalk hover:border-pitch-500/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+        >
+          Back to Called It
+        </Link>
       </Card>
     </PageShell>
   );
 }
 
-export function DataUnavailable() {
+export function DataUnavailable({ retryHref }: { retryHref: string }) {
   return (
     <PageShell topRight={<Badge tone="flood">Hold on</Badge>}>
       <Card className="mt-10 text-center">
-        <p className="display-type text-3xl text-chalk">The scoreboard isn’t answering</p>
+        <h1 className="display-type text-3xl text-chalk">Public data is unavailable</h1>
         <p className="mt-3 text-sm leading-relaxed text-fog">
-          Temporary glitch on our side of the tunnel. Give it a minute and refresh — every call
-          and receipt is safe.
+          We could not load the current public record. No SOL moved and no saved call changed.
+        </p>
+        <Link
+          href={retryHref}
+          className="display-type mt-5 inline-flex min-h-11 items-center rounded-xl border border-line bg-night-800 px-4 text-sm text-chalk hover:border-pitch-500/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+        >
+          Try again
+        </Link>
+      </Card>
+    </PageShell>
+  );
+}
+
+export function PublicRecordLoading({ label }: { label: 'group board' | 'receipt' }) {
+  return (
+    <PageShell topRight={<Badge tone="neutral">Loading</Badge>}>
+      <Card className="mt-10 text-center" aria-busy="true" aria-live="polite">
+        <h1 className="display-type text-3xl text-chalk">Loading public {label}</h1>
+        <p className="mt-3 text-sm leading-relaxed text-fog">
+          Loading the latest public record. No SOL moved and no saved call changed.
         </p>
       </Card>
     </PageShell>

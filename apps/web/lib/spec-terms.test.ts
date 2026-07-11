@@ -4,6 +4,7 @@ import {
   describePeriod,
   describeTerms,
   describeTier,
+  describeTrustState,
   parseMarketSpec,
   PROVENANCE_COPY,
 } from './spec-terms';
@@ -124,5 +125,40 @@ describe('consumer copy register', () => {
     for (const copy of rendered) {
       expect(copy).not.toMatch(BANNED_VOCABULARY);
     }
+  });
+});
+
+describe('describeTrustState', () => {
+  it('does not claim a pending chain proof has verified', () => {
+    expect(
+      describeTrustState(
+        { status: 'settled', tier: 'chain_proven', proofStatus: 'pending' },
+        'chain_proven',
+      ).label,
+    ).toBe('Chain proof not yet verified');
+  });
+
+  it('states unavailable and failed proof outcomes plainly', () => {
+    expect(
+      describeTrustState(
+        { status: 'settled', tier: 'chain_proven', proofStatus: 'unavailable' },
+        'chain_proven',
+      ).label,
+    ).toBe('Chain proof unavailable');
+    expect(
+      describeTrustState(
+        { status: 'settled', tier: 'chain_proven', proofStatus: 'failed' },
+        'chain_proven',
+      ).label,
+    ).toBe('Chain proof could not verify');
+  });
+
+  it('describes signed-feed provenance without claiming a chain proof', () => {
+    expect(
+      describeTrustState(
+        { status: 'settled', tier: 'oracle_resolved', proofStatus: null },
+        'oracle_resolved',
+      ),
+    ).toMatchObject({ label: 'Signed feed resolved', tone: 'sky' });
   });
 });
