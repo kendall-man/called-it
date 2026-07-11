@@ -158,6 +158,7 @@ function createDeps(db: EngineDb, wager: Deps['wager'], log: Logger): Deps {
         },
       }),
       fetchFixtures: unreachableAsync,
+      fetchScoreEvents: unreachableAsync,
       fetchStatProof: unreachableAsync,
       createLiveSource: unreachable,
       createReplaySource: unreachable,

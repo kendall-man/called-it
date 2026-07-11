@@ -13,6 +13,8 @@ export const ENGINE = {
   FIXTURES_SYNC_MS: 15 * 60_000,
   /** Cadence for the minute-grade cron work (TTL expiry, sweeper, hour jobs). */
   MINUTE_TICK_MS: 60_000,
+  /** Keep beta settlement recovery fresher than the worker readiness budget. */
+  SETTLEMENT_RECONCILIATION_MS: 15_000,
   /** Prefilter entity dictionary cache TTL. */
   ENTITY_CACHE_TTL_MS: 10 * 60_000,
   /** Start a live source this long before kickoff so lineups are caught. */

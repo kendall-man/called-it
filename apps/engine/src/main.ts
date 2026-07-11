@@ -23,8 +23,8 @@ import { EntityCache } from './bot/entities.js';
 import { LlmBudget } from './bot/budget.js';
 import { BOT_COMMANDS, registerBotHandlers } from './bot/bot.js';
 import type { HandlerCtx } from './bot/context.js';
-import { ProofWorker } from './proofs/worker.js';
 import { Settler } from './settle/settler.js';
+import { createSettlementReconciler } from './settle/settlement-reconciler.js';
 import { IngestSupervisor } from './ingest/supervisor.js';
 import { startCrons } from './cron/index.js';
 import { startEngineApi } from './api/server.js';
@@ -40,6 +40,7 @@ import {
   SYSTEM_READINESS_DEADLINE,
   createReadinessEvaluator,
 } from './api/readiness.js';
+import { createBetaReadinessPorts } from './api/beta-readiness.js';
 import {
   createShutdownSignalHandler,
   runBoundedShutdown,
@@ -95,9 +96,9 @@ async function main(): Promise<void> {
   assertWagerBootable(env, deps.wager !== null);
 
   const say = createSay(deps.agent, log);
-  const proofWorker = new ProofWorker(deps);
-  const settler = new Settler(deps, poster, say, proofWorker);
+  const settler = new Settler(deps, poster, say, null);
   const supervisor = new IngestSupervisor(deps, settler);
+  const settlementReconciler = createSettlementReconciler(deps, log);
 
   const handlerCtx: HandlerCtx = {
     deps,
@@ -127,7 +128,14 @@ async function main(): Promise<void> {
     log.warn('set_commands_failed', { error: String(err) });
   });
 
-  const crons = startCrons({ deps, poster, say, settler, supervisor });
+  const crons = startCrons({
+    deps,
+    poster,
+    say,
+    settler,
+    supervisor,
+    settlementReconciler,
+  });
   const webhookIngress = env.TELEGRAM_INGRESS === 'webhook';
   let runner: ReturnType<typeof run> | null = null;
   let webhookWorkerReady = false;
@@ -142,8 +150,13 @@ async function main(): Promise<void> {
     settlementMaxBacklog: env.READINESS_SETTLEMENT_MAX_BACKLOG,
     settlementMaxOldestAgeMs: env.READINESS_SETTLEMENT_MAX_OLDEST_AGE_MS,
   } satisfies EngineReadinessPolicy;
+  const betaReadiness = createBetaReadinessPorts({
+    base: deps.readiness,
+    feed: { snapshot: (signal) => settlementReconciler.feedSnapshot(signal) },
+    settlement: { snapshot: (signal) => settlementReconciler.snapshot(signal) },
+  });
   const readinessPorts: EngineReadinessPorts = {
-    ...deps.readiness,
+    ...betaReadiness,
     telegram: {
       async snapshot() {
         if (webhookIngress) {
@@ -216,7 +229,6 @@ async function main(): Promise<void> {
       stopIntake() {
         crons.stop();
         supervisor.stopAll();
-        proofWorker.stop();
       },
       async closeResources(abortSignal) {
         const closeApi = new Promise<void>((resolveClose) => {

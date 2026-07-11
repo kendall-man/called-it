@@ -146,6 +146,10 @@ export async function createDeps(
       const records = await client.fixturesSnapshot();
       return records.map(mapFixtureRecord);
     },
+    fetchScoreEvents: async (fixtureId) => {
+      const records = await client.scoresSnapshot(fixtureId);
+      return normalizeScores(records, now(), { logger: txLogger });
+    },
     fetchStatProof: (fixtureId, seq, statKey) => client.statValidation(fixtureId, seq, statKey),
     createLiveSource: (fixtureId) => {
       // Snapshot gap-fill re-feeds the whole scores snapshot through the same

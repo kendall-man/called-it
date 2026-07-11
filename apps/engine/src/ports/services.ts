@@ -51,6 +51,7 @@ export type OddsFetchResult =
 export interface TxPort {
   fetchOdds(fixtureId: number, asOfMs?: number): Promise<OddsFetchResult>;
   fetchFixtures(): Promise<FixtureUpsert[]>;
+  fetchScoreEvents(fixtureId: number): Promise<readonly MatchEvent[]>;
   fetchStatProof(fixtureId: number, seq: number, statKey: number): Promise<unknown>;
   createLiveSource(fixtureId: number): EventSourceLike;
   createReplaySource(fixtureId: number, speed: number): EventSourceLike;

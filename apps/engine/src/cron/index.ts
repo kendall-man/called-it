@@ -24,6 +24,10 @@ export interface DurableRecoveryCron {
   stop(): void;
 }
 
+export interface BetaSettlementReconciler {
+  tick(): Promise<void>;
+}
+
 function utcDayKey(nowMs: number): string {
   return new Date(nowMs).toISOString().slice(0, 10);
 }
@@ -130,15 +134,19 @@ export function startCrons(args: {
   say: Say;
   settler: Settler;
   supervisor: IngestSupervisor;
+  settlementReconciler: BetaSettlementReconciler;
   durableRecovery?: DurableRecoveryCron;
 }): CronHandles {
-  const { deps, poster, say, settler, supervisor, durableRecovery } = args;
+  const { deps, poster, say, settler, supervisor, settlementReconciler, durableRecovery } = args;
   const timers: Array<ReturnType<typeof setInterval>> = [];
   const sweeperInFlight = new Map<string, number>();
   let slateDoneFor = '';
 
   // Boot-time kick so a fresh deploy is immediately useful.
-  void syncFixtures(deps).then(() => supervisor.refresh());
+  void syncFixtures(deps).then(async () => {
+    await supervisor.refresh();
+    await settlementReconciler.tick();
+  });
   if (durableRecovery) void durableRecovery.tick();
 
   // Wager crons (deposit watcher, withdrawal executor, solvency check) exist
@@ -171,6 +179,12 @@ export function startCrons(args: {
     setInterval(() => {
       void settler.tick(deps.now());
     }, ENGINE.DEBOUNCE_TICK_MS),
+  );
+
+  timers.push(
+    setInterval(() => {
+      void settlementReconciler.tick();
+    }, ENGINE.SETTLEMENT_RECONCILIATION_MS),
   );
 
   timers.push(
