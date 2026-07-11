@@ -23,13 +23,14 @@ import { TUNABLES } from '@calledit/market-engine';
 import type { Deps, MarketRow, PositionRow } from '../ports.js';
 import type { Poster } from '../bot/poster.js';
 import type { Say } from '../bot/copy.js';
-import { describeTerms, formatMultiplier, receiptCardText } from '../bot/cards.js';
-import { composeClaimCard, receiptUrl } from '../pipeline/render.js';
+import { composeClaimCard } from '../pipeline/render.js';
 import { quoteSpec } from '../pipeline/claims.js';
 import { marketStakeKeyboard } from '../bot/keyboards.js';
 import { statKeyForSpec } from './statKeys.js';
 import type { ProofWorker } from '../proofs/worker.js';
 import type { SettlementJournal } from './durable.js';
+import type { GroupPointsService } from '../points/service.js';
+import { prepareGroupPointsReceipt } from './group-points-receipt.js';
 
 function toEnginePosition(row: PositionRow): Position {
   return {
@@ -50,6 +51,7 @@ export class Settler {
     private readonly deps: Deps,
     private readonly poster: Poster,
     private readonly say: Say,
+    private readonly points: GroupPointsService,
     private readonly proofWorker: ProofWorker | null,
     private readonly settlementJournal: SettlementJournal | null = null,
   ) {}
@@ -242,37 +244,14 @@ export class Settler {
     outcome: SettlementOutcome,
     voidReason?: string,
   ): Promise<void> {
-    const claim = await this.deps.db.getClaim(market.claim_id);
-    const claimer = claim ? await this.deps.db.getUser(claim.claimer_user_id) : null;
-    const claimerName = claimer?.display_name ?? 'the claimer';
+    const receipt = await prepareGroupPointsReceipt(
+      this.points,
+      { deps: this.deps, market, outcome, voidReason, say: this.say },
+      // Keep test-SOL settlement phrasing in the wager-owned path.
+      () => this.solPayoutsLine(market.id, outcome),
+    );
 
-    // Every market is SOL — the wager module owns the (only) place SOL amounts
-    // are phrased.
-    const payoutsLine = await this.solPayoutsLine(market.id, outcome);
-    const garnishKey =
-      outcome === 'claim_won' ? 'settle_won' : outcome === 'claim_lost' ? 'settle_lost' : 'void_market';
-    const garnish = await this.say(garnishKey, {
-      claimer: claimerName,
-      payouts: payoutsLine,
-      reason: voidReason ?? 'the match got away from us',
-      terms: describeTerms(market.spec),
-      multiplier: formatMultiplier(market.quote_multiplier).replace('×', ''),
-      url: receiptUrl(this.deps, market.id),
-    });
-
-    const receipt = receiptCardText({
-      quotedText: claim?.quoted_text ?? '(original message unavailable)',
-      claimerName,
-      spec: market.spec,
-      outcome,
-      probability: market.quote_probability,
-      provenance: market.price_provenance,
-      payoutsLine,
-      isReplay: market.is_replay,
-      receiptUrl: receiptUrl(this.deps, market.id),
-    });
-
-    this.poster.post(market.group_id, `${garnish}\n\n${receipt}`, {
+    this.poster.post(market.group_id, receipt, {
       onSent: async () => {
         if (this.settlementJournal) {
           await this.settlementJournal.markPosted(market.id);
