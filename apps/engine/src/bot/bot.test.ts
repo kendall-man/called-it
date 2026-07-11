@@ -153,7 +153,7 @@ describe('onboarding scopes and lifecycle', () => {
     // Then the marker is consulted twice but only one concise ready post is emitted
     expect(markerCalls).toBe(2);
     expect(posts).toEqual([
-      'Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Each offer has two fixed 0.01 test-SOL choices: "It happens" or "It does not." Test SOL is devnet-only with no monetary value. Board: https://calledit.example/g/sunday-legends',
+      'Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Each offer has two fixed 0.01 test-SOL choices: "It happens" or "It does not." Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test SOL is devnet-only with no monetary value. Board: https://calledit.example/g/sunday-legends',
     ]);
   });
 });

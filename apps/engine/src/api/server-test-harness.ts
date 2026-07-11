@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 import type { Logger } from '../log.js';
 import type { Deps, EngineDb, FixtureRow, MarketRow } from '../ports.js';
 import type { Poster } from '../bot/poster.js';
+import { createPointMethodStubs } from '../points/point-methods.test-support.js';
 import { createWagerModule } from '../wager/module.js';
 import { makeFakeDeps, type FakeWagerDb } from '../wager/fakes.js';
 import { DrainState, createReadinessEvaluator, type ReadinessEvaluator } from './readiness.js';
@@ -16,6 +17,7 @@ export const CONCIERGE_TOKEN = TEST_ENV.ENGINE_CONCIERGE_TOKEN;
 export const TELEGRAM_TOKEN = TEST_ENV.ENGINE_TELEGRAM_TOKEN;
 export const OPS_TOKEN = TEST_ENV.ENGINE_OPS_TOKEN;
 export const PUBKEY = 'Wa11etPubkey1111111111111111111111111111';
+export const PRIVATE_DISPLAY_NAME = 'Private Participant Name', PRIVATE_USERNAME = 'private_participant_handle';
 
 export const FIXTURE: FixtureRow = {
   fixture_id: 42,
@@ -76,20 +78,18 @@ function createDb(theMarket: MarketRow): EngineDb {
   return {
     upsertGroup: unreachableAsync,
     getGroup: async (id) => id === CHAT_ID
-      ? { id, title: 'Test Group', chattiness: 'nudge', web_enabled: true, slug: 'slug', is_admin: true }
-      : null,
+      ? { id, title: 'Test Group', chattiness: 'nudge', web_enabled: true, slug: 'slug', is_admin: true } : null,
     setGroupChattiness: unreachableAsync,
     setGroupAdmin: unreachableAsync,
     setGroupWebEnabled: unreachableAsync,
     listGroups: unreachableAsync,
     upsertUser: async () => undefined,
     getUser: async (id) => id === USER_ID
-      ? { id, display_name: 'Dee Real Name', username: 'dee' }
-      : null,
+      ? { id, display_name: PRIVATE_DISPLAY_NAME, username: PRIVATE_USERNAME } : null,
     ensureMembership: async () => ({ created: false }),
     listMemberships: unreachableAsync,
     balance: unreachableAsync,
-    leaderboard: unreachableAsync,
+    ...createPointMethodStubs({ kind: 'unreachable', call: unreachableAsync }),
     postLedger: unreachableAsync,
     hasLedgerEntry: unreachableAsync,
     insertClaim: unreachableAsync,

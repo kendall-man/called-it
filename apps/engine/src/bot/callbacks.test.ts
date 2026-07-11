@@ -13,6 +13,7 @@ import { renderFallback } from './copy.js';
 import type { HandlerCtx } from './context.js';
 import type { PostOptions } from './poster.js';
 import { type ParseEnvelope } from '../pipeline/claims.js';
+import { createPointMethodStubs } from '../points/point-methods.test-support.js';
 import type {
   ClaimRow,
   Deps,
@@ -140,6 +141,7 @@ function makeHarness(config: HarnessConfig): Harness {
   let now = NOW;
 
   const db = {
+    ...createPointMethodStubs({ kind: 'empty', groupId: CHAT_ID }),
     getClaim: async (id: string) => (id === claim.id ? { ...claim } : null),
     getGroup: async (id: number) => (id === CHAT_ID ? GROUP : null),
     getUser: async (id: number) =>

@@ -6,6 +6,7 @@ import { registerDetection } from './detection.js';
 import { renderFallback } from './copy.js';
 import type { HandlerCtx } from './context.js';
 import type { ClaimRow, Deps, FixtureRow, GroupRow, MarketRow } from '../ports.js';
+import { createPointMethodStubs } from '../points/point-methods.test-support.js';
 import { LlmBudget } from './budget.js';
 
 const NOW = Date.parse('2026-07-11T00:00:00.000Z');
@@ -88,6 +89,7 @@ function makeHarness(): DetectionHarness {
   const markets: MarketRow[] = [];
   const posts: string[] = [];
   const db = {
+    ...createPointMethodStubs({ kind: 'empty', groupId: CHAT_ID }),
     upsertGroup: async () => GROUP,
     upsertUser: async () => undefined,
     ensureMembership: async () => ({ created: false }),

@@ -14,6 +14,8 @@ type Rule = {
   readonly id: string;
   readonly pattern: RegExp;
   readonly policyScope: 'none' | 'contracts' | 'all';
+  readonly fileWide?: boolean;
+  readonly surfaces?: readonly SurfaceName[];
 };
 
 export type Violation = {
@@ -35,6 +37,7 @@ const POLICY_CONTEXT =
   /\b(?:do not|does not support|must not|never|avoid|forbidden|excluded)\b|\bno\s+(?:active\s+|current\s+)?(?:rep|points?|demo|replay|cash(?:\s|-)?out|stack|real[- ](?:money|value))\b|\bno\b.{0,80}\bpoints?\s+(?:balance|leaderboard|economy)\b|\bnot\s+(?:real money|part of|a current|supported|allowed)\b/i;
 const HISTORICAL_CONTEXT =
   /\b(?:removed|retired|historical|legacy|dormant|migration)\b/i;
+const ACTIVE_COPY_SURFACES: readonly SurfaceName[] = ['bot', 'concierge', 'web', 'fixture'];
 
 export const TRACKED_SURFACES: readonly Surface[] = [
   {
@@ -73,6 +76,13 @@ export const TRACKED_SURFACES: readonly Surface[] = [
 ];
 
 const RULES: readonly Rule[] = [
+  {
+    id: 'receipt.aggregate-primary-path',
+    pattern: /\baggregate\s+receipt\b/iu,
+    policyScope: 'none',
+    fileWide: true,
+    surfaces: ACTIVE_COPY_SURFACES,
+  },
   {
     id: 'economy.rep-primary-path',
     pattern: /\brep\b/i,
@@ -176,9 +186,27 @@ export function scanFile(
 ): readonly Violation[] {
   const violations: Violation[] = [];
   const lines = contents.split(/\r?\n/u);
-  for (const [index, line] of lines.entries()) {
-    const previousLine = index === 0 ? '' : (lines[index - 1] ?? '');
-    for (const rule of RULES) {
+  for (const rule of RULES) {
+    if (rule.surfaces !== undefined && !rule.surfaces.includes(surface)) continue;
+    if (rule.fileWide === true) {
+      const flags = rule.pattern.global ? rule.pattern.flags : `${rule.pattern.flags}g`;
+      const matcher = new RegExp(rule.pattern.source, flags);
+      for (const match of contents.matchAll(matcher)) {
+        const lineIndex = contents.slice(0, match.index).split(/\r?\n/u).length - 1;
+        const line = lines[lineIndex] ?? '';
+        const previousLine = lineIndex === 0 ? '' : (lines[lineIndex - 1] ?? '');
+        if (contextAllowed(rule, path, surface, line, previousLine)) continue;
+        violations.push({
+          file: path,
+          line: lineIndex + 1,
+          ruleId: rule.id,
+          excerpt: match[0].replace(/\s+/gu, ' ').trim().slice(0, 160),
+        });
+      }
+      continue;
+    }
+    for (const [index, line] of lines.entries()) {
+      const previousLine = index === 0 ? '' : (lines[index - 1] ?? '');
       if (!rule.pattern.test(line)) continue;
       if (contextAllowed(rule, path, surface, line, previousLine)) continue;
       violations.push({

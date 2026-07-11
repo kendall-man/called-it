@@ -6,6 +6,7 @@ import type { ClaimRow, EngineDb, FixtureRow, MarketRow, PositionRow } from '../
 import { LlmBudget } from './budget.js';
 import { createWagerModule } from '../wager/module.js';
 import { makeFakeDeps, type FakeWagerDb } from '../wager/fakes.js';
+import { createPointMethodStubs, type PointMethodStubs } from '../points/point-methods.test-support.js';
 import { EntityCache } from './entities.js';
 import { SendQueue } from './sendQueue.js';
 
@@ -88,7 +89,7 @@ type StakeDb = Pick<
   | 'getGroup'
   | 'positionsForMarket'
   | 'setMarketCardMessage'
->;
+> & PointMethodStubs;
 
 interface StakeDeps {
   db: EngineDb;
@@ -241,6 +242,7 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
     : null;
   const cardEdits: Array<{ chatId: number; marketId: string; messageId: number }> = [];
   const db = asEngineDb({
+    ...createPointMethodStubs({ kind: 'empty', groupId: CHAT_ID }),
     getMarket: async (id: string) => (id === market.id ? { ...market } : null),
     getFixture: async () => opts.fixture ?? fixtureAt('NS', null),
     getUser: async (id: number) => ({ id, display_name: `U${id}`, username: null }),

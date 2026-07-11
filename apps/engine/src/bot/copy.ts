@@ -34,8 +34,13 @@ function has(vars: CopyVars, keys: string[]): boolean {
   return keys.every((key) => vars[key] !== undefined && String(vars[key]).length > 0);
 }
 
+const FIXED_PRODUCT_CONTRACT_KEYS: ReadonlySet<TemplateKey> = new Set([
+  'intro',
+  'help',
+  'group_ready',
+]);
+
 const AGENT_TEMPLATE_MAP: Partial<Record<TemplateKey, (vars: CopyVars) => AgentMapping | null>> = {
-  intro: () => ({ agentKey: 'intro_disclosure', agentVars: { botName: 'Called It' } }),
   nudge_priced: (vars) =>
     has(vars, ['claimer', 'quote', 'multiplier'])
       ? {
@@ -131,6 +136,7 @@ const AGENT_TEMPLATE_MAP: Partial<Record<TemplateKey, (vars: CopyVars) => AgentM
 
 export function createSay(agent: AgentPort, log: Logger): Say {
   return async (key, vars = {}) => {
+    if (FIXED_PRODUCT_CONTRACT_KEYS.has(key)) return renderFallback(key, vars);
     const mapping = AGENT_TEMPLATE_MAP[key]?.(vars) ?? null;
     if (mapping) {
       try {

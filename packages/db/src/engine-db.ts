@@ -14,6 +14,7 @@ import type { GamePhase, MarketStatus, MatchEvent } from '@calledit/market-engin
 import { botOnboardingDbFromClient } from './bot-onboarding-db.js';
 import type { BotGroupReadyResult, BotOnboardingVersion } from './bot-onboarding-types.js';
 import { assertOk, unwrapMaybe, unwrapRows, type PgResult } from './errors.js';
+import { groupPointsDbFromClient, type GroupPointsDb } from './group-points.js';
 import type {
   Chattiness,
   ClaimInsert,
@@ -24,7 +25,6 @@ import type {
   FixtureRow,
   FixtureUpsert,
   GroupRow,
-  LeaderboardEntry,
   LedgerEntry,
   MarketInsert,
   MarketQuotePatch,
@@ -82,7 +82,7 @@ function sanitizeOrFilterValue(value: string): string {
 
 // ── Façade interface (the engine's EngineDb port, re-declared here) ────────
 
-export interface EngineDb {
+export interface EngineDb extends GroupPointsDb {
   // groups
   upsertGroup(input: { id: number; title: string }): Promise<GroupRow>;
   getGroup(id: number): Promise<GroupRow | null>;
@@ -103,8 +103,6 @@ export interface EngineDb {
   listMemberships(groupId: number): Promise<MembershipRow[]>;
   /** Ledger-derived balance (source of truth, not the display cache). */
   balance(groupId: number, userId: number): Promise<number>;
-  leaderboard(groupId: number, limit: number): Promise<LeaderboardEntry[]>;
-
   // ledger
   /** Idempotent append; inserted=false when the idempotency key already exists. */
   postLedger(entry: LedgerEntry): Promise<{ inserted: boolean }>;
@@ -174,8 +172,10 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const onboarding = botOnboardingDbFromClient(client);
+  const groupPoints = groupPointsDbFromClient(client);
 
   return {
+    ...groupPoints,
     // ── groups ─────────────────────────────────────────────────────────────
 
     async upsertGroup(input) {
@@ -291,31 +291,6 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
           .eq('user_id', userId),
       );
       return rows.reduce((sum, row) => sum + row.amount, 0);
-    },
-
-    async leaderboard(groupId, limit) {
-      type JoinedRow = {
-        user_id: number;
-        points_cached: number;
-        streak: number;
-        users: { display_name: string } | null;
-      };
-      // Cast: memberships.user_id → users.id is many-to-one, so PostgREST
-      // embeds `users` as an object; untyped supabase-js infers an array.
-      const result = (await client
-        .from('memberships')
-        .select('user_id, points_cached, streak, users(display_name)')
-        .eq('group_id', groupId)
-        .order('points_cached', { ascending: false })
-        .order('user_id', { ascending: true })
-        .limit(limit)) as unknown as PgResult<JoinedRow[]>;
-      const rows = unwrapRows('leaderboard', result);
-      return rows.map((row) => ({
-        user_id: row.user_id,
-        display_name: row.users?.display_name ?? '',
-        points_cached: row.points_cached,
-        streak: row.streak,
-      }));
     },
 
     // ── ledger ─────────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@ import { WAGER_TUNABLES } from './constants.js';
 export const WAGER_COPY = {
   // ── stake gates & results ────────────────────────────────────────────────
   unlinkedOnboarding: (): string =>
-    'This beta only supports its one starter position. No SOL moved. Try a listed 0.01 SOL call.',
+    'This beta only supports one starter 0.01 SOL position using test SOL, a devnet token with no monetary value. No SOL moved. Try a listed 0.01 SOL call.',
   paused: (): string =>
     'Starter positions are temporarily paused. No SOL moved. Try another allowlisted beta group later.',
   marketClosed: (): string =>

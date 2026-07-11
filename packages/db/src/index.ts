@@ -6,7 +6,13 @@
 
 export { createEngineDb, type EngineDb } from './engine-db.js';
 export { DbError } from './errors.js';
+export {
+  groupPointsDbFromClient,
+  type GroupPointsDb,
+  type GroupPointsDbClient,
+} from './group-points.js';
 export type {
+  ApplyGroupPointsResult,
   Chattiness,
   ClaimInsert,
   ClaimPatch,
@@ -18,6 +24,9 @@ export type {
   FixtureRow,
   FixtureUpsert,
   GroupRow,
+  GroupPointsApplyErrorCode,
+  GroupPointsIneligibleReason,
+  GroupPlayerStats,
   LeaderboardEntry,
   LedgerEntry,
   LedgerKind,
@@ -29,6 +38,8 @@ export type {
   MembershipRow,
   PlayerLite,
   PlayerRow,
+  PointResult,
+  PositionParticipant,
   PositionInsert,
   PositionRow,
   PositionState,

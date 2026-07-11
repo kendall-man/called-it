@@ -67,13 +67,15 @@ function value(vars: CopyVars, key: string, fallback = ''): string {
 
 export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string> = {
   intro: (vars) =>
-    `Evening, legends — I'm Called It. Make a football call by mentioning me or using /bookit on your own message. Once the speaker confirms, I price it from the live feed and post two choices in test SOL. Test SOL is a devnet token with no monetary value. Use /me for your private account and /table for the group board. Receipts live at ${value(vars, 'webUrl', 'the web link')}.`,
+    `Evening, legends — I'm Called It. Make a football call by mentioning me or using /bookit on your own message. Once the speaker confirms, I price it from the live feed and post two choices in test SOL. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test SOL is a devnet token with no monetary value. Use /me for your private account and /table for the group board. Proof receipts live at ${value(vars, 'webUrl', 'the web link')}.`,
   help: () =>
     [
       'How this works:',
       '• Mention me with your call, or use /bookit on your own message. Passive calls wait for the speaker to confirm.',
       '• Choose It happens · 0.01 SOL or It does not · 0.01 SOL. Choose amount opens the larger test-SOL options.',
-      '• I settle from the official feed and post an aggregate receipt.',
+      '• Choices and named results are visible to everyone in this Telegram group.',
+      '• Correct choices earn 10 points automatically.',
+      '• I settle every result from the official feed and post a proof receipt.',
       '',
       'Private account: /me · Group board: /table',
       'Commands: /bookit (your own claim) · /settings (admins) · /table · /help',
@@ -152,7 +154,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   bookit_needs_reply: () => 'Reply /bookit to the claim you want on the record.',
   window_closed: () => 'Too late for that one — the window is closed.',
   group_ready: (vars) =>
-    `Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Each offer has two fixed 0.01 test-SOL choices: "It happens" or "It does not." Test SOL is devnet-only with no monetary value. Board: ${value(vars, 'webUrl', 'the group board')}`,
+    `Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Each offer has two fixed 0.01 test-SOL choices: "It happens" or "It does not." Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test SOL is devnet-only with no monetary value. Board: ${value(vars, 'webUrl', 'the group board')}`,
   private_start: () => 'Called It lives in group chats. Add it to a group to make a football call.',
   group_only_recovery: () => 'Open this command in the group where you want to use Called It.',
   table_link: () => 'Open the group board.',

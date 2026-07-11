@@ -74,6 +74,29 @@ test('reports both contract violations when a fixture mixes Practice Rep with a 
   }
 });
 
+test('rejects aggregate receipt wording across whitespace variants', () => {
+  // Given
+  const fixtureDirectory = mkdtempSync(join(tmpdir(), 'calledit-product-copy-'));
+  const variants = ['aggregate receipt', 'aggregate\treceipt', 'aggregate\nreceipt', 'aggregate\u00a0receipt'];
+
+  try {
+    // When
+    const results = variants.map((variant, index) => {
+      const fixturePath = join(fixtureDirectory, `aggregate-${index}.md`);
+      writeFileSync(fixturePath, `Test SOL has no monetary value.\n${variant}\n`, 'utf8');
+      return runChecker(['--fixture', fixturePath]);
+    });
+
+    // Then
+    for (const result of results) {
+      assert.equal(result.status, 1);
+      assert.match(result.stdout, /\[receipt\.aggregate-primary-path\]/);
+    }
+  } finally {
+    rmSync(fixtureDirectory, { recursive: true, force: true });
+  }
+});
+
 test('rejects a malformed UTF-8 fixture at the CLI boundary', () => {
   // Given
   const fixtureDirectory = mkdtempSync(join(tmpdir(), 'calledit-product-copy-'));

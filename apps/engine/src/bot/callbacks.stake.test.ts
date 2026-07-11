@@ -99,7 +99,11 @@ describe('handleStake - beta starter position', () => {
 
       expect(harness.wagerDb.positions).toHaveLength(0);
       expect(harness.wagerDb.ledger).toHaveLength(0);
-      expect(toasts).toEqual([expect.stringContaining('starter position')]);
+      expect(toasts).toEqual([
+        expect.stringMatching(
+          /starter 0\.01 SOL position using test SOL.*no monetary value.*No SOL moved/i,
+        ),
+      ]);
     },
   );
 

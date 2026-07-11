@@ -107,8 +107,11 @@ describe('copy bank hygiene', () => {
   });
 
   it('states that test SOL has no monetary value on onboarding and card fallbacks', () => {
-    expect(WAGER_COPY.unlinkedOnboarding()).toMatch(/test SOL/i);
-    expect(WAGER_COPY.unlinkedOnboarding()).toMatch(/no monetary value/i);
+    const onboarding = WAGER_COPY.unlinkedOnboarding();
+    expect(onboarding).toMatch(/test SOL/i);
+    expect(onboarding).toMatch(/no monetary value/i);
+    expect(onboarding).toMatch(/No SOL moved/i);
+    expect(onboarding).not.toMatch(/\b(?:awarded|credited|funded|placed|recorded|success(?:ful)?)\b/i);
     expect(WAGER_COPY.cardFooter()).toMatch(/test SOL/i);
     expect(WAGER_COPY.cardFooter()).toMatch(/no monetary value/i);
   });

@@ -8,16 +8,21 @@ import type {
 } from '@calledit/market-engine';
 import type { Chattiness } from '../localTypes.js';
 import type {
+  ApplyGroupPointsResult,
   ClaimRow,
   BotGroupReadyMarkerResult,
   ClaimStatus,
   FixtureRow,
   FixtureUpsert,
   GroupRow,
+  GroupPlayerStats,
+  LeaderboardEntry,
   LedgerEntry,
   MembershipRow,
   MarketRow,
   PlayerLite,
+  PointResult,
+  PositionParticipant,
   PositionRow,
   SettlementRow,
   UserRow,
@@ -40,10 +45,11 @@ export interface EngineDb {
   ensureMembership(groupId: number, userId: number): Promise<{ created: boolean }>;
   listMemberships(groupId: number): Promise<MembershipRow[]>;
   balance(groupId: number, userId: number): Promise<number>;
-  leaderboard(
-    groupId: number,
-    limit: number,
-  ): Promise<Array<{ user_id: number; display_name: string; points_cached: number; streak: number }>>;
+  applyGroupPoints(marketId: string): Promise<ApplyGroupPointsResult>;
+  pointResultsForMarket(marketId: string): Promise<readonly PointResult[]>;
+  groupPlayerStats(groupId: number, userId: number): Promise<GroupPlayerStats>;
+  leaderboard(groupId: number, limit: number): Promise<readonly LeaderboardEntry[]>;
+  positionParticipantsForMarket(marketId: string): Promise<readonly PositionParticipant[]>;
 
   postLedger(entry: LedgerEntry): Promise<{ inserted: boolean }>;
   hasLedgerEntry(idempotencyKey: string): Promise<boolean>;
