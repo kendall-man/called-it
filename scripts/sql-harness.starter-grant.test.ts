@@ -39,13 +39,13 @@ test('starter-grant migrations apply fresh and as 0001-0003 upgrade', async () =
   await withMigratedDb(migrations, async () => undefined);
   record('fresh tracked migrations applied and cleaned');
   await withMigratedDb(migrations.filter((migration) => migration.name <= '0003_broker_pivot.sql'), async (client) => {
-    for (const name of ['0004_starter_grant.sql', '0005_wallet_identity.sql']) {
+    for (const name of ['0004_starter_grant.sql', '0005_wallet_identity.sql', '0013_direct_beta_starter.sql']) {
       const migration = migrations.find((candidate) => candidate.name === name);
       assert.ok(migration);
       await client.query(migration.sql);
     }
   });
-  record('upgraded 0001-0003 plus 0004 and 0005 applied and cleaned');
+  record('upgraded 0001-0003 plus direct-beta starter migrations applied and cleaned');
 });
 
 test('starter stake writes exact linked rows, accepts pending_lineup, and is idempotent and private', async () => {
@@ -174,7 +174,7 @@ test('every starter refusal and injected exception preserves the exact prior sta
     await assertNoWriteCode(client, { code: 'wallet_required', mutate: async (c, fixture) => {
       await enableStarterBudget(c);
       await c.query('insert into wager_ledger_entries (user_id, kind, lamports, idempotency_key) values ($1, $2, $3, $4)', [fixture.userId, 'deposit', 1, `history:${fixture.userId}`]);
-    } });
+    }, allowStarter: false });
     await assertNoWriteCode(client, { code: 'wrong_side', mutate: async (c, fixture) => {
       await fundLinkedUser(c, fixture);
       await c.query('insert into positions (market_id, user_id, side, stake, locked_multiplier, state, placed_at_ms) values ($1, $2, $3, $4, $5, $6, $7)', [fixture.marketId, fixture.userId, 'doubt', 1, 2, 'active', 1]);
@@ -185,7 +185,30 @@ test('every starter refusal and injected exception preserves the exact prior sta
     }, allowStarter: false });
     await assertInjectedExceptionRollsBack(client);
   });
-  record('disabled paused frozen settling settled voided bad-state wrong-side non-SOL history cap and injected exception returned stable codes with exact before/after state');
+  record('disabled paused frozen settling settled voided bad-state wrong-side non-SOL non-starter history cap and injected exception returned stable codes with exact before/after state');
+});
+
+test('direct beta grants a starter without group setup despite legacy account activity', async () => {
+  const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
+  await withMigratedDb(migrations, async (client) => {
+    const fixture = await seedMarket(client, { userId: 7290, groupId: -7290, groupEnabled: false });
+    await enableStarterBudget(client);
+    await client.query(
+      'insert into wager_ledger_entries (user_id, kind, lamports, idempotency_key) values ($1, $2, $3, $4)',
+      [fixture.userId, 'deposit', 1, `legacy:${fixture.userId}`],
+    );
+
+    const result = await stake(client, fixture, 'legacy-direct-beta', true);
+    assert.ok(result.ok && 'position_id' in result);
+    assert.deepEqual(await counts(client, fixture), {
+      positions: 1,
+      ledger: 2,
+      grants: 1,
+      budgetCount: 1,
+      budgetAmount: String(STARTER),
+    });
+  });
+  record('direct beta granted one starter with no wager_groups row and unrelated legacy ledger activity');
 });
 
 test('concurrency grants once per user and the real 501st eligible user is refused', async () => {

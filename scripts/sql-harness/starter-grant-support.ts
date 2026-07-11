@@ -57,14 +57,16 @@ export async function withMigratedDb(
   });
 }
 
-export async function seedMarket(client: Client, input: { readonly userId: number; readonly groupId: number }): Promise<Fixture> {
+export async function seedMarket(client: Client, input: { readonly userId: number; readonly groupId: number; readonly groupEnabled?: boolean }): Promise<Fixture> {
   const marketId = `00000000-0000-4000-8000-${String(input.userId).padStart(12, '0')}`;
   await client.query('insert into groups (id, title, slug) values ($1, $2, $3)', [input.groupId, 'g', `g${Math.abs(input.groupId)}`]);
   await client.query('insert into users (id, display_name) values ($1, $2), ($3, $4)', [input.userId, 'u', input.userId + 100_000, 'c']);
   await client.query('insert into fixtures (fixture_id) values ($1)', [input.userId]);
   const claim = await client.query<{ readonly id: string }>('insert into claims (group_id, claimer_user_id, tg_message_id, quoted_text) values ($1, $2, $3, $4) returning id', [input.groupId, input.userId + 100_000, input.userId, 'claim']);
   await client.query('insert into markets (id, claim_id, group_id, fixture_id, spec, price_provenance, quote_probability, quote_multiplier, currency) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)', [marketId, claim.rows[0]?.id, input.groupId, input.userId, '{}', 'modelled', 0.5, 2, 'sol']);
-  await client.query('insert into wager_groups (group_id, enabled, enabled_by) values ($1, true, $2)', [input.groupId, input.userId]);
+  if (input.groupEnabled ?? true) {
+    await client.query('insert into wager_groups (group_id, enabled, enabled_by) values ($1, true, $2)', [input.groupId, input.userId]);
+  }
   return { userId: input.userId, groupId: input.groupId, marketId };
 }
 
