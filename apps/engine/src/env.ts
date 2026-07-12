@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isIP } from 'node:net';
 import { z } from 'zod';
 
 const MillisecondsSchema = z.coerce.number().int().positive().max(86_400_000);
@@ -27,6 +28,20 @@ const BetaGroupAllowlistSchema = z.string().default('').transform((value, ctx) =
   }
   return groupIds;
 });
+
+function isPubliclyRoutableHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (/(?:^|\.)(?:localhost|local|internal)$/.test(host)) return false;
+  const version = isIP(host);
+  if (version === 0) return true;
+  if (version === 6) return !/^(?:::|f[cd]|fe[89ab]|ff)/.test(host);
+  const [first = 0, second = 0, third = 0] = host.split('.').map(Number);
+  return !(first === 0 || first === 10 || first === 127 || first >= 224
+    || (first === 100 && second >= 64 && second <= 127)
+    || (first === 169 && second === 254) || (first === 172 && second >= 16 && second <= 31)
+    || (first === 192 && (second === 168 || (second === 0 && (third === 0 || third === 2))))
+    || (first === 198 && (second === 18 || second === 19 || (second === 51 && third === 100))) || (first === 203 && second === 0 && third === 113));
+}
 
 /**
  * Environment contract — exactly the names declared in the repo-root
@@ -101,6 +116,8 @@ const EnvSchema = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: [right], message: 'invalid relationship' });
   };
   const deployed = env.DEPLOYMENT_ENV !== 'development';
+  const betaActive = deployed || env.BETA_ALLOWED_GROUP_IDS.length > 0;
+  const webUrl = new URL(env.WEB_BASE_URL);
   if (deployed && env.GLM_BASE_URL === undefined) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -138,14 +155,14 @@ const EnvSchema = z.object({
       message: 'required for webhook ingress',
     });
   }
-  if (deployed && new URL(env.WEB_BASE_URL).protocol !== 'https:') {
+  if (betaActive && (webUrl.protocol !== 'https:' || !isPubliclyRoutableHost(webUrl.hostname))) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['WEB_BASE_URL'],
-      message: 'deployed environments require HTTPS',
+      message: 'active beta requires a public HTTPS origin',
     });
   }
-  if (new URL(env.WEB_BASE_URL).hostname !== env.WALLET_LINK_DOMAIN) {
+  if (webUrl.hostname !== env.WALLET_LINK_DOMAIN) {
     addPairIssue('WALLET_LINK_DOMAIN', 'WEB_BASE_URL');
   }
   if (env.QUEUE_RETRY_BASE_MS > env.QUEUE_RETRY_MAX_MS) {

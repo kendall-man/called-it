@@ -237,6 +237,29 @@ describe('loadEnv', () => {
     expect(parse).toThrowError('Engine environment invalid: WEB_BASE_URL');
   });
 
+  it.each([
+    ['localhost', 'https://localhost', 'localhost'],
+    ['a loopback address', 'https://127.0.0.1', '127.0.0.1'],
+    ['a private 10/8 address', 'https://10.23.45.67', '10.23.45.67'],
+    ['a private 172.16/12 address', 'https://172.16.0.1', '172.16.0.1'],
+    ['a private 192.168/16 address', 'https://192.168.1.1', '192.168.1.1'],
+    ['non-HTTPS transport', 'http://web.example.test', 'web.example.test'],
+  ])('rejects an allowlisted development beta origin using %s', (_case, webBaseUrl, domain) => {
+    // Given local development has become an active allowlisted beta
+    const source = {
+      ...BASE_ENV,
+      BETA_ALLOWED_GROUP_IDS: '-100123',
+      WEB_BASE_URL: webBaseUrl,
+      WALLET_LINK_DOMAIN: domain,
+    };
+
+    // When the engine validates its startup environment
+    const parse = () => loadEnv(source);
+
+    // Then it rejects only the unsafe public board origin
+    expect(parse).toThrowError(/^Engine environment invalid: WEB_BASE_URL$/);
+  });
+
   it('rejects a wallet link domain that differs from the configured web origin', () => {
     // Given account links would leave the configured web origin
     const source = { ...BASE_ENV, WALLET_LINK_DOMAIN: 'wallet.example.test' };

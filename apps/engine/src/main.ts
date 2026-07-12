@@ -11,12 +11,10 @@ import { fileURLToPath } from 'node:url';
 import { Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
 import { run } from '@grammyjs/runner';
-import { TUNABLES } from '@calledit/market-engine';
 import { loadEnv } from './env.js';
 import { createLogger } from './log.js';
 import { createDeps } from './wiring.js';
-import { ENGINE } from './engineConstants.js';
-import { SendQueue } from './bot/sendQueue.js';
+import { classifySendFailure, createEngineSendQueue } from './bot/send-failure.js';
 import { createPoster } from './bot/poster.js';
 import { createSay } from './bot/copy.js';
 import { EntityCache } from './bot/entities.js';
@@ -75,11 +73,7 @@ async function main(): Promise<void> {
   const log = createLogger({ app: 'calledit-engine' });
   const env = loadEnv();
 
-  const queue = new SendQueue({
-    ratePerMinute: ENGINE.SEND_RATE_PER_MINUTE,
-    collapseMs: TUNABLES.CARD_EDIT_COLLAPSE_MS,
-    onError: (err, context) => log.error('send_failed', { chatId: context.chatId, error: String(err) }),
-  });
+  const queue = createEngineSendQueue(log);
 
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
   bot.api.config.use(autoRetry());
@@ -122,7 +116,7 @@ async function main(): Promise<void> {
   registerBotHandlers(bot, handlerCtx);
 
   await bot.api.setMyCommands([...BOT_COMMANDS]).catch((err) => {
-    log.warn('set_commands_failed', { error: String(err) });
+    log.warn('set_commands_failed', classifySendFailure(err));
   });
 
   const crons = startCrons({
@@ -263,7 +257,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  // eslint-disable-next-line no-console
-  console.error(err instanceof Error ? err.message : err);
+  createLogger({ app: 'calledit-engine' }).error('engine_start_failed', classifySendFailure(err));
   process.exit(1);
 });
