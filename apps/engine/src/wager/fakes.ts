@@ -460,13 +460,13 @@ export function makeFakeDeps(overrides: Partial<WagerModuleDeps> = {}): FakeDeps
   const chain = new FakeWagerChain(trace);
   const poster = collectingPoster();
   const deps: WagerModuleDeps = {
+    runtimeMode: 'funded',
     db,
     chain,
     poster,
     log: silentLog,
     now: () => 1_720_000_000_000,
     opsChatId: null,
-    starterGrantsEnabled: false,
     walletMiniappEnabled: false,
     stakeAcceptanceEnabled: false,
     ...overrides,

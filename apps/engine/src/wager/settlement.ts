@@ -10,9 +10,9 @@
 import { WAGER_KEYS } from './constants.js';
 import { WAGER_COPY } from './copy.js';
 import { settlementCredits } from './pot.js';
-import type { WagerModuleDeps, WagerSettlementOutcome } from './port.js';
+import type { WagerSettlementDeps, WagerSettlementOutcome } from './port.js';
 
-export async function applySettlement(deps: WagerModuleDeps, marketId: string): Promise<void> {
+export async function applySettlement(deps: WagerSettlementDeps, marketId: string): Promise<void> {
   if (await deps.db.hasSettlementApplied(marketId)) return;
   const outcome = await deps.db.getSettlementOutcome(marketId);
   if (outcome === null) return; // not settled yet — the sweeper will be back
@@ -69,7 +69,7 @@ export async function applySettlement(deps: WagerModuleDeps, marketId: string): 
 
 /** Chat receipt line — SOL amounts are chat-only, public receipts untouched. */
 export async function settlementPayoutsLine(
-  deps: WagerModuleDeps,
+  deps: WagerSettlementDeps,
   marketId: string,
   outcome: WagerSettlementOutcome,
 ): Promise<string> {
@@ -93,7 +93,7 @@ export interface SettlementSweeper {
 }
 
 /** Re-runs applySettlement for settled/voided sol markets missing the marker. */
-export function createSettlementSweeper(deps: WagerModuleDeps): SettlementSweeper {
+export function createSettlementSweeper(deps: WagerSettlementDeps): SettlementSweeper {
   return {
     async tick(): Promise<void> {
       try {

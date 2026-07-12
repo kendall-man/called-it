@@ -9,6 +9,8 @@ import type {
   WagerDepositInsert,
   WagerDepositRow,
   WagerLedgerEntry,
+  WagerSettlementLedgerEntry,
+  WagerStarterStakeInput,
   WagerStakeInput,
   WagerStakeResult,
   WagerStatusRow,
@@ -39,6 +41,19 @@ export interface WagerTableBuilder {
 export interface WagerDbClient {
   from(table: string): WagerTableBuilder;
   rpc(fn: string, args: Record<string, unknown>): PromiseLike<import('./errors.js').PgResult<unknown>>;
+}
+
+export interface StarterOnlyWagerDb {
+  postWagerLedger(entry: WagerSettlementLedgerEntry): Promise<{ inserted: boolean }>;
+
+  getMarketProbability(marketId: string): Promise<number | null>;
+  getSettlementOutcome(marketId: string): Promise<SettlementOutcome | null>;
+  hasSettlementApplied(marketId: string): Promise<boolean>;
+  insertSettlementApplied(marketId: string): Promise<void>;
+  settledSolMarketsMissingApplied(): Promise<string[]>;
+
+  getWagerStatus(): Promise<WagerStatusRow>;
+  wagerStarterStake(args: WagerStarterStakeInput): Promise<WagerStakeResult>;
 }
 
 export interface WagerDb {

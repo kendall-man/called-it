@@ -1,13 +1,18 @@
-// allow: SIZE_OK - base pure LOC 305; only feature delta is the typed/bounded point-method test stub needed by EngineDb/card refresh.
 import type { Context } from 'grammy';
 import { TUNABLES } from '@calledit/market-engine';
 import { renderFallback } from './copy.js';
 import type { HandlerCtx } from './context.js';
 import type { ClaimRow, EngineDb, FixtureRow, MarketRow, PositionRow } from '../ports.js';
 import { LlmBudget } from './budget.js';
-import { createWagerModule } from '../wager/module.js';
+import {
+  createWagerModule,
+  type WagerModule,
+} from '../wager/module.js';
+import { createStarterOnlyWagerModule } from '../wager/starter-only-module.js';
 import { makeFakeDeps, type FakeWagerDb } from '../wager/fakes.js';
+import { starterOnlyWagerDbFromFake } from '../wager/starter-fake.test-support.js';
 import { createPointMethodStubs, type PointMethodStubs } from '../points/point-methods.test-support.js';
+import { installAtomicStarterRpc } from './callbacks.starter-rpc.test-support.js';
 import { EntityCache } from './entities.js';
 import { SendQueue } from './sendQueue.js';
 
@@ -98,7 +103,7 @@ interface StakeDeps {
   engine: object;
   tx: object;
   proofSubmitter: object | null;
-  wager: ReturnType<typeof createWagerModule> | null;
+  wager: WagerModule | null;
   readiness: object;
   drains: readonly object[];
   env: object;
@@ -141,84 +146,24 @@ function asCallbackContext(ctx: StakeCallbackContext): Context {
   return ctx as Context;
 }
 
-function installAtomicStarterRpc(db: FakeWagerDb, starterBudgetEnabled: boolean): void {
-  const standardStake = db.wagerStake.bind(db);
-  const locks = new Map<number, Promise<void>>();
-  db.wagerStake = async (args) => {
-    const prior = locks.get(args.user_id) ?? Promise.resolve();
-    let release = (): void => undefined;
-    const current = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const queued = prior.then(() => current);
-    locks.set(args.user_id, queued);
-    await prior;
-    try {
-      const ledgerKey = `wager:stake:api:${args.idempotency_key ?? ''}`;
-      db.lastStakeArgs = args;
-      if (args.idempotency_key !== undefined && db.ledgerByKey(ledgerKey) !== undefined) {
-        return { ok: true, duplicate: true };
-      }
-      const hasHistory =
-        db.ledger.some((entry) => entry.user_id === args.user_id) ||
-        db.positions.some((position) => position.user_id === args.user_id);
-      if (args.allow_starter && args.lamports === 10_000_000n && !hasHistory) {
-        if (!starterBudgetEnabled) return { ok: false, code: 'starter_unavailable' };
-        const oppositeSide = db.positions.some(
-          (position) =>
-            position.market_id === args.market_id &&
-            position.user_id === args.user_id &&
-            position.side !== args.side &&
-            position.state !== 'void',
-        );
-        if (oppositeSide) return { ok: false, code: 'wrong_side' };
-        const positionId = `starter-position-${db.positions.length + 1}`;
-        db.positions.push({
-          id: positionId,
-          market_id: args.market_id,
-          user_id: args.user_id,
-          side: args.side,
-          stake: Number(args.lamports),
-          locked_multiplier: args.multiplier,
-          state: args.state,
-          placed_at_ms: args.placed_at_ms,
-        });
-        await db.postWagerLedger({
-          user_id: args.user_id,
-          group_id: args.group_id,
-          market_id: args.market_id,
-          kind: 'starter_grant',
-          lamports: args.lamports,
-          idempotency_key: `wager:starter:${args.user_id}`,
-        });
-        await db.postWagerLedger({
-          user_id: args.user_id,
-          group_id: args.group_id,
-          market_id: args.market_id,
-          kind: 'stake',
-          lamports: -args.lamports,
-          idempotency_key: ledgerKey,
-        });
-        return { ok: true, position_id: positionId };
-      }
-      if (!db.links.has(args.user_id)) return { ok: false, code: 'wallet_required' };
-      return standardStake(args);
-    } finally {
-      release();
-      if (locks.get(args.user_id) === queued) locks.delete(args.user_id);
-    }
-  };
-}
-
 export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
   const wagerBundle = makeFakeDeps({
     now: () => NOW,
-    starterGrantsEnabled: opts.starterGrantsEnabled ?? false,
     walletMiniappEnabled: false,
     stakeAcceptanceEnabled: opts.stakeAcceptanceEnabled ?? false,
   });
   installAtomicStarterRpc(wagerBundle.db, opts.starterBudgetEnabled ?? true);
-  const wager = createWagerModule(wagerBundle.deps);
+  const starterOnly =
+    (opts.starterGrantsEnabled ?? false) && (opts.stakeAcceptanceEnabled ?? false);
+  const wager = starterOnly
+    ? createStarterOnlyWagerModule({
+        runtimeMode: 'starter_only',
+        db: starterOnlyWagerDbFromFake(wagerBundle.db),
+        log: wagerBundle.deps.log,
+        starterGrantsEnabled: true,
+        stakeAcceptanceEnabled: true,
+      })
+    : createWagerModule(wagerBundle.deps);
   if (opts.link ?? true) wagerBundle.db.seedLink(USER_A, 'Wa11etPubkey1111111111111111111111111111');
   const balanceLamports =
     opts.balanceLamports === undefined ? 1_000_000_000n : opts.balanceLamports;

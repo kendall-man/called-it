@@ -1,9 +1,14 @@
 import { createHash } from 'node:crypto';
 import { isIP } from 'node:net';
 import { z } from 'zod';
+import { WAGER_RUNTIME_MODES, resolvedWagerRuntimeMode, validateWagerRuntimeEnvironment } from './wager-runtime-env.js';
+
+export { WAGER_RUNTIME_MODES, type WagerRuntimeMode } from './wager-runtime-env.js';
 
 const MillisecondsSchema = z.coerce.number().int().positive().max(86_400_000);
 const Sha256FingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/);
+const OptionalConfiguredStringSchema = z.string().optional()
+  .transform((value) => value?.trim() === '' ? undefined : value);
 const Base64KeySchema = z.string().regex(/^[A-Za-z0-9+/]{43}=$/).refine(
   (value) => Buffer.from(value, 'base64').toString('base64') === value,
 );
@@ -83,16 +88,18 @@ const EnvSchema = z.object({
    * getUpdates return 409).
    */
   TELEGRAM_INGRESS: z.enum(['poll', 'webhook']).default('poll'),
-  /** Wager-mode master switch — anything but the literal 'true' means OFF. */
+  /** Explicit wager capability boundary. Required for staging and production. */
+  WAGER_RUNTIME_MODE: z.enum(WAGER_RUNTIME_MODES).optional(),
+  /** Legacy local input; deployed values must agree with the explicit runtime mode. */
   WAGER_MODE_ENABLED: z.enum(['true', 'false']).default('false'),
   /**
    * Dedicated plain-SOL treasury for wager mode. NEVER the TxL-holding
    * SOLANA_KEYPAIR_B58 (sponsor terms: TxL is never wagering collateral).
-   * Absent → the wager module degrades to null exactly like the flag being off.
+   * Required only by the funded runtime.
    */
-  WAGER_TREASURY_KEYPAIR_B58: z.string().optional(),
+  WAGER_TREASURY_KEYPAIR_B58: OptionalConfiguredStringSchema,
   /** Optional ops chat for wager solvency alerts. */
-  WAGER_OPS_CHAT_ID: z.string().optional(),
+  WAGER_OPS_CHAT_ID: OptionalConfiguredStringSchema,
   STARTER_GRANTS_ENABLED: z.enum(['true', 'false']).transform((value) => value === 'true'),
   WALLET_MINIAPP_ENABLED: z.enum(['true', 'false']).transform((value) => value === 'true'),
   STAKE_ACCEPTANCE_ENABLED: z.enum(['true', 'false']).transform((value) => value === 'true'),
@@ -115,7 +122,12 @@ const EnvSchema = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: [left], message: 'invalid relationship' });
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: [right], message: 'invalid relationship' });
   };
+  const addIssue = (variable: string, message: string): void => {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [variable], message });
+  };
   const deployed = env.DEPLOYMENT_ENV !== 'development';
+  const wagerRuntimeMode = resolvedWagerRuntimeMode(env);
+  validateWagerRuntimeEnvironment(env, { add: addIssue, addPair: addPairIssue });
   const betaActive = deployed || env.BETA_ALLOWED_GROUP_IDS.length > 0;
   const webUrl = new URL(env.WEB_BASE_URL);
   if (deployed && env.GLM_BASE_URL === undefined) {
@@ -210,19 +222,7 @@ const EnvSchema = z.object({
     });
   }
 
-  if (env.STAKE_ACCEPTANCE_ENABLED) {
-    if (env.WAGER_MODE_ENABLED === 'false') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['STAKE_ACCEPTANCE_ENABLED'],
-        message: 'requires wager mode',
-      });
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['WAGER_MODE_ENABLED'],
-        message: 'required by stake acceptance',
-      });
-    }
+  if (env.STAKE_ACCEPTANCE_ENABLED && wagerRuntimeMode === 'funded') {
     if (env.WAGER_TREASURY_KEYPAIR_B58 === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -256,6 +256,7 @@ const EnvSchema = z.object({
   const { WEB_CONCIERGE_TOKEN_SHA256: _auditOnly, ...runtime } = env;
   return {
     ...runtime,
+    WAGER_RUNTIME_MODE: resolvedWagerRuntimeMode(runtime),
     GLM_BASE_URL: runtime.GLM_BASE_URL ?? 'https://api.z.ai/api/anthropic',
     SOLANA_RPC_URL: runtime.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com',
   };

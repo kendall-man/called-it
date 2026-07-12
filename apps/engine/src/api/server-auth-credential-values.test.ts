@@ -32,7 +32,7 @@ async function sendHttp(
   return await new Promise<RawResponse>((resolve, reject) => {
     const req = httpRequest(
       {
-        host: url.hostname,
+        host: url.hostname.startsWith('[') ? url.hostname.slice(1, -1) : url.hostname,
         port: url.port,
         method: options.method,
         path: `${url.pathname}${url.search}`,

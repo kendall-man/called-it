@@ -16,7 +16,7 @@ export type RpcResult = WagerStakeResult;
 export type Fixture = { readonly userId: number; readonly groupId: number; readonly marketId: string };
 export type Counts = { readonly positions: number; readonly ledger: number; readonly grants: number; readonly budgetCount: number; readonly budgetAmount: string };
 type DirectStakeState = 'pending' | 'active' | 'void' | 'closed';
-type DirectStakeInput = { readonly key: string; readonly allowStarter: boolean; readonly state: DirectStakeState };
+type DirectStakeInput = { readonly key: string; readonly lamports: number; readonly starterOnly: boolean; readonly state: DirectStakeState };
 
 type PositionSnapshot = { readonly id: string; readonly userId: string; readonly marketId: string; readonly side: string; readonly stake: string; readonly state: string; readonly placedAtMs: string };
 type LedgerSnapshot = { readonly id: string; readonly userId: string; readonly groupId: string | null; readonly marketId: string | null; readonly kind: string; readonly lamports: string; readonly idempotencyKey: string };
@@ -94,12 +94,20 @@ export async function fundLinkedUser(client: Client, fixture: Fixture, lamports 
   await client.query('insert into wager_ledger_entries (user_id, kind, lamports, idempotency_key) values ($1, $2, $3, $4)', [fixture.userId, 'deposit', lamports, `deposit:${fixture.userId}`]);
 }
 
-export async function stake(client: Client, fixture: Fixture, key: string, allowStarter: boolean): Promise<RpcResult> {
-  return stakeWithInput(client, fixture, { key, allowStarter, state: 'active' });
+export async function stake(client: Client, fixture: Fixture, key: string, starterOnly: boolean): Promise<RpcResult> {
+  return stakeWithInput(client, fixture, { key, lamports: STARTER, starterOnly, state: 'active' });
+}
+
+export async function stakeAmount(
+  client: Client,
+  fixture: Fixture,
+  input: { readonly key: string; readonly lamports: number; readonly starterOnly: boolean },
+): Promise<RpcResult> {
+  return stakeWithInput(client, fixture, { ...input, state: 'active' });
 }
 
 async function stakeWithInput(client: Client, fixture: Fixture, input: DirectStakeInput): Promise<RpcResult> {
-  const result = await client.query<{ readonly result: RpcResult }>('select wager_stake($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) as result', [fixture.userId, fixture.groupId, fixture.marketId, 'back', STARTER, 2, input.state, 1_751_630_000_000, input.key, input.allowStarter]);
+  const result = await client.query<{ readonly result: RpcResult }>('select wager_stake($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) as result', [fixture.userId, fixture.groupId, fixture.marketId, 'back', input.lamports, 2, input.state, 1_751_630_000_000, input.key, input.starterOnly]);
   const row = result.rows[0];
   assert.ok(row);
   return row.result;
@@ -122,6 +130,16 @@ export async function counts(client: Client, fixture: Fixture): Promise<Counts> 
   const row = result.rows[0];
   assert.ok(row);
   return row;
+}
+
+export async function balanceLamports(client: Client, userId: number): Promise<string> {
+  const result = await client.query<{ readonly balance: string }>(
+    'select coalesce(sum(lamports), 0)::text as balance from wager_ledger_entries where user_id = $1',
+    [userId],
+  );
+  const row = result.rows[0];
+  assert.ok(row);
+  return row.balance;
 }
 
 export async function stateSnapshot(client: Client, fixture: Fixture): Promise<StateSnapshot> {
@@ -163,12 +181,12 @@ export async function assertBudgetParity(client: Client): Promise<void> {
   assert.equal(BigInt(row.stakeAmount), -BigInt(row.grantAmount));
 }
 
-export async function assertNoWriteCode(client: Client, scenario: { readonly code: RpcCode; readonly mutate: (client: Client, fixture: Fixture) => Promise<void>; readonly allowStarter?: boolean }): Promise<void> {
+export async function assertNoWriteCode(client: Client, scenario: { readonly code: RpcCode; readonly mutate: (client: Client, fixture: Fixture) => Promise<void>; readonly starterOnly?: boolean }): Promise<void> {
   fixtureOffset += 1;
   const fixture = await seedMarket(client, { userId: 7200 + fixtureOffset, groupId: -7200 - fixtureOffset });
   await scenario.mutate(client, fixture);
   const before = await stateSnapshot(client, fixture);
-  assert.deepEqual(await stake(client, fixture, `no-write-${fixtureOffset}`, scenario.allowStarter ?? true), { ok: false, code: scenario.code });
+  assert.deepEqual(await stake(client, fixture, `no-write-${fixtureOffset}`, scenario.starterOnly ?? true), { ok: false, code: scenario.code });
   assert.deepEqual(await stateSnapshot(client, fixture), before);
   await client.query('update wager_status set paused = false, reason = null where id = 1');
 }
@@ -178,7 +196,7 @@ export async function assertNoWriteStateCode(client: Client, state: DirectStakeS
   const fixture = await seedMarket(client, { userId: 7200 + fixtureOffset, groupId: -7200 - fixtureOffset });
   await enableStarterBudget(client);
   const before = await stateSnapshot(client, fixture);
-  assert.deepEqual(await stakeWithInput(client, fixture, { key: `bad-state-${fixtureOffset}`, allowStarter: true, state }), { ok: false, code: 'closed' });
+  assert.deepEqual(await stakeWithInput(client, fixture, { key: `bad-state-${fixtureOffset}`, lamports: STARTER, starterOnly: true, state }), { ok: false, code: 'closed' });
   assert.deepEqual(await stateSnapshot(client, fixture), before);
 }
 

@@ -13,6 +13,7 @@ import type { Say } from '../bot/copy.js';
 import type { Settler } from '../settle/settler.js';
 import type { IngestSupervisor } from '../ingest/supervisor.js';
 import { voidAbandonedMarket } from '../pipeline/void.js';
+import type { WagerCronRegistry, WagerModule } from '../wager/module.js';
 
 export interface CronHandles {
   stop(): void;
@@ -26,6 +27,27 @@ export interface DurableRecoveryCron {
 
 export interface BetaSettlementReconciler {
   tick(): Promise<void>;
+}
+
+function assertNeverWagerModule(module: never): never {
+  throw new TypeError(`unsupported wager module: ${JSON.stringify(module)}`);
+}
+
+export function registerWagerCronWorkers(
+  wager: WagerModule | null,
+  registry: WagerCronRegistry,
+): void {
+  if (wager === null) return;
+  wager.registerSettlementRecovery(registry);
+  switch (wager.kind) {
+    case 'starter_only':
+      return;
+    case 'funded':
+      wager.registerFundedWorkers(registry);
+      return;
+    default:
+      assertNeverWagerModule(wager);
+  }
 }
 
 function utcDayKey(nowMs: number): string {
@@ -149,19 +171,15 @@ export function startCrons(args: {
   });
   if (durableRecovery) void durableRecovery.tick();
 
-  // Wager crons (deposit watcher, withdrawal executor, solvency check) exist
-  // only while the module is live; flag-off deploys run exactly the timers below.
-  if (deps.wager) {
-    deps.wager.registerCrons({
-      every(intervalMs: number, task: () => void | Promise<void>): void {
-        timers.push(
-          setInterval(() => {
-            void task();
-          }, intervalMs),
-        );
-      },
-    });
-  }
+  registerWagerCronWorkers(deps.wager, {
+    every(intervalMs: number, task: () => void | Promise<void>): void {
+      timers.push(
+        setInterval(() => {
+          void task();
+        }, intervalMs),
+      );
+    },
+  });
 
   timers.push(
     setInterval(() => {

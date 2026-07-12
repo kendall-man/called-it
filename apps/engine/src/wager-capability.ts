@@ -1,5 +1,6 @@
 import { ENGINE_READINESS_REASONS } from './api/readiness.js';
 import type { Env } from './env.js';
+import type { WagerModule } from './wager/module.js';
 
 export interface DisabledWagerBootState {
   readonly kind: 'disabled';
@@ -30,7 +31,7 @@ export class WagerBootError extends Error {
 
 function hasEnabledWagerCapability(env: Env): boolean {
   return (
-    env.WAGER_MODE_ENABLED === 'true'
+    env.WAGER_RUNTIME_MODE !== 'disabled'
     || env.WALLET_MINIAPP_ENABLED
     || env.STAKE_ACCEPTANCE_ENABLED
     || env.STARTER_GRANTS_ENABLED
@@ -39,12 +40,15 @@ function hasEnabledWagerCapability(env: Env): boolean {
 
 export function evaluateWagerBootState(
   env: Env,
-  wagerConfigured: boolean,
+  constructedKind: WagerModule['kind'] | null,
 ): WagerBootState {
-  if (wagerConfigured) {
+  if (
+    env.WAGER_RUNTIME_MODE !== 'disabled'
+    && constructedKind === env.WAGER_RUNTIME_MODE
+  ) {
     return { kind: 'configured' };
   }
-  if (!hasEnabledWagerCapability(env)) {
+  if (constructedKind === null && !hasEnabledWagerCapability(env)) {
     return {
       kind: 'disabled',
       reason: ENGINE_READINESS_REASONS.wagerDisabled,
@@ -56,8 +60,11 @@ export function evaluateWagerBootState(
   };
 }
 
-export function assertWagerBootable(env: Env, wagerConfigured: boolean): void {
-  const state = evaluateWagerBootState(env, wagerConfigured);
+export function assertWagerBootable(
+  env: Env,
+  constructedKind: WagerModule['kind'] | null,
+): void {
+  const state = evaluateWagerBootState(env, constructedKind);
   if (state.kind === 'blocked') {
     throw new WagerBootError(state.reason);
   }

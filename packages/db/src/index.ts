@@ -57,16 +57,17 @@ export type {
 } from './types.js';
 export {
   assertSafeInteger,
-  createWagerDb,
   multMilli,
   stakePayoutLamports,
   WAGER_MULT_SCALE,
-  wagerDbFromClient,
-  type WagerDb,
-  type WagerDbClient,
-  type WagerFilterBuilder,
-  type WagerTableBuilder,
-} from './wager-db.js';
+} from './wager-db-core.js';
+export type {
+  StarterOnlyWagerDb,
+  WagerDb,
+  WagerDbClient,
+  WagerFilterBuilder,
+  WagerTableBuilder,
+} from './wager-db-contract.js';
 export type {
   WagerDepositInsert,
   WagerDepositRow,
@@ -74,6 +75,7 @@ export type {
   WagerLedgerEntry,
   WagerLedgerKind,
   WagerLedgerRow,
+  WagerSettlementLedgerEntry,
   CreatePendingStakeIntentResult,
   MutatePendingStakeIntentResult,
   PendingStakeIntentErrorCode,
@@ -87,6 +89,7 @@ export type {
   WagerStakeErrorCode,
   WagerStakeInput,
   WagerStakeResult,
+  WagerStarterStakeInput,
   WagerStatusRow,
   WagerWalletLinkRow,
   WagerWithdrawErrorCode,

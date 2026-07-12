@@ -1,6 +1,6 @@
 import type {
   WagerCronRegistry,
-  WagerModule,
+  FundedWagerModule,
   WagerStakeTapArgs,
   WagerStakeTapSource,
 } from '../wager/module.js';
@@ -28,7 +28,8 @@ function assertNever(value: never): never {
   throw new TypeError(`Unsupported wager source: ${JSON.stringify(value)}`);
 }
 
-export class TelegramFlowWager implements WagerModule {
+export class TelegramFlowWager implements FundedWagerModule {
+  readonly kind = 'funded';
   readonly appliedSettlements: string[] = [];
   private readonly sources = new Set<string>();
 
@@ -74,5 +75,6 @@ export class TelegramFlowWager implements WagerModule {
     return { balanceLamports: 0n, pubkey: WALLET_ADDRESS_SENTINEL };
   }
   registerCommands(): void {}
-  registerCrons(_registry: WagerCronRegistry): void {}
+  registerSettlementRecovery(_registry: WagerCronRegistry): void {}
+  registerFundedWorkers(_registry: WagerCronRegistry): void {}
 }

@@ -12,6 +12,14 @@ export type {
   WagerStakeResult,
 } from '@calledit/db';
 
+export type WagerSettlementLedgerEntry = Omit<WagerLedgerEntry, 'kind'> & {
+  readonly kind: 'payout' | 'refund';
+};
+
+export type WagerStarterStakeInput = Omit<WagerStakeInput, 'starterOnly'> & {
+  readonly starterOnly?: never;
+};
+
 export type WagerCurrency = 'rep' | 'sol';
 export type WagerPositionSide = 'back' | 'doubt';
 export type WagerPositionState = 'pending' | 'active' | 'void';
@@ -119,4 +127,25 @@ export interface WagerDb {
   tryCronLock(name: string): Promise<boolean>;
   releaseCronLock(name: string): Promise<void>;
   getUserName(userId: number): Promise<string | null>;
+}
+
+type WagerSettlementReadDb = Pick<
+  WagerDb,
+  | 'getMarketProbability'
+  | 'getSettlementOutcome'
+  | 'hasSettlementApplied'
+  | 'positionsForMarket'
+  | 'setPositionStates'
+  | 'insertSettlementApplied'
+  | 'settledSolMarketsMissingApplied'
+  | 'getUserName'
+>;
+
+export interface WagerSettlementDb extends WagerSettlementReadDb {
+  postWagerLedger(entry: WagerSettlementLedgerEntry): Promise<{ inserted: boolean }>;
+}
+
+export interface StarterOnlyWagerDb extends WagerSettlementDb {
+  getWagerStatus(): ReturnType<WagerDb['getWagerStatus']>;
+  wagerStarterStake(args: WagerStarterStakeInput): Promise<WagerStakeResult>;
 }

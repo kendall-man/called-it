@@ -16,8 +16,10 @@ export interface FeedReadinessPort {
 export interface WagerReadinessSnapshot {
   readonly enabled: boolean;
   readonly configured: boolean;
+  readonly runtimeMatches: boolean;
   readonly paused: boolean;
   readonly covered: boolean;
+  readonly starterIntakeReady: boolean;
 }
 
 export interface WagerReadinessPort {
@@ -111,11 +113,20 @@ export function createEngineReadinessChecks(
     timeoutReason: ENGINE_READINESS_REASONS.wagerTimeout,
     async check(signal: AbortSignal) {
       const snapshot = await ports.wager.snapshot(signal);
+      if (!snapshot.runtimeMatches) {
+        return { kind: 'not_ready', reason: ENGINE_READINESS_REASONS.wagerUnavailable };
+      }
       if (!snapshot.enabled) {
         return { kind: 'disabled', reason: ENGINE_READINESS_REASONS.wagerDisabled };
       }
       if (!snapshot.configured) {
         return { kind: 'not_ready', reason: ENGINE_READINESS_REASONS.wagerUnavailable };
+      }
+      if (!snapshot.starterIntakeReady) {
+        return {
+          kind: 'not_ready',
+          reason: ENGINE_READINESS_REASONS.starterIntakeUnavailable,
+        };
       }
       if (!snapshot.covered) {
         return { kind: 'not_ready', reason: ENGINE_READINESS_REASONS.solvencyUncovered };

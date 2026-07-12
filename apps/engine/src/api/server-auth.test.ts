@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Logger } from '../log.js';
 import {
@@ -33,6 +34,10 @@ function bearer(token: string): Record<string, string> {
   return { ...jsonHeaders, authorization: `Bearer ${token}` };
 }
 
+function hasErrorCode(error: Error): error is Error & { readonly code: string } {
+  return 'code' in error && typeof error.code === 'string';
+}
+
 describe('engine route-scoped credentials', () => {
   afterEach(closeActiveServer);
 
@@ -46,6 +51,37 @@ describe('engine route-scoped credentials', () => {
     expect(live.status).toBe(200);
     expect(ready.status).toBe(200);
     expect(legacy.status).toBe(404);
+  });
+
+  it('keeps harness requests on the listener address family when the IPv4 port is occupied', async () => {
+    const harness = await startHarness();
+    const port = Number(new URL(harness.base).port);
+    const shadow = createServer((_req, res) => {
+      res.writeHead(418, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'shadow' }));
+    });
+    const shadowBound = await new Promise<boolean>((resolve, reject) => {
+      const onError = (error: Error): void => {
+        if (hasErrorCode(error) && error.code === 'EADDRINUSE') {
+          resolve(false);
+          return;
+        }
+        reject(error);
+      };
+      shadow.once('error', onError);
+      shadow.listen(port, '127.0.0.1', () => {
+        shadow.off('error', onError);
+        resolve(true);
+      });
+    });
+
+    try {
+      const response = await fetch(`${harness.base}/api/live`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ status: 'live' });
+    } finally {
+      if (shadowBound) await new Promise<void>((resolve) => shadow.close(() => resolve()));
+    }
   });
 
   it('separates missing, unknown, wrong-scope, and matching credentials', async () => {

@@ -139,8 +139,10 @@ describe('engine readiness checks', () => {
         snapshot: async () => ({
           enabled: false,
           configured: false,
+          runtimeMatches: true,
           paused: false,
           covered: false,
+          starterIntakeReady: false,
         }),
       },
     });
@@ -159,8 +161,10 @@ describe('engine readiness checks', () => {
         snapshot: async () => ({
           enabled: true,
           configured: false,
+          runtimeMatches: false,
           paused: false,
           covered: false,
+          starterIntakeReady: false,
         }),
       },
     });
@@ -179,8 +183,10 @@ describe('engine readiness checks', () => {
         snapshot: async () => ({
           enabled: true,
           configured: true,
+          runtimeMatches: true,
           paused: true,
           covered: true,
+          starterIntakeReady: true,
         }),
       },
     });
@@ -199,8 +205,10 @@ describe('engine readiness checks', () => {
         snapshot: async () => ({
           enabled: true,
           configured: true,
+          runtimeMatches: true,
           paused: true,
           covered: false,
+          starterIntakeReady: true,
         }),
       },
     });

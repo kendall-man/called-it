@@ -21,6 +21,7 @@ describe('loadEnv', () => {
       SOLANA_RPC_URL: 'https://api.devnet.solana.com',
       PORT: 8790,
       TELEGRAM_INGRESS: 'poll',
+      WAGER_RUNTIME_MODE: 'disabled',
       WAGER_MODE_ENABLED: 'false',
       BETA_ALLOWED_GROUP_IDS: [],
     });
@@ -78,8 +79,8 @@ describe('loadEnv', () => {
     });
   });
 
-  it('accepts a complete production configuration with all capabilities enabled safely', () => {
-    // Given direct engine polling, an isolated treasury, and enforced coverage
+  it('accepts a complete production starter-only beta configuration', () => {
+    // Given direct engine polling with starter intake and no funded custody
     const source = {
       ...BASE_ENV,
       DEPLOYMENT_ENV: 'production',
@@ -89,9 +90,9 @@ describe('loadEnv', () => {
       SOLANA_RPC_URL: 'https://api.devnet.solana.com',
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
+      WAGER_RUNTIME_MODE: 'starter_only',
       WAGER_MODE_ENABLED: 'true',
-      WAGER_TREASURY_KEYPAIR_B58: 'dedicated-treasury-keypair',
-      TREASURY_COVERAGE_ENFORCED: 'true',
+      TREASURY_COVERAGE_ENFORCED: 'false',
       STAKE_ACCEPTANCE_ENABLED: 'true',
       STARTER_GRANTS_ENABLED: 'true',
       WALLET_MINIAPP_ENABLED: 'false',
@@ -100,13 +101,13 @@ describe('loadEnv', () => {
     // When the engine parses its environment
     const parsed = loadEnv(source);
 
-    // Then each independent switch is enabled as a typed value
+    // Then starter capability is enabled as typed state without treasury custody
     expect(parsed).toMatchObject({
       BETA_ALLOWED_GROUP_IDS: [-100123],
       STARTER_GRANTS_ENABLED: true,
       WALLET_MINIAPP_ENABLED: false,
       STAKE_ACCEPTANCE_ENABLED: true,
-      TREASURY_COVERAGE_ENFORCED: true,
+      TREASURY_COVERAGE_ENFORCED: false,
     });
   });
 
@@ -119,6 +120,7 @@ describe('loadEnv', () => {
       SOLANA_RPC_URL: 'https://api.devnet.solana.com',
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
+      WAGER_RUNTIME_MODE: 'disabled',
     };
 
     expect(() => loadEnv(deployed)).toThrowError('Engine environment invalid: BETA_ALLOWED_GROUP_IDS');
@@ -140,6 +142,7 @@ describe('loadEnv', () => {
       BETA_ALLOWED_GROUP_IDS: '-100123',
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
+      WAGER_RUNTIME_MODE: 'disabled',
     };
 
     // When the engine parses its environment
@@ -203,6 +206,7 @@ describe('loadEnv', () => {
       SOLANA_RPC_URL: 'https://api.devnet.solana.com',
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
+      WAGER_RUNTIME_MODE: 'disabled',
     };
 
     // Then direct beta startup succeeds without a bridge credential.
@@ -228,6 +232,7 @@ describe('loadEnv', () => {
       BETA_ALLOWED_GROUP_IDS: '-100123',
       GLM_BASE_URL: 'https://api.z.ai/api/anthropic',
       SOLANA_RPC_URL: 'https://api.devnet.solana.com',
+      WAGER_RUNTIME_MODE: 'disabled',
     };
 
     // When the engine parses its environment

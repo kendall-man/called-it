@@ -5,7 +5,7 @@
  */
 
 import { CLAIM_TYPES, checkDebounce, compileClaim, priceSpec, reduceMarket, type MatchEvent } from '@calledit/market-engine';
-import { createEngineDb, createWagerDb } from '@calledit/db';
+import { createEngineDb } from '@calledit/db';
 import {
   classifyMessage,
   parseClaim,
@@ -23,15 +23,9 @@ import {
   type TxlineLogger,
 } from '@calledit/txline';
 import {
-  broadcastRawTx,
-  buildSolTransfer,
   Connection,
-  fetchIncomingTransfers,
-  getSigStatus,
-  isBlockheightExceeded,
   loadWallet,
   submitValidateStat,
-  withRetry,
 } from '@calledit/solana';
 import type { AgentPort, Deps, EngineDb, EventSourceLike, OddsFetchResult, ProofSubmitter, TxPort } from './ports.js';
 import type { WagerModule, WagerPoster } from './wager/module.js';
@@ -43,7 +37,7 @@ import { bindAbortSignalToFetch } from './api/readiness-http.js';
 import { createSupabaseProductionReadinessPorts } from './api/readiness-production.js';
 import { resolvePersonaTemplateKey } from './wiring-agent.js';
 import { createProductionProofSubmitter } from './wiring-proof.js';
-import { createProductionWagerModule } from './wiring-wager.js';
+import { createProductionWagerRuntime } from './wiring-wager-runtime.js';
 
 // ── Dependency construction ───────────────────────────────────────────────
 
@@ -124,6 +118,7 @@ export async function createDeps(
       odds = combineOddsSnapshot(records, { logger: txLogger });
     } catch (error) {
       signal?.throwIfAborted();
+      if (!(error instanceof Error)) throw error;
       log.warn('odds_snapshot_failed', { fixtureId, reason: dependencyFailureReason(error) });
       return { kind: 'transient' };
     }
@@ -170,6 +165,7 @@ export async function createDeps(
               }
             }
           } catch (error) {
+            if (!(error instanceof Error)) throw error;
             log.warn('gap_fill_failed', { fixtureId, reason: dependencyFailureReason(error) });
           }
         },
@@ -189,39 +185,26 @@ export async function createDeps(
       new ReplaySource({ client, fixtureId, speed, logger: txLogger }),
   };
 
+  const wager: WagerModule | null = await createProductionWagerRuntime(
+    { env, log, engineDb: db, poster: wagerPoster },
+    {
+      loadStarterOnlyDbFactory: async () =>
+        (await import('@calledit/db/wager-starter')).createStarterOnlyWagerDb,
+      loadFundedDbFactory: async () =>
+        (await import('@calledit/db/wager-funded')).createWagerDb,
+      loadFundedSolanaRuntime: async () => {
+        const [wagerSolana, wagerRuntime] = await Promise.all([
+          import('@calledit/solana'),
+          import('./wiring-wager-solana.js'),
+        ]);
+        return wagerRuntime.createWagerSolanaRuntime(wagerSolana);
+      },
+    },
+  );
   const proofSubmitter: ProofSubmitter | null = createProductionProofSubmitter(env, log, {
     createConnection: (rpcUrl) => new Connection(rpcUrl, 'confirmed'),
     loadWallet,
     submit: (input) => submitValidateStat(input),
-  });
-  const wager: WagerModule | null = await createProductionWagerModule({
-    env,
-    log,
-    engineDb: db,
-    poster: wagerPoster,
-    createDb: (url, serviceRoleKey) => createWagerDb(url, serviceRoleKey),
-    createConnection: (rpcUrl) => new Connection(rpcUrl, 'confirmed'),
-    loadTreasury: loadWallet,
-    chainRuntime: {
-      publicKey: (treasury) => treasury.publicKey,
-      publicKeyAddress: (publicKey) => publicKey.toBase58(),
-      getBalance: (connection, publicKey) => connection.getBalance(publicKey, 'confirmed'),
-      getLatestBlockhash: (connection) => connection.getLatestBlockhash('finalized'),
-      sendRawTransaction: (connection, raw, options) =>
-        connection.sendRawTransaction(raw, options),
-      getSignatureStatuses: (connection, signatures, config) =>
-        connection.getSignatureStatuses(signatures, {
-          searchTransactionHistory: config?.searchTransactionHistory ?? false,
-        }),
-      getBlockHeight: (connection, commitment) => connection.getBlockHeight(commitment),
-      retry: (operation) => withRetry(operation),
-      buildSolTransfer: (args) => buildSolTransfer(args),
-      broadcastRawTx: (rpc, rawTxB64) => broadcastRawTx(rpc, rawTxB64),
-      getSigStatus: (rpc, sig) => getSigStatus(rpc, sig),
-      isBlockheightExceeded: (rpc, height) => isBlockheightExceeded(rpc, height),
-      fetchIncomingTransfers: (connection, address, options) =>
-        fetchIncomingTransfers(connection, address, options),
-    },
   });
   const readiness = createSupabaseProductionReadinessPorts({
     supabaseUrl: env.SUPABASE_URL,
@@ -243,8 +226,10 @@ export async function createDeps(
     },
     liveLookaheadMs: ENGINE.LIVE_LOOKAHEAD_MS,
     now,
-    wagerEnabled: env.WAGER_MODE_ENABLED === 'true',
-    wagerConfigured: wager !== null,
+    wagerRuntimeMode: env.WAGER_RUNTIME_MODE,
+    wagerModuleKind: wager?.kind ?? null,
+    starterGrantsEnabled: env.STARTER_GRANTS_ENABLED,
+    starterIntakeEnabled: env.STARTER_GRANTS_ENABLED && env.STAKE_ACCEPTANCE_ENABLED,
     proofEnabled: proofSubmitter !== null,
     settlementEnabled: false,
   });

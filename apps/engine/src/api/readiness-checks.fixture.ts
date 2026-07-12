@@ -20,8 +20,10 @@ export function healthyReadinessPorts(): EngineReadinessPorts {
       snapshot: async () => ({
         enabled: true,
         configured: true,
+        runtimeMatches: true,
         paused: false,
         covered: true,
+        starterIntakeReady: true,
       }),
     },
     telegram: { snapshot: async () => ({ heartbeatAtMs: READINESS_TEST_NOW }) },

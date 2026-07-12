@@ -167,7 +167,7 @@ function createDeps(db: EngineDb, wager: Deps['wager'], log: Logger): Deps {
     readiness: {
       database: { probe: async () => undefined },
       feed: { snapshot: async () => ({ activePricingExpected: false, lastEventAtMs: null }) },
-      wager: { snapshot: async () => ({ enabled: false, configured: false, paused: false, covered: false }) },
+      wager: { snapshot: async () => ({ enabled: false, configured: false, runtimeMatches: true, paused: false, covered: false, starterIntakeReady: false }) },
       proof: { snapshot: async () => ({ enabled: false, heartbeatAtMs: null, backlog: 0, oldestAgeMs: null }) },
       settlement: { snapshot: async () => ({ enabled: false, heartbeatAtMs: null, backlog: 0, oldestAgeMs: null }) },
     },
@@ -248,7 +248,7 @@ export async function startHarness(options: {
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('api did not bind a port');
-  return { base: `http://127.0.0.1:${address.port}`, wagerDb: wagerBundle.db };
+  return { base: `http://${address.family === 'IPv6' ? '[::1]' : '127.0.0.1'}:${address.port}`, wagerDb: wagerBundle.db };
 }
 
 export const authed = {

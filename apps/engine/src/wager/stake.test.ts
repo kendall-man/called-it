@@ -4,7 +4,11 @@ import { handleStakeTap, multiplierLabel, wagerDoubtMultiplier } from './stake.j
 import { WAGER_TUNABLES } from './constants.js';
 import { WAGER_COPY } from './copy.js';
 import { makeFakeDeps } from './fakes.js';
-import type { WagerMarketRow, WagerStakeErrorCode, WagerStakeTapArgs } from './port.js';
+import type {
+  WagerMarketRow,
+  WagerStakeErrorCode,
+  WagerStakeTapArgs,
+} from './port.js';
 
 const USER = 5;
 const WALLET = 'WalletPubkey11111111111111111111111111111111';
@@ -62,40 +66,6 @@ describe('handleStakeTap gates', () => {
     expect(db.lastStakeArgs).toBeNull();
   });
 
-  it('limits the starter source to the exact 0.01 SOL amount', async () => {
-    const { deps, db } = makeFakeDeps({
-      starterGrantsEnabled: true,
-      walletMiniappEnabled: true,
-      stakeAcceptanceEnabled: true,
-    });
-    const result = await handleStakeTap(deps, tap({
-      lamports: PRESET_MID,
-      source: { kind: 'telegram_default_card', callbackId: 'wrong-amount' },
-    }));
-
-    expect(result).toEqual({ reply: WAGER_COPY.unlinkedOnboarding(), placed: false });
-    expect(db.lastStakeArgs).toBeNull();
-  });
-
-  it.each([
-    'starterGrantsEnabled',
-    'stakeAcceptanceEnabled',
-  ] as const)('requires %s inside the wager module before a starter stake can begin', async (disabledFlag) => {
-    const { deps, db } = makeFakeDeps({
-      starterGrantsEnabled: true,
-      walletMiniappEnabled: true,
-      stakeAcceptanceEnabled: true,
-      [disabledFlag]: false,
-    });
-
-    const result = await handleStakeTap(deps, tap({
-      source: { kind: 'telegram_default_card', callbackId: `disabled-${disabledFlag}` },
-    }));
-
-    expect(result).toEqual({ reply: WAGER_COPY.unlinkedOnboarding(), placed: false });
-    expect(db.lastStakeArgs).toBeNull();
-  });
-
   it('paused breaker → paused copy, no RPC call', async () => {
     const { deps, db } = makeFakeDeps();
     db.seedLink(USER, WALLET);
@@ -120,6 +90,7 @@ describe('handleStakeTap placement', () => {
     expect(db.lastStakeArgs?.multiplier).toBe(2.2); // quote_multiplier as-is
     expect(db.lastStakeArgs?.state).toBe('active'); // pre-kickoff
     expect(db.lastStakeArgs?.placed_at_ms).toBe(1_000);
+    expect(db.lastStakeArgs?.starterOnly).toBe(false);
     expect(result.reply).toContain('0.05 SOL');
     expect(result.reply).toContain('Nia');
   });

@@ -150,6 +150,10 @@ export interface WagerLedgerEntry {
   idempotency_key: string;
 }
 
+export type WagerSettlementLedgerEntry = Omit<WagerLedgerEntry, 'kind'> & {
+  readonly kind: 'payout' | 'refund';
+};
+
 /** Deposits are always recorded as observed; attribution happens via markDepositCredited. */
 export interface WagerDepositInsert {
   tx_sig: string;
@@ -242,8 +246,14 @@ export interface WagerStakeInput {
   placed_at_ms: number;
   /** Client idempotency key for at-least-once callers (concierge/API). */
   idempotency_key?: string;
-  allow_starter: boolean;
+  /** True only for the fixed first-position starter path. */
+  starterOnly: boolean;
 }
+
+/** Starter callers cannot select the funded branch, including through a widened full input. */
+export type WagerStarterStakeInput = Omit<WagerStakeInput, 'starterOnly'> & {
+  readonly starterOnly?: never;
+};
 
 export type WagerStakeResult =
   | { ok: true; position_id: string }

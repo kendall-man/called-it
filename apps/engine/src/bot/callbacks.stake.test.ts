@@ -32,7 +32,7 @@ describe('handleStake - beta starter position', () => {
 
     expect(harness.wagerDb.lastStakeArgs).toMatchObject({
       idempotency_key: 'telegram:callback:starter-first-tap',
-      allow_starter: true,
+      starterOnly: true,
       lamports: 10_000_000n,
     });
     expect(harness.wagerDb.positions).toHaveLength(1);

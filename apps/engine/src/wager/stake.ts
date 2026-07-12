@@ -9,8 +9,9 @@ import { TUNABLES } from '@calledit/market-engine';
 import { WAGER_TUNABLES } from './constants.js';
 import { WAGER_COPY, sideLabel } from './copy.js';
 import type {
-  WagerModuleDeps,
+  WagerStakeDeps,
   WagerStakeErrorCode,
+  WagerStakeResult,
   WagerStakeTapArgs,
 } from './port.js';
 
@@ -54,28 +55,43 @@ function copyForStakeError(code: WagerStakeErrorCode, balanceLamports: bigint): 
   }
 }
 
+function assertNeverRuntimeMode(mode: never): never {
+  throw new TypeError(`unsupported wager runtime mode: ${String(mode)}`);
+}
+
 export async function handleStakeTap(
-  deps: WagerModuleDeps,
+  deps: WagerStakeDeps,
   args: WagerStakeTapArgs,
 ): Promise<{ reply: string; placed: boolean }> {
   const { market, userId, userName, side, lamports, inPlay, nowMs, source } = args;
 
   if (lamports <= 0n) return { reply: WAGER_COPY.staleTap(), placed: false };
 
-  const allowStarter =
-    source.kind === 'telegram_default_card' &&
-    lamports === WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0] &&
-    deps.starterGrantsEnabled &&
-    deps.stakeAcceptanceEnabled;
   const idempotencyKey =
     source.kind === 'durable_source'
       ? source.idempotencyKey
       : `telegram:callback:${source.callbackId}`;
 
-  // Only the atomic starter RPC path may place before a wallet is linked.
-  const link = await deps.db.getWalletLink(userId);
-  if (!link && !allowStarter) {
-    return { reply: WAGER_COPY.unlinkedOnboarding(), placed: false };
+  switch (deps.runtimeMode) {
+    case 'starter_only':
+      if (
+        source.kind !== 'telegram_default_card'
+        || lamports !== WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0]
+        || !deps.starterGrantsEnabled
+        || !deps.stakeAcceptanceEnabled
+      ) {
+        return { reply: WAGER_COPY.starterUnavailable(), placed: false };
+      }
+      break;
+    case 'funded': {
+      const link = await deps.db.getWalletLink(userId);
+      if (!link) {
+        return { reply: WAGER_COPY.unlinkedOnboarding(), placed: false };
+      }
+      break;
+    }
+    default:
+      return assertNeverRuntimeMode(deps);
   }
 
   // Gate 2: persisted circuit breaker. The wager_stake RPC re-checks this
@@ -88,7 +104,7 @@ export async function handleStakeTap(
   const lockedMultiplier =
     side === 'back' ? market.quote_multiplier : wagerDoubtMultiplier(market.quote_probability);
 
-  const result = await deps.db.wagerStake({
+  const stakeInput = {
     user_id: userId,
     group_id: market.group_id,
     market_id: market.id,
@@ -99,14 +115,26 @@ export async function handleStakeTap(
     // delay-arbitrage pending window (reducer sees the shared row).
     state: inPlay ? 'pending' : 'active',
     placed_at_ms: nowMs,
-    allow_starter: allowStarter,
     idempotency_key: idempotencyKey,
-  });
+  } as const;
+  let result: WagerStakeResult;
+  switch (deps.runtimeMode) {
+    case 'starter_only':
+      result = await deps.db.wagerStarterStake(stakeInput);
+      break;
+    case 'funded':
+      result = await deps.db.wagerStake({ ...stakeInput, starterOnly: false });
+      break;
+    default:
+      return assertNeverRuntimeMode(deps);
+  }
 
   if (!result.ok) {
     // Balance is only fetched on the one error whose copy needs it.
     const balance =
-      result.code === 'insufficient' ? await deps.db.balanceLamports(userId) : 0n;
+      result.code === 'insufficient' && deps.runtimeMode === 'funded'
+        ? await deps.db.balanceLamports(userId)
+        : 0n;
     deps.log.info('wager_stake_refused', {
       marketId: market.id,
       side,
@@ -132,7 +160,15 @@ export async function handleStakeTap(
 
   // Deposit-credited and cashout notifications route to the last group the
   // user wagered in (the bot cannot DM users who never started it).
-  await deps.db.setLastWagerGroup(userId, market.group_id);
+  switch (deps.runtimeMode) {
+    case 'starter_only':
+      break;
+    case 'funded':
+      await deps.db.setLastWagerGroup(userId, market.group_id);
+      break;
+    default:
+      return assertNeverRuntimeMode(deps);
+  }
   deps.log.info('wager_position_placed', {
     marketId: market.id,
     positionId: result.position_id,

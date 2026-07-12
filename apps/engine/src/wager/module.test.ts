@@ -4,7 +4,7 @@ import { createWagerModule } from './module.js';
 import { WAGER_COPY } from './copy.js';
 import { WAGER_KEYS, WAGER_TUNABLES } from './constants.js';
 import { makeFakeDeps } from './fakes.js';
-import type { WagerCommandCtx } from './port.js';
+import type { WagerCommandCtx, WagerCronRegistry } from './port.js';
 
 const USER = 11;
 const GROUP = -400;
@@ -89,14 +89,17 @@ describe('module surface', () => {
     expect(createWagerModule(deps).cardFooter()).toBe(WAGER_COPY.cardFooter());
   });
 
-  it('registerCrons registers the four wager loops at their tunable cadences', () => {
+  it('funded recovery and workers register the four wager loops at their tunable cadences', () => {
     const { deps } = makeFakeDeps();
     const registered: number[] = [];
-    createWagerModule(deps).registerCrons({
+    const module = createWagerModule(deps);
+    const registry: WagerCronRegistry = {
       every(intervalMs) {
         registered.push(intervalMs);
       },
-    });
+    };
+    module.registerSettlementRecovery(registry);
+    module.registerFundedWorkers(registry);
     expect(registered.sort((a, b) => a - b)).toEqual(
       [
         WAGER_TUNABLES.OUTBOX_TICK_MS,

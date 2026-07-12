@@ -7,6 +7,7 @@ import {
   nowIso,
 } from './wager-db-core.js';
 import type { WagerDb, WagerDbClient } from './wager-db-contract.js';
+import { ledgerDbMethods } from './wager-db-ledger.js';
 import {
   manyRows,
   maybeRow,
@@ -34,6 +35,8 @@ type AccountDb = Pick<
 
 export function accountDbMethods(client: WagerDbClient): AccountDb {
   return {
+    ...ledgerDbMethods(client),
+
     async setGroupEnabled(groupId, enabled, byUserId) {
       assertOk(
         'setGroupEnabled',
@@ -79,23 +82,6 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
           .update({ last_wager_group_id: groupId })
           .eq('user_id', userId),
       );
-    },
-
-    // ── ledger ─────────────────────────────────────────────────────────────
-
-    async postWagerLedger(entry) {
-      const rows = await manyRows(
-        'postWagerLedger',
-        client
-          .from('wager_ledger_entries')
-          .upsert(
-            { ...entry, lamports: lamportsToDb('postWagerLedger.lamports', entry.lamports) },
-            { onConflict: 'idempotency_key', ignoreDuplicates: true },
-          )
-          .select('id'),
-        parseNumericIdRow,
-      );
-      return { inserted: rows.length > 0 };
     },
 
     async balanceLamports(userId) {

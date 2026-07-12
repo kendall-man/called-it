@@ -1,27 +1,21 @@
 /**
  * WagerModule assembly — the single object the engine seams talk to. wiring
- * constructs it (or leaves Deps.wager null when WAGER_MODE_ENABLED !== 'true'
- * or the treasury keypair is absent), and every seam short-circuits to exact
- * main behavior on null.
+ * constructs a discriminated starter-only or funded runtime (or leaves
+ * Deps.wager null when disabled).
  */
 
 import { WAGER_TUNABLES } from './constants.js';
 import { WAGER_COPY } from './copy.js';
-import { formatSolAmount, parseSolToLamports } from './format.js';
-import { handleStakeTap } from './stake.js';
+import { parseSolToLamports } from './format.js';
 import { createDepositWatcher } from './deposits.js';
 import { createWithdrawalExecutor } from './withdrawals.js';
-import {
-  applySettlement,
-  createSettlementSweeper,
-  settlementPayoutsLine,
-} from './settlement.js';
 import { createSolvencyMonitor } from './solvency.js';
+import { createWagerModuleCore } from './module-core.js';
 import type {
   WagerBotLike,
   WagerCommandCtx,
   WagerCronRegistry,
-  WagerModule,
+  FundedWagerModule,
   WagerModuleDeps,
 } from './port.js';
 
@@ -37,11 +31,16 @@ export type {
   WagerLogger,
   WagerMarketRow,
   WagerModule,
+  WagerModuleCore,
   WagerModuleDeps,
   WagerPoster,
   WagerSettlementOutcome,
+  WagerStakeDeps,
   WagerStakeTapArgs,
   WagerStakeTapSource,
+  FundedWagerModule,
+  StarterOnlyWagerModule,
+  StarterOnlyWagerModuleDeps,
 } from './port.js';
 
 function commandArg(ctx: WagerCommandCtx): string {
@@ -56,10 +55,9 @@ function groupChatId(ctx: WagerCommandCtx): number | null {
   return chat.type === 'group' || chat.type === 'supergroup' ? chat.id : null;
 }
 
-export function createWagerModule(deps: WagerModuleDeps): WagerModule {
+export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
   const watcher = createDepositWatcher(deps);
   const executor = createWithdrawalExecutor(deps);
-  const sweeper = createSettlementSweeper(deps);
   const solvency = createSolvencyMonitor(deps);
 
   /** Group commands double as notification-routing breadcrumbs. */
@@ -137,28 +135,8 @@ export function createWagerModule(deps: WagerModuleDeps): WagerModule {
   }
 
   return {
-    async currencyForMint() {
-      // SOL-only product: every market is a SOL market.
-      return 'sol';
-    },
-
-    handleStakeTap: (args) => handleStakeTap(deps, args),
-
-    applySettlement: (marketId) => applySettlement(deps, marketId),
-
-    settlementPayoutsLine: (marketId, outcome) => settlementPayoutsLine(deps, marketId, outcome),
-
-    cardFooter: () => WAGER_COPY.cardFooter(),
-
-    presetLabels() {
-      const [first, second, third] = WAGER_TUNABLES.PRESET_STAKES_LAMPORTS;
-      // Keyboard labels stay compact and exact ("0.05 SOL").
-      return [formatSolAmount(first), formatSolAmount(second), formatSolAmount(third)];
-    },
-
-    presetLamports(index) {
-      return WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[index] ?? null;
-    },
+    kind: 'funded',
+    ...createWagerModuleCore(deps),
 
     async walletSummary(userId) {
       const [balanceLamports, link] = await Promise.all([
@@ -174,10 +152,9 @@ export function createWagerModule(deps: WagerModuleDeps): WagerModule {
       bot.command('withdraw', handleWithdrawCommand);
     },
 
-    registerCrons(registry: WagerCronRegistry) {
+    registerFundedWorkers(registry: WagerCronRegistry) {
       registry.every(WAGER_TUNABLES.DEPOSIT_POLL_MS, () => watcher.tick());
       registry.every(WAGER_TUNABLES.OUTBOX_TICK_MS, () => executor.tick());
-      registry.every(WAGER_TUNABLES.SETTLEMENT_SWEEP_MS, () => sweeper.tick());
       registry.every(WAGER_TUNABLES.SOLVENCY_POLL_MS, () => solvency.tick());
     },
   };

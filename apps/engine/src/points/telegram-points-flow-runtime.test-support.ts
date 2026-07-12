@@ -140,7 +140,16 @@ export function createTelegramFlowRuntime(): TelegramFlowRuntime {
     readiness: {
       database: { probe: async () => undefined },
       feed: { snapshot: async () => ({ activePricingExpected: false, lastEventAtMs: null }) },
-      wager: { snapshot: async () => ({ enabled: false, configured: false, paused: false, covered: false }) },
+      wager: {
+        snapshot: async () => ({
+          enabled: false,
+          configured: false,
+          runtimeMatches: true,
+          paused: false,
+          covered: false,
+          starterIntakeReady: false,
+        }),
+      },
       proof: { snapshot: async () => ({ enabled: false, heartbeatAtMs: null, backlog: 0, oldestAgeMs: null }) },
       settlement: { snapshot: async () => ({ enabled: false, heartbeatAtMs: null, backlog: 0, oldestAgeMs: null }) },
     },

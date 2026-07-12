@@ -61,6 +61,15 @@ export async function handleWallet(
     sendJson(res, 503, { error: 'wager_unavailable' });
     return;
   }
+  switch (wager.kind) {
+    case 'starter_only':
+      sendJson(res, 404, { error: 'not_found' });
+      return;
+    case 'funded':
+      break;
+    default:
+      throw new TypeError(`unsupported wager module: ${JSON.stringify(wager)}`);
+  }
   const { balanceLamports, pubkey } = await wager.walletSummary(userId);
   const open = await deps.db.openMarketsForGroup(chatId);
   const positions: Array<Record<string, unknown>> = [];

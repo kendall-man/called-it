@@ -1,24 +1,20 @@
-import { assertOk, DbError } from './errors.js';
+import { assertOk } from './errors.js';
 import {
   assertSafeInteger,
   nowIso,
   OPEN_MARKET_STATUSES,
   RESIGNABLE_WITHDRAWAL_STATES,
-  SETTLED_MARKET_STATUSES,
   WAGER_STATUS_ROW_ID,
   withdrawalFromRaw,
 } from './wager-db-core.js';
 import type { WagerDb, WagerDbClient } from './wager-db-contract.js';
 import {
   manyRows,
-  maybeRow,
   parseIdRow,
-  parseMarketIdRow,
-  parseProbabilityRow,
-  parseSettlementOutcomeRow,
-  parseWagerStatusRow,
   parseWithdrawalRow,
 } from './wager-db-row-parsers.js';
+import { settlementDbMethods } from './wager-db-settlement.js';
+import { wagerStatusReaderDbMethods } from './wager-db-status.js';
 import type { WagerWithdrawalState } from './wager-types.js';
 
 type OperationsDb = Pick<
@@ -39,6 +35,9 @@ type OperationsDb = Pick<
 
 export function operationsDbMethods(client: WagerDbClient): OperationsDb {
   return {
+    ...settlementDbMethods(client),
+    ...wagerStatusReaderDbMethods(client),
+
     async withdrawalsInState(state) {
       const rows = await manyRows(
         'withdrawalsInState',
@@ -86,91 +85,6 @@ export function operationsDbMethods(client: WagerDbClient): OperationsDb {
           .eq('id', id)
           .in('state', [...RESIGNABLE_WITHDRAWAL_STATES]),
       );
-    },
-
-    // ── settlements (money-movement marker) ────────────────────────────────
-
-    async getMarketProbability(marketId) {
-      const row = await maybeRow(
-        'getMarketProbability',
-        client.from('markets').select('quote_probability').eq('id', marketId).maybeSingle(),
-        parseProbabilityRow,
-      );
-      return row?.quote_probability ?? null;
-    },
-
-    async getSettlementOutcome(marketId) {
-      const row = await maybeRow(
-        'getSettlementOutcome',
-        client.from('settlements').select('outcome').eq('market_id', marketId).maybeSingle(),
-        parseSettlementOutcomeRow,
-      );
-      return row?.outcome ?? null;
-    },
-
-    async hasSettlementApplied(marketId) {
-      const row = await maybeRow(
-        'hasSettlementApplied',
-        client
-          .from('wager_settlements_applied')
-          .select('market_id')
-          .eq('market_id', marketId)
-          .maybeSingle(),
-        parseMarketIdRow,
-      );
-      return row !== null;
-    },
-
-    async insertSettlementApplied(marketId) {
-      assertOk(
-        'insertSettlementApplied',
-        await client
-          .from('wager_settlements_applied')
-          .upsert({ market_id: marketId }, { onConflict: 'market_id', ignoreDuplicates: true }),
-      );
-    },
-
-    async settledSolMarketsMissingApplied() {
-      // Two-step anti-join: PostgREST has no NOT EXISTS, and both sets stay
-      // tiny (SOL markets only).
-      const settled = await manyRows(
-        'settledSolMarketsMissingApplied.markets',
-        client
-          .from('markets')
-          .select('id')
-          .eq('currency', 'sol')
-          .in('status', [...SETTLED_MARKET_STATUSES]),
-        parseIdRow,
-      );
-      if (settled.length === 0) return [];
-      const ids = settled.map((row) => row.id);
-      const applied = await manyRows(
-        'settledSolMarketsMissingApplied.applied',
-        client.from('wager_settlements_applied').select('market_id').in('market_id', ids),
-        parseMarketIdRow,
-      );
-      const appliedIds = new Set(applied.map((row) => row.market_id));
-      return ids.filter((id) => !appliedIds.has(id));
-    },
-
-    // ── circuit breaker ────────────────────────────────────────────────────
-
-    async getWagerStatus() {
-      const row = await maybeRow(
-        'getWagerStatus',
-        client
-          .from('wager_status')
-          .select('paused, reason, updated_at')
-          .eq('id', WAGER_STATUS_ROW_ID)
-          .maybeSingle(),
-        parseWagerStatusRow,
-      );
-      if (!row) {
-        throw new DbError('getWagerStatus', {
-          message: 'wager_status row missing — apply migration 0002',
-        });
-      }
-      return row;
     },
 
     async setWagerStatus(paused, reason) {

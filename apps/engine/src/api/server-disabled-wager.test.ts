@@ -8,6 +8,9 @@ import {
   healthyReadinessPorts,
 } from './readiness-checks.fixture.js';
 import { DrainState, createReadinessEvaluator } from './readiness.js';
+import { makeFakeDeps } from '../wager/fakes.js';
+import { starterOnlyWagerDbFromFake } from '../wager/starter-fake.test-support.js';
+import { createStarterOnlyWagerModule } from '../wager/starter-only-module.js';
 import {
   CHAT_ID,
   USER_ID,
@@ -29,10 +32,12 @@ function createDisabledStagingReadiness() {
         },
         wager: {
           snapshot: async () => ({
-            enabled: false,
-            configured: false,
-            paused: false,
-            covered: false,
+              enabled: false,
+              configured: false,
+              runtimeMatches: true,
+              paused: false,
+              covered: false,
+              starterIntakeReady: false,
           }),
         },
         proof: {
@@ -113,5 +118,74 @@ describe('engine API with wager safely disabled', () => {
     expect(await wallet.json()).toEqual({ error: 'wager_unavailable' });
     expect(walletWrite.status).toBe(404);
     expect(stake.status).toBe(404);
+  });
+
+  it('returns 404 for wallet reads when starter-only is constructed', async () => {
+    // Given the DB-only starter runtime is active
+    const { db, deps } = makeFakeDeps();
+    const wager = createStarterOnlyWagerModule({
+      runtimeMode: 'starter_only',
+      db: starterOnlyWagerDbFromFake(db),
+      log: deps.log,
+      starterGrantsEnabled: true,
+      stakeAcceptanceEnabled: true,
+    });
+    const harness = await startHarness({ wager });
+
+    // When a legacy wallet read is requested
+    const wallet = await fetch(
+      `${harness.base}/api/groups/${CHAT_ID}/users/${USER_ID}/wallet`,
+      { headers: authed },
+    );
+
+    // Then the starter beta exposes no wallet surface
+    expect(wallet.status).toBe(404);
+    expect(await wallet.json()).toEqual({ error: 'not_found' });
+  });
+
+  it('fails the readiness API when starter intake or budget is unavailable', async () => {
+    // Given a matching starter runtime whose authoritative intake composite is off
+    const { db, deps } = makeFakeDeps();
+    const wager = createStarterOnlyWagerModule({
+      runtimeMode: 'starter_only',
+      db: starterOnlyWagerDbFromFake(db),
+      log: deps.log,
+      starterGrantsEnabled: true,
+      stakeAcceptanceEnabled: true,
+    });
+    const ports = healthyReadinessPorts();
+    const readiness = createReadinessEvaluator({
+      checks: createEngineReadinessChecks(
+        {
+          ...ports,
+          wager: {
+            snapshot: async () => ({
+              enabled: true,
+              configured: true,
+              runtimeMatches: true,
+              paused: false,
+              covered: true,
+              starterIntakeReady: false,
+            }),
+          },
+        },
+        DEFAULT_ENGINE_READINESS_POLICY,
+        () => READINESS_TEST_NOW,
+      ),
+      checkTimeoutMs: DEFAULT_ENGINE_READINESS_POLICY.checkTimeoutMs,
+      deadline: { wait: async () => new Promise<void>(() => undefined) },
+      drainState: new DrainState(),
+    });
+    const harness = await startHarness({ wager, readiness });
+
+    // When deployment readiness is requested
+    const response = await fetch(`${harness.base}/api/ready`);
+
+    // Then promotion is blocked without exposing budget details
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      status: 'not_ready',
+      reasons: ['starter_intake_unavailable'],
+    });
   });
 });

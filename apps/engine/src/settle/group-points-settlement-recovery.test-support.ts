@@ -25,6 +25,7 @@ export function testWager(
   payoutsLine = 'Test SOL outcome finalized.',
 ): WagerModule {
   return {
+    kind: 'funded',
     currencyForMint: async () => 'sol',
     handleStakeTap: async () => ({ reply: '', placed: false }),
     applySettlement: async () => { timeline.push('wager_apply'); },
@@ -37,7 +38,8 @@ export function testWager(
     presetLamports: () => null,
     walletSummary: async () => ({ balanceLamports: 0n, pubkey: null }),
     registerCommands: () => undefined,
-    registerCrons: () => undefined,
+    registerSettlementRecovery: () => undefined,
+    registerFundedWorkers: () => undefined,
   };
 }
 

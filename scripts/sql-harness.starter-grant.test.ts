@@ -4,6 +4,11 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { Pool } from 'pg';
 import { discoverMigrationFiles } from './sql-harness/runner.js';
+import { registerStarterOnlyBehaviorSuite } from './sql-harness/starter-only-behavior-suite.js';
+import {
+  applyStarterOnlyUpgrade,
+  assertStarterOnlySqlContract,
+} from './sql-harness/starter-only-contract-support.js';
 import {
   STARTER,
   assertBudgetParity,
@@ -34,18 +39,18 @@ test.after(async () => {
   await writeFile(TAP_PATH, `${tapLines.join('\n')}\n`);
 });
 
-test('starter-grant migrations apply fresh and as 0001-0003 upgrade', async () => {
+test('starter-grant migrations apply fresh and 0015 upgrades the complete 0001-0014 state', async () => {
   const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
+  const starterOnlyMigration = migrations.find(
+    (migration) => migration.name === '0015_starter_only_beta.sql',
+  );
+  assert.ok(starterOnlyMigration);
   await withMigratedDb(migrations, async () => undefined);
   record('fresh tracked migrations applied and cleaned');
-  await withMigratedDb(migrations.filter((migration) => migration.name <= '0003_broker_pivot.sql'), async (client) => {
-    for (const name of ['0004_starter_grant.sql', '0005_wallet_identity.sql', '0013_direct_beta_starter.sql']) {
-      const migration = migrations.find((candidate) => candidate.name === name);
-      assert.ok(migration);
-      await client.query(migration.sql);
-    }
+  await withMigratedDb(migrations.filter((migration) => migration.name < starterOnlyMigration.name), async (client) => {
+    await applyStarterOnlyUpgrade(client, starterOnlyMigration);
   });
-  record('upgraded 0001-0003 plus direct-beta starter migrations applied and cleaned');
+  record('upgraded the complete 0001-0014 schema through the authoritative 0015 starter-only boundary and cleaned');
 });
 
 test('starter stake writes exact linked rows, accepts pending_lineup, and is idempotent and private', async () => {
@@ -67,6 +72,7 @@ test('starter stake writes exact linked rows, accepts pending_lineup, and is ide
     assert.ok(pendingResult.ok && 'position_id' in pendingResult);
     await assertHappyState(client, pending, pendingResult.position_id, 'pending', 2);
     await assertPrivileges(client, url);
+    await assertStarterOnlySqlContract(client);
     await assertBudgetParity(client);
   });
   record('open and pending_lineup wrote exact linked position, +/-10000000 ledger, grant and budget rows; ten replays deduped; privileges enforced');
@@ -110,7 +116,9 @@ test('starter-grant linked-wallet fixtures seed through append-only link history
   record('starter-grant linked-wallet fixture created one current link backed by one append-only history row');
 });
 
-test('linked non-starter stakes preserve insufficient state and spend only deposited funds', async () => {
+registerStarterOnlyBehaviorSuite(record);
+
+test('starterOnly=false preserves funded insufficient and debit behavior', async () => {
   const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
   await withMigratedDb(migrations, async (client) => {
     const underfunded = await seedMarket(client, { userId: 7111, groupId: -7111 });
@@ -147,7 +155,7 @@ test('linked non-starter stakes preserve insufficient state and spend only depos
     assert.deepEqual(await stake(client, funded, 'linked-funded', false), { ok: true, duplicate: true });
     assert.deepEqual(await stateSnapshot(client, funded), fundedAfter);
   });
-  record('linked allow_starter=false underfunded user returned insufficient with unchanged deposit/budget state; funded user wrote one debit and position with no grant and replay dedupe');
+  record('starterOnly=false underfunded user returned insufficient unchanged; funded user wrote one ordinary debit and position with no grant and replay dedupe');
 });
 
 test('every starter refusal and injected exception preserves the exact prior state', async () => {
@@ -157,6 +165,10 @@ test('every starter refusal and injected exception preserves the exact prior sta
     await assertNoWriteCode(client, { code: 'paused', mutate: async (c) => {
       await enableStarterBudget(c);
       await c.query('update wager_status set paused = true where id = 1');
+    } });
+    await assertNoWriteCode(client, { code: 'closed', mutate: async (c, fixture) => {
+      await enableStarterBudget(c);
+      await c.query('update wager_groups set enabled = false where group_id = $1', [fixture.groupId]);
     } });
     for (const status of ['frozen', 'settling', 'settled', 'voided'] as const) {
       await assertNoWriteCode(client, { code: 'closed', mutate: async (c, fixture) => {
@@ -174,15 +186,15 @@ test('every starter refusal and injected exception preserves the exact prior sta
     await assertNoWriteCode(client, { code: 'wallet_required', mutate: async (c, fixture) => {
       await enableStarterBudget(c);
       await c.query('insert into wager_ledger_entries (user_id, kind, lamports, idempotency_key) values ($1, $2, $3, $4)', [fixture.userId, 'deposit', 1, `history:${fixture.userId}`]);
-    }, allowStarter: false });
+    }, starterOnly: false });
     await assertNoWriteCode(client, { code: 'wrong_side', mutate: async (c, fixture) => {
       await fundLinkedUser(c, fixture);
       await c.query('insert into positions (market_id, user_id, side, stake, locked_multiplier, state, placed_at_ms) values ($1, $2, $3, $4, $5, $6, $7)', [fixture.marketId, fixture.userId, 'doubt', 1, 2, 'active', 1]);
-    }, allowStarter: false });
+    }, starterOnly: false });
     await assertNoWriteCode(client, { code: 'cap', mutate: async (c, fixture) => {
       await fundLinkedUser(c, fixture);
       await c.query('insert into positions (market_id, user_id, side, stake, locked_multiplier, state, placed_at_ms) values ($1, $2, $3, $4, $5, $6, $7)', [fixture.marketId, fixture.userId, 'back', 95_000_001, 2, 'active', 1]);
-    }, allowStarter: false });
+    }, starterOnly: false });
     await assertInjectedExceptionRollsBack(client);
   });
   record('disabled paused frozen settling settled voided bad-state wrong-side non-SOL non-starter history cap and injected exception returned stable codes with exact before/after state');
@@ -228,8 +240,8 @@ test('concurrency grants once per user and the real 501st eligible user is refus
       const two = await Promise.all([poolStake(pool, distinct, 'race-a'), poolStake(pool, distinct, 'race-b')]);
       const distinctSuccess = two.find((result) => result.ok);
       assert.ok(distinctSuccess?.ok && 'position_id' in distinctSuccess);
-      assert.equal(two.filter((result) => !result.ok && result.code === 'wallet_required').length, 1);
-      assert.equal((await counts(client, distinct)).positions, 1);
+      assert.equal(two.filter((result) => !result.ok && result.code === 'starter_unavailable').length, 1);
+      assert.deepEqual(await counts(client, distinct), { positions: 1, ledger: 2, grants: 1, budgetCount: 2, budgetAmount: String(2 * STARTER) });
     } finally {
       await pool.end();
     }
@@ -247,7 +259,7 @@ test('concurrency grants once per user and the real 501st eligible user is refus
     assert.deepEqual(await stateSnapshot(client, exhausted), before);
     assert.deepEqual(await counts(client, exhausted), { positions: 0, ledger: 0, grants: 0, budgetCount: 500, budgetAmount: '5000000000' });
   });
-  record('50 same-key calls produced one exact position; distinct first taps produced success plus wallet_required; 500 real grants remained in parity and the 501st wrote nothing');
+  record('50 same-key calls produced one exact position; distinct first taps produced one grant plus one stable refusal; 500 real grants remained in parity and the 501st wrote nothing');
 });
 
 function record(message: string): void {

@@ -3,6 +3,8 @@ import type {
   WagerDb,
   WagerMarketRow,
   WagerPositionSide,
+  StarterOnlyWagerDb,
+  WagerSettlementDb,
   WagerSettlementOutcome,
 } from './port-db.js';
 
@@ -134,7 +136,7 @@ export type WagerStakeTapSource =
   | { kind: 'telegram_card'; callbackId: string }
   | { kind: 'durable_source'; idempotencyKey: string };
 
-export interface WagerModule {
+export interface WagerModuleCore {
   /** Always 'sol' now — every market is a SOL market. Stamped atomically at mint. */
   currencyForMint(groupId: number): Promise<WagerCurrency>;
   /** The stake path shared by buttons and the API; reply is the answer text. */
@@ -147,14 +149,45 @@ export interface WagerModule {
   presetLabels(): [string, string, string];
   /** Preset button index → lamports (out-of-range → null). */
   presetLamports(index: number): bigint | null;
+  /** DB-only recovery for ledger effects after settlement crashes. */
+  registerSettlementRecovery(registry: WagerCronRegistry): void;
+}
+
+export interface StarterOnlyWagerModule extends WagerModuleCore {
+  readonly kind: 'starter_only';
+}
+
+export interface FundedWagerModule extends WagerModuleCore {
+  readonly kind: 'funded';
   /** User-global SOL balance (lamports) + linked wallet, for the API wallet route. */
   walletSummary(userId: number): Promise<{ balanceLamports: bigint; pubkey: string | null }>;
   registerCommands(bot: WagerBotLike): void;
-  registerCrons(registry: WagerCronRegistry): void;
+  /** Custody workers: deposits, withdrawals, and treasury solvency. */
+  registerFundedWorkers(registry: WagerCronRegistry): void;
 }
 
-/** Constructor bundle assembled by wiring.ts (module is null when flag off). */
-export interface WagerModuleDeps {
+export type WagerModule = StarterOnlyWagerModule | FundedWagerModule;
+
+export interface WagerSettlementDeps {
+  db: WagerSettlementDb;
+  log: WagerLogger;
+}
+
+interface WagerStakeFlags {
+  stakeAcceptanceEnabled: boolean;
+}
+
+export interface StarterOnlyWagerModuleDeps extends WagerStakeFlags {
+  readonly runtimeMode: 'starter_only';
+  /** The starter path is live only while every rollout guard is enabled. */
+  starterGrantsEnabled: boolean;
+  db: StarterOnlyWagerDb;
+  log: WagerLogger;
+}
+
+/** Funded constructor bundle assembled by wiring.ts. */
+export interface WagerModuleDeps extends WagerStakeFlags {
+  readonly runtimeMode: 'funded';
   db: WagerDb;
   chain: WagerChain;
   poster: WagerPoster;
@@ -162,8 +195,7 @@ export interface WagerModuleDeps {
   now(): number;
   /** WAGER_OPS_CHAT_ID — solvency alerts route here when set. */
   opsChatId: number | null;
-  /** The starter path is live only while every rollout guard is enabled. */
-  starterGrantsEnabled: boolean;
   walletMiniappEnabled: boolean;
-  stakeAcceptanceEnabled: boolean;
 }
+
+export type WagerStakeDeps = StarterOnlyWagerModuleDeps | WagerModuleDeps;

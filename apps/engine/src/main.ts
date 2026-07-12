@@ -88,7 +88,7 @@ async function main(): Promise<void> {
     if (method === 'getUpdates') telegramHeartbeatAtMs = deps.now();
     return result;
   });
-  assertWagerBootable(env, deps.wager !== null);
+  assertWagerBootable(env, deps.wager?.kind ?? null);
 
   const say = createSay(deps.agent, log);
   const points = createGroupPointsService({ db: deps.db, log });
