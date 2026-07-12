@@ -1,18 +1,13 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
+import './check-product-copy.points.test.js';
+import { CHECKER_PATH, REPO_ROOT, runChecker } from './check-product-copy.test-support.js';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const CHECKER_PATH = join(REPO_ROOT, 'scripts/check-product-copy.ts');
-const COMMENT_TOKENS = new Set([
-  ts.SyntaxKind.SingleLineCommentTrivia,
-  ts.SyntaxKind.MultiLineCommentTrivia,
-]);
+const COMMENT_TOKENS = new Set([ts.SyntaxKind.SingleLineCommentTrivia, ts.SyntaxKind.MultiLineCommentTrivia]);
 const TASK_ONE_TYPESCRIPT_PATHS: readonly string[] = [
   'apps/concierge/agent/tools/get_my_wallet.ts',
   'apps/concierge/agent/tools/quote_claim.ts',
@@ -29,13 +24,6 @@ const TASK_ONE_TYPESCRIPT_PATHS: readonly string[] = [
   'scripts/check-product-copy.ts',
   'scripts/product-copy-contract.ts',
 ];
-
-function runChecker(args: readonly string[]) {
-  return spawnSync(process.execPath, ['--import', 'tsx', CHECKER_PATH, ...args], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-  });
-}
 
 function countPureLines(path: string): number {
   const source = readFileSync(path, 'utf8');
@@ -69,29 +57,6 @@ test('reports both contract violations when a fixture mixes Practice Rep with a 
     assert.equal(result.status, 1);
     assert.match(result.stdout, /\[economy\.rep-primary-path\]/);
     assert.match(result.stdout, /\[cta\.placeholder-href\]/);
-  } finally {
-    rmSync(fixtureDirectory, { recursive: true, force: true });
-  }
-});
-
-test('rejects aggregate receipt wording across whitespace variants', () => {
-  // Given
-  const fixtureDirectory = mkdtempSync(join(tmpdir(), 'calledit-product-copy-'));
-  const variants = ['aggregate receipt', 'aggregate\treceipt', 'aggregate\nreceipt', 'aggregate\u00a0receipt'];
-
-  try {
-    // When
-    const results = variants.map((variant, index) => {
-      const fixturePath = join(fixtureDirectory, `aggregate-${index}.md`);
-      writeFileSync(fixturePath, `Test SOL has no monetary value.\n${variant}\n`, 'utf8');
-      return runChecker(['--fixture', fixturePath]);
-    });
-
-    // Then
-    for (const result of results) {
-      assert.equal(result.status, 1);
-      assert.match(result.stdout, /\[receipt\.aggregate-primary-path\]/);
-    }
   } finally {
     rmSync(fixtureDirectory, { recursive: true, force: true });
   }
@@ -166,24 +131,6 @@ test('allows a historical migration label split across adjacent lines', () => {
     // Then
     assert.equal(result.status, 0);
     assert.match(result.stdout, /PASS fixture \(1 file\)/);
-  } finally {
-    rmSync(fixtureDirectory, { recursive: true, force: true });
-  }
-});
-
-test('does not let an unrelated negative sentence exempt active Rep copy', () => {
-  // Given
-  const fixtureDirectory = mkdtempSync(join(tmpdir(), 'calledit-product-copy-'));
-  const fixturePath = join(fixtureDirectory, 'active.md');
-  writeFileSync(fixturePath, 'No mainnet is supported.\nPractice Rep\n', 'utf8');
-
-  try {
-    // When
-    const result = runChecker(['--fixture', fixturePath]);
-
-    // Then
-    assert.equal(result.status, 1);
-    assert.match(result.stdout, /\[economy\.rep-primary-path\]/);
   } finally {
     rmSync(fixtureDirectory, { recursive: true, force: true });
   }

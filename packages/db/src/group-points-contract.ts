@@ -5,7 +5,7 @@ import type {
   LeaderboardEntry,
   PointResult,
   PositionParticipant,
-} from './types.js';
+} from './group-points-types.js';
 
 export interface GroupPointsFilterBuilder extends PromiseLike<PgResult<unknown>> {
   eq(column: string, value: unknown): GroupPointsFilterBuilder;

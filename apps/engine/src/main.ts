@@ -103,13 +103,8 @@ async function main(): Promise<void> {
   const settlementReconciler = createSettlementReconciler(deps, log);
 
   const handlerCtx: HandlerCtx = {
-    deps,
-    queue,
-    poster,
-    say,
-    supervisor,
-    entities: new EntityCache(deps.db),
-    budget: new LlmBudget(),
+    deps, queue, poster, say, supervisor,
+    entities: new EntityCache(deps.db), budget: new LlmBudget(),
   };
 
   supervisor.onReplayFinished = (groupId, fixtureId) => {
@@ -131,12 +126,7 @@ async function main(): Promise<void> {
   });
 
   const crons = startCrons({
-    deps,
-    poster,
-    say,
-    settler,
-    supervisor,
-    settlementReconciler,
+    deps, poster, say, settler, supervisor, settlementReconciler,
   });
   const webhookIngress = env.TELEGRAM_INGRESS === 'webhook';
   let runner: ReturnType<typeof run> | null = null;

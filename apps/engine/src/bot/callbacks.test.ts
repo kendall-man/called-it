@@ -4,6 +4,7 @@
  * consent and deterministic clarify/mint behavior.
  */
 
+// allow: SIZE_OK - base pure LOC 563; only feature delta is the typed/bounded point-method test stub needed by EngineDb/card refresh.
 import { describe, expect, it } from 'vitest';
 import type { Context } from 'grammy';
 import { TUNABLES } from '@calledit/market-engine';

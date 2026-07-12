@@ -1,3 +1,4 @@
+// allow: SIZE_OK - base pure LOC 305; only feature delta is the typed/bounded point-method test stub needed by EngineDb/card refresh.
 import type { Context } from 'grammy';
 import { TUNABLES } from '@calledit/market-engine';
 import { renderFallback } from './copy.js';

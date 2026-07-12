@@ -1,4 +1,5 @@
 import type { GroupPointsDb, GroupPointsDbClient } from './group-points-contract.js';
+import type { ApplyGroupPointsResult } from './group-points-types.js';
 import {
   booleanField,
   contractFailure,
@@ -8,7 +9,6 @@ import {
   responseData,
   safeIntegerField,
 } from './group-points-parser-core.js';
-import type { ApplyGroupPointsResult } from './types.js';
 
 const APPLY_POINTS_OP = 'group_points_apply';
 const APPLY_ERROR_KEYS = ['ok', 'code'] as const;

@@ -14,7 +14,7 @@ import type {
   LeaderboardEntry,
   PointResult,
   PositionParticipant,
-} from './types.js';
+} from './group-points-types.js';
 
 export const GROUP_POINTS_QUERY_OPS = {
   pointResults: 'pointResultsForMarket',

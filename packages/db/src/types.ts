@@ -14,10 +14,11 @@ import type {
   MarketSpec,
   MarketStatus,
   MatchEventKind,
-  PositionSide,
   SettlementOutcome,
   TrustTier,
 } from '@calledit/market-engine';
+
+export type * from './group-points-types.js';
 
 // ── Enumerations backed by CHECK constraints in the migration ─────────────
 
@@ -37,23 +38,11 @@ export type LedgerKind = 'stake' | 'payout' | 'refund' | 'topup' | 'seed';
 /** Stake currency for a market (markets.currency, migration 0002). */
 export type MarketCurrency = 'rep' | 'sol';
 
-export type PositionState = 'pending' | 'active' | 'void';
-
 export type PriceProvenance = 'market' | 'modelled';
 
 export type ProofKind = 'stat' | 'odds';
 
 export type ProofStatus = 'pending' | 'verified' | 'failed' | 'unavailable';
-
-export type GroupPointsApplyErrorCode =
-  | 'market_not_found'
-  | 'settlement_missing'
-  | 'position_conflict';
-
-export type GroupPointsIneligibleReason =
-  | 'pre_activation'
-  | 'replay'
-  | 'unsupported_market';
 
 // ── Table rows ─────────────────────────────────────────────────────────────
 
@@ -165,20 +154,6 @@ export interface MarketRow {
   created_at: string;
 }
 
-export interface PositionRow {
-  id: string;
-  market_id: string;
-  user_id: number;
-  side: PositionSide;
-  stake: number;
-  locked_multiplier: number;
-  locked_odds_message_id: string | null;
-  locked_odds_ts: number | null;
-  state: PositionState;
-  placed_at_ms: number;
-  created_at: string;
-}
-
 export interface FeedEventRow {
   fixture_id: number;
   seq: number;
@@ -282,18 +257,6 @@ export interface MarketQuotePatch {
   odds_ts: number | null;
 }
 
-export interface PositionInsert {
-  market_id: string;
-  user_id: number;
-  side: PositionSide;
-  stake: number;
-  locked_multiplier: number;
-  locked_odds_message_id: string | null;
-  locked_odds_ts: number | null;
-  state: 'pending' | 'active';
-  placed_at_ms: number;
-}
-
 export interface SettlementInsert {
   market_id: string;
   outcome: SettlementOutcome;
@@ -314,66 +277,6 @@ export interface ProofUpsert {
 }
 
 // ── Read projections ───────────────────────────────────────────────────────
-
-export type ApplyGroupPointsResult =
-  | {
-      readonly ok: false;
-      readonly code: GroupPointsApplyErrorCode;
-    }
-  | {
-      readonly ok: true;
-      readonly eligible: true;
-      readonly duplicate: boolean;
-      readonly reason: null;
-      readonly group_id: number;
-      readonly scored_count: number;
-      readonly winner_count: number;
-    }
-  | {
-      readonly ok: true;
-      readonly eligible: false;
-      readonly duplicate: boolean;
-      readonly reason: GroupPointsIneligibleReason;
-      readonly group_id: number;
-      readonly scored_count: 0;
-      readonly winner_count: 0;
-    };
-
-export type PointResult = {
-  readonly group_id: number;
-  readonly market_id: string;
-  readonly user_id: number;
-  readonly side: PositionSide;
-  readonly result: 'won' | 'lost';
-  readonly points_delta: 10 | 0;
-  readonly display_name: string;
-  readonly username: string | null;
-};
-
-export type GroupPlayerStats = {
-  readonly group_id: number;
-  readonly user_id: number;
-  readonly points: number;
-  readonly wins: number;
-  readonly losses: number;
-  readonly accuracy: number;
-  readonly current_streak: number;
-  readonly best_streak: number;
-};
-
-export type LeaderboardEntry = GroupPlayerStats & {
-  readonly display_name: string;
-  readonly username: string | null;
-};
-
-export type PositionParticipant = {
-  readonly group_id: number;
-  readonly market_id: string;
-  readonly user_id: number;
-  readonly side: PositionSide;
-  readonly display_name: string;
-  readonly username: string | null;
-};
 
 /** Flattened player projection used by the agent's grounded tools. */
 export interface PlayerLite {

@@ -1,7 +1,7 @@
 import {
   TELEGRAM_MESSAGE_LIMIT,
   truncateUtf16,
-} from '../bot/message-budget.js';
+} from './text-budget.js';
 
 export { TELEGRAM_MESSAGE_LIMIT };
 
