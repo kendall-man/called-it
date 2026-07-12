@@ -130,7 +130,6 @@ export function createWagerModule(deps: WagerModuleDeps): WagerModule {
     }
     await rememberGroup(ctx, from.id);
     deps.log.info('wager_withdrawal_requested', {
-      userId: from.id,
       withdrawalId: result.withdrawal_id,
       lamports: lamports.toString(),
     });

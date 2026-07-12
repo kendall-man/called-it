@@ -39,7 +39,7 @@ export function createSolvencyMonitor(deps: WagerModuleDeps): SolvencyMonitor {
     const treasury = await deps.chain.treasuryBalanceLamports();
     if (!treasury.ok) {
       // An RPC blip is not insolvency — never move the breaker on ignorance.
-      deps.log.warn('wager_solvency_balance_failed', { error: treasury.error });
+      deps.log.warn('wager_solvency_balance_failed');
       return;
     }
     const ledgerTotal = await deps.db.totalLedgerLamports();
@@ -87,8 +87,8 @@ export function createSolvencyMonitor(deps: WagerModuleDeps): SolvencyMonitor {
     async tick(): Promise<void> {
       try {
         await run();
-      } catch (err) {
-        deps.log.error('wager_solvency_check_failed', { error: String(err) });
+      } catch {
+        deps.log.error('wager_solvency_check_failed');
       }
     },
   };

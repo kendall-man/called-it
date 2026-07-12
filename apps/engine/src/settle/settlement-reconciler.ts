@@ -117,7 +117,7 @@ export class SettlementReconciler {
     } catch (error) {
       if (!(error instanceof Error)) throw error;
       this.backlog = Math.max(1, this.backlog);
-      this.options.log.error('settlement_reconciliation_failed', { error: error.message });
+      this.options.log.error('settlement_reconciliation_failed');
     } finally {
       this.isRunning = false;
     }

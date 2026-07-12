@@ -56,7 +56,9 @@ export async function isGroupAdmin(
     const member = await getChatMember();
     return member.status === 'administrator' || member.status === 'creator';
   } catch (err) {
-    h.deps.log.warn('admin_check_failed', { error: String(err) });
+    h.deps.log.warn('admin_check_failed', {
+      reason: err instanceof Error ? 'telegram_api_exception' : 'unknown_exception',
+    });
     return false;
   }
 }

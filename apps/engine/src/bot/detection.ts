@@ -87,7 +87,7 @@ export function registerDetection(bot: Bot, h: HandlerCtx): void {
     const entities = await h.entities.get();
     if (!h.deps.agent.prefilter(text, entities)) return;
     if (!h.budget.allow(group.id)) {
-      h.deps.log.info('llm_budget_exhausted', { groupId: group.id });
+      h.deps.log.info('llm_budget_exhausted');
       return;
     }
 
@@ -95,11 +95,12 @@ export function registerDetection(bot: Bot, h: HandlerCtx): void {
     try {
       result = await h.deps.agent.classify(text, entities);
     } catch (err) {
-      h.deps.log.warn('classify_failed', { groupId: group.id, error: String(err) });
+      h.deps.log.warn('classify_failed', {
+        reason: err instanceof Error ? 'classifier_exception' : 'unknown_exception',
+      });
       return;
     }
     h.deps.log.info('classified', {
-      groupId: group.id,
       isClaim: result.isClaim,
       confidence: result.confidence,
       guess: result.claimTypeGuess,

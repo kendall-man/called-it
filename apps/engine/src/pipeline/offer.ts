@@ -285,7 +285,7 @@ async function postConfirmationGate(h: HandlerCtx, claim: ClaimRow): Promise<voi
 export async function offerClaim(h: HandlerCtx, args: OfferArgs): Promise<void> {
   const consent = args.consent ?? 'awaiting_confirm';
   if (consent === 'explicit' && !h.budget.allow(args.group.id)) {
-    h.deps.log.info('llm_budget_exhausted', { groupId: args.group.id });
+    h.deps.log.info('llm_budget_exhausted');
     if (args.announce) {
       h.poster.post(args.chatId, await h.say('budget_spent'), {
         replyToMessageId: args.sourceMessageId,
@@ -304,7 +304,6 @@ export async function offerClaim(h: HandlerCtx, args: OfferArgs): Promise<void> 
   });
   h.deps.log.info('offer_claim', {
     claimId: claim.id,
-    groupId: args.chatId,
     confidence: args.confidence,
     consent,
   });

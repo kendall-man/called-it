@@ -15,6 +15,7 @@ import type { HandlerCtx } from './context.js';
 import type { PostOptions } from './poster.js';
 import { type ParseEnvelope } from '../pipeline/claims.js';
 import { createPointMethodStubs } from '../points/point-methods.test-support.js';
+import type { LogFields } from '../log.js';
 import type {
   ClaimRow,
   Deps,
@@ -109,6 +110,11 @@ interface RecordedPost {
   options: PostOptions;
 }
 
+interface RecordedLog {
+  readonly event: string;
+  readonly fields: LogFields | undefined;
+}
+
 interface Harness {
   h: HandlerCtx;
   posts: RecordedPost[];
@@ -116,6 +122,7 @@ interface Harness {
   markets: MarketRow[];
   settlements: Array<Record<string, unknown>>;
   strippedKeyboardMessageIds: number[];
+  logs: readonly RecordedLog[];
   getClaim: () => ClaimRow;
   parseCalls: () => number;
   setNow: (nowMs: number) => void;
@@ -138,6 +145,7 @@ function makeHarness(config: HarnessConfig): Harness {
   const markets: MarketRow[] = [];
   const settlements: Array<Record<string, unknown>> = [];
   const strippedKeyboardMessageIds: number[] = [];
+  const logs: RecordedLog[] = [];
   let parseCount = 0;
   let now = NOW;
 
@@ -202,7 +210,11 @@ function makeHarness(config: HarnessConfig): Harness {
     },
     proofSubmitter: null,
     env: { WEB_BASE_URL: 'https://web.test' },
-    log: { info: () => undefined, warn: () => undefined, error: () => undefined },
+    log: {
+      info: (event: string, fields?: LogFields) => logs.push({ event, fields }),
+      warn: (event: string, fields?: LogFields) => logs.push({ event, fields }),
+      error: (event: string, fields?: LogFields) => logs.push({ event, fields }),
+    },
     now: () => now,
   } as unknown as Deps;
 
@@ -229,6 +241,7 @@ function makeHarness(config: HarnessConfig): Harness {
     markets,
     settlements,
     strippedKeyboardMessageIds,
+    logs,
     getClaim: () => claim,
     parseCalls: () => parseCount,
     setNow: (nextNow) => {
@@ -284,6 +297,10 @@ function rawParse() {
     period: 'FT_90' as const,
     unresolved: null,
   };
+}
+
+function logsFor(harness: Harness, event: string): readonly RecordedLog[] {
+  return harness.logs.filter((entry) => entry.event === event);
 }
 
 describe('option pick prices and mints', () => {
@@ -430,6 +447,21 @@ describe('speaker confirmation', () => {
     expect(harness.markets).toHaveLength(1);
     expect(harness.getClaim().status).toBe('confirmed');
   });
+
+  it('logs confirmation budget exhaustion without Telegram group identity', async () => {
+    // Given an authored claim whose confirmation would exceed the group LLM budget
+    const harness = makeHarness({ claim: claimRow('awaiting_confirm'), llmBudget: 0 });
+
+    // When its author confirms the call
+    await dispatchCallback(harness.h, fakeCtx().ctx, { t: 'confirm', claimId: CLAIM_ID });
+
+    // Then the budget event retains only the safe claim identifier
+    const logs = logsFor(harness, 'llm_budget_exhausted');
+    expect(logs).toEqual([
+      { event: 'llm_budget_exhausted', fields: { claimId: CLAIM_ID } },
+    ]);
+    expect(JSON.stringify(logs)).not.toContain(String(CHAT_ID));
+  });
 });
 
 describe('one market per claim (finding: two markets for one claim)', () => {
@@ -500,13 +532,18 @@ describe('prove = re-parse retry (findings: double parse, stranded clarifying, T
     expect(keyboardData(retry)).toContain(`pv:${CLAIM_ID}`);
   });
 
-  it('meters the prove parse behind the LLM budget', async () => {
+  it('meters the prove parse and logs exhaustion without Telegram group identity', async () => {
     const harness = makeHarness({ claim: claimRow('nudged'), llmBudget: 0 });
     const tap = fakeCtx();
     await dispatchCallback(harness.h, tap.ctx, { t: 'prove', claimId: CLAIM_ID });
     expect(harness.parseCalls()).toBe(0);
     expect(harness.getClaim().status).toBe('nudged');
     expect(tap.toasts).toContain(renderFallback('budget_spent'));
+    const logs = logsFor(harness, 'llm_budget_exhausted');
+    expect(logs).toEqual([
+      { event: 'llm_budget_exhausted', fields: { claimId: CLAIM_ID } },
+    ]);
+    expect(JSON.stringify(logs)).not.toContain(String(CHAT_ID));
   });
 
   it('mints straight from a successful prove re-parse and extends the TTL', async () => {

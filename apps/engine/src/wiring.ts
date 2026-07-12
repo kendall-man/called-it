@@ -97,7 +97,7 @@ export async function createDeps(
       persona(resolvePersonaTemplateKey(PERSONA_TEMPLATE_KEYS, templateKey), vars),
   };
 
-  const txLogger: TxlineLogger = (message, context) => log.warn(`txline: ${message}`, context);
+  const txLogger = createTxlineWarningLogger(log);
 
   const createTxlineClient = (fetchImpl?: typeof fetch): TxlineClient =>
     new TxlineClient({
@@ -124,8 +124,7 @@ export async function createDeps(
       odds = combineOddsSnapshot(records, { logger: txLogger });
     } catch (error) {
       signal?.throwIfAborted();
-      const message = dependencyErrorMessage(error);
-      log.warn('odds_snapshot_failed', { fixtureId, error: message });
+      log.warn('odds_snapshot_failed', { fixtureId, reason: dependencyFailureReason(error) });
       return { kind: 'transient' };
     }
     if (!odds) {
@@ -171,8 +170,7 @@ export async function createDeps(
               }
             }
           } catch (error) {
-            const message = dependencyErrorMessage(error);
-            log.warn('gap_fill_failed', { fixtureId, error: message });
+            log.warn('gap_fill_failed', { fixtureId, reason: dependencyFailureReason(error) });
           }
         },
       });
@@ -266,7 +264,47 @@ export async function createDeps(
   };
 }
 
-export function dependencyErrorMessage(error: unknown): string {
+export function dependencyFailureReason(error: unknown): 'dependency_exception' {
   if (!(error instanceof Error)) throw error;
-  return error.message;
+  return 'dependency_exception';
+}
+
+export type TxlineWarningReason =
+  | 'feed_failure'
+  | 'reconnect'
+  | 'malformed'
+  | 'normalization'
+  | 'unknown';
+
+function txlineWarningReason(message: string): TxlineWarningReason {
+  switch (message) {
+    case 'stream loop crashed':
+    case 'replay loop crashed':
+    case 'replay hit max virtual duration without a terminal phase':
+    case 'replay could not start':
+    case 'replay tick failed — continuing':
+      return 'feed_failure';
+    case 'stream error — will reconnect':
+    case 'heartbeat timeout — reconnecting':
+      return 'reconnect';
+    case 'unexpected response shape':
+    case 'skipped malformed records':
+    case 'stream frame is not valid JSON':
+    case 'skipping unparseable odds record':
+    case 'skipping unparseable scores record':
+      return 'malformed';
+    case 'unknown SuperOddsType':
+    case 'odds period rejected':
+    case '1X2 probabilities do not sum to ~1':
+    case 'totals record without a parseable line':
+    case 'unknown StatusId — keeping previous phase':
+    case 'amend/discard without resolvable original seq':
+      return 'normalization';
+    default:
+      return 'unknown';
+  }
+}
+
+export function createTxlineWarningLogger(log: Pick<Logger, 'warn'>): TxlineLogger {
+  return (message) => log.warn('txline_warning', { reason: txlineWarningReason(message) });
 }

@@ -109,7 +109,6 @@ export async function handleStakeTap(
       result.code === 'insufficient' ? await deps.db.balanceLamports(userId) : 0n;
     deps.log.info('wager_stake_refused', {
       marketId: market.id,
-      userId,
       side,
       lamports: lamports.toString(),
       code: result.code,
@@ -119,7 +118,7 @@ export async function handleStakeTap(
 
   if ('duplicate' in result) {
     // The original commit is authoritative; do not refresh a card on replay.
-    deps.log.info('wager_stake_duplicate', { marketId: market.id, userId, side });
+    deps.log.info('wager_stake_duplicate', { marketId: market.id, side });
     return {
       reply: WAGER_COPY.stakePlaced(
         userName,
@@ -137,7 +136,6 @@ export async function handleStakeTap(
   deps.log.info('wager_position_placed', {
     marketId: market.id,
     positionId: result.position_id,
-    userId,
     side,
     lamports: lamports.toString(),
     state: inPlay ? 'pending' : 'active',

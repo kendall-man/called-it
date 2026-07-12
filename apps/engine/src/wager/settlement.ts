@@ -102,8 +102,8 @@ export function createSettlementSweeper(deps: WagerModuleDeps): SettlementSweepe
           deps.log.info('wager_settlement_sweep', { marketId });
           await applySettlement(deps, marketId);
         }
-      } catch (err) {
-        deps.log.error('wager_settlement_sweeper_failed', { error: String(err) });
+      } catch {
+        deps.log.error('wager_settlement_sweeper_failed');
       }
     },
   };

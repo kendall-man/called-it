@@ -143,8 +143,10 @@ export function createSay(agent: AgentPort, log: Logger): Say {
         const line = await agent.persona(mapping.agentKey, mapping.agentVars);
         if (typeof line === 'string' && line.trim().length > 0) return line;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        log.warn('persona_fallback', { templateKey: key, error: message });
+        log.warn('persona_fallback', {
+          templateKey: key,
+          reason: error instanceof Error ? 'persona_exception' : 'unknown_exception',
+        });
       }
     }
     return renderFallback(key, vars);

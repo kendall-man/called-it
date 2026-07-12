@@ -96,7 +96,6 @@ export function createGroupPointsService(deps: {
   return {
     async apply(marketId) {
       let appliedCounts: {
-        readonly groupId: number;
         readonly scoredCount: number;
         readonly winnerCount: number;
       } | null = null;
@@ -106,7 +105,6 @@ export function createGroupPointsService(deps: {
           throw new GroupPointsApplicationError(marketId, 'apply_rejected');
         }
         appliedCounts = {
-          groupId: applied.group_id,
           scoredCount: applied.scored_count,
           winnerCount: applied.winner_count,
         };

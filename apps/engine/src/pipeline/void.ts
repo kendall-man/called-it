@@ -11,7 +11,16 @@
 
 import type { Deps, MarketRow } from '../ports.js';
 
-export async function voidAbandonedMarket(deps: Deps, market: MarketRow): Promise<void> {
+type VoidAbandonedMarketDeps = {
+  readonly db: Pick<Deps['db'], 'updateMarketStatus' | 'insertSettlement'>;
+  readonly wager: Pick<NonNullable<Deps['wager']>, 'applySettlement'> | null;
+  readonly log: Pick<Deps['log'], 'info'>;
+};
+
+export async function voidAbandonedMarket(
+  deps: VoidAbandonedMarketDeps,
+  market: MarketRow,
+): Promise<void> {
   await deps.db.updateMarketStatus(market.id, 'voided');
   await deps.db.insertSettlement({
     market_id: market.id,
@@ -25,7 +34,7 @@ export async function voidAbandonedMarket(deps: Deps, market: MarketRow): Promis
   if (market.currency === 'sol' && deps.wager) {
     await deps.wager.applySettlement(market.id);
   }
-  deps.log.info('market_voided_abandoned', { marketId: market.id, groupId: market.group_id });
+  deps.log.info('market_voided_abandoned', { marketId: market.id });
 }
 
 /** True when the market has no stake that could be at risk (safe to auto-void). */

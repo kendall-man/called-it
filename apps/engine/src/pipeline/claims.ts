@@ -80,8 +80,8 @@ export async function proveClaim(
   try {
     const seedCtx = await buildCompileContext(deps, preferredFixtureId ?? null);
     raw = await deps.agent.parse(claim.quoted_text, seedCtx);
-  } catch (err) {
-    deps.log.warn('parse_failed', { claimId: claim.id, error: String(err) });
+  } catch {
+    deps.log.warn('parse_failed', { claimId: claim.id });
     return { kind: 'retryable' };
   }
   // Pin the fixture during a replay — any claim in a replaying group is about
@@ -89,15 +89,24 @@ export async function proveClaim(
   if (preferredFixtureId !== undefined) {
     raw = { ...raw, fixtureId: preferredFixtureId };
   }
-  deps.log.info('parse', { claimId: claim.id, raw });
+  deps.log.info('parse', {
+    claimId: claim.id,
+    hasFixtureId: raw.fixtureId !== null,
+    claimType: raw.claimType,
+    entityKind: raw.entityKind,
+    comparator: raw.comparator,
+    period: raw.period,
+    hasEntityName: raw.entityName !== null,
+    hasUnresolved: raw.unresolved !== null,
+  });
 
   let result: CompileResult;
   try {
     const ctx = await buildCompileContext(deps, raw.fixtureId);
     result = deps.engine.compileClaim(raw, ctx);
-  } catch (err) {
+  } catch {
     // buildCompileContext reads the DB — a one-off blip must not kill the claim.
-    deps.log.warn('compile_context_failed', { claimId: claim.id, error: String(err) });
+    deps.log.warn('compile_context_failed', { claimId: claim.id });
     return { kind: 'retryable' };
   }
   deps.log.info('compile', { claimId: claim.id, resultKind: result.kind });
@@ -183,8 +192,8 @@ export async function quoteSpec(
   let ctx;
   try {
     ctx = await buildCompileContext(deps, spec.fixtureId);
-  } catch (err) {
-    deps.log.warn('price_context_failed', { fixtureId: spec.fixtureId, error: String(err) });
+  } catch {
+    deps.log.warn('price_context_failed', { fixtureId: spec.fixtureId });
     return { kind: 'transient' };
   }
   try {
@@ -204,7 +213,6 @@ export async function quoteSpec(
     deps.log.warn('price_failed', {
       fixtureId: spec.fixtureId,
       claimType: spec.claimType,
-      error: String(err),
     });
     return isMissingOddsInput(err)
       ? { kind: 'no_odds' }
@@ -297,7 +305,6 @@ export async function createMarketFromClaim(deps: Deps, args: CreateMarketArgs):
   deps.log.info('market_minted', {
     marketId: market.id,
     claimId: claim.id,
-    groupId: claim.group_id,
     fixtureId: spec.fixtureId,
     claimType: spec.claimType,
     status: market.status,

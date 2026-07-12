@@ -31,8 +31,8 @@ export class IngestSupervisor {
     try {
       const fixtures = await this.deps.db.liveFixtures(this.deps.now(), ENGINE.LIVE_LOOKAHEAD_MS);
       wanted = fixtures.map((f) => f.fixture_id);
-    } catch (err) {
-      this.deps.log.warn('ingest_refresh_failed', { error: String(err) });
+    } catch {
+      this.deps.log.warn('ingest_refresh_failed');
       return;
     }
     for (const fixtureId of wanted) {
@@ -54,7 +54,7 @@ export class IngestSupervisor {
   startReplay(groupId: number, fixtureId: number, speed: number = ENGINE.REPLAY_SPEED): void {
     const source = this.deps.tx.createReplaySource(fixtureId, speed);
     this.replays.set(groupId, { fixtureId, source });
-    this.deps.log.info('replay_started', { groupId, fixtureId, speed });
+    this.deps.log.info('replay_started', { fixtureId, speed });
     source.start(async (event) => {
       await this.handleEvent(event);
       if (event.kind === 'phase_change' && TERMINAL_PHASES.includes(event.phase)) {
@@ -69,7 +69,7 @@ export class IngestSupervisor {
     if (!replay) return false;
     replay.source.stop();
     this.replays.delete(groupId);
-    this.deps.log.info('replay_stopped', { groupId, fixtureId: replay.fixtureId });
+    this.deps.log.info('replay_stopped', { fixtureId: replay.fixtureId });
     return true;
   }
 
@@ -106,19 +106,18 @@ export class IngestSupervisor {
       source.start(async (event) => {
         await this.handleEvent(event);
       });
-    } catch (err) {
-      this.deps.log.error('live_source_start_failed', { fixtureId, error: String(err) });
+    } catch {
+      this.deps.log.error('live_source_start_failed', { fixtureId });
     }
   }
 
   private async handleEvent(event: MatchEvent): Promise<void> {
     try {
       await this.settler.onEvent(event);
-    } catch (err) {
+    } catch {
       this.deps.log.error('event_handling_failed', {
         fixtureId: event.fixtureId,
         seq: event.seq,
-        error: String(err),
       });
     }
   }

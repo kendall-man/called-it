@@ -72,11 +72,10 @@ export class Settler {
         const result = this.deps.engine.reduceMarket(state, event);
         this.states.set(market.id, result.state);
         await this.applyEffects(market, result.state, result.effects, event);
-      } catch (err) {
+      } catch {
         this.deps.log.error('reduce_failed', {
           marketId: market.id,
           seq: event.seq,
-          error: String(err),
         });
       }
     }
@@ -95,8 +94,8 @@ export class Settler {
         const result = this.deps.engine.checkDebounce(state, nowMs);
         this.states.set(marketId, result.state);
         await this.applyEffects(market, result.state, result.effects, null);
-      } catch (err) {
-        this.deps.log.error('debounce_failed', { marketId, error: String(err) });
+      } catch {
+        this.deps.log.error('debounce_failed', { marketId });
       }
     }
   }

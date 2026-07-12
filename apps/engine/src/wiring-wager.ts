@@ -230,7 +230,7 @@ function parseOpsChatId(raw: string | undefined, log: Logger): number | null {
   if (raw === undefined || raw.trim() === '') return null;
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isSafeInteger(parsed)) {
-    log.warn('wager_ops_chat_invalid', { raw });
+    log.warn('wager_ops_chat_invalid', { reason: 'not_safe_integer' });
     return null;
   }
   return parsed;

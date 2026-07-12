@@ -45,7 +45,6 @@ describe('group points application service', () => {
         event: 'group_points_applied',
         fields: {
           marketId: MARKET_ID,
-          groupId: GROUP_ID,
           scoredCount: 2,
           winnerCount: 1,
         },
@@ -136,7 +135,7 @@ describe('group points application service', () => {
       expect(identityReads).toBe(0);
       expect(harness.logs).toEqual([{
         event: 'group_points_ineligible',
-        fields: { marketId: MARKET_ID, groupId: GROUP_ID, scoredCount: 0, winnerCount: 0 },
+        fields: { marketId: MARKET_ID, scoredCount: 0, winnerCount: 0 },
       }]);
     },
   );
@@ -181,14 +180,15 @@ describe('group points application service', () => {
     expect(harness.logs).toEqual([
       {
         event: 'group_points_failed',
-        fields: { marketId: MARKET_ID, groupId: GROUP_ID, scoredCount: 2, winnerCount: 1 },
+        fields: { marketId: MARKET_ID, scoredCount: 2, winnerCount: 1 },
       },
       {
         event: 'group_points_duplicate',
-        fields: { marketId: MARKET_ID, groupId: GROUP_ID, scoredCount: 2, winnerCount: 1 },
+        fields: { marketId: MARKET_ID, scoredCount: 2, winnerCount: 1 },
       },
     ]);
     expect(JSON.stringify(harness.logs)).not.toContain('private player read detail');
+    expect(JSON.stringify(harness.logs)).not.toContain(String(GROUP_ID));
   });
 
   it('returns an eligible empty summary for a void or participant-free market', async () => {
@@ -223,6 +223,7 @@ describe('group points application service', () => {
     await expect(action).rejects.toBeInstanceOf(GroupPointsApplicationError);
     expect(harness.logs).toHaveLength(1);
     expect(harness.logs[0]?.event).toBe('group_points_failed');
-    expect(JSON.stringify(harness.logs)).not.toMatch(/Alice|Bob|alice_calls|userId|username/);
+    expect(JSON.stringify(harness.logs)).not.toMatch(/Alice|Bob|alice_calls|groupId|userId|username/);
+    expect(JSON.stringify(harness.logs)).not.toContain(String(GROUP_ID));
   });
 });

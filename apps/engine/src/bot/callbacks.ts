@@ -115,7 +115,7 @@ async function handleProve(h: HandlerCtx, ctx: Context, claimId: string): Promis
   }
   // The parse is a full LLM call — meter it like the passive path.
   if (!h.budget.allow(group.id)) {
-    h.deps.log.info('llm_budget_exhausted', { groupId: group.id, claimId: claim.id });
+    h.deps.log.info('llm_budget_exhausted', { claimId: claim.id });
     await answer(ctx, await h.say('budget_spent'));
     return;
   }
@@ -156,7 +156,7 @@ async function handleConfirm(h: HandlerCtx, ctx: Context, claimId: string): Prom
     return;
   }
   if (!h.budget.allow(group.id)) {
-    h.deps.log.info('llm_budget_exhausted', { groupId: group.id, claimId: claim.id });
+    h.deps.log.info('llm_budget_exhausted', { claimId: claim.id });
     await answer(ctx, await h.say('budget_spent'));
     return;
   }
@@ -451,7 +451,7 @@ export function registerCallbacks(bot: Bot, h: HandlerCtx): void {
     try {
       await dispatchCallback(h, ctx, action);
     } catch (err) {
-      h.deps.log.error('callback_failed', { action: action.t, error: String(err) });
+      h.deps.log.error('callback_failed', { action: action.t, reason: err instanceof Error ? 'callback_exception' : 'unknown_exception' });
       // An internal error is NOT a stale button — invite the retry honestly.
       await answer(ctx, renderFallback('hiccup'));
     }

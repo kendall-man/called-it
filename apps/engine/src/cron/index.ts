@@ -43,8 +43,8 @@ export async function syncFixtures(deps: Deps): Promise<void> {
     const rows = await deps.tx.fetchFixtures();
     if (rows.length > 0) await deps.db.upsertFixtures(rows);
     deps.log.info('fixtures_synced', { count: rows.length });
-  } catch (err) {
-    deps.log.warn('fixtures_sync_failed', { error: String(err) });
+  } catch {
+    deps.log.warn('fixtures_sync_failed');
   }
 }
 
@@ -54,8 +54,8 @@ async function expireClaims(deps: Deps): Promise<void> {
     if (expired.length > 0) {
       deps.log.info('claims_expired', { count: expired.length, ids: expired.map((c) => c.id) });
     }
-  } catch (err) {
-    deps.log.warn('claim_expiry_failed', { error: String(err) });
+  } catch {
+    deps.log.warn('claim_expiry_failed');
   }
 }
 
@@ -80,8 +80,8 @@ export async function sweepUnpostedSettlements(
       deps.log.info('sweeper_reposting', { marketId: market.id, outcome: settlement.outcome });
       await settler.postReceipt(market, settlement.outcome);
     }
-  } catch (err) {
-    deps.log.warn('sweeper_failed', { error: String(err) });
+  } catch {
+    deps.log.warn('sweeper_failed');
   }
 }
 
@@ -104,8 +104,8 @@ async function voidAbandonedMarkets(deps: Deps): Promise<void> {
         await voidAbandonedMarket(deps, market);
       }
     }
-  } catch (err) {
-    deps.log.warn('void_sweep_failed', { error: String(err) });
+  } catch {
+    deps.log.warn('void_sweep_failed');
   }
 }
 
@@ -199,8 +199,8 @@ export function startCrons(args: {
         const dateKey = utcDayKey(nowMs);
         if (hour === TUNABLES.MORNING_SLATE_HOUR_UTC && slateDoneFor !== dateKey) {
           slateDoneFor = dateKey;
-          await runMorningSlate(deps, poster, say).catch((err) =>
-            deps.log.warn('slate_failed', { error: String(err) }),
+          await runMorningSlate(deps, poster, say).catch(() =>
+            deps.log.warn('slate_failed'),
           );
         }
       })();

@@ -74,7 +74,6 @@ async function creditTransfer(
   deps.log.info('wager_deposit_credited', {
     txSig: transfer.sig,
     ixIndex: transfer.ixIndex,
-    userId: link.user_id,
     lamports: transfer.lamports.toString(),
   });
   if (link.last_wager_group_id === null) return;
@@ -114,7 +113,7 @@ export function createDepositWatcher(deps: WagerModuleDeps): DepositWatcher {
     const untilSig = await deps.db.getCursor(streamName);
     const scan = await deps.chain.fetchIncomingTransfers({ untilSig });
     if (!scan.ok) {
-      deps.log.warn('wager_deposit_scan_failed', { error: scan.error });
+      deps.log.warn('wager_deposit_scan_failed');
       return;
     }
     // Advance the cursor only once EVERY instruction of a signature is
@@ -150,10 +149,8 @@ export function createDepositWatcher(deps: WagerModuleDeps): DepositWatcher {
       if (!(await deps.db.tryCronLock(WAGER_CRON_LOCKS.deposits))) return;
       try {
         await run();
-      } catch (err) {
-        deps.log.error('wager_deposit_watcher_failed', {
-          error: err instanceof Error ? err.message : String(err),
-        });
+      } catch {
+        deps.log.error('wager_deposit_watcher_failed');
       } finally {
         await deps.db.releaseCronLock(WAGER_CRON_LOCKS.deposits);
       }

@@ -19,6 +19,35 @@ function transfer(overrides: Partial<WagerIncomingTransfer>): WagerIncomingTrans
 }
 
 describe('deposit watcher', () => {
+  it('logs a credited deposit without Telegram user identity', async () => {
+    // Given a linked Telegram user and a collectable structured logger
+    const infoEvents: Array<{
+      readonly event: string;
+      readonly fields: Record<string, unknown> | undefined;
+    }> = [];
+    const { deps, db, chain } = makeFakeDeps({
+      log: {
+        info(event, fields) {
+          infoEvents.push({ event, fields });
+        },
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    });
+    db.seedLink(USER, SENDER, GROUP);
+    chain.setScanTransfers([transfer({ sig: 'privacy-sig', lamports: 5_000_000n })]);
+
+    // When the watcher credits the deposit
+    await createDepositWatcher(deps).tick();
+
+    // Then the credit log retains domain diagnostics without Telegram identity
+    expect(infoEvents.find(({ event }) => event === 'wager_deposit_credited')?.fields).toEqual({
+      txSig: 'privacy-sig',
+      ixIndex: 0,
+      lamports: '5000000',
+    });
+  });
+
   it('credits a linked sender at/above the minimum and notifies the last wager group', async () => {
     const { deps, db, chain, poster } = makeFakeDeps();
     db.seedLink(USER, SENDER, GROUP);

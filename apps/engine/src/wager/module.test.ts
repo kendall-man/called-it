@@ -179,6 +179,36 @@ describe('/deposit command', () => {
 });
 
 describe('/withdraw command', () => {
+  it('logs a requested withdrawal without Telegram user identity', async () => {
+    // Given a funded linked Telegram user and a collectable structured logger
+    const infoEvents: Array<{
+      readonly event: string;
+      readonly fields: Record<string, unknown> | undefined;
+    }> = [];
+    const { deps, db } = makeFakeDeps({
+      log: {
+        info(event, fields) {
+          infoEvents.push({ event, fields });
+        },
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    });
+    db.seedLink(USER, VALID_PUBKEY);
+    db.seedBalance(USER, 1_000_000_000n);
+    const bot = fakeBot();
+    createWagerModule(deps).registerCommands(bot);
+
+    // When the withdrawal is requested
+    await invoke(bot, 'withdraw', groupCtx('0.05'));
+
+    // Then the request log retains domain diagnostics without Telegram identity
+    expect(infoEvents.find(({ event }) => event === 'wager_withdrawal_requested')?.fields).toEqual({
+      withdrawalId: expect.any(String),
+      lamports: '50000000',
+    });
+  });
+
   it('queues a valid amount through the RPC and confirms', async () => {
     const { deps, db } = makeFakeDeps();
     db.seedLink(USER, VALID_PUBKEY);

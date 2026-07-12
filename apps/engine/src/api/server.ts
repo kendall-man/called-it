@@ -53,7 +53,7 @@ export function startEngineApi(options: EngineApiOptions): Server {
     });
   });
   server.listen(options.env.PORT, () => {
-    options.log.info('engine_api_up', { port: options.env.PORT });
+    options.log.info('engine_api_up');
   });
   return server;
 }

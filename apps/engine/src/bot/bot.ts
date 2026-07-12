@@ -98,13 +98,13 @@ export function registerGroupLifecycleHandlers(bot: GroupLifecycleBot, h: GroupL
     const chat = ctx.chat;
     if (!isGroupChat(chat.type)) return;
     if (!isBetaGroupAllowed(h.deps.env, chat.id)) {
-      h.deps.log.info('beta_group_not_allowlisted', { groupId: chat.id });
+      h.deps.log.info('beta_group_not_allowlisted');
       return;
     }
     const next = ctx.myChatMember.new_chat_member.status;
     const previous = ctx.myChatMember.old_chat_member.status;
     const group = await h.deps.db.upsertGroup({ id: chat.id, title: chat.title ?? '' });
-    h.deps.log.info('membership_change', { groupId: chat.id, previous, next });
+    h.deps.log.info('membership_change', { previous, next });
 
     if (next === 'administrator') {
       await h.deps.db.setGroupAdmin(chat.id, true);
@@ -116,7 +116,7 @@ export function registerGroupLifecycleHandlers(bot: GroupLifecycleBot, h: GroupL
 
     const marker = await claimGroupReadiness(groupReadyMarkerStore(h.deps.db), group.id);
     if (!marker.ok) {
-      h.deps.log.warn('group_readiness_rejected', { groupId: chat.id, code: marker.code });
+      h.deps.log.warn('group_readiness_rejected', { code: marker.code });
       return;
     }
 

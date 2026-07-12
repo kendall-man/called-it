@@ -190,10 +190,8 @@ async function main(): Promise<void> {
     telegramHeartbeatAtMs = deps.now();
   }
   log.info('engine_up', {
-    webBaseUrl: env.WEB_BASE_URL,
     proofSubmitter: deps.proofSubmitter !== null,
     api: apiServer !== null,
-    ingress: env.TELEGRAM_INGRESS,
     wagerModule: deps.wager !== null,
   });
 

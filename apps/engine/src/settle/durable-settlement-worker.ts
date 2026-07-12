@@ -36,8 +36,8 @@ export function createDurableSettlementWorker(options: {
           nowIso: isoAt(options.clock.now()),
           limit: options.leaseLimit,
         });
-      } catch (error) {
-        options.log.warn('durable_settlement_lease_failed', { error: errorMessage(error) });
+      } catch {
+        options.log.warn('durable_settlement_lease_failed');
         return;
       }
 
@@ -103,10 +103,9 @@ async function processSettlementJob(
       return;
     }
     options.log.info('durable_settlement_complete', { marketId: job.marketId });
-  } catch (error) {
+  } catch {
     options.log.warn('durable_settlement_job_failed', {
       marketId: job.marketId,
-      error: errorMessage(error),
     });
     await transitionFailure(options, job, 'unexpected_error');
   }
@@ -156,8 +155,4 @@ function retryDelayMs(job: SettlementProofJobRow): number {
 function requireLeaseToken(job: SettlementProofJobRow): string {
   if (job.leaseToken === null) throw new Error(`leased settlement job ${job.marketId} has no token`);
   return job.leaseToken;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'non_error_throw';
 }
