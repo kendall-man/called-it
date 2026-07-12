@@ -1,91 +1,52 @@
 import { describe, expect, it } from 'vitest';
 import {
   MARKET_ID,
-  queryDbResponses,
-  type QueryCall,
+  rpcDb,
+  type RpcCall,
 } from './group-points-test-support.js';
 
-const participantRow = (overrides: Readonly<Record<string, unknown>> = {}) => ({
+const projectedParticipantRow = (overrides: Readonly<Record<string, unknown>> = {}) => ({
+  group_id: -100_123,
   market_id: MARKET_ID,
   user_id: 7001,
   side: 'back',
-  placed_at_ms: 1_720_000_000_001,
-  market: { id: MARKET_ID, group_id: -100_123 },
-  user: { display_name: 'Alice', username: 'alice_calls' },
+  first_placed_at_ms: 1_720_000_000_001,
+  display_name: 'Alice',
+  username: 'alice_calls',
+  participant_count: 1,
   ...overrides,
 });
 
 describe('group point participant queries', () => {
-  it('uses bounded joined side queries for non-void participants', async () => {
-    // Given interleaved side responses with one repeated user and side placement
-    const calls: QueryCall[] = [];
-    const db = queryDbResponses(
-      [
-        {
-          data: [
-            participantRow({ placed_at_ms: 1_720_000_000_002 }),
-            participantRow({ placed_at_ms: 1_720_000_000_003 }),
-          ],
-          error: null,
-        },
-        {
-          data: [
-            participantRow({
-              user_id: 7002,
-              side: 'doubt',
-              placed_at_ms: 1_720_000_000_001,
-              user: { display_name: 'Bob', username: null },
-            }),
-          ],
-          error: null,
-        },
-      ],
+  it('uses one bounded participant RPC with authoritative distinct side totals', async () => {
+    // Given a flat, globally ordered projection with independent side totals.
+    const calls: RpcCall[] = [];
+    const db = rpcDb(
+      {
+        data: [
+          projectedParticipantRow(),
+          projectedParticipantRow({
+            user_id: 8001,
+            side: 'doubt',
+            first_placed_at_ms: 1_720_000_000_002,
+            display_name: 'Bob',
+            username: null,
+            participant_count: 1,
+          }),
+        ],
+        error: null,
+      },
       calls,
     );
 
-    // When participants are loaded for one market
+    // When participants are loaded for one market.
     const participants = await db.positionParticipantsForMarket(MARKET_ID);
 
-    // Then pending/active pass, void cannot, and no per-user, legacy, or public read occurs
+    // Then one private RPC supplies minimal identity rows and exact distinct totals.
     expect(calls).toEqual([
-      { method: 'from', args: ['positions'] },
-      {
-        method: 'select',
-        args: [
-          'market_id,user_id,side,placed_at_ms,market:markets!inner(id,group_id),user:users!inner(display_name,username)',
-        ],
-      },
-      { method: 'eq', args: ['market_id', MARKET_ID] },
-      { method: 'eq', args: ['side', 'back'] },
-      { method: 'neq', args: ['state', 'void'] },
-      { method: 'order', args: ['placed_at_ms', { ascending: true }] },
-      { method: 'order', args: ['user_id', { ascending: true }] },
-      { method: 'order', args: ['side', { ascending: true }] },
-      { method: 'limit', args: [5] },
-      { method: 'from', args: ['positions'] },
-      {
-        method: 'select',
-        args: [
-          'market_id,user_id,side,placed_at_ms,market:markets!inner(id,group_id),user:users!inner(display_name,username)',
-        ],
-      },
-      { method: 'eq', args: ['market_id', MARKET_ID] },
-      { method: 'eq', args: ['side', 'doubt'] },
-      { method: 'neq', args: ['state', 'void'] },
-      { method: 'order', args: ['placed_at_ms', { ascending: true }] },
-      { method: 'order', args: ['user_id', { ascending: true }] },
-      { method: 'order', args: ['side', { ascending: true }] },
-      { method: 'limit', args: [5] },
+      { fn: 'group_market_participants', args: { p_market_id: MARKET_ID } },
     ]);
     expect(participants).toEqual([
-      {
-        group_id: -100_123,
-        market_id: MARKET_ID,
-        user_id: 7002,
-        side: 'doubt',
-        display_name: 'Bob',
-        username: null,
-      },
       {
         group_id: -100_123,
         market_id: MARKET_ID,
@@ -93,76 +54,164 @@ describe('group point participant queries', () => {
         side: 'back',
         display_name: 'Alice',
         username: 'alice_calls',
+        participant_count: 1,
+      },
+      {
+        group_id: -100_123,
+        market_id: MARKET_ID,
+        user_id: 8001,
+        side: 'doubt',
+        display_name: 'Bob',
+        username: null,
+        participant_count: 1,
       },
     ]);
   });
 
-  it('rejects a participant side larger than its database limit', async () => {
-    // Given a malicious back-side response with six rows despite limit five
-    const oversizedBackRows = Array.from({ length: 6 }, (_, index) =>
-      participantRow({
+  it('reserves five rows per side while preserving totals beyond each visible prefix', async () => {
+    // Given both side prefixes filled and globally interleaved by first placement.
+    const rows = Array.from({ length: 5 }, (_, index) => [
+      projectedParticipantRow({
         user_id: 7001 + index,
-        placed_at_ms: 1_720_000_000_001 + index,
+        first_placed_at_ms: 1_720_000_000_001 + index * 2,
+        participant_count: 7,
+      }),
+      projectedParticipantRow({
+        user_id: 8001 + index,
+        side: 'doubt',
+        first_placed_at_ms: 1_720_000_000_002 + index * 2,
+        participant_count: 6,
+      }),
+    ]).flat();
+    const db = rpcDb({ data: rows, error: null });
+
+    // When the bounded projection crosses the facade.
+    const participants = await db.positionParticipantsForMarket(MARKET_ID);
+
+    // Then neither side consumes the other quota and both authoritative totals survive.
+    const back = participants.filter((participant) => participant.side === 'back');
+    const doubt = participants.filter((participant) => participant.side === 'doubt');
+    expect(back).toHaveLength(5);
+    expect(doubt).toHaveLength(5);
+    expect(back.every((participant) => participant.participant_count === 7)).toBe(true);
+    expect(doubt.every((participant) => participant.participant_count === 6)).toBe(true);
+  });
+
+  it('rejects more than five returned identities on one side', async () => {
+    // Given six distinct back-side rows inside the ten-row overall transport bound.
+    const rows = Array.from({ length: 6 }, (_, index) =>
+      projectedParticipantRow({
+        user_id: 7001 + index,
+        first_placed_at_ms: 1_720_000_000_001 + index,
+        participant_count: 6,
       }),
     );
-    const db = queryDbResponses([
-      { data: oversizedBackRows, error: null },
-      { data: [], error: null },
-    ]);
 
-    // When participant identities cross the facade boundary
-    const result = db.positionParticipantsForMarket(MARKET_ID);
+    // When the malformed side projection crosses the facade.
+    const result = rpcDb({ data: rows, error: null }).positionParticipantsForMarket(MARKET_ID);
 
-    // Then the facade distrusts the oversized PostgREST response
+    // Then the facade rejects the per-side limit violation.
     await expect(result).rejects.toThrow('database contract violation at <rows>');
   });
 
-  it('reserves five participant rows for each side', async () => {
-    // Given both side partitions filled to their independent limits
-    const backRows = Array.from({ length: 5 }, (_, index) =>
-      participantRow({
-        user_id: 7001 + index,
-        placed_at_ms: 1_720_000_000_001 + index * 2,
-      }),
-    );
-    const doubtRows = Array.from({ length: 5 }, (_, index) =>
-      participantRow({
-        user_id: 8001 + index,
-        side: 'doubt',
-        placed_at_ms: 1_720_000_000_002 + index * 2,
-      }),
-    );
-    const db = queryDbResponses([
-      { data: backRows, error: null },
-      { data: doubtRows, error: null },
-    ]);
+  it('rejects duplicate market-user-side rows instead of hiding an RPC defect', async () => {
+    // Given the same participant key returned twice with a distinct total of one.
+    const repeated = projectedParticipantRow();
+    const db = rpcDb({ data: [repeated, repeated], error: null });
 
-    // When the bounded card projection is loaded
-    const participants = await db.positionParticipantsForMarket(MARKET_ID);
+    // When the duplicate projection is parsed.
+    const result = db.positionParticipantsForMarket(MARKET_ID);
 
-    // Then neither side consumes the other's quota and total rows stay bounded
-    expect(participants).toHaveLength(10);
-    expect(participants.filter((participant) => participant.side === 'back')).toHaveLength(5);
-    expect(participants.filter((participant) => participant.side === 'doubt')).toHaveLength(5);
+    // Then SQL deduplication remains an enforced boundary contract.
+    await expect(result).rejects.toThrow('database contract violation at user_id');
+  });
+
+  it('rejects a participant row with no authoritative count', async () => {
+    // Given an RPC row with participant_count omitted.
+    const row = projectedParticipantRow();
+    Reflect.deleteProperty(row, 'participant_count');
+    const db = rpcDb({ data: [row], error: null });
+
+    // When the incomplete projection crosses the facade.
+    const result = db.positionParticipantsForMarket(MARKET_ID);
+
+    // Then the response fails closed before reaching the engine row contract.
+    await expect(result).rejects.toThrow('database contract violation at <keys>');
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, 1.5, Number.MAX_SAFE_INTEGER + 1, '1'])(
+    'rejects unsafe participant_count value %s',
+    async (participantCount) => {
+      // Given a participant count that is not a safe non-negative integer.
+      const db = rpcDb({
+        data: [projectedParticipantRow({ participant_count: participantCount })],
+        error: null,
+      });
+
+      // When the unsafe count crosses the facade.
+      const result = db.positionParticipantsForMarket(MARKET_ID);
+
+      // Then the parser rejects the field instead of normalizing it.
+      await expect(result).rejects.toThrow(
+        'database contract violation at participant_count',
+      );
+    },
+  );
+
+  it.each([
+    ['zero', [projectedParticipantRow({ participant_count: 0 })]],
+    [
+      'higher than an incomplete prefix',
+      [projectedParticipantRow({ participant_count: 2 })],
+    ],
+    [
+      'inconsistent within one side',
+      [
+        projectedParticipantRow({ participant_count: 2 }),
+        projectedParticipantRow({
+          user_id: 7002,
+          first_placed_at_ms: 1_720_000_000_002,
+          participant_count: 3,
+        }),
+      ],
+    ],
+    [
+      'lower than returned distinct rows',
+      [
+        projectedParticipantRow(),
+        projectedParticipantRow({
+          user_id: 7002,
+          first_placed_at_ms: 1_720_000_000_002,
+        }),
+      ],
+    ],
+  ])('rejects a %s participant total', async (_case, rows) => {
+    // Given a non-authoritative side total.
+    const db = rpcDb({ data: rows, error: null });
+
+    // When the total crosses the facade.
+    const result = db.positionParticipantsForMarket(MARKET_ID);
+
+    // Then the response fails closed at the participant-count contract.
+    await expect(result).rejects.toThrow('database contract violation at participant_count');
   });
 
   it('rejects rows that make one market appear in multiple groups', async () => {
     // Given a cross-group-looking response for one requested market
-    const db = queryDbResponses([
-      { data: [participantRow({ placed_at_ms: 1 })], error: null },
-      {
-        data: [
-          participantRow({
-            user_id: 7002,
-            side: 'doubt',
-            placed_at_ms: 2,
-            market: { id: MARKET_ID, group_id: -100_999 },
-            user: { display_name: 'Mallory', username: null },
-          }),
-        ],
-        error: null,
-      },
-    ]);
+    const db = rpcDb({
+      data: [
+        projectedParticipantRow({ first_placed_at_ms: 1 }),
+        projectedParticipantRow({
+          group_id: -100_999,
+          user_id: 8001,
+          side: 'doubt',
+          first_placed_at_ms: 2,
+          display_name: 'Mallory',
+          participant_count: 1,
+        }),
+      ],
+      error: null,
+    });
 
     // When participants are parsed
     const result = db.positionParticipantsForMarket(MARKET_ID);
@@ -173,21 +222,36 @@ describe('group point participant queries', () => {
 
   it('rejects rows that violate first-placement order', async () => {
     // Given rows returned with descending placement timestamps
-    const db = queryDbResponses([
-      {
-        data: [
-          participantRow({ placed_at_ms: 2 }),
-          participantRow({ user_id: 7002, placed_at_ms: 1 }),
-        ],
-        error: null,
-      },
-      { data: [], error: null },
-    ]);
+    const db = rpcDb({
+      data: [
+        projectedParticipantRow({ first_placed_at_ms: 2, participant_count: 2 }),
+        projectedParticipantRow({
+          user_id: 7002,
+          first_placed_at_ms: 1,
+          participant_count: 2,
+        }),
+      ],
+      error: null,
+    });
 
     // When participants are parsed
     const result = db.positionParticipantsForMarket(MARKET_ID);
 
     // Then stale ordering is rejected rather than normalized locally
     await expect(result).rejects.toThrow('database contract violation at <order>');
+  });
+
+  it('rejects unrestricted identity fields from the participant RPC', async () => {
+    // Given an otherwise valid row carrying an unapproved private field.
+    const db = rpcDb({
+      data: [projectedParticipantRow({ wallet_pubkey: 'PRIVATE_VALUE' })],
+      error: null,
+    });
+
+    // When the row crosses the minimal projection boundary.
+    const result = db.positionParticipantsForMarket(MARKET_ID);
+
+    // Then exact-key parsing prevents the extra source field from propagating.
+    await expect(result).rejects.toThrow('database contract violation at <keys>');
   });
 });

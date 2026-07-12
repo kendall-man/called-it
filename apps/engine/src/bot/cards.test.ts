@@ -135,6 +135,22 @@ describe('cards', () => {
     );
   });
 
+  it('keeps financial positions separate from distinct participant overflow', () => {
+    const duplicateOnlyCard = claimCardText({
+      ...CLAIM_INPUT,
+      back: { count: 6, stakeLamports: 60_000_000n },
+      doubt: { count: 0, stakeLamports: 0n },
+      backParticipants: [{ username: 'alice_7', displayName: 'Alice' }],
+      doubtParticipants: [],
+      backParticipantCount: 1,
+      doubtParticipantCount: 0,
+    });
+
+    expect(duplicateOnlyCard).toContain('⚡ Backing it: 0.06 SOL (6 in)');
+    expect(duplicateOnlyCard).toContain('It happens: @alice_7');
+    expect(duplicateOnlyCard).not.toContain('and 5 more');
+  });
+
   it('caps and sanitizes 100 participant identities within the Telegram limit', () => {
     const participants = Array.from({ length: 100 }, (_, index) => ({
       username: index < 5 ? `player_${index}` : 'undefined',
@@ -146,6 +162,8 @@ describe('cards', () => {
       doubt: { count: 0, stakeLamports: 0n },
       backParticipants: participants,
       doubtParticipants: [],
+      backParticipantCount: 100,
+      doubtParticipantCount: 0,
       matchedPct: 0,
     });
 

@@ -13,6 +13,7 @@ type SharedDbMethod =
   | 'getCursor'
   | 'setCursor'
   | 'getUserName'
+  | 'getUserNames'
   | 'tryCronLock'
   | 'releaseCronLock';
 
@@ -51,6 +52,12 @@ export async function buildFundedWagerDb<Connection, Treasury, PublicKey>(
     getCursor: (streamName) => engineDb.getCursor(streamName),
     setCursor: (streamName, value) => engineDb.setCursor(streamName, value),
     getUserName: async (userId) => (await engineDb.getUser(userId))?.display_name ?? null,
+    getUserNames(userIds) {
+      if (engineDb.getUserNames === undefined) {
+        throw new TypeError('engine database facade is missing getUserNames');
+      }
+      return engineDb.getUserNames(userIds);
+    },
     async tryCronLock(name) {
       if (heldCronLocks.has(name)) return false;
       heldCronLocks.add(name);

@@ -7,7 +7,11 @@ import type { StarterOnlyPackageDb } from './wiring-wager-starter-db.js';
 import { createProductionWagerModule } from './wiring-wager.js';
 
 type FactoryResult<Value> = Value | Promise<Value>;
-type StarterOnlyDbFactory = (url: string, serviceRoleKey: string) => StarterOnlyPackageDb;
+type StarterOnlyDbFactory = (
+  url: string,
+  serviceRoleKey: string,
+  allowedGroupIds: readonly number[] | undefined,
+) => StarterOnlyPackageDb;
 type FundedDbFactory<Connection, Treasury, PublicKey> =
   ProductionFundedWagerOptions<Connection, Treasury, PublicKey>['createDb'];
 type FundedSolanaRuntime<Connection, Treasury, PublicKey> = Pick<
@@ -47,9 +51,18 @@ export async function createProductionWagerRuntime<Connection, Treasury, PublicK
       return starterModule.createStarterOnlyWagerModule({
         runtimeMode: 'starter_only',
         db: starterDb.buildStarterOnlyWagerDb({
-          packageDb: createStarterOnlyDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY),
+          packageDb: createStarterOnlyDb(
+            env.SUPABASE_URL,
+            env.SUPABASE_SERVICE_ROLE_KEY,
+            env.DEPLOYMENT_ENV === 'development' ? undefined : env.BETA_ALLOWED_GROUP_IDS,
+          ),
           engineDb: {
-            getUser: (userId) => engineDb.getUser(userId),
+            getUserNames(userIds) {
+              if (engineDb.getUserNames === undefined) {
+                throw new TypeError('engine database facade is missing getUserNames');
+              }
+              return engineDb.getUserNames(userIds);
+            },
             positionsForMarket: (marketId) => engineDb.positionsForMarket(marketId),
             setPositionStates: (ids, state) => engineDb.setPositionStates(ids, state),
           },

@@ -13,8 +13,9 @@ import type {
   GroupPlayerStats,
   LeaderboardEntry,
   PointResult,
-  PositionParticipant,
 } from './group-points-types.js';
+
+export { parsePositionParticipants } from './group-points-participant-parser.js';
 
 export const GROUP_POINTS_QUERY_OPS = {
   pointResults: 'pointResultsForMarket',
@@ -81,33 +82,6 @@ export function parseLeaderboard(
     previous = entry;
   }
   return entries;
-}
-
-export function parsePositionParticipants(
-  values: readonly unknown[],
-  marketId: string,
-): readonly PositionParticipant[] {
-  const parsed = values.map((value) => parseParticipant(value, marketId));
-  const participants: PositionParticipant[] = [];
-  const seen = new Set<string>();
-  let groupId: number | undefined;
-  let previous: OrderedParticipant | undefined;
-  for (const current of parsed) {
-    if (groupId === undefined) groupId = current.participant.group_id;
-    if (current.participant.group_id !== groupId) {
-      return contractFailure(GROUP_POINTS_QUERY_OPS.participants, 'group_id');
-    }
-    if (previous !== undefined && compareParticipants(previous, current) > 0) {
-      return contractFailure(GROUP_POINTS_QUERY_OPS.participants, '<order>');
-    }
-    previous = current;
-    const key = `${current.participant.user_id}:${current.participant.side}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      participants.push(current.participant);
-    }
-  }
-  return participants;
 }
 
 function parsePointResult(value: unknown, marketId: string): PointResult {
@@ -191,42 +165,6 @@ function isLeaderboardOutOfOrder(
   if (previous.wins !== current.wins) return previous.wins < current.wins;
   if (previous.losses !== current.losses) return previous.losses > current.losses;
   return previous.user_id > current.user_id;
-}
-
-type OrderedParticipant = {
-  readonly participant: PositionParticipant;
-  readonly placedAtMs: number;
-};
-
-function parseParticipant(value: unknown, marketId: string): OrderedParticipant {
-  const op = GROUP_POINTS_QUERY_OPS.participants;
-  const row = record(op, value);
-  const returnedMarketId = stringField(op, row, 'market_id');
-  const market = record(op, row.market);
-  const joinedMarketId = stringField(op, market, 'id');
-  if (returnedMarketId !== marketId || joinedMarketId !== marketId) {
-    return contractFailure(op, 'market_id');
-  }
-  const user = record(op, row.user);
-  return {
-    placedAtMs: countField(op, row, 'placed_at_ms'),
-    participant: {
-      group_id: safeIntegerField(op, market, 'group_id'),
-      market_id: returnedMarketId,
-      user_id: positiveIntegerField(op, row, 'user_id'),
-      side: positionSide(op, row.side),
-      display_name: stringField(op, user, 'display_name'),
-      username: nullableStringField(op, user, 'username'),
-    },
-  };
-}
-
-function compareParticipants(left: OrderedParticipant, right: OrderedParticipant): number {
-  if (left.placedAtMs !== right.placedAtMs) return left.placedAtMs - right.placedAtMs;
-  if (left.participant.user_id !== right.participant.user_id) {
-    return left.participant.user_id - right.participant.user_id;
-  }
-  return left.participant.side.localeCompare(right.participant.side);
 }
 
 function pointResult(value: unknown): 'won' | 'lost' {

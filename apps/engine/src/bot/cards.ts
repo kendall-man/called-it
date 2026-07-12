@@ -119,6 +119,8 @@ export interface ClaimCardInput {
   doubt: SideTally;
   readonly backParticipants?: readonly ParticipantIdentity[];
   readonly doubtParticipants?: readonly ParticipantIdentity[];
+  readonly backParticipantCount?: number;
+  readonly doubtParticipantCount?: number;
   /** 0..100 — matched fraction of the total staked pot. */
   matchedPct: number;
   isReplay: boolean;
@@ -147,8 +149,16 @@ export function claimCardText(input: ClaimCardInput): string {
     `🤝 Matched: ${input.matchedPct}%`,
     ...(showsParticipants
       ? [
-          `It happens: ${sideListText(input.backParticipants ?? [], TELEGRAM_MESSAGE_LIMIT, input.back.count)}`,
-          `It does not: ${sideListText(input.doubtParticipants ?? [], TELEGRAM_MESSAGE_LIMIT, input.doubt.count)}`,
+          `It happens: ${sideListText(
+            input.backParticipants ?? [],
+            TELEGRAM_MESSAGE_LIMIT,
+            input.backParticipantCount ?? input.backParticipants?.length ?? 0,
+          )}`,
+          `It does not: ${sideListText(
+            input.doubtParticipants ?? [],
+            TELEGRAM_MESSAGE_LIMIT,
+            input.doubtParticipantCount ?? input.doubtParticipants?.length ?? 0,
+          )}`,
           'Choices and results are visible in this group.',
         ]
       : []),

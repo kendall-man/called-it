@@ -14,6 +14,7 @@ import type { Settler } from '../settle/settler.js';
 import type { IngestSupervisor } from '../ingest/supervisor.js';
 import { voidAbandonedMarket } from '../pipeline/void.js';
 import type { WagerCronRegistry, WagerModule } from '../wager/module.js';
+import { createAllowlistedBackgroundDb } from '../background/allowlisted-db.js';
 
 export interface CronHandles {
   stop(): void;
@@ -72,7 +73,8 @@ export async function syncFixtures(deps: Deps): Promise<void> {
 
 async function expireClaims(deps: Deps): Promise<void> {
   try {
-    const expired = await deps.db.expireOverdueClaims(new Date(deps.now()).toISOString());
+    const backgroundDb = createAllowlistedBackgroundDb(deps.db, deps.env);
+    const expired = await backgroundDb.expireOverdueClaims(new Date(deps.now()).toISOString());
     if (expired.length > 0) {
       deps.log.info('claims_expired', { count: expired.length, ids: expired.map((c) => c.id) });
     }
@@ -91,12 +93,13 @@ export async function sweepUnpostedSettlements(
   inFlight: Map<string, number>,
 ): Promise<void> {
   try {
-    const rows = await deps.db.unpostedSettlements();
+    const backgroundDb = createAllowlistedBackgroundDb(deps.db, deps.env);
+    const rows = await backgroundDb.unpostedSettlements();
     const nowMs = deps.now();
     for (const settlement of rows) {
       const attemptedAt = inFlight.get(settlement.market_id);
       if (attemptedAt !== undefined && nowMs - attemptedAt < SWEEPER_RETRY_GUARD_MS) continue;
-      const market: MarketRow | null = await deps.db.getMarket(settlement.market_id);
+      const market: MarketRow | null = await backgroundDb.getMarket(settlement.market_id);
       if (!market) continue;
       inFlight.set(settlement.market_id, nowMs);
       deps.log.info('sweeper_reposting', { marketId: market.id, outcome: settlement.outcome });
@@ -114,16 +117,17 @@ export async function sweepUnpostedSettlements(
  */
 async function voidAbandonedMarkets(deps: Deps): Promise<void> {
   try {
-    const groups = await deps.db.listGroups();
+    const backgroundDb = createAllowlistedBackgroundDb(deps.db, deps.env);
+    const groups = await backgroundDb.listGroups();
     for (const group of groups) {
-      const openMarkets = await deps.db.openMarketsForGroup(group.id);
+      const openMarkets = await backgroundDb.openMarketsForGroup(group.id);
       for (const market of openMarkets) {
         if (market.is_replay) continue;
         const fixture = await deps.db.getFixture(market.fixture_id);
         if (!fixture || fixture.phase === 'NS') continue; // not kicked off yet
-        const positions = await deps.db.positionsForMarket(market.id);
+        const positions = await backgroundDb.positionsForMarket(market.id);
         if (positions.some((position) => position.state !== 'void')) continue; // someone bet
-        await voidAbandonedMarket(deps, market);
+        await voidAbandonedMarket({ db: backgroundDb, wager: deps.wager, log: deps.log }, market);
       }
     }
   } catch {
@@ -142,7 +146,7 @@ async function runMorningSlate(deps: Deps, poster: Poster, say: Say): Promise<vo
       return `${f.p1_name} vs ${f.p2_name} (${time} UTC)`;
     })
     .join(' · ');
-  const groups = await deps.db.listGroups();
+  const groups = await createAllowlistedBackgroundDb(deps.db, deps.env).listGroups();
   for (const group of groups) {
     if (group.chattiness !== 'nudge' || !group.is_admin) continue;
     poster.post(group.id, await say('slate_intro', { fixtures: fixtureList }));

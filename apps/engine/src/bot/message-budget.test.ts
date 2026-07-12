@@ -112,6 +112,7 @@ describe('Telegram message budgets', () => {
     const active = claimCardText({
       ...CLAIM, quotedText: '🏆'.repeat(3_000),
       backParticipants: IDENTITIES.slice(0, 5), doubtParticipants: IDENTITIES.slice(0, 5),
+      backParticipantCount: 100, doubtParticipantCount: 100,
     });
     const five = Array.from({ length: 5 }, () => IDENTITY_LABEL).join(', ');
 

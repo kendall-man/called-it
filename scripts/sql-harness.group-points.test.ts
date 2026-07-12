@@ -5,6 +5,8 @@ import { registerGroupPointsSchemaSuite } from './sql-harness/group-points-schem
 import { registerGroupPointsScoringSuite } from './sql-harness/group-points-scoring-suite.js';
 import { registerGroupPointsSecuritySuite } from './sql-harness/group-points-security-suite.js';
 import { registerGroupPointsUpgradeSuite } from './sql-harness/group-points-upgrade-suite.js';
+import { registerGroupMarketParticipantsSuite } from './sql-harness/group-market-participants-suite.js';
+import { registerGroupMarketParticipantsMigrationSuite } from './sql-harness/group-market-participants-migration-suite.js';
 
 registerGroupPointsSchemaSuite();
 registerGroupPointsUpgradeSuite();
@@ -13,3 +15,5 @@ registerGroupPointsEligibilitySuite();
 registerGroupPointsScoringSuite();
 registerGroupPointsIntegritySuite();
 registerGroupPointsConcurrencySuite();
+registerGroupMarketParticipantsSuite();
+registerGroupMarketParticipantsMigrationSuite();

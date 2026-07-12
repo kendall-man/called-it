@@ -313,6 +313,15 @@ export class FakeWagerDb implements WagerDb {
     return this.users.get(userId) ?? null;
   }
 
+  async getUserNames(userIds: readonly number[]): Promise<ReadonlyMap<number, string>> {
+    return new Map(
+      userIds.flatMap((userId) => {
+        const name = this.users.get(userId);
+        return name === undefined ? [] : [[userId, name] as const];
+      }),
+    );
+  }
+
   // ── test helpers ─────────────────────────────────────────────────────────
 
   seedLink(userId: number, pubkey: string, lastGroupId: number | null = null): void {

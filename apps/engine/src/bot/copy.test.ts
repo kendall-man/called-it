@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Logger } from '../log.js';
 import type { AgentPort } from '../ports.js';
+import { GROUP_BOT_COMMANDS } from './bot.js';
 import { createSay, FALLBACK_TEMPLATES, renderFallback, type TemplateKey } from './copy.js';
+import { TELEGRAM_MESSAGE_LIMIT } from './message-budget.js';
 
 /**
  * Consumer-copy guard for the engine's local fallbacks. The agent package
@@ -44,6 +46,36 @@ const SAMPLE_VARS = {
   groupTitle: 'Sunday Legends',
   fixture: 'France vs Brazil',
 } as const;
+
+const ACTIVE_STARTER_GUIDANCE_KEYS = [
+  'intro',
+  'help',
+  'group_ready',
+] as const satisfies readonly TemplateKey[];
+
+const EXPECTED_STARTER_HELP = [
+  'How this works:',
+  '• Add Called It to a Telegram group.',
+  '• Reply /bookit to your own football call.',
+  '• Tap one of two fixed outcomes: "It happens · 0.01 SOL" or "It does not · 0.01 SOL".',
+  '• Choices and named results are visible to everyone in this Telegram group.',
+  '• Correct choices earn 10 points automatically.',
+  '',
+  'Commands: /bookit · /leaderboard · /mystats · /table · /help',
+  'Test SOL is devnet-only and has no monetary value.',
+].join('\n');
+
+const EXPECTED_STARTER_INTRO =
+  'Add Called It to a Telegram group. Reply /bookit to your own football call, then tap one of two fixed outcomes: "It happens · 0.01 SOL" or "It does not · 0.01 SOL". Choices and named results are visible to everyone in this Telegram group. Use /leaderboard, /mystats, or /table. Correct choices earn 10 points automatically. Test SOL is devnet-only and has no monetary value.';
+
+const UNAVAILABLE_STARTER_PATHS = [
+  { name: 'wallet', pattern: /\bwallets?\b/i },
+  { name: 'funding', pattern: /\bfund(?:ed|ing|s)?\b/i },
+  { name: 'deposit', pattern: /\bdeposits?\b/i },
+  { name: 'withdrawal', pattern: /\bwithdraw(?:al|als|s)?\b/i },
+  { name: 'custody', pattern: /\bcustod(?:y|ial)\b/i },
+  { name: 'pending funding', pattern: /\bpending\s+funding\b/i },
+] as const;
 
 describe('fallback copy bank', () => {
   const keys = Object.keys(FALLBACK_TEMPLATES) as TemplateKey[];
@@ -109,10 +141,69 @@ describe('fallback copy bank', () => {
     }
   });
 
-  it('lists every active group command in the real help copy', () => {
-    expect(renderFallback('help')).toContain(
-      'Commands: /bookit · /leaderboard · /mystats · /table · /help',
-    );
+  it('does not advertise flexible amounts or a private account in starter guidance', () => {
+    // Given the deterministic Telegram guidance used by the starter-only runtime
+    const guidance = ACTIVE_STARTER_GUIDANCE_KEYS.map((key) => renderFallback(key, SAMPLE_VARS));
+
+    // When a member reads any active starter guidance surface
+    // Then no unavailable amount picker or private-account route is promised
+    for (const line of guidance) {
+      expect(line).not.toMatch(/\bChoose amount\b|\blarger test-SOL options?\b/i);
+      expect(line).not.toMatch(/\/me\b|\bprivate account\b/i);
+    }
+  });
+
+  it('does not advertise unavailable wallet or funding paths in starter guidance', () => {
+    // Given the deterministic Telegram guidance used by the starter-only runtime
+    const guidance = ACTIVE_STARTER_GUIDANCE_KEYS.map((key) => ({
+      key,
+      text: renderFallback(key, SAMPLE_VARS),
+    }));
+
+    // When each active guidance surface is checked for funded-runtime promises
+    // Then wallet, funding, deposit, withdrawal, custody, and pending funding stay absent
+    for (const { key, text } of guidance) {
+      for (const path of UNAVAILABLE_STARTER_PATHS) {
+        expect(
+          path.pattern.test(text),
+          `${key} advertises unavailable ${path.name} guidance: "${text}"`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('renders the exact 418-character Telegram starter help', () => {
+    // Given the starter-only help contract
+    const help = renderFallback('help');
+
+    // When Telegram receives the deterministic help message
+    // Then its copy and UTF-16 length remain exact and within Telegram's limit
+    expect(help).toBe(EXPECTED_STARTER_HELP);
+    expect(help).toHaveLength(418);
+    expect(help.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+  });
+
+  it('renders only the direct starter group flow in the intro', () => {
+    // Given the deterministic starter intro
+    const intro = renderFallback('intro', SAMPLE_VARS);
+
+    // When the introductory guidance is rendered
+    // Then it contains the complete direct group flow without optional paths
+    expect(intro).toBe(EXPECTED_STARTER_INTRO);
+  });
+
+  it('keeps the help command list consistent with Telegram group commands', () => {
+    // Given the registered Telegram group menu and rendered help
+    const configuredCommands = GROUP_BOT_COMMANDS.map(({ command }) => `/${command}`);
+
+    // When the explicit command line is read from help
+    const commandLine = renderFallback('help')
+      .split('\n')
+      .find((line) => line.startsWith('Commands:'));
+    const listedCommands = commandLine?.match(/\/[a-z]+/gu) ?? [];
+
+    // Then help lists every configured group command once and in menu order
+    expect(listedCommands).toEqual(configuredCommands);
   });
 
   it('keeps points dependency failures fixed and redacted', () => {

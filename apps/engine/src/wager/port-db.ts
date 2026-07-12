@@ -127,6 +127,7 @@ export interface WagerDb {
   tryCronLock(name: string): Promise<boolean>;
   releaseCronLock(name: string): Promise<void>;
   getUserName(userId: number): Promise<string | null>;
+  getUserNames(userIds: readonly number[]): Promise<ReadonlyMap<number, string>>;
 }
 
 type WagerSettlementReadDb = Pick<
@@ -138,7 +139,7 @@ type WagerSettlementReadDb = Pick<
   | 'setPositionStates'
   | 'insertSettlementApplied'
   | 'settledSolMarketsMissingApplied'
-  | 'getUserName'
+  | 'getUserNames'
 >;
 
 export interface WagerSettlementDb extends WagerSettlementReadDb {

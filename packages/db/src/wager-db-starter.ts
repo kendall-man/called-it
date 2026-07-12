@@ -15,18 +15,22 @@ export type {
 export function createStarterOnlyWagerDb(
   url: string,
   serviceRoleKey: string,
+  allowedGroupIds: readonly number[] | undefined,
 ): StarterOnlyWagerDb {
   const client = createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  return starterOnlyWagerDbFromClient(client);
+  return starterOnlyWagerDbFromClient(client, allowedGroupIds);
 }
 
-export function starterOnlyWagerDbFromClient(candidate: unknown): StarterOnlyWagerDb {
+export function starterOnlyWagerDbFromClient(
+  candidate: unknown,
+  allowedGroupIds: readonly number[] | undefined,
+): StarterOnlyWagerDb {
   const client: WagerDbClient = requireWagerDbClient(candidate);
   return {
     ...settlementLedgerDbMethods(client),
-    ...settlementDbMethods(client),
+    ...settlementDbMethods(client, allowedGroupIds),
     ...wagerStatusReaderDbMethods(client),
     ...starterStakeDbMethod(client),
   } satisfies StarterOnlyWagerDb;

@@ -8,6 +8,11 @@ export type QueryCall = {
   readonly args: readonly unknown[];
 };
 
+export type RpcCall = {
+  readonly fn: string;
+  readonly args: Readonly<Record<string, unknown>>;
+};
+
 class ScriptedQuery implements PromiseLike<PgResult<unknown>> {
   constructor(
     private readonly response: PgResult<unknown>,
@@ -75,12 +80,13 @@ export function queryDbResponses(
   });
 }
 
-export function rpcDb(response: PgResult<unknown>): GroupPointsDb {
+export function rpcDb(response: PgResult<unknown>, calls: RpcCall[] = []): GroupPointsDb {
   return groupPointsDbFromClient({
     from() {
       throw new TypeError('table query was not expected');
     },
-    rpc() {
+    rpc(fn: string, args: Record<string, unknown>) {
+      calls.push({ fn, args });
       return Promise.resolve(response);
     },
   });

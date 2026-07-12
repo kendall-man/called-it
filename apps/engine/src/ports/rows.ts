@@ -116,6 +116,7 @@ export type PositionParticipant = {
   readonly side: PositionSide;
   readonly display_name: string;
   readonly username: string | null;
+  readonly participant_count: number;
 };
 
 export interface FixtureRow {

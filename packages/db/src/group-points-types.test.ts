@@ -62,4 +62,5 @@ test('keeps group-points types in a dedicated module with unchanged package expo
   // Then
   expect(moduleExists).toBe(true);
   expectTypeOf<PublicGroupPointsTypes>().toEqualTypeOf<CanonicalGroupPointsTypes>();
+  expectTypeOf<PositionParticipant['participant_count']>().toEqualTypeOf<number>();
 });

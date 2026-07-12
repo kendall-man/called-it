@@ -80,7 +80,7 @@ describe('starter-only wager database facade', () => {
   });
 
   it('constructs only starter stake, circuit, ledger, and settlement capabilities', () => {
-    const db = starterOnlyWagerDbFromClient(new FakeSupabase());
+    const db = starterOnlyWagerDbFromClient(new FakeSupabase(), undefined);
 
     expect(Object.keys(db).sort()).toEqual([
       'getMarketProbability',
@@ -97,7 +97,7 @@ describe('starter-only wager database facade', () => {
 
   it('binds starter mode when it sends a starter stake RPC', async () => {
     const fake = successfulStakeFake();
-    const db = starterOnlyWagerDbFromClient(fake);
+    const db = starterOnlyWagerDbFromClient(fake, undefined);
 
     await expect(db.wagerStarterStake(starterStakeInput)).resolves.toEqual({
       ok: true,
@@ -123,7 +123,7 @@ describe('starter-only wager database facade', () => {
 
   it('cannot be switched to funded mode by an injected runtime selector', async () => {
     const fake = successfulStakeFake();
-    const db = starterOnlyWagerDbFromClient(fake);
+    const db = starterOnlyWagerDbFromClient(fake, undefined);
     const injectedRequest = { ...starterStakeInput, starterOnly: false };
 
     await expect(
@@ -136,7 +136,7 @@ describe('starter-only wager database facade', () => {
 
   it('rejects non-settlement ledger effects at the runtime boundary', async () => {
     const fake = new FakeSupabase();
-    const db = starterOnlyWagerDbFromClient(fake);
+    const db = starterOnlyWagerDbFromClient(fake, undefined);
     const refund: WagerSettlementLedgerEntry = {
       user_id: USER_ID,
       group_id: null,
@@ -160,7 +160,7 @@ describe('starter-only wager database facade', () => {
   it('matches the full facade for shared settlement and status behavior', async () => {
     const starterFake = seededSharedFake();
     const fullFake = seededSharedFake();
-    const starterDb = starterOnlyWagerDbFromClient(starterFake);
+    const starterDb = starterOnlyWagerDbFromClient(starterFake, undefined);
     const fullDb = wagerDbFromClient(fullFake);
 
     const [starterBefore, fullBefore] = await Promise.all([

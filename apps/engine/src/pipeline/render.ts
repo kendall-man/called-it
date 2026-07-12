@@ -42,15 +42,29 @@ function participantKey(value: PositionParticipant): string {
   return `${value.user_id}:${value.side}`;
 }
 
+type ParticipantSides = {
+  readonly back: readonly ParticipantIdentity[];
+  readonly doubt: readonly ParticipantIdentity[];
+  readonly backCount: number;
+  readonly doubtCount: number;
+};
+
 function participantSides(
   participants: readonly PositionParticipant[],
   market: Pick<MarketRow, 'id' | 'group_id'>,
-): { back: readonly ParticipantIdentity[]; doubt: readonly ParticipantIdentity[] } {
+): ParticipantSides {
   const back: ParticipantIdentity[] = [];
   const doubt: ParticipantIdentity[] = [];
   const seen = new Set<string>();
+  let backCount = 0;
+  let doubtCount = 0;
   for (const participant of participants) {
     if (participant.market_id !== market.id || participant.group_id !== market.group_id) continue;
+    if (participant.side === 'back') {
+      backCount = participant.participant_count;
+    } else {
+      doubtCount = participant.participant_count;
+    }
     const key = participantKey(participant);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -62,7 +76,12 @@ function participantSides(
       });
     }
   }
-  return { back, doubt };
+  return {
+    back,
+    doubt,
+    backCount,
+    doubtCount,
+  };
 }
 
 export async function composeClaimCard(deps: Deps, market: MarketRow): Promise<ComposedCard | null> {
@@ -90,6 +109,8 @@ export async function composeClaimCard(deps: Deps, market: MarketRow): Promise<C
     doubt,
     backParticipants: identities.back,
     doubtParticipants: identities.doubt,
+    backParticipantCount: identities.backCount,
+    doubtParticipantCount: identities.doubtCount,
     matchedPct: pots.matchedPct,
     isReplay: market.is_replay,
     receiptUrl: receiptUrl(deps, market.id),

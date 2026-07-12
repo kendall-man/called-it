@@ -19,7 +19,11 @@ type SettlementDb = Pick<
   | 'settledSolMarketsMissingApplied'
 >;
 
-export function settlementDbMethods(client: WagerDbClient): SettlementDb {
+export function settlementDbMethods(
+  client: WagerDbClient,
+  allowedGroupIds?: readonly number[],
+): SettlementDb {
+  const recoveryGroupIds = allowedGroupIds === undefined ? undefined : [...allowedGroupIds];
   return {
     async getMarketProbability(marketId) {
       const row = await maybeRow(
@@ -62,15 +66,20 @@ export function settlementDbMethods(client: WagerDbClient): SettlementDb {
     },
 
     async settledSolMarketsMissingApplied() {
+      if (recoveryGroupIds !== undefined && recoveryGroupIds.length === 0) return [];
       // Two-step anti-join: PostgREST has no NOT EXISTS, and both sets stay
       // tiny (SOL markets only).
+      let settledQuery = client
+        .from('markets')
+        .select('id')
+        .eq('currency', 'sol')
+        .in('status', [...SETTLED_MARKET_STATUSES]);
+      if (recoveryGroupIds !== undefined) {
+        settledQuery = settledQuery.in('group_id', recoveryGroupIds);
+      }
       const settled = await manyRows(
         'settledSolMarketsMissingApplied.markets',
-        client
-          .from('markets')
-          .select('id')
-          .eq('currency', 'sol')
-          .in('status', [...SETTLED_MARKET_STATUSES]),
+        settledQuery,
         parseIdRow,
       );
       if (settled.length === 0) return [];

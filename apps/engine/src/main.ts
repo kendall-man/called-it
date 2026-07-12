@@ -46,6 +46,7 @@ import {
   type ShutdownDrainPort,
   type ShutdownSignal,
 } from './api/shutdown.js';
+import { createAllowlistedBackgroundDeps } from './background/allowlisted-db.js';
 
 /**
  * Load the repo-root `.env` into process.env for local/dev runs. Production
@@ -91,10 +92,11 @@ async function main(): Promise<void> {
   assertWagerBootable(env, deps.wager?.kind ?? null);
 
   const say = createSay(deps.agent, log);
-  const points = createGroupPointsService({ db: deps.db, log });
-  const settler = new Settler(deps, poster, say, points, null);
-  const supervisor = new IngestSupervisor(deps, settler);
-  const settlementReconciler = createSettlementReconciler(deps, log);
+  const backgroundDeps = createAllowlistedBackgroundDeps(deps);
+  const points = createGroupPointsService({ db: backgroundDeps.db, log });
+  const settler = new Settler(backgroundDeps, poster, say, points, null);
+  const supervisor = new IngestSupervisor(backgroundDeps, settler);
+  const settlementReconciler = createSettlementReconciler(backgroundDeps, log);
 
   const handlerCtx: HandlerCtx = {
     deps, queue, poster, say, supervisor,
@@ -120,7 +122,7 @@ async function main(): Promise<void> {
   });
 
   const crons = startCrons({
-    deps, poster, say, settler, supervisor, settlementReconciler,
+    deps: backgroundDeps, poster, say, settler, supervisor, settlementReconciler,
   });
   const webhookIngress = env.TELEGRAM_INGRESS === 'webhook';
   let runner: ReturnType<typeof run> | null = null;

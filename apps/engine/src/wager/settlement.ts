@@ -11,6 +11,9 @@ import { WAGER_KEYS } from './constants.js';
 import { WAGER_COPY } from './copy.js';
 import { settlementCredits } from './pot.js';
 import type { WagerSettlementDeps, WagerSettlementOutcome } from './port.js';
+import { participantLabel } from '../points/presentation.js';
+
+const PAYOUT_IDENTITY_LIMIT = 5;
 
 export async function applySettlement(deps: WagerSettlementDeps, marketId: string): Promise<void> {
   if (await deps.db.hasSettlementApplied(marketId)) return;
@@ -80,12 +83,16 @@ export async function settlementPayoutsLine(
   const { payouts, pots } = settlementCredits(positions, outcome, probability);
   // Nothing matched (one side empty) ⇒ everyone got their SOL back, no winners.
   if (pots.matchedFor === 0n || payouts.size === 0) return WAGER_COPY.payoutsLineNone();
-  const parts: string[] = [];
-  for (const [userId, lamports] of payouts) {
-    const name = (await deps.db.getUserName(userId)) ?? 'A winner';
-    parts.push(WAGER_COPY.payoutPart(name, lamports));
-  }
-  return WAGER_COPY.payoutsLine(parts);
+  const winners = [...payouts].sort(([leftUserId], [rightUserId]) => leftUserId - rightUserId);
+  const projectedWinners = winners.slice(0, PAYOUT_IDENTITY_LIMIT);
+  const names = await deps.db.getUserNames(projectedWinners.map(([userId]) => userId));
+  const parts = projectedWinners.map(([userId, lamports]) =>
+    WAGER_COPY.payoutPart(
+      participantLabel({ username: null, displayName: names.get(userId) ?? null }),
+      lamports,
+    ),
+  );
+  return WAGER_COPY.payoutsLine(parts, winners.length - projectedWinners.length);
 }
 
 export interface SettlementSweeper {

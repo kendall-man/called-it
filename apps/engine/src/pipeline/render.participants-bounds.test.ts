@@ -10,14 +10,17 @@ import {
 import { composeClaimCard } from './render.js';
 
 describe('composeClaimCard participant projection bounds', () => {
-  it('uses one bounded projection and no participant lookups for 100 pending positions', async () => {
-    // Given 100 pending positions and a five-per-side joined identity projection
+  it('uses distinct overflow totals for 100 pending financial positions', async () => {
+    // Given 100 positions from seven distinct participants on each side.
     const market = stakeMarket({ card_tg_message_id: 900 });
     const harness = makeStakeHarness({ marketRow: market, refreshableCard: true });
     const pending: PositionRow[] = Array.from({ length: 100 }, (_, index) => ({
       id: `pending-${index}`,
       market_id: MARKET_ID,
-      user_id: 9_000 + index,
+      user_id:
+        index % 2 === 0
+          ? 9_000 + ((index / 2) % 7)
+          : 9_100 + (((index - 1) / 2) % 7),
       side: index % 2 === 0 ? 'back' : 'doubt',
       stake: 10_000_000,
       locked_multiplier: 2,
@@ -35,6 +38,7 @@ describe('composeClaimCard participant projection bounds', () => {
         side: position.side,
         display_name: `Back ${index + 1}`,
         username: null,
+        participant_count: 7,
       }));
     bounded.push(
       ...pending
@@ -47,16 +51,9 @@ describe('composeClaimCard participant projection bounds', () => {
           side: position.side,
           display_name: `Doubt ${index + 1}`,
           username: null,
+          participant_count: 7,
         })),
     );
-    bounded.unshift({
-      group_id: CHAT_ID - 1,
-      market_id: MARKET_ID,
-      user_id: 9_000,
-      side: 'back',
-      display_name: 'Other Group',
-      username: null,
-    });
     const projectionCalls: string[] = [], userReads: number[] = [];
     harness.h.deps.db.positionParticipantsForMarket = async (marketId) => {
       projectionCalls.push(marketId);
@@ -73,8 +70,12 @@ describe('composeClaimCard participant projection bounds', () => {
     // Then only the caller is hydrated and the bounded, group-local labels reach the card
     expect(projectionCalls).toEqual([MARKET_ID]);
     expect(userReads).toEqual([USER_A]);
-    expect(card?.text).toContain('It happens: Back 1, Back 2, Back 3, Back 4, Back 5, and 45 more');
-    expect(card?.text).toContain('It does not: Doubt 1, Doubt 2, Doubt 3, Doubt 4, Doubt 5, and 45 more');
-    expect(card?.text).not.toMatch(/Other Group|Back 6|Doubt 6/);
+    expect(card?.text).toContain(
+      'It happens: Back 1, Back 2, Back 3, Back 4, Back 5, and 2 more',
+    );
+    expect(card?.text).toContain(
+      'It does not: Doubt 1, Doubt 2, Doubt 3, Doubt 4, Doubt 5, and 2 more',
+    );
+    expect(card?.text).not.toMatch(/Back 6|Doubt 6/);
   });
 });

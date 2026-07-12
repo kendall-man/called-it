@@ -42,6 +42,7 @@ export interface EngineDb {
 
   upsertUser(input: { id: number; display_name: string; username: string | null }): Promise<void>;
   getUser(id: number): Promise<UserRow | null>;
+  getUserNames?(ids: readonly number[]): Promise<ReadonlyMap<number, string>>;
   ensureMembership(groupId: number, userId: number): Promise<{ created: boolean }>;
   listMemberships(groupId: number): Promise<MembershipRow[]>;
   balance(groupId: number, userId: number): Promise<number>;
@@ -68,7 +69,10 @@ export interface EngineDb {
     id: string,
     patch: Partial<{ status: ClaimStatus; parse: unknown; expires_at: string | null }>,
   ): Promise<void>;
-  expireOverdueClaims(nowIso: string): Promise<ClaimRow[]>;
+  expireOverdueClaims(
+    nowIso: string,
+    allowedGroupIds?: readonly number[],
+  ): Promise<ClaimRow[]>;
 
   insertMarket(input: {
     claim_id: string;

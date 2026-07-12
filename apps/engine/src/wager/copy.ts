@@ -83,7 +83,12 @@ export const WAGER_COPY = {
   payoutsLineNone: (): string => 'No SOL changed hands. (devnet)',
   payoutPart: (name: string, lamports: bigint): string =>
     `${name} collects ${formatSolAmount(lamports)}`,
-  payoutsLine: (parts: string[]): string => `${parts.join(' · ')}. (devnet)`,
+  payoutsLine: (parts: readonly string[], overflowCount = 0): string => {
+    const overflow = overflowCount > 0
+      ? `and ${overflowCount} more winners collect test SOL`
+      : null;
+    return `${[...parts, ...(overflow === null ? [] : [overflow])].join(' · ')}. (devnet)`;
+  },
 
   // ── ops alerts (WAGER_OPS_CHAT_ID) ───────────────────────────────────────
   opsSolvencyAlert: (treasuryLamports: bigint, requiredLamports: bigint): string =>

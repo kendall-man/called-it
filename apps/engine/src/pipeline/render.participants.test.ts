@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { PositionParticipant, PositionRow } from '../ports/rows.js';
 import {
   CHAT_ID,
@@ -68,20 +68,13 @@ const POSITIONS = [
 
 const PARTICIPANTS: readonly PositionParticipant[] = [
   {
-    group_id: CHAT_ID - 1,
-    market_id: MARKET_ID,
-    user_id: 8_010,
-    side: 'back',
-    display_name: 'Other Group Alice',
-    username: null,
-  },
-  {
     group_id: CHAT_ID,
     market_id: MARKET_ID,
     user_id: 8_010,
     side: 'back',
     display_name: 'Alice',
     username: 'alice_calls',
+    participant_count: 2,
   },
   {
     group_id: CHAT_ID,
@@ -90,6 +83,7 @@ const PARTICIPANTS: readonly PositionParticipant[] = [
     side: 'back',
     display_name: 'Cara',
     username: null,
+    participant_count: 2,
   },
   {
     group_id: CHAT_ID,
@@ -98,20 +92,24 @@ const PARTICIPANTS: readonly PositionParticipant[] = [
     side: 'doubt',
     display_name: '\u0000 Bob \u202e',
     username: 'bad-name',
-  },
-  {
-    group_id: CHAT_ID,
-    market_id: MARKET_ID,
-    user_id: 8_002,
-    side: 'doubt',
-    display_name: 'Wrong Bob',
-    username: null,
+    participant_count: 1,
   },
 ];
 
 describe('composeClaimCard participant projection', () => {
+  it('requires the authoritative distinct side total on participant rows', () => {
+    // Given the participant row consumed by the card renderer.
+    type ParticipantCount = PositionParticipant['participant_count'];
+
+    // When its count field is inspected at compile time.
+    const participantCount = expectTypeOf<ParticipantCount>();
+
+    // Then the engine contract requires the RPC's safe numeric projection.
+    participantCount.toEqualTypeOf<number>();
+  });
+
   it('shows pending and active identities from the joined market projection', async () => {
-    // Given persisted positions and a duplicated projection containing another group
+    // Given duplicate financial positions and a distinct participant projection.
     const market = stakeMarket({ card_tg_message_id: 900 });
     const harness = makeStakeHarness({ marketRow: market, refreshableCard: true });
     harness.wagerDb.positions.push(...POSITIONS);
@@ -129,7 +127,7 @@ describe('composeClaimCard participant projection', () => {
     // When the active Telegram card is composed
     const card = await composeClaimCard(harness.h.deps, market);
 
-    // Then names follow the persisted non-void sides without changing financial totals
+    // Then names use distinct totals without changing financial position tallies.
     expect(projectionCalls).toEqual([MARKET_ID]);
     expect(userReads).toEqual([USER_A]);
     expect(card?.text).toContain(
@@ -138,12 +136,13 @@ describe('composeClaimCard participant projection', () => {
         '🛑 Against it: 0.03 SOL (2 in)',
         '🤝 Matched: 100%',
         'It happens: @alice_calls, Cara',
-        'It does not: Bob, and 1 more',
+        'It does not: Bob',
         'Choices and results are visible in this group.',
       ].join('\n'),
     );
     expect(card?.text.split('Bob')).toHaveLength(2);
-    expect(card?.text).not.toMatch(/Wrong Bob|Other Group Alice|\u0000|\u202e/u);
+    expect(card?.text).not.toContain('and 1 more');
+    expect(card?.text).not.toMatch(/\u0000|\u202e/u);
     expect(card?.text).toContain(`Receipt: https://web.test/r/${MARKET_ID}`);
     expect(card?.text).toContain('Test SOL is a devnet token with no monetary value.');
   });
@@ -171,6 +170,7 @@ describe('composeClaimCard participant projection', () => {
           side: position.side,
           display_name: 'Alice',
           username: 'alice_calls',
+          participant_count: 1,
         }));
     const { ctx } = makeStakeContext(USER_A, 'three-tap-delivery');
 

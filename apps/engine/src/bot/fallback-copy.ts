@@ -67,20 +67,19 @@ function value(vars: CopyVars, key: string, fallback = ''): string {
 }
 
 export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string> = {
-  intro: (vars) =>
-    `Evening, legends — I'm Called It. Make a football call by mentioning me or using /bookit on your own message. Once the speaker confirms, I price it from the live feed and post two choices in test SOL. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test SOL is a devnet token with no monetary value. Use /me for your private account and /table for the group board. Proof receipts live at ${value(vars, 'webUrl', 'the web link')}.`,
+  intro: () =>
+    'Add Called It to a Telegram group. Reply /bookit to your own football call, then tap one of two fixed outcomes: "It happens · 0.01 SOL" or "It does not · 0.01 SOL". Choices and named results are visible to everyone in this Telegram group. Use /leaderboard, /mystats, or /table. Correct choices earn 10 points automatically. Test SOL is devnet-only and has no monetary value.',
   help: () =>
     [
       'How this works:',
-      '• Mention me with your call, or use /bookit on your own message. Passive calls wait for the speaker to confirm.',
-      '• Choose It happens · 0.01 SOL or It does not · 0.01 SOL. Choose amount opens the larger test-SOL options.',
+      '• Add Called It to a Telegram group.',
+      '• Reply /bookit to your own football call.',
+      '• Tap one of two fixed outcomes: "It happens · 0.01 SOL" or "It does not · 0.01 SOL".',
       '• Choices and named results are visible to everyone in this Telegram group.',
       '• Correct choices earn 10 points automatically.',
-      '• I settle every result from the official feed and post a proof receipt.',
       '',
-      'Private account: /me · Group board: /table',
       'Commands: /bookit · /leaderboard · /mystats · /table · /help',
-      'Test SOL is a devnet token with no monetary value.',
+      'Test SOL is devnet-only and has no monetary value.',
     ].join('\n'),
   dm_start: (vars) =>
     `I live in group chats — add me to yours and the banter starts pricing itself. ${value(vars, 'addLink')}`,

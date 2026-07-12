@@ -12,7 +12,7 @@ export function starterOnlyWagerDbFromFake(db: FakeWagerDb): StarterOnlyWagerDb 
     postWagerLedger: (entry) => db.postWagerLedger(entry),
     setPositionStates: (ids, state) => db.setPositionStates(ids, state),
     settledSolMarketsMissingApplied: () => db.settledSolMarketsMissingApplied(),
-    getUserName: (userId) => db.getUserName(userId),
+    getUserNames: (userIds) => db.getUserNames(userIds),
     wagerStarterStake: (args) => db.wagerStake({ ...args, starterOnly: true }),
   };
 }

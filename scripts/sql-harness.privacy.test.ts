@@ -314,6 +314,12 @@ async function assertPublicAccessContract(client: Client, url: string): Promise<
     assert.ok(proofs.rows.every((row) => row.market_id === '00000000-0000-4000-8000-000000000401'));
     await assert.rejects(roleClient.query('select * from groups'), /permission denied/);
     await assert.rejects(roleClient.query('select * from onboarding_events'), /permission denied/);
+    await assert.rejects(
+      roleClient.query(
+        "select * from group_market_participants('00000000-0000-4000-8000-000000000401')",
+      ),
+      /permission denied/,
+    );
   });
 }
 

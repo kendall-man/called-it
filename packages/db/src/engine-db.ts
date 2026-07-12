@@ -98,6 +98,7 @@ export interface EngineDb extends GroupPointsDb {
   // users & memberships
   upsertUser(input: { id: number; display_name: string; username: string | null }): Promise<void>;
   getUser(id: number): Promise<UserRow | null>;
+  getUserNames(ids: readonly number[]): Promise<ReadonlyMap<number, string>>;
   /** Creates the membership row if missing; created=true on first interaction. */
   ensureMembership(groupId: number, userId: number): Promise<{ created: boolean }>;
   listMemberships(groupId: number): Promise<MembershipRow[]>;
@@ -114,7 +115,10 @@ export interface EngineDb extends GroupPointsDb {
   getClaim(id: string): Promise<ClaimRow | null>;
   updateClaim(id: string, patch: ClaimPatch): Promise<void>;
   /** Flip overdue non-terminal claims to 'expired'; returns the rows expired. */
-  expireOverdueClaims(nowIso: string): Promise<ClaimRow[]>;
+  expireOverdueClaims(
+    nowIso: string,
+    allowedGroupIds?: readonly number[],
+  ): Promise<ClaimRow[]>;
 
   // markets
   insertMarket(input: MarketInsert): Promise<MarketRow>;
@@ -257,6 +261,16 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
       );
     },
 
+    async getUserNames(ids) {
+      const uniqueIds = [...new Set(ids)];
+      if (uniqueIds.length === 0) return new Map();
+      const rows = unwrapRows<Array<Pick<UserRow, 'id' | 'display_name'>>>(
+        'getUserNames',
+        await client.from('users').select('id,display_name').in('id', uniqueIds),
+      );
+      return new Map(rows.map((row) => [row.id, row.display_name]));
+    },
+
     async ensureMembership(groupId, userId) {
       // ON CONFLICT DO NOTHING returns the row only when it was inserted,
       // which is exactly the created flag. Caller must have upserted the
@@ -344,15 +358,19 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
       assertOk('updateClaim', await client.from('claims').update(changes).eq('id', id));
     },
 
-    async expireOverdueClaims(nowIso) {
+    async expireOverdueClaims(nowIso, allowedGroupIds) {
+      if (allowedGroupIds !== undefined && allowedGroupIds.length === 0) return [];
+      let query = client
+        .from('claims')
+        .update({ status: 'expired' satisfies ClaimStatus })
+        .in('status', [...NON_TERMINAL_CLAIM_STATUSES])
+        .lte('expires_at', nowIso);
+      if (allowedGroupIds !== undefined) {
+        query = query.in('group_id', [...allowedGroupIds]);
+      }
       return unwrapRows<ClaimRow[]>(
         'expireOverdueClaims',
-        await client
-          .from('claims')
-          .update({ status: 'expired' satisfies ClaimStatus })
-          .in('status', [...NON_TERMINAL_CLAIM_STATUSES])
-          .lte('expires_at', nowIso)
-          .select(),
+        await query.select(),
       );
     },
 

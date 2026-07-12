@@ -20,7 +20,7 @@ export interface StarterOnlyPackageDb extends StarterOnlyPackageDbBase {
 
 type StarterSettlementEngineDb = Pick<
   EngineDb,
-  'getUser' | 'positionsForMarket' | 'setPositionStates'
+  'getUserNames' | 'positionsForMarket' | 'setPositionStates'
 >;
 
 export interface StarterOnlyWagerDbOptions {
@@ -48,7 +48,12 @@ export function buildStarterOnlyWagerDb(
     postWagerLedger: (entry) => wagerDb.postWagerLedger(entry),
     setPositionStates: (ids, state) => engineDb.setPositionStates(ids, state),
     settledSolMarketsMissingApplied: () => wagerDb.settledSolMarketsMissingApplied(),
-    getUserName: async (userId) => (await engineDb.getUser(userId))?.display_name ?? null,
+    getUserNames(userIds) {
+      if (engineDb.getUserNames === undefined) {
+        throw new TypeError('engine database facade is missing getUserNames');
+      }
+      return engineDb.getUserNames(userIds);
+    },
     wagerStarterStake: (args) => wagerStarterStake(args),
   };
 }

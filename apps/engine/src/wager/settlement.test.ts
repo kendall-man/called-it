@@ -147,6 +147,73 @@ describe('applySettlement — peer-matched', () => {
 });
 
 describe('settlementPayoutsLine', () => {
+  it('projects 100 unique winners through one bounded sanitized bulk read', async () => {
+    // Given 100 winners, 100 losers, and one duplicate winning position
+    const { deps, db } = makeFakeDeps();
+    db.seedMarketProbability('m1', EVEN);
+    const winnerIds = Array.from({ length: 100 }, (_, index) => 10_000 + index);
+    const loserIds = Array.from({ length: 100 }, (_, index) => 20_000 + index);
+    for (const [index, userId] of [...winnerIds].reverse().entries()) {
+      db.users.set(
+        userId,
+        `\u0000\u202e\uD800Winner ${100 - index} ${'🏆'.repeat(80)} @raw_winner_${userId} id:${userId}\n`,
+      );
+      db.seedPosition({ market_id: 'm1', user_id: userId, side: 'back', stake: 1_000_000 });
+    }
+    db.seedPosition({ market_id: 'm1', user_id: 10_000, side: 'back', stake: 1_000_000 });
+    for (const [index, userId] of loserIds.entries()) {
+      db.seedPosition({
+        market_id: 'm1',
+        user_id: userId,
+        side: 'doubt',
+        stake: index === 0 ? 2_000_000 : 1_000_000,
+      });
+    }
+    const bulkQueries: number[][] = [];
+    let sequentialReads = 0;
+    const getUserName = db.getUserName.bind(db);
+    Object.assign(db, {
+      getUserName: async (userId: number) => {
+        sequentialReads += 1;
+        return getUserName(userId);
+      },
+      getUserNames: async (userIds: readonly number[]) => {
+        bulkQueries.push([...userIds]);
+        return new Map(
+          userIds.map((userId) => [userId, db.users.get(userId) ?? 'Missing winner']),
+        );
+      },
+    });
+
+    // When the production payout formatter projects the winning side
+    const line = await settlementPayoutsLine(deps, 'm1', 'claim_won');
+
+    // Then selection is deterministic, duplicate-free, bounded, and presentation-safe
+    expect({
+      bulkQueries,
+      sequentialReads,
+      firstWinnerOccurrences: line.match(/Winner 1 /g)?.length ?? 0,
+      hasAuthoritativeOverflow: line.includes('and 95 more winners'),
+      hidesSixthWinner: !line.includes('Winner 6 '),
+      hidesRawIdentity: !line.includes('@raw_winner_') && !line.includes('id:10000'),
+      controlSafe: !/[\p{Cc}\p{Cf}\p{Cs}]/u.test(line),
+      unicodeSafe: !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(line),
+      bounded: line.length <= 512,
+      devnet: line.endsWith('(devnet)'),
+    }).toEqual({
+      bulkQueries: [winnerIds.slice(0, 5)],
+      sequentialReads: 0,
+      firstWinnerOccurrences: 1,
+      hasAuthoritativeOverflow: true,
+      hidesSixthWinner: true,
+      hidesRawIdentity: true,
+      controlSafe: true,
+      unicodeSafe: true,
+      bounded: true,
+      devnet: true,
+    });
+  });
+
   it('names each winner with exact SOL and a devnet stamp', async () => {
     const { deps, db } = makeFakeDeps();
     db.users.set(1, 'Sana');
@@ -154,19 +221,28 @@ describe('settlementPayoutsLine', () => {
     db.seedPosition({ market_id: 'm1', user_id: 1, side: 'back', stake: 10_000_000 });
     db.seedPosition({ market_id: 'm1', user_id: 2, side: 'doubt', stake: 10_000_000 });
     const line = await settlementPayoutsLine(deps, 'm1', 'claim_won');
-    expect(line).toContain('Sana');
     // 10M stake + 10M matched-and-won = 20M = 0.02 SOL.
-    expect(line).toContain('0.02 SOL');
-    expect(line).toContain('(devnet)');
+    expect(line).toBe('Sana collects 0.02 SOL. (devnet)');
+  });
+
+  it('uses a stable label instead of a missing winner name or id', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.seedMarketProbability('m1', EVEN);
+    db.seedPosition({ market_id: 'm1', user_id: 42, side: 'back', stake: 10_000_000 });
+    db.seedPosition({ market_id: 'm1', user_id: 99, side: 'doubt', stake: 10_000_000 });
+
+    const line = await settlementPayoutsLine(deps, 'm1', 'claim_won');
+
+    expect(line).toBe('Player collects 0.02 SOL. (devnet)');
+    expect(line).not.toContain('42');
   });
 
   it('void and no-winner lines are distinct', async () => {
     const { deps } = makeFakeDeps();
     const voidLine = await settlementPayoutsLine(deps, 'm1', 'void');
     const noneLine = await settlementPayoutsLine(deps, 'm1', 'claim_won');
-    expect(voidLine).not.toBe(noneLine);
-    expect(voidLine).toContain('(devnet)');
-    expect(noneLine).toContain('(devnet)');
+    expect(voidLine).toBe('Call off — every SOL stake returned. (devnet)');
+    expect(noneLine).toBe('No SOL changed hands. (devnet)');
   });
 });
 

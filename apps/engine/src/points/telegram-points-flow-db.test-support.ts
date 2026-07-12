@@ -173,10 +173,38 @@ export class TelegramFlowDb implements EngineDb {
   }
   async positionParticipantsForMarket(marketId: string): Promise<readonly PositionParticipant[]> {
     const market = this.requireMarket(marketId);
-    return (this.positions.get(marketId) ?? []).filter((row) => row.state !== 'void').map((row) => {
+    const positions = (this.positions.get(marketId) ?? [])
+      .filter((row) => row.state !== 'void')
+      .sort(
+        (left, right) =>
+          left.placed_at_ms - right.placed_at_ms ||
+          left.user_id - right.user_id || left.side.localeCompare(right.side),
+      );
+    const participantCounts = {
+      back: new Set(positions.filter((row) => row.side === 'back').map((row) => row.user_id)).size,
+      doubt: new Set(positions.filter((row) => row.side === 'doubt').map((row) => row.user_id)).size,
+    };
+    const returnedCounts = { back: 0, doubt: 0 };
+    const seen = new Set<string>();
+    const participants: PositionParticipant[] = [];
+    for (const row of positions) {
+      const key = `${row.user_id}:${row.side}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (returnedCounts[row.side] >= 5) continue;
+      returnedCounts[row.side] += 1;
       const user = this.requireUser(row.user_id);
-      return { group_id: market.group_id, market_id: marketId, user_id: row.user_id, side: row.side, display_name: user.display_name, username: user.username };
-    });
+      participants.push({
+        group_id: market.group_id,
+        market_id: marketId,
+        user_id: row.user_id,
+        side: row.side,
+        display_name: user.display_name,
+        username: user.username,
+        participant_count: participantCounts[row.side],
+      });
+    }
+    return participants;
   }
 
   async postLedger(entry: LedgerEntry): Promise<{ inserted: boolean }> {
