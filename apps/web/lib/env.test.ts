@@ -157,6 +157,11 @@ describe('web environment', () => {
       source: { ...BASE_ENV, NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co' },
       variables: 'NEXT_PUBLIC_SUPABASE_ANON_KEY, NEXT_PUBLIC_SUPABASE_URL',
     },
+    {
+      name: 'an empty web origin',
+      source: { ...BASE_ENV, WEB_BASE_URL: '' },
+      variables: 'WEB_BASE_URL',
+    },
   ])('rejects $name with variable names only', ({ source, variables }) => {
     // Given an invalid or incomplete web environment boundary
     const parse = () => loadWebEnv(source);

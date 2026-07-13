@@ -61,8 +61,16 @@ const WebEnvSchema = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: [left], message: 'invalid relationship' });
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: [right], message: 'invalid relationship' });
   };
+  const parseUrl = (value: string): URL | null => {
+    try {
+      return new URL(value);
+    } catch {
+      return null;
+    }
+  };
   const isOrigin = (value: string): boolean => {
-    const url = new URL(value);
+    const url = parseUrl(value);
+    if (url === null) return false;
     return (
       url.username === '' &&
       url.password === '' &&
@@ -86,17 +94,18 @@ const WebEnvSchema = z.object({
         message: 'required for production',
       });
     }
-    if (env.WEB_BASE_URL !== undefined && new URL(env.WEB_BASE_URL).protocol !== 'https:') {
+    const webBaseUrl = env.WEB_BASE_URL === undefined ? null : parseUrl(env.WEB_BASE_URL);
+    if (webBaseUrl !== null && webBaseUrl.protocol !== 'https:') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['WEB_BASE_URL'],
         message: 'HTTPS required for production',
       });
     }
-    if (
-      env.CONCIERGE_WALLET_API_URL !== undefined &&
-      new URL(env.CONCIERGE_WALLET_API_URL).protocol !== 'https:'
-    ) {
+    const conciergeWalletUrl = env.CONCIERGE_WALLET_API_URL === undefined
+      ? null
+      : parseUrl(env.CONCIERGE_WALLET_API_URL);
+    if (conciergeWalletUrl !== null && conciergeWalletUrl.protocol !== 'https:') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['CONCIERGE_WALLET_API_URL'],
@@ -175,10 +184,11 @@ const WebEnvSchema = z.object({
   if (!env.WALLET_MINIAPP_ENABLED && env.WALLET_PROVIDER === 'privy') {
     addPairIssue('WALLET_MINIAPP_ENABLED', 'WALLET_PROVIDER');
   }
+  const walletWebBaseUrl = env.WEB_BASE_URL === undefined ? null : parseUrl(env.WEB_BASE_URL);
   if (
-    env.WEB_BASE_URL !== undefined &&
+    walletWebBaseUrl !== null &&
     env.WALLET_LINK_DOMAIN !== undefined &&
-    new URL(env.WEB_BASE_URL).hostname !== env.WALLET_LINK_DOMAIN
+    walletWebBaseUrl.hostname !== env.WALLET_LINK_DOMAIN
   ) {
     addPairIssue('WALLET_LINK_DOMAIN', 'WEB_BASE_URL');
   }
