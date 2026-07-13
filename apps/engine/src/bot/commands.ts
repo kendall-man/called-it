@@ -254,7 +254,6 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
   });
 
   bot.command('testmatch', async (ctx) => {
-    if (h.deps.env.SOLANA_NETWORK === 'mainnet-beta') return;
     if (!isGroup(ctx.chat.type) || !ctx.from) return;
     if (!isBetaGroupAllowed(h.deps.env, ctx.chat.id)) return;
     const from = ctx.from;

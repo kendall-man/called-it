@@ -111,14 +111,18 @@ function makeHarness(options: {
 }
 
 describe('/testmatch', () => {
-  it('is inert on mainnet before touching group or fixture state', async () => {
+  it('lets an allowlisted group admin run the isolated test flow on mainnet', async () => {
     const harness = makeHarness({ network: 'mainnet-beta' });
 
     await harness.run();
 
-    expect(harness.starts).toEqual([]);
-    expect(harness.posts).toEqual([]);
-    expect(harness.operations).toEqual([]);
+    expect(harness.starts).toEqual([STANDARD_FINAL]);
+    expect(harness.posts).toHaveLength(1);
+    expect(harness.posts[0]).toContain('TEST MATCH: France vs Morocco');
+    expect(harness.posts[0]).toContain('Test results do not change real Points.');
+    expect(harness.operations).toEqual([
+      'upsert_group', 'upsert_user', 'membership', 'fixtures_between',
+    ]);
   });
 
   it('lets an allowlisted group admin start the latest standard completed match', async () => {
