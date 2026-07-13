@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 const ChallengeSchema = z.object({
   challengeId: z.string().uuid(),
+  expiresAt: z.string().datetime(),
   message: z.string().min(1),
 }).strict();
 

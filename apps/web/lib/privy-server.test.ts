@@ -14,7 +14,6 @@ const USER = {
       type: 'wallet',
       id: 'wallet-01',
       address: '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
-      public_key: '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
       chain_type: 'solana',
       connector_type: 'embedded',
       wallet_client_type: 'privy',
@@ -45,6 +44,22 @@ describe('Privy wallet identity', () => {
       walletId: 'wallet-01',
       pubkey: '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
     });
+  });
+
+  it('rejects recovery-method labels used as a wallet client type', () => {
+    const malformedUser = {
+      ...USER,
+      linked_accounts: USER.linked_accounts.map((account) => (
+        account.type === 'wallet' ? { ...account, wallet_client_type: 'privy-v2' } : account
+      )),
+    };
+
+    expect(() => resolvePrivyWalletIdentity(
+      malformedUser,
+      USER.id,
+      '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
+      'devnet',
+    )).toThrowError(new PrivyIdentityError('wallet_not_owned'));
   });
 
   it('rejects a token subject that does not match the fetched Privy user', () => {

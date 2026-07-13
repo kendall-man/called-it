@@ -7,7 +7,6 @@ export function WalletRoute() {
     ? 'mainnet-beta'
     : 'devnet';
   const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
-  const clientId = process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID;
   return (
     <PageShell topRight={<Badge tone={network === 'mainnet-beta' ? 'flood' : 'sky'}>{network === 'mainnet-beta' ? 'Mainnet' : 'Devnet'}</Badge>}>
       {appId === undefined || appId.length === 0 ? (
@@ -15,7 +14,6 @@ export function WalletRoute() {
       ) : (
         <WalletEntry
           appId={appId}
-          {...(clientId === undefined ? {} : { clientId })}
           network={network}
           rpcUrl="/api/solana/rpc"
           treasuryPubkey={process.env.NEXT_PUBLIC_WAGER_TREASURY_PUBKEY ?? ''}

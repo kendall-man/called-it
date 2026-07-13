@@ -6,7 +6,6 @@ import type { ReactNode } from 'react';
 
 type WalletProviderProps = {
   readonly appId: string;
-  readonly clientId?: string;
   readonly children: ReactNode;
 };
 
@@ -18,23 +17,14 @@ const PRIVY_CONFIG = {
     walletChainType: 'solana-only',
   },
   embeddedWallets: {
-    // WalletManager owns creation so authentication and creation cannot race.
-    solana: { createOnLogin: 'off' },
+    solana: { createOnLogin: 'users-without-wallets' },
     showWalletUIs: true,
   },
   externalWallets: {
-    disableAllExternalWallets: true,
     walletConnect: { enabled: false },
   },
 } satisfies PrivyClientConfig;
 
-export function WalletProvider({ appId, clientId, children }: WalletProviderProps) {
-  if (clientId === undefined) {
-    return <PrivyProvider appId={appId} config={PRIVY_CONFIG}>{children}</PrivyProvider>;
-  }
-  return (
-    <PrivyProvider appId={appId} clientId={clientId} config={PRIVY_CONFIG}>
-      {children}
-    </PrivyProvider>
-  );
+export function WalletProvider({ appId, children }: WalletProviderProps) {
+  return <PrivyProvider appId={appId} config={PRIVY_CONFIG}>{children}</PrivyProvider>;
 }

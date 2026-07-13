@@ -4,10 +4,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   usePrivy,
   useSubscribeToJwtAuthWithFlag,
+  useUser,
   type WalletWithMetadata,
 } from '@privy-io/react-auth';
 import {
-  useCreateWallet,
   useSignMessage,
   useSignTransaction,
   useWallets,
@@ -19,6 +19,7 @@ import {
   requestWalletAuthSession,
   walletClientErrorMessage,
 } from '@/lib/wallet-client';
+import { isPrivySolanaWalletAccount } from '@/lib/wallet-flow';
 import { walletSessionTokenFromLocation } from '@/lib/wallet-session';
 import { WalletDashboard } from './wallet-dashboard';
 import { WalletButton, WalletState } from './wallet-ui';
@@ -35,22 +36,21 @@ type SessionState =
   | { readonly kind: 'failed'; readonly error: string }
   | { readonly kind: 'valid'; readonly token: string };
 
-type Operation = 'idle' | 'creating' | 'linking' | 'ready' | 'failed';
+type Operation = 'idle' | 'linking' | 'ready' | 'failed';
 
 const PRIVY_AUTH_TIMEOUT_MS = 25_000;
-const WALLET_CREATION_TIMEOUT_MS = 25_000;
+const WALLET_READY_TIMEOUT_MS = 25_000;
 
 export function WalletManager(props: WalletManagerProps) {
-  const { ready, authenticated, error: privyError, getAccessToken, user } = usePrivy();
+  const { ready, authenticated, error: privyError, getAccessToken } = usePrivy();
+  const { user } = useUser();
   const { ready: walletsReady, wallets } = useWallets();
-  const { createWallet } = useCreateWallet();
   const { signMessage } = useSignMessage();
   const { signTransaction } = useSignTransaction();
   const [session, setSession] = useState<SessionState>({ kind: 'loading' });
   const [operation, setOperation] = useState<Operation>('idle');
   const [operationError, setOperationError] = useState('');
   const jwt = useRef<string | undefined>(undefined);
-  const creationAttempted = useRef(false);
   const linkedAttempt = useRef('');
 
   const fail = useCallback((message: string) => {
@@ -71,11 +71,9 @@ export function WalletManager(props: WalletManagerProps) {
   });
 
   const embeddedWalletAddress = user?.linkedAccounts.find((account): account is WalletWithMetadata => (
-    account.type === 'wallet' &&
-    account.chainType === 'solana' &&
-    account.connectorType === 'embedded' &&
-    account.walletClientType === 'privy'
-  ))?.address ?? null;
+    isPrivySolanaWalletAccount(account)
+  ))?.address ??
+    null;
   const activeWallet = embeddedWalletAddress === null
     ? null
     : wallets.find((wallet) => wallet.address === embeddedWalletAddress) ?? null;
@@ -127,15 +125,14 @@ export function WalletManager(props: WalletManagerProps) {
   useEffect(() => {
     if (
       session.kind !== 'valid' || jwtAuth.state.status !== 'done' ||
-      !ready || !authenticated || !walletsReady || activeWallet !== null ||
-      creationAttempted.current || operation === 'failed'
+      !ready || !authenticated || operation !== 'idle' ||
+      (walletsReady && activeWallet !== null)
     ) return;
-    creationAttempted.current = true;
-    setOperation('creating');
-    void withTimeout(createWallet(), WALLET_CREATION_TIMEOUT_MS).catch(() => {
-      fail('Privy could not create the Solana wallet. Return to Telegram and try again.');
-    });
-  }, [activeWallet, authenticated, createWallet, fail, jwtAuth.state.status, operation, ready, session, walletsReady]);
+    const timeout = window.setTimeout(() => {
+      fail('Privy could not open the Solana wallet. Return to Telegram and try again.');
+    }, WALLET_READY_TIMEOUT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [activeWallet, authenticated, fail, jwtAuth.state.status, operation, ready, session, walletsReady]);
 
   const verifyWallet = useCallback(async (
     wallet: ConnectedStandardSolanaWallet,
@@ -171,10 +168,10 @@ export function WalletManager(props: WalletManagerProps) {
   useEffect(() => {
     if (
       session.kind !== 'valid' || jwtAuth.state.status !== 'done' ||
-      !authenticated || activeWallet === null || operation === 'failed'
+      !authenticated || !walletsReady || activeWallet === null || operation === 'failed'
     ) return;
     void verifyWallet(activeWallet, session.token);
-  }, [activeWallet, authenticated, jwtAuth.state.status, operation, session, verifyWallet]);
+  }, [activeWallet, authenticated, jwtAuth.state.status, operation, session, verifyWallet, walletsReady]);
 
   if (session.kind === 'loading') {
     return <WalletState title="Opening wallet" text="Checking this private wallet link..." loading />;
@@ -191,9 +188,6 @@ export function WalletManager(props: WalletManagerProps) {
   if (operation !== 'ready') {
     if (operation === 'linking') {
       return <WalletState title="Verifying wallet" text="Confirming ownership. No SOL is moving." loading />;
-    }
-    if (operation === 'creating') {
-      return <WalletState title="Creating wallet" text="Privy is creating your Solana wallet..." loading />;
     }
     return <WalletState title="Opening wallet" text="Confirming your private wallet session..." loading />;
   }
@@ -234,18 +228,4 @@ function FailureState({ error }: { readonly error: string }) {
       )}
     />
   );
-}
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timeout: number | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timeout = window.setTimeout(() => reject(new Error('operation timed out')), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeout !== undefined) window.clearTimeout(timeout);
-  }
 }

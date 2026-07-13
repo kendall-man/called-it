@@ -2,6 +2,7 @@ import { PrivyClient, verifyAccessToken } from '@privy-io/node';
 import { z } from 'zod';
 import { loadWebEnv } from './env';
 import { parseWalletAuthSubject } from './wallet-auth-subject';
+import { PRIVY_WALLET_CLIENT_TYPES } from './wallet-flow';
 
 const SOLANA_PUBKEY_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,64}$/;
 const MAX_ACCESS_TOKEN_LENGTH = 8_192;
@@ -20,10 +21,9 @@ const EmbeddedSolanaWalletSchema = z.object({
   type: z.literal('wallet'),
   id: z.string().min(1).max(255).nullable(),
   address: z.string().regex(SOLANA_PUBKEY_PATTERN),
-  public_key: z.string().regex(SOLANA_PUBKEY_PATTERN),
   chain_type: z.literal('solana'),
   connector_type: z.literal('embedded'),
-  wallet_client_type: z.literal('privy'),
+  wallet_client_type: z.enum(PRIVY_WALLET_CLIENT_TYPES),
 }).passthrough();
 
 export type PrivyIdentityErrorCode =
@@ -89,8 +89,7 @@ export function resolvePrivyWalletIdentity(
     .map((account) => EmbeddedSolanaWalletSchema.safeParse(account))
     .find((account) => (
       account.success &&
-      account.data.address === expectedWalletAddress &&
-      account.data.public_key === expectedWalletAddress
+      account.data.address === expectedWalletAddress
     ));
   if (wallet === undefined || !wallet.success) {
     throw new PrivyIdentityError('wallet_not_owned');

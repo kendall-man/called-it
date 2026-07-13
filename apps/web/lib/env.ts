@@ -18,7 +18,6 @@ const Base64KeySchema = z.string().refine((value) => {
   return decoded.length === 32 && btoa(decoded) === value;
 });
 const PrivyAppIdSchema = z.string().length(25);
-const PrivyClientIdSchema = z.string().min(1).max(255);
 const WalletAuthKeyIdSchema = z.string().regex(/^[A-Za-z0-9._-]{1,64}$/);
 const WalletAuthPrivateKeySchema = z.string().regex(/^[A-Za-z0-9+/]{120,}={0,2}$/);
 
@@ -33,7 +32,6 @@ const WebEnvSchema = z.object({
   NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: BotUsernameSchema.optional(),
   NEXT_PUBLIC_TELEGRAM_STARTGROUP: z.literal('calledit_v1').optional(),
   NEXT_PUBLIC_PRIVY_APP_ID: PrivyAppIdSchema.optional(),
-  NEXT_PUBLIC_PRIVY_CLIENT_ID: PrivyClientIdSchema.optional(),
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   SOLANA_RPC_URL: z.string().url().optional(),
