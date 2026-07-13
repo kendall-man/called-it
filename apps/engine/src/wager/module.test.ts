@@ -198,12 +198,16 @@ describe('/wallet command', () => {
     expect(ctx.replies).toEqual([WAGER_COPY.walletSetupReady()]);
     expect(db.walletLinkSessions).toHaveLength(1);
     expect(db.walletLinkSessions[0]?.token_hash_hex).toMatch(/^[0-9a-f]{64}$/);
-    const buttonUrl = ctx.replyOptions[0]?.reply_markup.inline_keyboard[0]?.[0]?.url;
+    const button = ctx.replyOptions[0]?.reply_markup.inline_keyboard[0]?.[0];
+    const buttonUrl = button?.web_app.url;
     expect(buttonUrl).toMatch(/^https:\/\/called-it\.example\/wallet#token=/);
-    expect(ctx.replyOptions[0]?.reply_markup.inline_keyboard[0]?.[0]?.text).toBe(
+    expect(button?.text).toBe(
       'Create or manage wallet',
     );
     expect(buttonUrl).not.toContain(db.walletLinkSessions[0]?.token_hash_hex ?? 'missing');
+    expect(
+      Date.parse(db.walletLinkSessions[0]?.expires_at ?? '') - deps.now(),
+    ).toBe(5 * 60_000);
   });
 
   it('keeps wallet setup in private chat', async () => {

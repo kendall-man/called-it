@@ -1,6 +1,5 @@
 import {
   Connection,
-  Keypair,
   PublicKey,
   SystemProgram,
   Transaction,
@@ -30,34 +29,42 @@ export async function walletBalance(rpcUrl: string, wallet: PublicKey): Promise<
 
 export async function sendWalletTransfer(input: {
   readonly rpcUrl: string;
-  readonly keypair: Keypair;
+  readonly source: string;
   readonly destination: string;
   readonly lamports: bigint;
+  readonly signTransaction: (transaction: Uint8Array) => Promise<Uint8Array>;
 }): Promise<string> {
   if (input.lamports < MIN_WALLET_TRANSFER_LAMPORTS) {
     throw new Error('Transfers must be at least 0.001 SOL.');
   }
+  let source: PublicKey;
   let destination: PublicKey;
   try {
+    source = new PublicKey(input.source);
     destination = new PublicKey(input.destination);
   } catch {
-    throw new Error('Destination address is not valid.');
+    throw new Error('Wallet or destination address is not valid.');
   }
-  if (destination.equals(input.keypair.publicKey)) {
+  if (destination.equals(source)) {
     throw new Error('Choose a different destination address.');
   }
   const connection = new Connection(resolveRpcUrl(input.rpcUrl), 'confirmed');
   const latest = await connection.getLatestBlockhash('confirmed');
   const transaction = new Transaction({
-    feePayer: input.keypair.publicKey,
+    feePayer: source,
     recentBlockhash: latest.blockhash,
   }).add(SystemProgram.transfer({
-    fromPubkey: input.keypair.publicKey,
+    fromPubkey: source,
     toPubkey: destination,
     lamports: Number(input.lamports),
   }));
-  transaction.sign(input.keypair);
-  const signature = await connection.sendRawTransaction(transaction.serialize(), {
+  const unsignedBytes = transaction.serialize({
+    requireAllSignatures: false,
+    verifySignatures: false,
+  });
+  const signedBytes = await input.signTransaction(unsignedBytes);
+  validateSignedTransaction(transaction, signedBytes);
+  const signature = await connection.sendRawTransaction(signedBytes, {
     skipPreflight: false,
     maxRetries: 3,
   });
@@ -79,6 +86,24 @@ export async function sendWalletTransfer(input: {
   return signature;
 }
 
+export function validateSignedTransaction(
+  expected: Transaction,
+  signedBytes: Uint8Array,
+): void {
+  let signed: Transaction;
+  try {
+    signed = Transaction.from(signedBytes);
+  } catch {
+    throw new Error('The wallet returned an invalid transaction.');
+  }
+  if (!equalBytes(expected.serializeMessage(), signed.serializeMessage())) {
+    throw new Error('The wallet changed the transfer details.');
+  }
+  if (!signed.verifySignatures()) {
+    throw new Error('The wallet did not sign the transfer.');
+  }
+}
+
 export function explorerTransactionUrl(signature: string, network: 'devnet' | 'mainnet-beta'): string {
   const url = new URL(`/tx/${signature}`, 'https://explorer.solana.com');
   if (network === 'devnet') url.searchParams.set('cluster', 'devnet');
@@ -93,4 +118,9 @@ function resolveRpcUrl(value: string): string {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }

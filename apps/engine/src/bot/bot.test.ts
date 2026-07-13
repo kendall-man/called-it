@@ -221,7 +221,9 @@ describe('onboarding scopes and lifecycle', () => {
       { commands: PRIVATE_BOT_COMMANDS, scope: 'all_private_chats' },
       { commands: GROUP_BOT_COMMANDS, scope: 'all_group_chats' },
     ]);
-    expect(PRIVATE_BOT_COMMANDS.map((command) => command.command)).toEqual(['start', 'help']);
+    expect(PRIVATE_BOT_COMMANDS.map((command) => command.command)).toEqual([
+      'start', 'help', 'wallet', 'deposit', 'withdraw',
+    ]);
     expect(GROUP_BOT_COMMANDS.map((command) => command.command)).toEqual([
       'bookit',
       'leaderboard',
@@ -231,7 +233,7 @@ describe('onboarding scopes and lifecycle', () => {
     ]);
   });
 
-  it('adds funded account commands only to the mainnet private menu', async () => {
+  it('keeps the funded account commands identical on mainnet', async () => {
     const calls: Array<{ readonly commands: readonly { readonly command: string }[]; readonly scope: string }> = [];
     const api: BotCommandScopeApi = {
       async setMyCommands(commands, options) {

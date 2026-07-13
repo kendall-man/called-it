@@ -38,14 +38,12 @@ export function registerBotErrorHandler(bot: BotErrorRegistrar, log: Logger): vo
 export const PRIVATE_BOT_COMMANDS = [
   { command: 'start', description: 'Add Called It to a group' },
   { command: 'help', description: 'How Called It works' },
-] as const;
-
-export const MAINNET_PRIVATE_BOT_COMMANDS = [
-  ...PRIVATE_BOT_COMMANDS,
-  { command: 'wallet', description: 'Review your verified wallet' },
+  { command: 'wallet', description: 'Create or manage your wallet' },
   { command: 'deposit', description: 'Add SOL to your balance' },
   { command: 'withdraw', description: 'Return SOL to your wallet' },
 ] as const;
+
+export const MAINNET_PRIVATE_BOT_COMMANDS = PRIVATE_BOT_COMMANDS;
 
 export const GROUP_BOT_COMMANDS = [
   { command: 'bookit', description: 'Book an explicit call' },

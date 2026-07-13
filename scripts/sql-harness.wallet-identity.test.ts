@@ -43,7 +43,7 @@ test.after(async () => {
 test('wallet identity migrations apply fresh and as 0001-0004 upgrade', async () => {
   const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
   await withMigratedDb(migrations, async () => undefined);
-  record('fresh 0001-0005 migration applied and cleaned');
+  record('fresh wallet migration chain applied through Privy identity and cleaned');
   await withMigratedDb(migrations.filter((migration) => migration.name <= '0004_starter_grant.sql'), async (client) => {
     const fifth = migrations.find((migration) => migration.name === '0005_wallet_identity.sql');
     assert.ok(fifth);
@@ -121,6 +121,73 @@ test('browser wallet link sessions are private, single-use, and owner-bound', as
     await assertWalletFunctionPrivileges(client, url);
   });
   record('one-time browser wallet session linked exactly once without storing its raw token');
+});
+
+test('Privy wallet links atomically reserve the provider identity and wallet', async () => {
+  const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
+  await withMigratedDb(migrations, async (client) => {
+    await seedWalletFixtures(client);
+    const challengeId = '1f3250a0-8868-43a1-8842-c8164d72f177';
+    const pubkey = '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk';
+    await rpc(client, 'wager_create_wallet_link_session($1,$2,$3)', [
+      USER_ID,
+      HASH_A,
+      new Date(Date.now() + 5 * 60_000).toISOString(),
+    ]);
+    await rpc(client, 'wager_create_wallet_link_challenge($1,$2,$3,$4,$5)', [
+      HASH_A,
+      challengeId,
+      pubkey,
+      HASH_B,
+      new Date(Date.now() + 4 * 60_000).toISOString(),
+    ]);
+
+    const linked = await rpc(
+      client,
+      'wager_verify_privy_wallet_link_session($1,$2,$3,$4,$5,$6,$7)',
+      [HASH_A, challengeId, pubkey, HASH_B, 'did:privy:user-a', 'wallet-a', 'devnet'],
+    );
+    assert.equal(linked.ok, true);
+    const stored = await client.query<{
+      wallet_provider: string;
+      provider_user_id: string;
+      provider_wallet_id: string;
+      solana_network: string;
+    }>(
+      `select wallet_provider, provider_user_id, provider_wallet_id, solana_network
+       from wager_wallet_links where user_id = $1`,
+      [USER_ID],
+    );
+    assert.deepEqual(stored.rows[0], {
+      wallet_provider: 'privy',
+      provider_user_id: 'did:privy:user-a',
+      provider_wallet_id: 'wallet-a',
+      solana_network: 'devnet',
+    });
+
+    const otherChallengeId = 'b87ce271-cbb4-439e-97d1-d5c37f108aaf';
+    await rpc(client, 'wager_create_wallet_link_session($1,$2,$3)', [
+      OTHER_USER_ID,
+      HASH_B,
+      new Date(Date.now() + 5 * 60_000).toISOString(),
+    ]);
+    await rpc(client, 'wager_create_wallet_link_challenge($1,$2,$3,$4,$5)', [
+      HASH_B,
+      otherChallengeId,
+      PUBKEY_B,
+      HASH_A,
+      new Date(Date.now() + 4 * 60_000).toISOString(),
+    ]);
+    assert.deepEqual(
+      await rpc(
+        client,
+        'wager_verify_privy_wallet_link_session($1,$2,$3,$4,$5,$6,$7)',
+        [HASH_B, otherChallengeId, PUBKEY_B, HASH_A, 'did:privy:user-a', 'wallet-b', 'devnet'],
+      ),
+      { ok: false, code: 'privy_identity_reserved' },
+    );
+  });
+  record('Privy user and embedded wallet metadata were installed atomically and reserved');
 });
 
 test('verified wallet challenges are single-use, private, and relink guarded', async () => {

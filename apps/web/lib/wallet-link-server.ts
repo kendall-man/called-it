@@ -7,6 +7,13 @@ import {
 } from '@calledit/solana/message-signing';
 import { z } from 'zod';
 import { loadWebEnv } from './env';
+import {
+  isPrivyTelegramOwner,
+  PrivyIdentityError,
+  verifyPrivyWalletIdentity,
+  type PrivyIdentityVerifier,
+  type PrivyWalletIdentity,
+} from './privy-server';
 
 const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const PUBKEY_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,64}$/;
@@ -40,9 +47,15 @@ export function walletChallengeNonce(token: string, challengeId: string): string
     .digest('base64url');
 }
 
-export async function createWalletChallenge(raw: unknown): Promise<WalletApiResult> {
+export async function createWalletChallenge(
+  raw: unknown,
+  accessToken: string,
+  verifyIdentity: PrivyIdentityVerifier = verifyPrivyWalletIdentity,
+): Promise<WalletApiResult> {
   const input = WalletChallengeRequestSchema.safeParse(raw);
   if (!input.success) return refusal(400, 'invalid_request');
+  const identity = await privyIdentity(accessToken, input.data.pubkey, verifyIdentity);
+  if (isApiResult(identity)) return identity;
   const env = walletEnv();
   const client = walletClient(env);
   const challengeId = randomUUID();
@@ -65,6 +78,9 @@ export async function createWalletChallenge(raw: unknown): Promise<WalletApiResu
   if (userId === null || issuedAt === null || expiresAt === null) {
     return refusal(503, 'wallet_service_unavailable');
   }
+  if (!isPrivyTelegramOwner(identity, userId)) {
+    return refusal(403, 'privy_identity_invalid');
+  }
   const challenge: WalletLinkMessageInput = {
     webBaseUrl: new URL(env.WEB_BASE_URL).origin,
     telegramUserId: userId,
@@ -83,9 +99,15 @@ export async function createWalletChallenge(raw: unknown): Promise<WalletApiResu
   };
 }
 
-export async function verifyWalletChallenge(raw: unknown): Promise<WalletApiResult> {
+export async function verifyWalletChallenge(
+  raw: unknown,
+  accessToken: string,
+  verifyIdentity: PrivyIdentityVerifier = verifyPrivyWalletIdentity,
+): Promise<WalletApiResult> {
   const input = WalletVerificationRequestSchema.safeParse(raw);
   if (!input.success) return refusal(400, 'invalid_request');
+  const identity = await privyIdentity(accessToken, input.data.pubkey, verifyIdentity);
+  if (isApiResult(identity)) return identity;
   const env = walletEnv();
   const client = walletClient(env);
   const tokenHash = walletSessionTokenHash(input.data.token);
@@ -109,6 +131,9 @@ export async function verifyWalletChallenge(raw: unknown): Promise<WalletApiResu
   ) {
     return refusal(409, 'wallet_link_invalid');
   }
+  if (!isPrivyTelegramOwner(identity, userId)) {
+    return refusal(403, 'privy_identity_invalid');
+  }
   const nonce = walletChallengeNonce(input.data.token, input.data.challengeId);
   const expectedHash = createHash('sha256').update(nonce).digest('hex');
   if (!equalHex(storedHash, expectedHash)) return refusal(409, 'wallet_link_invalid');
@@ -130,11 +155,14 @@ export async function verifyWalletChallenge(raw: unknown): Promise<WalletApiResu
   if (!proof.ok) {
     return refusal(proof.code === 'challenge_expired' ? 410 : 400, 'signature_invalid');
   }
-  const verified = await client.rpc('wager_verify_wallet_link_session', {
+  const verified = await client.rpc('wager_verify_privy_wallet_link_session', {
     p_token_hash_hex: tokenHash,
     p_challenge_id: input.data.challengeId,
     p_pubkey: input.data.pubkey,
     p_challenge_hash_hex: expectedHash,
+    p_provider_user_id: identity.privyUserId,
+    p_provider_wallet_id: identity.walletId,
+    p_solana_network: env.NEXT_PUBLIC_SOLANA_NETWORK,
   });
   if (verified.error !== null) return refusal(503, 'wallet_service_unavailable');
   const result = record(verified.data);
@@ -143,6 +171,27 @@ export async function verifyWalletChallenge(raw: unknown): Promise<WalletApiResu
     return refusal(code === 'challenge_expired' ? 410 : 409, code);
   }
   return { status: 200, body: { wallet: { status: 'verified', pubkey: storedPubkey } } };
+}
+
+async function privyIdentity(
+  accessToken: string,
+  pubkey: string,
+  verifyIdentity: PrivyIdentityVerifier,
+): Promise<PrivyWalletIdentity | WalletApiResult> {
+  try {
+    return await verifyIdentity(accessToken, pubkey);
+  } catch (cause) {
+    if (!(cause instanceof PrivyIdentityError)) throw cause;
+    switch (cause.code) {
+      case 'unauthenticated':
+        return refusal(401, 'privy_auth_required');
+      case 'identity_mismatch':
+      case 'wallet_not_owned':
+        return refusal(403, 'privy_identity_invalid');
+      case 'provider_unavailable':
+        return refusal(503, 'wallet_service_unavailable');
+    }
+  }
 }
 
 function walletEnv() {
@@ -175,6 +224,10 @@ function record(value: unknown): Readonly<Record<string, unknown>> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as Readonly<Record<string, unknown>>
     : null;
+}
+
+function isApiResult(value: PrivyWalletIdentity | WalletApiResult): value is WalletApiResult {
+  return 'status' in value;
 }
 
 function canonicalTimestamp(value: unknown): string | null {

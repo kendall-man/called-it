@@ -17,6 +17,8 @@ const Base64KeySchema = z.string().refine((value) => {
   const decoded = atob(value);
   return decoded.length === 32 && btoa(decoded) === value;
 });
+const PrivyAppIdSchema = z.string().length(25);
+const PrivyClientIdSchema = z.string().min(1).max(255);
 
 const WebEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -28,6 +30,8 @@ const WebEnvSchema = z.object({
   NEXT_PUBLIC_WAGER_TREASURY_PUBKEY: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,64}$/).optional(),
   NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: BotUsernameSchema.optional(),
   NEXT_PUBLIC_TELEGRAM_STARTGROUP: z.literal('calledit_v1').optional(),
+  NEXT_PUBLIC_PRIVY_APP_ID: PrivyAppIdSchema.optional(),
+  NEXT_PUBLIC_PRIVY_CLIENT_ID: PrivyClientIdSchema.optional(),
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   SOLANA_RPC_URL: z.string().url().optional(),
@@ -38,14 +42,20 @@ const WebEnvSchema = z.object({
   ENGINE_OPS_TOKEN_SHA256: Sha256FingerprintSchema.optional(),
   WEB_BASE_URL: z.string().url().optional(),
   WALLET_LINK_DOMAIN: DomainSchema.optional(),
+  PRIVY_APP_ID: PrivyAppIdSchema.optional(),
+  PRIVY_APP_SECRET: z.string().min(1).optional(),
+  PRIVY_JWT_VERIFICATION_KEY: z.string().min(1).optional(),
   ANALYTICS_HMAC_SECRET: Base64KeySchema.optional(),
   STARTER_GRANTS_ENABLED: BooleanSchema,
   WALLET_MINIAPP_ENABLED: BooleanSchema,
+  WALLET_PROVIDER: z.enum(['disabled', 'privy']).default('disabled'),
   STAKE_ACCEPTANCE_ENABLED: BooleanSchema,
   NEXT_PUBLIC_WEB_CONCIERGE_TOKEN: z.never().optional(),
   NEXT_PUBLIC_ACCOUNT_SESSION_KEY_CURRENT: z.never().optional(),
   NEXT_PUBLIC_ACCOUNT_SESSION_KEY_PREVIOUS: z.never().optional(),
   NEXT_PUBLIC_ANALYTICS_HMAC_SECRET: z.never().optional(),
+  NEXT_PUBLIC_PRIVY_APP_SECRET: z.never().optional(),
+  NEXT_PUBLIC_PRIVY_JWT_VERIFICATION_KEY: z.never().optional(),
 }).superRefine((env, ctx) => {
   const addPairIssue = (left: string, right: string): void => {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: [left], message: 'invalid relationship' });
@@ -142,6 +152,11 @@ const WebEnvSchema = z.object({
     ['WALLET_LINK_DOMAIN', env.WALLET_LINK_DOMAIN],
     ['SOLANA_RPC_URL', env.SOLANA_RPC_URL],
     ['NEXT_PUBLIC_WAGER_TREASURY_PUBKEY', env.NEXT_PUBLIC_WAGER_TREASURY_PUBKEY],
+    ['NEXT_PUBLIC_PRIVY_APP_ID', env.NEXT_PUBLIC_PRIVY_APP_ID],
+    ['PRIVY_APP_ID', env.PRIVY_APP_ID],
+    ['PRIVY_APP_SECRET', env.PRIVY_APP_SECRET],
+    ['PRIVY_JWT_VERIFICATION_KEY', env.PRIVY_JWT_VERIFICATION_KEY],
+    ['WALLET_PROVIDER', env.WALLET_PROVIDER === 'privy' ? env.WALLET_PROVIDER : undefined],
   ] as const;
   if (env.WALLET_MINIAPP_ENABLED) {
     for (const [name, value] of walletVariables) {
@@ -149,6 +164,16 @@ const WebEnvSchema = z.object({
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: 'required' });
       }
     }
+  }
+  if (
+    env.NEXT_PUBLIC_PRIVY_APP_ID !== undefined &&
+    env.PRIVY_APP_ID !== undefined &&
+    env.NEXT_PUBLIC_PRIVY_APP_ID !== env.PRIVY_APP_ID
+  ) {
+    addPairIssue('NEXT_PUBLIC_PRIVY_APP_ID', 'PRIVY_APP_ID');
+  }
+  if (!env.WALLET_MINIAPP_ENABLED && env.WALLET_PROVIDER === 'privy') {
+    addPairIssue('WALLET_MINIAPP_ENABLED', 'WALLET_PROVIDER');
   }
   if (
     env.WEB_BASE_URL !== undefined &&

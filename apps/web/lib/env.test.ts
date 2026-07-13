@@ -124,11 +124,16 @@ describe('web environment', () => {
       name: 'the Mini App without its server-only configuration',
       source: { ...BASE_ENV, WALLET_MINIAPP_ENABLED: 'true' },
       variables: [
+        'NEXT_PUBLIC_PRIVY_APP_ID',
         'NEXT_PUBLIC_WAGER_TREASURY_PUBKEY',
+        'PRIVY_APP_ID',
+        'PRIVY_APP_SECRET',
+        'PRIVY_JWT_VERIFICATION_KEY',
         'SOLANA_RPC_URL',
         'SUPABASE_SERVICE_ROLE_KEY',
         'SUPABASE_URL',
         'WALLET_LINK_DOMAIN',
+        'WALLET_PROVIDER',
         'WEB_BASE_URL',
       ].join(', '),
     },
@@ -136,6 +141,16 @@ describe('web environment', () => {
       name: 'a server credential exposed with a public prefix',
       source: { ...BASE_ENV, NEXT_PUBLIC_WEB_CONCIERGE_TOKEN: 'do-not-disclose-this-token' },
       variables: 'NEXT_PUBLIC_WEB_CONCIERGE_TOKEN',
+    },
+    {
+      name: 'a Privy app secret exposed with a public prefix',
+      source: { ...BASE_ENV, NEXT_PUBLIC_PRIVY_APP_SECRET: 'do-not-disclose-this-secret' },
+      variables: 'NEXT_PUBLIC_PRIVY_APP_SECRET',
+    },
+    {
+      name: 'a Privy verification key exposed with a public prefix',
+      source: { ...BASE_ENV, NEXT_PUBLIC_PRIVY_JWT_VERIFICATION_KEY: 'do-not-disclose-this-key' },
+      variables: 'NEXT_PUBLIC_PRIVY_JWT_VERIFICATION_KEY',
     },
     {
       name: 'an incomplete Supabase public pair',
@@ -158,12 +173,17 @@ describe('web environment', () => {
     const source = {
       ...BASE_ENV,
       WALLET_MINIAPP_ENABLED: 'true',
+      WALLET_PROVIDER: 'privy',
       SUPABASE_URL: 'https://project.supabase.co',
       SUPABASE_SERVICE_ROLE_KEY: 'server-only-service-role',
       SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
       NEXT_PUBLIC_SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
       NEXT_PUBLIC_TXORACLE_PROGRAM_ID: '11111111111111111111111111111111',
       NEXT_PUBLIC_WAGER_TREASURY_PUBKEY: '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
+      NEXT_PUBLIC_PRIVY_APP_ID: 'clp_123456789012345678901',
+      PRIVY_APP_ID: 'clp_123456789012345678901',
+      PRIVY_APP_SECRET: 'server-only-privy-app-secret',
+      PRIVY_JWT_VERIFICATION_KEY: '-----BEGIN PUBLIC KEY-----\npublic-key-material\n-----END PUBLIC KEY-----',
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
     };
@@ -174,7 +194,31 @@ describe('web environment', () => {
     // Then the wallet capability is enabled without creating public secret fields
     expect(parsed.WALLET_MINIAPP_ENABLED).toBe(true);
     expect(parsed.SUPABASE_SERVICE_ROLE_KEY).toBe(source.SUPABASE_SERVICE_ROLE_KEY);
+    expect(parsed.PRIVY_APP_ID).toBe(source.PRIVY_APP_ID);
     expect(parsed).not.toHaveProperty('NEXT_PUBLIC_WEB_CONCIERGE_TOKEN');
+    expect(parsed).not.toHaveProperty('NEXT_PUBLIC_PRIVY_APP_SECRET');
+  });
+
+  it('requires the public and server Privy app IDs to match', () => {
+    const source = {
+      ...BASE_ENV,
+      WALLET_MINIAPP_ENABLED: 'true',
+      WALLET_PROVIDER: 'privy',
+      SUPABASE_URL: 'https://project.supabase.co',
+      SUPABASE_SERVICE_ROLE_KEY: 'server-only-service-role',
+      SOLANA_RPC_URL: 'https://api.devnet.solana.com',
+      NEXT_PUBLIC_WAGER_TREASURY_PUBKEY: '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
+      NEXT_PUBLIC_PRIVY_APP_ID: 'clp_123456789012345678901',
+      PRIVY_APP_ID: 'clp_123456789012345678902',
+      PRIVY_APP_SECRET: 'server-only-privy-app-secret',
+      PRIVY_JWT_VERIFICATION_KEY: 'verification-key',
+      WEB_BASE_URL: 'https://web.example.test',
+      WALLET_LINK_DOMAIN: 'web.example.test',
+    };
+
+    expect(() => loadWebEnv(source)).toThrowError(
+      'Web environment invalid: NEXT_PUBLIC_PRIVY_APP_ID, PRIVY_APP_ID',
+    );
   });
 
   it.each([

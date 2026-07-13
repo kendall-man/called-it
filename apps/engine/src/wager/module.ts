@@ -20,7 +20,7 @@ import type {
   WagerModuleDeps,
 } from './port.js';
 
-const WALLET_LINK_SESSION_TTL_MS = 10 * 60_000;
+const WALLET_LINK_SESSION_TTL_MS = 5 * 60_000;
 
 // The contract lives in port.ts; re-exported here so seams that import from
 // the module entry point (type-only) resolve without reaching into port.ts.
@@ -118,7 +118,10 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
     url.hash = new URLSearchParams({ token }).toString();
     await ctx.reply(text, {
       reply_markup: {
-        inline_keyboard: [[{ text: 'Create or manage wallet', url: url.toString() }]],
+        inline_keyboard: [[{
+          text: 'Create or manage wallet',
+          web_app: { url: url.toString() },
+        }]],
       },
     });
     return true;

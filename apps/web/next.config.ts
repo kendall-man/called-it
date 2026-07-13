@@ -34,6 +34,9 @@ const nextConfig: NextConfig = {
     config.resolve.alias = {
       ...(config.resolve.alias ?? {}),
       [VERIFY_BRIDGE_SPECIFIER]: verifyModulePath,
+      // Privy loads these only for Farcaster and fiat-onramp surfaces we do not expose.
+      '@farcaster/mini-app-solana': false,
+      '@stripe/crypto': false,
     };
     return config;
   },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { formatSol, parseSolAmount } from './wallet-transfers';
+import { Keypair, SystemProgram, Transaction } from '@solana/web3.js';
+import { formatSol, parseSolAmount, validateSignedTransaction } from './wallet-transfers';
 
 describe('wallet transfer amount parsing', () => {
   it('uses exact decimal lamports without floating point rounding', () => {
@@ -14,5 +15,48 @@ describe('wallet transfer amount parsing', () => {
     expect(parseSolAmount('-1')).toBeNull();
     expect(parseSolAmount('0.0000000001')).toBeNull();
     expect(parseSolAmount('1e-3')).toBeNull();
+  });
+});
+
+describe('Privy-signed wallet transfers', () => {
+  it('accepts a signature only when the signed message is unchanged', () => {
+    const signer = Keypair.generate();
+    const destination = Keypair.generate().publicKey;
+    const transaction = new Transaction({
+      feePayer: signer.publicKey,
+      recentBlockhash: Keypair.generate().publicKey.toBase58(),
+    }).add(SystemProgram.transfer({
+      fromPubkey: signer.publicKey,
+      toPubkey: destination,
+      lamports: 1_000_000,
+    }));
+    transaction.sign(signer);
+
+    expect(() => validateSignedTransaction(transaction, transaction.serialize())).not.toThrow();
+  });
+
+  it('rejects a signed transaction whose transfer details changed', () => {
+    const signer = Keypair.generate();
+    const expected = new Transaction({
+      feePayer: signer.publicKey,
+      recentBlockhash: Keypair.generate().publicKey.toBase58(),
+    }).add(SystemProgram.transfer({
+      fromPubkey: signer.publicKey,
+      toPubkey: Keypair.generate().publicKey,
+      lamports: 1_000_000,
+    }));
+    const changed = new Transaction({
+      feePayer: signer.publicKey,
+      recentBlockhash: expected.recentBlockhash,
+    }).add(SystemProgram.transfer({
+      fromPubkey: signer.publicKey,
+      toPubkey: Keypair.generate().publicKey,
+      lamports: 2_000_000,
+    }));
+    changed.sign(signer);
+
+    expect(() => validateSignedTransaction(expected, changed.serialize())).toThrowError(
+      'The wallet changed the transfer details.',
+    );
   });
 });
