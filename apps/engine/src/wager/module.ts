@@ -5,6 +5,7 @@
  */
 
 import { WAGER_TUNABLES } from './constants.js';
+import { createHash, randomBytes } from 'node:crypto';
 import { createWagerCopy } from './copy.js';
 import { parseSolToLamports } from './format.js';
 import { createDepositWatcher } from './deposits.js';
@@ -18,6 +19,8 @@ import type {
   FundedWagerModule,
   WagerModuleDeps,
 } from './port.js';
+
+const WALLET_LINK_SESSION_TTL_MS = 10 * 60_000;
 
 // The contract lives in port.ts; re-exported here so seams that import from
 // the module entry point (type-only) resolve without reaching into port.ts.
@@ -70,18 +73,55 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
   async function handleWalletCommand(ctx: WagerCommandCtx): Promise<void> {
     const from = ctx.from;
     if (!from) return;
+    if (ctx.chat?.type !== 'private') {
+      await ctx.reply(copy.walletPrivateOnly());
+      return;
+    }
     const arg = commandArg(ctx);
     if (arg === '') {
       const link = await deps.db.getWalletLink(from.id);
       if (link) {
         const balance = await deps.db.balanceLamports(from.id);
-        await ctx.reply(copy.walletStatus(link.pubkey, balance));
-      } else {
+        const status = copy.walletStatus(link.pubkey, balance);
+        if (!(await replyWithWalletLink(ctx, from.id, status))) await ctx.reply(status);
+        return;
+      }
+      if (!deps.walletMiniappEnabled || deps.webBaseUrl === undefined) {
+        await ctx.reply(copy.walletSetupUnavailable());
+        return;
+      }
+      if (!(await replyWithWalletLink(ctx, from.id, copy.walletSetupReady()))) {
         await ctx.reply(copy.walletSetupUnavailable());
       }
       return;
     }
     await ctx.reply(copy.walletSetupUnavailable());
+  }
+
+  async function replyWithWalletLink(
+    ctx: WagerCommandCtx,
+    userId: number,
+    text: string,
+  ): Promise<boolean> {
+    if (!deps.walletMiniappEnabled || deps.webBaseUrl === undefined) return false;
+    const token = randomBytes(32).toString('base64url');
+    const session = await deps.db.createWalletLinkSession({
+      user_id: userId,
+      token_hash_hex: createHash('sha256').update(token).digest('hex'),
+      expires_at: new Date(deps.now() + WALLET_LINK_SESSION_TTL_MS).toISOString(),
+    });
+    if (!session.ok) {
+      deps.log.warn('wallet_link_session_refused', { code: session.code });
+      return false;
+    }
+    const url = new URL('/wallet', deps.webBaseUrl);
+    url.hash = new URLSearchParams({ token }).toString();
+    await ctx.reply(text, {
+      reply_markup: {
+        inline_keyboard: [[{ text: 'Create or manage wallet', url: url.toString() }]],
+      },
+    });
+    return true;
   }
 
   async function handleDepositCommand(ctx: WagerCommandCtx): Promise<void> {

@@ -123,6 +123,7 @@ export async function createProductionFundedWagerModule<Connection, Treasury, Pu
     now: () => Date.now(),
     opsChatId: parseOpsChatId(env.WAGER_OPS_CHAT_ID, log),
     walletMiniappEnabled: env.WALLET_MINIAPP_ENABLED,
+    webBaseUrl: env.WEB_BASE_URL,
     stakeAcceptanceEnabled: env.STAKE_ACCEPTANCE_ENABLED,
   });
 }

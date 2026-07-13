@@ -11,10 +11,14 @@
   },
   "dependencies": {
     "@calledit/solana": "workspace:*",
+    "@solana/web3.js": "^1.98.4",
     "@supabase/supabase-js": "^2.47.0",
+    "bs58": "^6.0.0",
+    "lucide-react": "^0.468.0",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "tweetnacl": "^1.0.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {

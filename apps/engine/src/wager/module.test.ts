@@ -39,6 +39,26 @@ function groupCtx(text: string): WagerCommandCtx & { replies: string[] } {
   };
 }
 
+function privateCtx(text: string): WagerCommandCtx & {
+  replies: string[];
+  replyOptions: Array<Parameters<WagerCommandCtx['reply']>[1]>;
+} {
+  const replies: string[] = [];
+  const replyOptions: Array<Parameters<WagerCommandCtx['reply']>[1]> = [];
+  return {
+    replies,
+    replyOptions,
+    chat: { id: USER, type: 'private' },
+    from: { id: USER, first_name: 'Nia' },
+    match: text,
+    async reply(line, options) {
+      replies.push(line);
+      replyOptions.push(options);
+      return undefined;
+    },
+  };
+}
+
 async function invoke(
   bot: FakeCommandBot,
   name: string,
@@ -123,21 +143,19 @@ describe('/wallet command', () => {
     const bot = fakeBot();
     createWagerModule(deps).registerCommands(bot);
 
-    const ctx = groupCtx(VALID_PUBKEY);
+    const ctx = privateCtx(VALID_PUBKEY);
     await invoke(bot, 'wallet', ctx);
 
     expect(db.links.get(USER)).toBeUndefined();
     expect(db.ledgerByKey(WAGER_KEYS.deposit('early', 0))).toBeUndefined();
-    expect(ctx.replies).toEqual([
-      'Wallet setup requires signed ownership verification. Pasted wallet addresses are not accepted, and no account state changed. Setup is not available yet; use /me to review your account.',
-    ]);
+    expect(ctx.replies).toEqual([WAGER_COPY.walletSetupUnavailable()]);
   });
 
   it('gives bad input the same fail-closed recovery without touching links', async () => {
     const { deps, db } = makeFakeDeps();
     const bot = fakeBot();
     createWagerModule(deps).registerCommands(bot);
-    const ctx = groupCtx('not-a-pubkey');
+    const ctx = privateCtx('not-a-pubkey');
     await invoke(bot, 'wallet', ctx);
     expect(ctx.replies).toEqual([WAGER_COPY.walletSetupUnavailable()]);
     expect(db.links.size).toBe(0);
@@ -148,7 +166,7 @@ describe('/wallet command', () => {
     db.seedLink(99, VALID_PUBKEY);
     const bot = fakeBot();
     createWagerModule(deps).registerCommands(bot);
-    const ctx = groupCtx(VALID_PUBKEY);
+    const ctx = privateCtx(VALID_PUBKEY);
     await invoke(bot, 'wallet', ctx);
     expect(ctx.replies).toEqual([WAGER_COPY.walletSetupUnavailable()]);
     expect(db.links.get(USER)).toBeUndefined();
@@ -161,9 +179,40 @@ describe('/wallet command', () => {
     db.seedBalance(USER, 50_000_000n);
     const bot = fakeBot();
     createWagerModule(deps).registerCommands(bot);
-    const ctx = groupCtx('');
+    const ctx = privateCtx('');
     await invoke(bot, 'wallet', ctx);
     expect(ctx.replies[0]).toContain('0.05 SOL');
+  });
+
+  it('issues a hashed one-time session and private connect button', async () => {
+    const { deps, db } = makeFakeDeps({
+      walletMiniappEnabled: true,
+      webBaseUrl: 'https://called-it.example',
+    });
+    const bot = fakeBot();
+    createWagerModule(deps).registerCommands(bot);
+    const ctx = privateCtx('');
+
+    await invoke(bot, 'wallet', ctx);
+
+    expect(ctx.replies).toEqual([WAGER_COPY.walletSetupReady()]);
+    expect(db.walletLinkSessions).toHaveLength(1);
+    expect(db.walletLinkSessions[0]?.token_hash_hex).toMatch(/^[0-9a-f]{64}$/);
+    const buttonUrl = ctx.replyOptions[0]?.reply_markup.inline_keyboard[0]?.[0]?.url;
+    expect(buttonUrl).toMatch(/^https:\/\/called-it\.example\/wallet#token=/);
+    expect(ctx.replyOptions[0]?.reply_markup.inline_keyboard[0]?.[0]?.text).toBe(
+      'Create or manage wallet',
+    );
+    expect(buttonUrl).not.toContain(db.walletLinkSessions[0]?.token_hash_hex ?? 'missing');
+  });
+
+  it('keeps wallet setup in private chat', async () => {
+    const { deps } = makeFakeDeps({ walletMiniappEnabled: true });
+    const bot = fakeBot();
+    createWagerModule(deps).registerCommands(bot);
+    const ctx = groupCtx('');
+    await invoke(bot, 'wallet', ctx);
+    expect(ctx.replies).toEqual([WAGER_COPY.walletPrivateOnly()]);
   });
 });
 

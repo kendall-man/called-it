@@ -103,6 +103,8 @@ export type {
   VerifiedWalletLinkErrorCode,
   VerifiedWalletLinkInput,
   VerifiedWalletLinkResult,
+  WalletLinkSessionInput,
+  WalletLinkSessionResult,
 } from './wager-types.js';
 export {
   createTelegramDb,

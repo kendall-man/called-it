@@ -30,6 +30,14 @@ export {
 export { TXORACLE_IDL } from './txoracle-idl.js';
 export * from './verify.js';
 export { base58Decode, base58Encode, bytesToHex, hexToBytes } from './codecs.js';
+export {
+  buildWalletLinkMessage,
+  verifyWalletLinkSignature,
+  type WalletLinkCluster,
+  type WalletLinkMessageInput,
+  type WalletLinkMessageResult,
+  type WalletLinkVerificationResult,
+} from './message-signing.js';
 
 // Wager-mode chain I/O (pure, no DB knowledge; never-throw result objects).
 export {

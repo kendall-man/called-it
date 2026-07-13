@@ -14,11 +14,13 @@ import type {
   ResolvePendingStakeIntentResult,
   VerifiedWalletLinkErrorCode,
   VerifiedWalletLinkResult,
+  WalletLinkSessionResult,
 } from './wager-types.js';
 
 type WalletDb = Pick<
   WagerDb,
   | 'verifyWalletLink'
+  | 'createWalletLinkSession'
   | 'createPendingStakeIntent'
   | 'resolveActiveStakeIntent'
   | 'markStakeIntentFunded'
@@ -54,6 +56,18 @@ const INTENT_STATES: ReadonlySet<unknown> = new Set<PendingStakeIntentState>([
 
 export function walletDbMethods(client: WagerDbClient): WalletDb {
   return {
+    async createWalletLinkSession(args) {
+      const payload = unwrapRows<unknown>(
+        'wager_create_wallet_link_session',
+        await client.rpc('wager_create_wallet_link_session', {
+          p_user_id: args.user_id,
+          p_token_hash_hex: args.token_hash_hex,
+          p_expires_at: args.expires_at,
+        }),
+      );
+      return parseWalletLinkSessionResult(payload);
+    },
+
     async verifyWalletLink(args) {
       const payload = unwrapRows<unknown>(
         'wager_verify_wallet_link',
@@ -110,6 +124,19 @@ export function walletDbMethods(client: WagerDbClient): WalletDb {
       return mutateIntent(client, 'wager_cancel_stake_intent', userId, intentId);
     },
   };
+}
+
+function parseWalletLinkSessionResult(payload: unknown): WalletLinkSessionResult {
+  const row = record('wager_create_wallet_link_session', payload);
+  if (row.ok === true && typeof row.session_id === 'string' && isUuid(row.session_id)) {
+    return { ok: true, session_id: row.session_id };
+  }
+  if (row.ok === false && (row.code === 'session_invalid' || row.code === 'user_not_found')) {
+    return { ok: false, code: row.code };
+  }
+  throw new DbError('wager_create_wallet_link_session', {
+    message: `malformed RPC payload: ${JSON.stringify(payload)}`,
+  });
 }
 
 async function mutateIntent(

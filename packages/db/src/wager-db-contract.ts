@@ -6,6 +6,8 @@ import type {
   ResolvePendingStakeIntentResult,
   VerifiedWalletLinkInput,
   VerifiedWalletLinkResult,
+  WalletLinkSessionInput,
+  WalletLinkSessionResult,
   WagerDepositInsert,
   WagerDepositRow,
   WagerLedgerEntry,
@@ -95,6 +97,7 @@ export interface WagerDb {
   requestWithdrawal(args: { user_id: number; lamports: bigint }): Promise<WagerWithdrawResult>;
 
   verifyWalletLink(args: VerifiedWalletLinkInput): Promise<VerifiedWalletLinkResult>;
+  createWalletLinkSession(args: WalletLinkSessionInput): Promise<WalletLinkSessionResult>;
   createPendingStakeIntent(args: PendingStakeIntentInput): Promise<CreatePendingStakeIntentResult>;
   resolveActiveStakeIntent(userId: number): Promise<ResolvePendingStakeIntentResult>;
   markStakeIntentFunded(userId: number, intentId: string): Promise<MutatePendingStakeIntentResult>;

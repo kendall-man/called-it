@@ -124,11 +124,12 @@ describe('web environment', () => {
       name: 'the Mini App without its server-only configuration',
       source: { ...BASE_ENV, WALLET_MINIAPP_ENABLED: 'true' },
       variables: [
-        'ANALYTICS_HMAC_SECRET',
-        'CONCIERGE_WALLET_API_URL',
+        'NEXT_PUBLIC_WAGER_TREASURY_PUBKEY',
+        'SOLANA_RPC_URL',
+        'SUPABASE_SERVICE_ROLE_KEY',
+        'SUPABASE_URL',
         'WALLET_LINK_DOMAIN',
         'WEB_BASE_URL',
-        'WEB_CONCIERGE_TOKEN',
       ].join(', '),
     },
     {
@@ -157,14 +158,14 @@ describe('web environment', () => {
     const source = {
       ...BASE_ENV,
       WALLET_MINIAPP_ENABLED: 'true',
-      CONCIERGE_WALLET_API_URL: 'https://concierge.example.test',
-      WEB_CONCIERGE_TOKEN: 'web-concierge-token-with-32-bytes-',
-      ENGINE_CONCIERGE_TOKEN_SHA256: sha256('concierge-route-token-with-32-bytes'),
-      ENGINE_TELEGRAM_TOKEN_SHA256: sha256('telegram-route-token-with-32-bytes-'),
-      ENGINE_OPS_TOKEN_SHA256: sha256('operations-route-token-with-32-bytes'),
+      SUPABASE_URL: 'https://project.supabase.co',
+      SUPABASE_SERVICE_ROLE_KEY: 'server-only-service-role',
+      SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
+      NEXT_PUBLIC_SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
+      NEXT_PUBLIC_TXORACLE_PROGRAM_ID: '11111111111111111111111111111111',
+      NEXT_PUBLIC_WAGER_TREASURY_PUBKEY: '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
-      ANALYTICS_HMAC_SECRET: 'YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=',
     };
 
     // When the web parser reads the production environment
@@ -172,7 +173,7 @@ describe('web environment', () => {
 
     // Then the wallet capability is enabled without creating public secret fields
     expect(parsed.WALLET_MINIAPP_ENABLED).toBe(true);
-    expect(parsed.WEB_CONCIERGE_TOKEN).toBe(source.WEB_CONCIERGE_TOKEN);
+    expect(parsed.SUPABASE_SERVICE_ROLE_KEY).toBe(source.SUPABASE_SERVICE_ROLE_KEY);
     expect(parsed).not.toHaveProperty('NEXT_PUBLIC_WEB_CONCIERGE_TOKEN');
   });
 

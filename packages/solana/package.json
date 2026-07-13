@@ -13,6 +13,10 @@
     "./verify": {
       "types": "./dist/verify.d.ts",
       "default": "./dist/verify.js"
+    },
+    "./message-signing": {
+      "types": "./dist/message-signing.d.ts",
+      "default": "./dist/message-signing.js"
     }
   },
   "scripts": {

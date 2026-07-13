@@ -55,7 +55,11 @@ export function createWagerCopy(network: SolanaNetwork) {
 
   // ── /wallet ──────────────────────────────────────────────────────────────
   walletSetupUnavailable: (): string =>
-    'Wallet setup requires signed ownership verification. Pasted wallet addresses are not accepted, and no account state changed. Setup is not available yet; use /me to review your account.',
+    'Wallet setup is temporarily unavailable. No account state changed. Try /wallet again shortly.',
+  walletSetupReady: (): string =>
+    `Create a dedicated Solana ${mainnet ? 'mainnet' : 'devnet'} wallet for Called It, or recover one you already made. Your recovery key stays encrypted on your device. This private link expires in 10 minutes.`,
+  walletPrivateOnly: (): string =>
+    'For privacy, open my private chat and use /wallet there.',
   walletStatus: (pubkey: string, balanceLamports: bigint): string =>
     `Linked wallet: ${shortPubkey(pubkey)}. Available balance: ${formatSolAmount(balanceLamports)} ${networkStamp}. Use /deposit to add ${solLabel} or /withdraw to return it.`,
 

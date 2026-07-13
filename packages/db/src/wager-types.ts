@@ -178,6 +178,16 @@ export interface VerifiedWalletLinkInput {
   challenge_hash_hex: string;
 }
 
+export interface WalletLinkSessionInput {
+  user_id: number;
+  token_hash_hex: string;
+  expires_at: string;
+}
+
+export type WalletLinkSessionResult =
+  | { ok: true; session_id: string }
+  | { ok: false; code: 'session_invalid' | 'user_not_found' };
+
 export type VerifiedWalletLinkResult =
   | { ok: true; relinked: boolean; link_id: number }
   | { ok: false; code: VerifiedWalletLinkErrorCode };

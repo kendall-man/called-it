@@ -57,6 +57,7 @@ export class FakeWagerDb implements WagerDb {
   readonly ledger: WagerLedgerEntry[] = [];
   private readonly ledgerKeys = new Set<string>();
   readonly links = new Map<number, WagerWalletLinkRow>();
+  readonly walletLinkSessions: Array<Parameters<WagerDb['createWalletLinkSession']>[0]> = [];
   readonly deposits = new Map<string, WagerDepositRow>();
   readonly withdrawals = new Map<string, WagerWithdrawalRow>();
   readonly positions: WagerPositionRow[] = [];
@@ -94,6 +95,13 @@ export class FakeWagerDb implements WagerDb {
       if (link.pubkey === pubkey) return link;
     }
     return null;
+  }
+
+  async createWalletLinkSession(
+    args: Parameters<WagerDb['createWalletLinkSession']>[0],
+  ): ReturnType<WagerDb['createWalletLinkSession']> {
+    this.walletLinkSessions.push(args);
+    return { ok: true, session_id: '00000000-0000-4000-8000-000000000001' };
   }
 
   async setLastWagerGroup(userId: number, groupId: number): Promise<void> {

@@ -57,6 +57,72 @@ test('wallet identity migrations apply fresh and as 0001-0004 upgrade', async ()
   record('upgraded 0001-0004 plus 0005 applied and cleaned');
 });
 
+test('browser wallet link sessions are private, single-use, and owner-bound', async () => {
+  const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
+  await withMigratedDb(migrations, async (client, url) => {
+    await seedWalletFixtures(client);
+    const challengeId = 'f4f99fac-3cd6-46f5-abf6-c5f7b20c6238';
+    const pubkey = '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk';
+    const session = await rpc(client, 'wager_create_wallet_link_session($1,$2,$3)', [
+      USER_ID,
+      HASH_A,
+      new Date(Date.now() + 10 * 60_000).toISOString(),
+    ]);
+    assert.equal(session.ok, true);
+
+    const challenge = await rpc(
+      client,
+      'wager_create_wallet_link_challenge($1,$2,$3,$4,$5)',
+      [
+        HASH_A,
+        challengeId,
+        pubkey,
+        HASH_B,
+        new Date(Date.now() + 5 * 60_000).toISOString(),
+      ],
+    );
+    assert.equal(challenge.ok, true);
+    assert.equal(challenge.user_id, USER_ID);
+    assert.deepEqual(
+      await rpc(client, 'wager_get_wallet_link_challenge($1,$2)', [HASH_A, challengeId]),
+      {
+        ok: true,
+        user_id: USER_ID,
+        pubkey,
+        issued_at: challenge.issued_at,
+        expires_at: challenge.expires_at,
+        challenge_hash_hex: HASH_B,
+      },
+    );
+
+    const verified = await rpc(
+      client,
+      'wager_verify_wallet_link_session($1,$2,$3,$4)',
+      [HASH_A, challengeId, pubkey, HASH_B],
+    );
+    assert.equal(verified.ok, true);
+    assert.deepEqual(
+      await rpc(client, 'wager_verify_wallet_link_session($1,$2,$3,$4)', [
+        HASH_A,
+        challengeId,
+        pubkey,
+        HASH_B,
+      ]),
+      { ok: false, code: 'session_invalid' },
+    );
+
+    const secretColumns = await client.query<{ count: string }>(
+      `select count(*)::text as count
+       from information_schema.columns
+       where table_name = 'wager_wallet_link_sessions'
+         and column_name in ('token', 'raw_token', 'secret')`,
+    );
+    assert.equal(secretColumns.rows[0]?.count, '0');
+    await assertWalletFunctionPrivileges(client, url);
+  });
+  record('one-time browser wallet session linked exactly once without storing its raw token');
+});
+
 test('verified wallet challenges are single-use, private, and relink guarded', async () => {
   const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
   await withMigratedDb(migrations, async (client, url) => {

@@ -90,6 +90,14 @@ export interface WagerStatusRow {
 export interface WagerDb {
   getWalletLink(userId: number): Promise<WagerWalletLinkRow | null>;
   getWalletLinkByPubkey(pubkey: string): Promise<WagerWalletLinkRow | null>;
+  createWalletLinkSession(args: {
+    user_id: number;
+    token_hash_hex: string;
+    expires_at: string;
+  }): Promise<
+    | { ok: true; session_id: string }
+    | { ok: false; code: 'session_invalid' | 'user_not_found' }
+  >;
   setLastWagerGroup(userId: number, groupId: number): Promise<void>;
   balanceLamports(userId: number): Promise<bigint>;
   totalLedgerLamports(): Promise<bigint>;

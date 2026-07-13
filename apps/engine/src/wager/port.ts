@@ -105,7 +105,9 @@ export interface WagerCommandCtx {
   chat?: { id: number; type: string };
   from?: { id: number; first_name: string; last_name?: string };
   match?: string | RegExpMatchArray;
-  reply(text: string): Promise<unknown>;
+  reply(text: string, options?: {
+    reply_markup: { inline_keyboard: Array<Array<{ text: string; url: string }>> };
+  }): Promise<unknown>;
 }
 
 /** Structural subset of grammy's Bot (method bivariance lets Bot satisfy it). */
@@ -199,6 +201,7 @@ export interface WagerModuleDeps extends WagerStakeFlags {
   /** WAGER_OPS_CHAT_ID — solvency alerts route here when set. */
   opsChatId: number | null;
   walletMiniappEnabled: boolean;
+  webBaseUrl?: string;
 }
 
 export type WagerStakeDeps = StarterOnlyWagerModuleDeps | WagerModuleDeps;
