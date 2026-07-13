@@ -1,8 +1,8 @@
 import { PrivyClient, verifyAccessToken } from '@privy-io/node';
 import { z } from 'zod';
 import { loadWebEnv } from './env';
+import { parseWalletAuthSubject } from './wallet-auth-subject';
 
-const TELEGRAM_USER_ID_PATTERN = /^[1-9]\d{0,19}$/;
 const SOLANA_PUBKEY_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,64}$/;
 const MAX_ACCESS_TOKEN_LENGTH = 8_192;
 
@@ -11,9 +11,9 @@ const PrivyUserSchema = z.object({
   linked_accounts: z.array(z.unknown()),
 }).passthrough();
 
-const TelegramAccountSchema = z.object({
-  type: z.literal('telegram'),
-  telegram_user_id: z.string().regex(TELEGRAM_USER_ID_PATTERN),
+const CustomAuthAccountSchema = z.object({
+  type: z.literal('custom_auth'),
+  custom_user_id: z.string().min(1).max(255),
 }).passthrough();
 
 const EmbeddedSolanaWalletSchema = z.object({
@@ -69,15 +69,20 @@ export function resolvePrivyWalletIdentity(
   rawUser: unknown,
   tokenUserId: string,
   expectedWalletAddress: string,
+  expectedNetwork: 'devnet' | 'mainnet-beta',
 ): PrivyWalletIdentity {
   const user = PrivyUserSchema.safeParse(rawUser);
   if (!user.success || user.data.id !== tokenUserId) {
     throw new PrivyIdentityError('identity_mismatch');
   }
-  const telegram = user.data.linked_accounts
-    .map((account) => TelegramAccountSchema.safeParse(account))
+  const customAuth = user.data.linked_accounts
+    .map((account) => CustomAuthAccountSchema.safeParse(account))
     .find((account) => account.success);
-  if (telegram === undefined) {
+  if (customAuth === undefined || !customAuth.success) {
+    throw new PrivyIdentityError('identity_mismatch');
+  }
+  const authSubject = parseWalletAuthSubject(customAuth.data.custom_user_id);
+  if (authSubject === null || authSubject.network !== expectedNetwork) {
     throw new PrivyIdentityError('identity_mismatch');
   }
   const wallet = user.data.linked_accounts
@@ -92,13 +97,13 @@ export function resolvePrivyWalletIdentity(
   }
   return {
     privyUserId: user.data.id,
-    telegramUserId: telegram.data.telegram_user_id,
+    telegramUserId: authSubject.telegramUserId,
     walletId: wallet.data.id ?? `solana:${wallet.data.address}`,
     pubkey: wallet.data.address,
   };
 }
 
-export function isPrivyTelegramOwner(
+export function isPrivySessionOwner(
   identity: PrivyWalletIdentity,
   telegramUserId: number,
 ): boolean {
@@ -141,5 +146,10 @@ export const verifyPrivyWalletIdentity: PrivyIdentityVerifier = async (
   } catch (cause) {
     throw new PrivyIdentityError('provider_unavailable', { cause });
   }
-  return resolvePrivyWalletIdentity(user, token.user_id, expectedWalletAddress);
+  return resolvePrivyWalletIdentity(
+    user,
+    token.user_id,
+    expectedWalletAddress,
+    env.NEXT_PUBLIC_SOLANA_NETWORK,
+  );
 };

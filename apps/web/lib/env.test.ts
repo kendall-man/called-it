@@ -132,6 +132,8 @@ describe('web environment', () => {
         'SOLANA_RPC_URL',
         'SUPABASE_SERVICE_ROLE_KEY',
         'SUPABASE_URL',
+        'WALLET_AUTH_KEY_ID',
+        'WALLET_AUTH_PRIVATE_KEY',
         'WALLET_LINK_DOMAIN',
         'WALLET_PROVIDER',
         'WEB_BASE_URL',
@@ -151,6 +153,11 @@ describe('web environment', () => {
       name: 'a Privy verification key exposed with a public prefix',
       source: { ...BASE_ENV, NEXT_PUBLIC_PRIVY_JWT_VERIFICATION_KEY: 'do-not-disclose-this-key' },
       variables: 'NEXT_PUBLIC_PRIVY_JWT_VERIFICATION_KEY',
+    },
+    {
+      name: 'a wallet auth signing key exposed with a public prefix',
+      source: { ...BASE_ENV, NEXT_PUBLIC_WALLET_AUTH_PRIVATE_KEY: 'do-not-disclose-this-key' },
+      variables: 'NEXT_PUBLIC_WALLET_AUTH_PRIVATE_KEY',
     },
     {
       name: 'an incomplete Supabase public pair',
@@ -189,6 +196,8 @@ describe('web environment', () => {
       PRIVY_APP_ID: 'clp_123456789012345678901',
       PRIVY_APP_SECRET: 'server-only-privy-app-secret',
       PRIVY_JWT_VERIFICATION_KEY: '-----BEGIN PUBLIC KEY-----\npublic-key-material\n-----END PUBLIC KEY-----',
+      WALLET_AUTH_PRIVATE_KEY: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==',
+      WALLET_AUTH_KEY_ID: 'calledit-wallet-v1',
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
     };
@@ -217,6 +226,8 @@ describe('web environment', () => {
       PRIVY_APP_ID: 'clp_123456789012345678902',
       PRIVY_APP_SECRET: 'server-only-privy-app-secret',
       PRIVY_JWT_VERIFICATION_KEY: 'verification-key',
+      WALLET_AUTH_PRIVATE_KEY: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==',
+      WALLET_AUTH_KEY_ID: 'calledit-wallet-v1',
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
     };

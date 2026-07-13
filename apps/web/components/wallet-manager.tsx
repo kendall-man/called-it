@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   usePrivy,
+  useSubscribeToJwtAuthWithFlag,
   type WalletWithMetadata,
 } from '@privy-io/react-auth';
 import {
@@ -15,7 +16,7 @@ import {
 import { RefreshCw } from 'lucide-react';
 import {
   linkPrivyWallet,
-  WalletClientError,
+  requestWalletAuthSession,
   walletClientErrorMessage,
 } from '@/lib/wallet-client';
 import { walletSessionTokenFromLocation } from '@/lib/wallet-session';
@@ -28,28 +29,47 @@ type WalletManagerProps = {
   readonly treasuryPubkey: string;
 };
 
-type SessionState = { readonly kind: 'loading' | 'invalid' } | {
-  readonly kind: 'valid';
-  readonly token: string;
-};
+type SessionState =
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'invalid' }
+  | { readonly kind: 'failed'; readonly error: string }
+  | { readonly kind: 'valid'; readonly token: string };
 
-type Phase = 'opening' | 'authenticating' | 'creating' | 'linking' | 'ready' | 'failed';
+type Operation = 'idle' | 'creating' | 'linking' | 'ready' | 'failed';
 
-const TELEGRAM_SEAMLESS_TIMEOUT_MS = 8_000;
-const WALLET_PHASE_TIMEOUT_MS = 15_000;
+const PRIVY_AUTH_TIMEOUT_MS = 25_000;
+const WALLET_CREATION_TIMEOUT_MS = 25_000;
 
 export function WalletManager(props: WalletManagerProps) {
-  const { ready, authenticated, error: privyError, getAccessToken, logout, user } = usePrivy();
+  const { ready, authenticated, error: privyError, getAccessToken, user } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
   const { createWallet } = useCreateWallet();
   const { signMessage } = useSignMessage();
   const { signTransaction } = useSignTransaction();
   const [session, setSession] = useState<SessionState>({ kind: 'loading' });
-  const [phase, setPhase] = useState<Phase>('opening');
-  const [error, setError] = useState('');
-  const [canRetry, setCanRetry] = useState(true);
+  const [operation, setOperation] = useState<Operation>('idle');
+  const [operationError, setOperationError] = useState('');
+  const jwt = useRef<string | undefined>(undefined);
   const creationAttempted = useRef(false);
   const linkedAttempt = useRef('');
+
+  const fail = useCallback((message: string) => {
+    setOperationError(message);
+    setOperation('failed');
+  }, []);
+  const handleJwtAuthError = useCallback(() => {
+    fail('Secure wallet sign-in failed. Return to Telegram and open /wallet again.');
+  }, [fail]);
+
+  const getExternalJwt = useCallback(async () => jwt.current, []);
+  const jwtAuth = useSubscribeToJwtAuthWithFlag({
+    enabled: session.kind === 'valid',
+    isAuthenticated: session.kind === 'valid',
+    isLoading: session.kind === 'loading',
+    getExternalJwt,
+    onError: handleJwtAuthError,
+  });
+
   const embeddedWalletAddress = user?.linkedAccounts.find((account): account is WalletWithMetadata => (
     account.type === 'wallet' &&
     account.chainType === 'solana' &&
@@ -61,58 +81,61 @@ export function WalletManager(props: WalletManagerProps) {
     : wallets.find((wallet) => wallet.address === embeddedWalletAddress) ?? null;
 
   useEffect(() => {
-    const readSession = () => {
-      const token = walletSessionTokenFromLocation(window.location);
-      setSession(token !== null
-        ? { kind: 'valid', token }
-        : { kind: 'invalid' });
+    let cancelled = false;
+    const token = walletSessionTokenFromLocation(window.location);
+    if (token === null) {
+      setSession({ kind: 'invalid' });
+      return;
+    }
+    void requestWalletAuthSession(token).then((authSession) => {
+      if (cancelled) return;
+      jwt.current = authSession.jwt;
+      setSession({ kind: 'valid', token });
+    }).catch((cause: unknown) => {
+      if (cancelled) return;
+      setSession({ kind: 'failed', error: walletClientErrorMessage(cause) });
+    });
+    return () => {
+      cancelled = true;
     };
-    readSession();
   }, []);
 
   useEffect(() => {
-    if (session.kind !== 'valid' || phase === 'ready' || phase === 'failed') return;
+    if (session.kind !== 'valid' || operation === 'failed' || operation === 'ready') return;
+    if (jwtAuth.state.status === 'not-enabled') {
+      const timeout = window.setTimeout(() => {
+        fail('Secure wallet sign-in is not enabled for this app yet. Try again shortly.');
+      }, 1_500);
+      return () => window.clearTimeout(timeout);
+    }
+    if (jwtAuth.state.status === 'error') {
+      fail('Secure wallet sign-in failed. Return to Telegram and open /wallet again.');
+      return;
+    }
+    if (jwtAuth.state.status === 'done' && ready && authenticated) return;
     const timeout = window.setTimeout(() => {
-      setError('Secure wallet setup took too long. Close this window, open /wallet in Telegram, and try the newest link.');
-      setCanRetry(true);
-      setPhase('failed');
-    }, WALLET_PHASE_TIMEOUT_MS);
+      fail('Secure wallet sign-in took too long. Return to Telegram and open /wallet again.');
+    }, PRIVY_AUTH_TIMEOUT_MS);
     return () => window.clearTimeout(timeout);
-  }, [phase, session]);
+  }, [authenticated, fail, jwtAuth.state.status, operation, ready, session]);
 
   useEffect(() => {
     if (privyError === null) return;
-    setError('Secure wallet services could not start. Return to Telegram and try again.');
-    setCanRetry(false);
-    setPhase('failed');
-  }, [privyError]);
-
-  useEffect(() => {
-    if (session.kind !== 'valid' || !ready || authenticated) return;
-    setPhase('authenticating');
-
-    const timeout = window.setTimeout(() => {
-      setError('Telegram sign-in did not complete. Return to Telegram and use the newest /wallet button.');
-      setCanRetry(true);
-      setPhase('failed');
-    }, TELEGRAM_SEAMLESS_TIMEOUT_MS);
-
-    return () => window.clearTimeout(timeout);
-  }, [authenticated, ready, session]);
+    fail('Secure wallet services could not start. Return to Telegram and try again.');
+  }, [fail, privyError]);
 
   useEffect(() => {
     if (
-      session.kind !== 'valid' || !authenticated || !walletsReady ||
-      activeWallet !== null || creationAttempted.current
+      session.kind !== 'valid' || jwtAuth.state.status !== 'done' ||
+      !ready || !authenticated || !walletsReady || activeWallet !== null ||
+      creationAttempted.current || operation === 'failed'
     ) return;
     creationAttempted.current = true;
-    setPhase('creating');
-    void createWallet().catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : 'Wallet creation failed.');
-      setCanRetry(true);
-      setPhase('failed');
+    setOperation('creating');
+    void withTimeout(createWallet(), WALLET_CREATION_TIMEOUT_MS).catch(() => {
+      fail('Privy could not create the Solana wallet. Return to Telegram and try again.');
     });
-  }, [activeWallet, authenticated, createWallet, session, walletsReady]);
+  }, [activeWallet, authenticated, createWallet, fail, jwtAuth.state.status, operation, ready, session, walletsReady]);
 
   const verifyWallet = useCallback(async (
     wallet: ConnectedStandardSolanaWallet,
@@ -121,11 +144,11 @@ export function WalletManager(props: WalletManagerProps) {
     const attempt = `${token}:${wallet.address}`;
     if (linkedAttempt.current === attempt) return;
     linkedAttempt.current = attempt;
-    setPhase('linking');
-    setError('');
+    setOperation('linking');
+    setOperationError('');
     try {
       const accessToken = await getAccessToken();
-      if (accessToken === null) throw new Error('Privy access token is unavailable.');
+      if (accessToken === null) throw new Error('Privy access token unavailable');
       await linkPrivyWallet({
         sessionToken: token,
         accessToken,
@@ -139,53 +162,40 @@ export function WalletManager(props: WalletManagerProps) {
         ).signature,
       });
       window.history.replaceState(null, '', '/wallet');
-      setPhase('ready');
+      setOperation('ready');
     } catch (cause) {
-      setError(walletClientErrorMessage(cause));
-      setCanRetry(cause instanceof WalletClientError && cause.code === 'privy_auth_required');
-      setPhase('failed');
+      fail(walletClientErrorMessage(cause));
     }
-  }, [getAccessToken, signMessage]);
+  }, [fail, getAccessToken, signMessage]);
 
   useEffect(() => {
-    if (session.kind !== 'valid' || !authenticated || activeWallet === null) return;
+    if (
+      session.kind !== 'valid' || jwtAuth.state.status !== 'done' ||
+      !authenticated || activeWallet === null || operation === 'failed'
+    ) return;
     void verifyWallet(activeWallet, session.token);
-  }, [activeWallet, authenticated, session, verifyWallet]);
-
-  async function retryTelegramAccount() {
-    if (session.kind !== 'valid') return;
-    setPhase('authenticating');
-    setError('');
-    linkedAttempt.current = '';
-    creationAttempted.current = false;
-    try {
-      if (authenticated) await logout();
-      window.location.reload();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Telegram sign-in failed.');
-      setCanRetry(true);
-      setPhase('failed');
-    }
-  }
+  }, [activeWallet, authenticated, jwtAuth.state.status, operation, session, verifyWallet]);
 
   if (session.kind === 'loading') {
-    return <WalletState title="Opening wallet" text="Checking this private Telegram session..." loading />;
+    return <WalletState title="Opening wallet" text="Checking this private wallet link..." loading />;
   }
   if (session.kind === 'invalid') {
     return <WalletState title="Open this from Telegram" text="Send /wallet to Called It in a private chat, then tap Create or manage wallet." />;
   }
-  if (phase === 'failed') {
-    return (
-      <WalletState
-        title="Wallet needs attention"
-        text={error}
-        action={canRetry ? <div className="mt-5"><WalletButton icon={<RefreshCw size={18} />} onClick={() => void retryTelegramAccount()}>Retry Telegram</WalletButton></div> : undefined}
-      />
-    );
+  if (session.kind === 'failed') {
+    return <FailureState error={session.error} />;
   }
-  if (phase !== 'ready') {
-    const state = phaseCopy(phase);
-    return <WalletState title={state.title} text={state.text} loading />;
+  if (operation === 'failed') {
+    return <FailureState error={operationError} />;
+  }
+  if (operation !== 'ready') {
+    if (operation === 'linking') {
+      return <WalletState title="Verifying wallet" text="Confirming ownership. No SOL is moving." loading />;
+    }
+    if (operation === 'creating') {
+      return <WalletState title="Creating wallet" text="Privy is creating your Solana wallet..." loading />;
+    }
+    return <WalletState title="Opening wallet" text="Confirming your private wallet session..." loading />;
   }
   if (activeWallet === null) {
     return <WalletState title="Opening wallet" text="Loading your Privy wallet..." loading />;
@@ -210,14 +220,32 @@ export function WalletManager(props: WalletManagerProps) {
   );
 }
 
-function phaseCopy(phase: Exclude<Phase, 'failed' | 'ready'>): {
-  readonly title: string;
-  readonly text: string;
-} {
-  switch (phase) {
-    case 'opening': return { title: 'Opening wallet', text: 'Preparing your secure wallet...' };
-    case 'authenticating': return { title: 'Confirming Telegram', text: 'Matching this wallet to your Telegram account...' };
-    case 'creating': return { title: 'Creating wallet', text: 'Privy is creating your Solana wallet...' };
-    case 'linking': return { title: 'Verifying wallet', text: 'Signing an ownership message. No SOL is moving.' };
+function FailureState({ error }: { readonly error: string }) {
+  return (
+    <WalletState
+      title="Wallet needs attention"
+      text={error}
+      action={(
+        <div className="mt-5">
+          <WalletButton icon={<RefreshCw size={18} />} onClick={() => window.location.reload()}>
+            Try again
+          </WalletButton>
+        </div>
+      )}
+    />
+  );
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: number | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = window.setTimeout(() => reject(new Error('operation timed out')), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) window.clearTimeout(timeout);
   }
 }

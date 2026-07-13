@@ -108,7 +108,7 @@ export interface WagerCommandCtx {
   reply(text: string, options?: {
     reply_markup: { inline_keyboard: Array<Array<{
       text: string;
-      login_url: { url: string };
+      url: string;
     }>> };
   }): Promise<unknown>;
 }

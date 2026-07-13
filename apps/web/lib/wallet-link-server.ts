@@ -8,7 +8,7 @@ import {
 import { z } from 'zod';
 import { loadWebEnv } from './env';
 import {
-  isPrivyTelegramOwner,
+  isPrivySessionOwner,
   PrivyIdentityError,
   verifyPrivyWalletIdentity,
   type PrivyIdentityVerifier,
@@ -78,7 +78,7 @@ export async function createWalletChallenge(
   if (userId === null || issuedAt === null || expiresAt === null) {
     return refusal(503, 'wallet_service_unavailable');
   }
-  if (!isPrivyTelegramOwner(identity, userId)) {
+  if (!isPrivySessionOwner(identity, userId)) {
     return refusal(403, 'privy_identity_invalid');
   }
   const challenge: WalletLinkMessageInput = {
@@ -131,7 +131,7 @@ export async function verifyWalletChallenge(
   ) {
     return refusal(409, 'wallet_link_invalid');
   }
-  if (!isPrivyTelegramOwner(identity, userId)) {
+  if (!isPrivySessionOwner(identity, userId)) {
     return refusal(403, 'privy_identity_invalid');
   }
   const nonce = walletChallengeNonce(input.data.token, input.data.challengeId);

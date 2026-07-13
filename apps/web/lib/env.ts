@@ -19,6 +19,8 @@ const Base64KeySchema = z.string().refine((value) => {
 });
 const PrivyAppIdSchema = z.string().length(25);
 const PrivyClientIdSchema = z.string().min(1).max(255);
+const WalletAuthKeyIdSchema = z.string().regex(/^[A-Za-z0-9._-]{1,64}$/);
+const WalletAuthPrivateKeySchema = z.string().regex(/^[A-Za-z0-9+/]{120,}={0,2}$/);
 
 const WebEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -45,6 +47,8 @@ const WebEnvSchema = z.object({
   PRIVY_APP_ID: PrivyAppIdSchema.optional(),
   PRIVY_APP_SECRET: z.string().min(1).optional(),
   PRIVY_JWT_VERIFICATION_KEY: z.string().min(1).optional(),
+  WALLET_AUTH_PRIVATE_KEY: WalletAuthPrivateKeySchema.optional(),
+  WALLET_AUTH_KEY_ID: WalletAuthKeyIdSchema.optional(),
   ANALYTICS_HMAC_SECRET: Base64KeySchema.optional(),
   STARTER_GRANTS_ENABLED: BooleanSchema,
   WALLET_MINIAPP_ENABLED: BooleanSchema,
@@ -56,6 +60,7 @@ const WebEnvSchema = z.object({
   NEXT_PUBLIC_ANALYTICS_HMAC_SECRET: z.never().optional(),
   NEXT_PUBLIC_PRIVY_APP_SECRET: z.never().optional(),
   NEXT_PUBLIC_PRIVY_JWT_VERIFICATION_KEY: z.never().optional(),
+  NEXT_PUBLIC_WALLET_AUTH_PRIVATE_KEY: z.never().optional(),
 }).superRefine((env, ctx) => {
   const addPairIssue = (left: string, right: string): void => {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: [left], message: 'invalid relationship' });
@@ -165,6 +170,8 @@ const WebEnvSchema = z.object({
     ['PRIVY_APP_ID', env.PRIVY_APP_ID],
     ['PRIVY_APP_SECRET', env.PRIVY_APP_SECRET],
     ['PRIVY_JWT_VERIFICATION_KEY', env.PRIVY_JWT_VERIFICATION_KEY],
+    ['WALLET_AUTH_PRIVATE_KEY', env.WALLET_AUTH_PRIVATE_KEY],
+    ['WALLET_AUTH_KEY_ID', env.WALLET_AUTH_KEY_ID],
     ['WALLET_PROVIDER', env.WALLET_PROVIDER === 'privy' ? env.WALLET_PROVIDER : undefined],
   ] as const;
   if (env.WALLET_MINIAPP_ENABLED) {

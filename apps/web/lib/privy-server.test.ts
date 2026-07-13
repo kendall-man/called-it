@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   PrivyIdentityError,
-  isPrivyTelegramOwner,
+  isPrivySessionOwner,
   readPrivyBearerToken,
   resolvePrivyWalletIdentity,
 } from './privy-server';
@@ -9,7 +9,7 @@ import {
 const USER = {
   id: 'did:privy:called-it-user',
   linked_accounts: [
-    { type: 'telegram', telegram_user_id: '123456789' },
+    { type: 'custom_auth', custom_user_id: 'calledit:devnet:telegram:123456789' },
     {
       type: 'wallet',
       id: 'wallet-01',
@@ -36,6 +36,7 @@ describe('Privy wallet identity', () => {
       USER,
       'did:privy:called-it-user',
       '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
+      'devnet',
     );
 
     expect(identity).toEqual({
@@ -51,6 +52,7 @@ describe('Privy wallet identity', () => {
       USER,
       'did:privy:another-user',
       '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
+      'devnet',
     )).toThrowError(new PrivyIdentityError('identity_mismatch'));
   });
 
@@ -66,18 +68,29 @@ describe('Privy wallet identity', () => {
       externalWalletUser,
       USER.id,
       '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
+      'devnet',
     )).toThrowError(new PrivyIdentityError('wallet_not_owned'));
   });
 
-  it('matches the Privy Telegram account to the one-time bot session owner', () => {
+  it('matches the Privy custom-auth subject to the one-time bot session owner', () => {
     const identity = resolvePrivyWalletIdentity(
       USER,
       USER.id,
       '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
+      'devnet',
     );
 
-    expect(isPrivyTelegramOwner(identity, 123_456_789)).toBe(true);
-    expect(isPrivyTelegramOwner(identity, 123_456_790)).toBe(false);
+    expect(isPrivySessionOwner(identity, 123_456_789)).toBe(true);
+    expect(isPrivySessionOwner(identity, 123_456_790)).toBe(false);
+  });
+
+  it('rejects a custom-auth subject from the other Solana network', () => {
+    expect(() => resolvePrivyWalletIdentity(
+      USER,
+      USER.id,
+      '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
+      'mainnet-beta',
+    )).toThrowError(new PrivyIdentityError('identity_mismatch'));
   });
 
   it('uses the Solana address as a stable ID for legacy Privy wallets', () => {
@@ -92,6 +105,7 @@ describe('Privy wallet identity', () => {
       legacyUser,
       USER.id,
       '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
+      'devnet',
     );
 
     expect(identity.walletId).toBe(

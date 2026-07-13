@@ -11,12 +11,10 @@ type WalletProviderProps = {
 };
 
 const PRIVY_CONFIG = {
-  loginMethods: ['telegram'],
   appearance: {
     theme: 'dark',
     accentColor: '#31d17c',
     landingHeader: 'Open Called It Wallet',
-    loginMessage: 'Continue with the Telegram account that opened this wallet.',
     walletChainType: 'solana-only',
   },
   embeddedWallets: {
