@@ -123,6 +123,20 @@ describe('fallback copy bank', () => {
     expect(renderFallback('void_market', SAMPLE_VARS)).not.toMatch(/\bRep\b/);
   });
 
+  it('renders mainnet onboarding without devnet or test-token claims', () => {
+    const guidance = [
+      renderFallback('intro', SAMPLE_VARS, 'mainnet-beta'),
+      renderFallback('help', SAMPLE_VARS, 'mainnet-beta'),
+      renderFallback('group_ready', SAMPLE_VARS, 'mainnet-beta'),
+      renderFallback('insufficient_rep', SAMPLE_VARS, 'mainnet-beta'),
+    ].join('\n');
+
+    expect(guidance).not.toMatch(/devnet|test SOL|no monetary value/i);
+    expect(guidance).toMatch(/Solana mainnet/i);
+    expect(guidance).toContain('/wallet');
+    expect(guidance).toContain('/deposit');
+  });
+
   it('discloses named group visibility and automatic points in active guidance', () => {
     // Given the three deterministic guidance surfaces
     const guidance = [

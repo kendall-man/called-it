@@ -3,6 +3,7 @@ import type { LogFields, Logger } from '../log.js';
 import type { BotGroupReadyMarkerResult } from '../ports.js';
 import {
   GROUP_BOT_COMMANDS,
+  MAINNET_PRIVATE_BOT_COMMANDS,
   PRIVATE_BOT_COMMANDS,
   configureScopedBotCommands,
   registerGroupLifecycleHandlers,
@@ -201,6 +202,26 @@ describe('onboarding scopes and lifecycle', () => {
       'table',
       'help',
     ]);
+  });
+
+  it('adds funded account commands only to the mainnet private menu', async () => {
+    const calls: Array<{ readonly commands: readonly { readonly command: string }[]; readonly scope: string }> = [];
+    const api: BotCommandScopeApi = {
+      async setMyCommands(commands, options) {
+        calls.push({ commands, scope: options.scope.type });
+      },
+    };
+
+    await configureScopedBotCommands(api, 'mainnet-beta');
+
+    expect(calls[0]).toEqual({
+      commands: MAINNET_PRIVATE_BOT_COMMANDS,
+      scope: 'all_private_chats',
+    });
+    expect(MAINNET_PRIVATE_BOT_COMMANDS.map(({ command }) => command)).toEqual([
+      'start', 'help', 'wallet', 'deposit', 'withdraw',
+    ]);
+    expect(calls[1]).toEqual({ commands: GROUP_BOT_COMMANDS, scope: 'all_group_chats' });
   });
 
   it('posts one ready message across group start and admin lifecycle updates', async () => {

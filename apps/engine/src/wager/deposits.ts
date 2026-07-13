@@ -16,7 +16,7 @@ import {
   WAGER_KEYS,
   WAGER_TUNABLES,
 } from './constants.js';
-import { WAGER_COPY } from './copy.js';
+import { createWagerCopy } from './copy.js';
 import type { WagerIncomingTransfer, WagerModuleDeps, WagerWalletLinkRow } from './port.js';
 
 export interface OrphanDepositOpsClassification {
@@ -81,7 +81,7 @@ async function creditTransfer(
   const balance = await deps.db.balanceLamports(link.user_id);
   deps.poster.post(
     link.last_wager_group_id,
-    WAGER_COPY.depositCredited(name, transfer.lamports, balance),
+    createWagerCopy(deps.solanaNetwork ?? 'devnet').depositCredited(name, transfer.lamports, balance),
   );
 }
 

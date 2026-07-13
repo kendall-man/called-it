@@ -91,7 +91,7 @@ async function main(): Promise<void> {
   });
   assertWagerBootable(env, deps.wager?.kind ?? null);
 
-  const say = createSay(deps.agent, log);
+  const say = createSay(deps.agent, log, env.SOLANA_NETWORK);
   const backgroundDeps = createAllowlistedBackgroundDeps(deps);
   const points = createGroupPointsService({ db: backgroundDeps.db, log });
   const settler = new Settler(backgroundDeps, poster, say, points, null);

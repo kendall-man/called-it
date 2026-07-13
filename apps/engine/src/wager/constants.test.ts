@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { depositCursorStream, WAGER_KEYS, WAGER_TUNABLES } from './constants.js';
-import { WAGER_COPY } from './copy.js';
+import { createWagerCopy, WAGER_COPY } from './copy.js';
 
 describe('WAGER_TUNABLES internal consistency', () => {
   it('presets are three ascending lamport amounts', () => {
@@ -129,5 +129,28 @@ describe('copy bank hygiene', () => {
     expect(WAGER_COPY.payoutsLineVoid()).toContain('(devnet)');
     expect(WAGER_COPY.payoutsLineNone()).toContain('(devnet)');
     expect(WAGER_COPY.payoutsLine(['x'])).toContain('(devnet)');
+  });
+
+  it('mainnet copy removes test-token language and stamps value movement', () => {
+    const copy = createWagerCopy('mainnet-beta');
+    const samples = [
+      copy.unlinkedOnboarding(),
+      copy.insufficient(1n),
+      copy.stakePlaced('A', 'Backing', 1n, '2'),
+      copy.walletStatus('Pub', 1n),
+      copy.depositInstructions('TreasuryAddr', true),
+      copy.depositCredited('A', 1n, 2n),
+      copy.withdrawUsage(),
+      copy.withdrawQueued(1n),
+      copy.withdrawConfirmed('A', 1n, 'u'),
+      copy.cardFooter(),
+      copy.payoutsLineVoid(),
+      copy.payoutsLineNone(),
+      copy.payoutsLine(['x']),
+      copy.opsSolvencyAlert(1n, 2n),
+    ];
+    expect(samples.join('\n')).not.toMatch(/devnet|test SOL|faucet/i);
+    expect(copy.depositInstructions('TreasuryAddr', true)).toContain('MAINNET ONLY');
+    expect(copy.withdrawConfirmed('A', 1n, 'u')).toContain('(mainnet)');
   });
 });

@@ -50,6 +50,7 @@ export async function createProductionWagerRuntime<Connection, Treasury, PublicK
       ]);
       return starterModule.createStarterOnlyWagerModule({
         runtimeMode: 'starter_only',
+        solanaNetwork: env.SOLANA_NETWORK,
         db: starterDb.buildStarterOnlyWagerDb({
           packageDb: createStarterOnlyDb(
             env.SUPABASE_URL,

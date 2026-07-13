@@ -69,6 +69,26 @@ describe('web environment', () => {
     });
   });
 
+  it('accepts an explicit mainnet public profile with an opaque provider URL', () => {
+    const parsed = loadWebEnv({
+      ...BASE_ENV,
+      NEXT_PUBLIC_SOLANA_NETWORK: 'mainnet-beta',
+      NEXT_PUBLIC_SOLANA_RPC_URL: 'https://rpc.provider.example/v1/opaque-key',
+      NEXT_PUBLIC_TXORACLE_PROGRAM_ID: '11111111111111111111111111111111',
+    });
+
+    expect(parsed.NEXT_PUBLIC_SOLANA_NETWORK).toBe('mainnet-beta');
+  });
+
+  it('rejects an explicit devnet RPC in the mainnet public profile', () => {
+    expect(() => loadWebEnv({
+      ...BASE_ENV,
+      NEXT_PUBLIC_SOLANA_NETWORK: 'mainnet-beta',
+      NEXT_PUBLIC_SOLANA_RPC_URL: 'https://api.devnet.solana.com',
+      NEXT_PUBLIC_TXORACLE_PROGRAM_ID: '11111111111111111111111111111111',
+    })).toThrowError('Web environment invalid: NEXT_PUBLIC_SOLANA_RPC_URL');
+  });
+
   it('allows non-secret wallet origin metadata while the Mini App is disabled', () => {
     // Given aligned web origin metadata but no wallet bridge credentials
     const source = {

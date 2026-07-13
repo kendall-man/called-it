@@ -7,7 +7,7 @@
 
 import { TUNABLES } from '@calledit/market-engine';
 import { WAGER_TUNABLES } from './constants.js';
-import { WAGER_COPY, sideLabel } from './copy.js';
+import { createWagerCopy, sideLabel, type WagerCopy } from './copy.js';
 import type {
   WagerStakeDeps,
   WagerStakeErrorCode,
@@ -34,24 +34,24 @@ export function multiplierLabel(multiplier: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
-function copyForStakeError(code: WagerStakeErrorCode, balanceLamports: bigint): string {
+function copyForStakeError(copy: WagerCopy, code: WagerStakeErrorCode, balanceLamports: bigint): string {
   switch (code) {
     case 'insufficient':
-      return WAGER_COPY.insufficient(balanceLamports);
+      return copy.insufficient(balanceLamports);
     case 'wrong_side':
-      return WAGER_COPY.pickALane();
+      return copy.pickALane();
     case 'cap':
-      return WAGER_COPY.capReached(WAGER_TUNABLES.PER_MARKET_STAKE_CAP_LAMPORTS);
+      return copy.capReached(WAGER_TUNABLES.PER_MARKET_STAKE_CAP_LAMPORTS);
     case 'paused':
-      return WAGER_COPY.paused();
+      return copy.paused();
     case 'closed':
-      return WAGER_COPY.marketClosed();
+      return copy.marketClosed();
     case 'starter_unavailable':
-      return WAGER_COPY.starterUnavailable();
+      return copy.starterUnavailable();
     case 'budget_exhausted':
-      return WAGER_COPY.budgetExhausted();
+      return copy.budgetExhausted();
     case 'wallet_required':
-      return WAGER_COPY.walletRequired();
+      return copy.walletRequired();
   }
 }
 
@@ -64,8 +64,9 @@ export async function handleStakeTap(
   args: WagerStakeTapArgs,
 ): Promise<{ reply: string; placed: boolean }> {
   const { market, userId, userName, side, lamports, inPlay, nowMs, source } = args;
+  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet');
 
-  if (lamports <= 0n) return { reply: WAGER_COPY.staleTap(), placed: false };
+  if (lamports <= 0n) return { reply: copy.staleTap(), placed: false };
 
   const idempotencyKey =
     source.kind === 'durable_source'
@@ -80,13 +81,13 @@ export async function handleStakeTap(
         || !deps.starterGrantsEnabled
         || !deps.stakeAcceptanceEnabled
       ) {
-        return { reply: WAGER_COPY.starterUnavailable(), placed: false };
+        return { reply: copy.starterUnavailable(), placed: false };
       }
       break;
     case 'funded': {
       const link = await deps.db.getWalletLink(userId);
       if (!link) {
-        return { reply: WAGER_COPY.unlinkedOnboarding(), placed: false };
+        return { reply: copy.unlinkedOnboarding(), placed: false };
       }
       break;
     }
@@ -98,7 +99,7 @@ export async function handleStakeTap(
   // atomically; the pre-check just answers fast without burning the advisory
   // lock round-trip while the desk is paused.
   const status = await deps.db.getWagerStatus();
-  if (status.paused) return { reply: WAGER_COPY.paused(), placed: false };
+  if (status.paused) return { reply: copy.paused(), placed: false };
 
   // Multiplier lock — back gets the quoted multiplier, doubt its complement.
   const lockedMultiplier =
@@ -141,14 +142,14 @@ export async function handleStakeTap(
       lamports: lamports.toString(),
       code: result.code,
     });
-    return { reply: copyForStakeError(result.code, balance), placed: false };
+    return { reply: copyForStakeError(copy, result.code, balance), placed: false };
   }
 
   if ('duplicate' in result) {
     // The original commit is authoritative; do not refresh a card on replay.
     deps.log.info('wager_stake_duplicate', { marketId: market.id, side });
     return {
-      reply: WAGER_COPY.stakePlaced(
+      reply: copy.stakePlaced(
         userName,
         sideLabel(side),
         lamports,
@@ -177,7 +178,7 @@ export async function handleStakeTap(
     state: inPlay ? 'pending' : 'active',
   });
   return {
-    reply: WAGER_COPY.stakePlaced(
+    reply: copy.stakePlaced(
       userName,
       sideLabel(side),
       lamports,

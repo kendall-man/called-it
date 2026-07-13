@@ -11,6 +11,7 @@ import { registerCallbacks } from './callbacks.js';
 import { registerDetection } from './detection.js';
 import type { EngineDb } from '../ports.js';
 import type { Env } from '../env.js';
+import type { SolanaNetwork } from '../solana-network.js';
 import type { Poster } from './poster.js';
 import {
   claimGroupReadiness,
@@ -38,6 +39,13 @@ export const PRIVATE_BOT_COMMANDS = [
   { command: 'help', description: 'How Called It works' },
 ] as const;
 
+export const MAINNET_PRIVATE_BOT_COMMANDS = [
+  ...PRIVATE_BOT_COMMANDS,
+  { command: 'wallet', description: 'Review your verified wallet' },
+  { command: 'deposit', description: 'Add SOL to your balance' },
+  { command: 'withdraw', description: 'Return SOL to your wallet' },
+] as const;
+
 export const GROUP_BOT_COMMANDS = [
   { command: 'bookit', description: 'Book an explicit call' },
   { command: 'leaderboard', description: 'View the group top 10' },
@@ -60,8 +68,14 @@ export interface BotCommandScopeApi {
   ): Promise<unknown>;
 }
 
-export async function configureScopedBotCommands(api: BotCommandScopeApi): Promise<void> {
-  await api.setMyCommands(PRIVATE_BOT_COMMANDS, { scope: { type: 'all_private_chats' } });
+export async function configureScopedBotCommands(
+  api: BotCommandScopeApi,
+  network: SolanaNetwork = 'devnet',
+): Promise<void> {
+  await api.setMyCommands(
+    network === 'mainnet-beta' ? MAINNET_PRIVATE_BOT_COMMANDS : PRIVATE_BOT_COMMANDS,
+    { scope: { type: 'all_private_chats' } },
+  );
   await api.setMyCommands(GROUP_BOT_COMMANDS, { scope: { type: 'all_group_chats' } });
 }
 
@@ -83,7 +97,8 @@ export interface GroupLifecycleBot {
 export interface GroupLifecycleHandlerCtx {
   readonly deps: {
     readonly db: Pick<EngineDb, 'upsertGroup' | 'setGroupAdmin' | 'markGroupReady'>;
-    readonly env: Pick<Env, 'WEB_BASE_URL' | 'DEPLOYMENT_ENV' | 'BETA_ALLOWED_GROUP_IDS'>;
+    readonly env: Pick<Env, 'WEB_BASE_URL' | 'DEPLOYMENT_ENV' | 'BETA_ALLOWED_GROUP_IDS'>
+      & Partial<Pick<Env, 'SOLANA_NETWORK'>>;
     readonly log: Pick<Logger, 'info' | 'warn'>;
   };
   readonly poster: Pick<Poster, 'post'>;
@@ -121,14 +136,18 @@ export function registerGroupLifecycleHandlers(bot: GroupLifecycleBot, h: GroupL
     }
 
     if (marker.created) {
-      h.poster.post(chat.id, readyMessageForGroup({ group, webBaseUrl: h.deps.env.WEB_BASE_URL }));
+      h.poster.post(chat.id, readyMessageForGroup({
+        group,
+        webBaseUrl: h.deps.env.WEB_BASE_URL,
+        solanaNetwork: h.deps.env.SOLANA_NETWORK,
+      }));
     }
   });
 }
 
 export function registerBotHandlers(bot: Bot, h: HandlerCtx): void {
   registerBotErrorHandler(bot, h.deps.log);
-  void configureScopedBotCommands(bot.api).catch((error: unknown) => {
+  void configureScopedBotCommands(bot.api, h.deps.env.SOLANA_NETWORK).catch((error: unknown) => {
     h.deps.log.warn('set_scoped_commands_failed', {
       reason: error instanceof Error ? 'bot_api_error' : 'unknown_error',
     });

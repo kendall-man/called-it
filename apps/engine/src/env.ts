@@ -2,8 +2,10 @@ import { createHash } from 'node:crypto';
 import { isIP } from 'node:net';
 import { z } from 'zod';
 import { WAGER_RUNTIME_MODES, resolvedWagerRuntimeMode, validateWagerRuntimeEnvironment } from './wager-runtime-env.js';
+import { rpcUrlLooksLikeDevnet, SOLANA_NETWORKS } from './solana-network.js';
 
 export { WAGER_RUNTIME_MODES, type WagerRuntimeMode } from './wager-runtime-env.js';
+export { SOLANA_NETWORKS, type SolanaNetwork } from './solana-network.js';
 
 const MillisecondsSchema = z.coerce.number().int().positive().max(86_400_000);
 const Sha256FingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -66,6 +68,7 @@ const EnvSchema = z.object({
   TXLINE_API_BASE: z.string().url(),
   TXLINE_GUEST_JWT: z.string().min(1),
   TXLINE_API_TOKEN: z.string().min(1),
+  SOLANA_NETWORK: z.enum(SOLANA_NETWORKS).default('devnet'),
   SOLANA_RPC_URL: z.string().url().optional(),
   /** Optional: without it the proof worker degrades to "unavailable" badges. */
   SOLANA_KEYPAIR_B58: z.string().optional(),
@@ -143,6 +146,26 @@ const EnvSchema = z.object({
       path: ['SOLANA_RPC_URL'],
       message: 'required in deployed environments',
     });
+  }
+  if (env.SOLANA_NETWORK === 'mainnet-beta') {
+    if (env.DEPLOYMENT_ENV !== 'production') {
+      addPairIssue('SOLANA_NETWORK', 'DEPLOYMENT_ENV');
+    }
+    if (env.SOLANA_RPC_URL === undefined || rpcUrlLooksLikeDevnet(env.SOLANA_RPC_URL)) {
+      addIssue('SOLANA_RPC_URL', 'mainnet requires a non-devnet RPC URL');
+    }
+    if (wagerRuntimeMode !== 'funded') {
+      addPairIssue('SOLANA_NETWORK', 'WAGER_RUNTIME_MODE');
+    }
+    if (env.STARTER_GRANTS_ENABLED) {
+      addPairIssue('SOLANA_NETWORK', 'STARTER_GRANTS_ENABLED');
+    }
+    if (!env.STAKE_ACCEPTANCE_ENABLED) {
+      addPairIssue('SOLANA_NETWORK', 'STAKE_ACCEPTANCE_ENABLED');
+    }
+    if (!env.TREASURY_COVERAGE_ENFORCED) {
+      addPairIssue('SOLANA_NETWORK', 'TREASURY_COVERAGE_ENFORCED');
+    }
   }
   // The allowlisted beta has one direct engine-bot ingress. Keep webhook
   // routing disabled until the separate concierge delivery program is resumed.

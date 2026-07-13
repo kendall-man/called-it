@@ -7,6 +7,7 @@ import type {
   WagerSettlementDb,
   WagerSettlementOutcome,
 } from './port-db.js';
+import type { SolanaNetwork } from '../solana-network.js';
 
 export type * from './port-db.js';
 
@@ -171,10 +172,12 @@ export type WagerModule = StarterOnlyWagerModule | FundedWagerModule;
 export interface WagerSettlementDeps {
   db: WagerSettlementDb;
   log: WagerLogger;
+  solanaNetwork?: SolanaNetwork;
 }
 
 interface WagerStakeFlags {
   stakeAcceptanceEnabled: boolean;
+  solanaNetwork?: SolanaNetwork;
 }
 
 export interface StarterOnlyWagerModuleDeps extends WagerStakeFlags {

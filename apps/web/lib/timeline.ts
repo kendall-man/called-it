@@ -24,7 +24,7 @@ export interface TimelineInput {
 
 const LIVE_STEP_COPY: Record<Exclude<ReceiptStatus, 'settled' | 'voided'>, [string, string]> = {
   pending_lineup: ['Waiting on lineups', 'Named a player — the call activates when the teamsheet drops'],
-  open: ['Calls open', 'Stakes matched in devnet SOL — every multiplier locked at tap time'],
+  open: ['Calls open', 'Stakes matched in SOL — every multiplier locked at tap time'],
   frozen: ['Calls locked', 'Drama on the pitch — nobody moves until it clears'],
   settling: ['Moment of truth', 'Deciding stat confirmed — sealing the result'],
 };

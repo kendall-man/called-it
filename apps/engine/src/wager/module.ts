@@ -5,7 +5,7 @@
  */
 
 import { WAGER_TUNABLES } from './constants.js';
-import { WAGER_COPY } from './copy.js';
+import { createWagerCopy } from './copy.js';
 import { parseSolToLamports } from './format.js';
 import { createDepositWatcher } from './deposits.js';
 import { createWithdrawalExecutor } from './withdrawals.js';
@@ -56,6 +56,7 @@ function groupChatId(ctx: WagerCommandCtx): number | null {
 }
 
 export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
+  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet');
   const watcher = createDepositWatcher(deps);
   const executor = createWithdrawalExecutor(deps);
   const solvency = createSolvencyMonitor(deps);
@@ -74,13 +75,13 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
       const link = await deps.db.getWalletLink(from.id);
       if (link) {
         const balance = await deps.db.balanceLamports(from.id);
-        await ctx.reply(WAGER_COPY.walletStatus(link.pubkey, balance));
+        await ctx.reply(copy.walletStatus(link.pubkey, balance));
       } else {
-        await ctx.reply(WAGER_COPY.walletSetupUnavailable());
+        await ctx.reply(copy.walletSetupUnavailable());
       }
       return;
     }
-    await ctx.reply(WAGER_COPY.walletSetupUnavailable());
+    await ctx.reply(copy.walletSetupUnavailable());
   }
 
   async function handleDepositCommand(ctx: WagerCommandCtx): Promise<void> {
@@ -88,7 +89,7 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
     if (!from) return;
     await rememberGroup(ctx, from.id);
     const link = await deps.db.getWalletLink(from.id);
-    await ctx.reply(WAGER_COPY.depositInstructions(deps.chain.treasuryPubkey(), link !== null));
+    await ctx.reply(copy.depositInstructions(deps.chain.treasuryPubkey(), link !== null));
   }
 
   async function handleWithdrawCommand(ctx: WagerCommandCtx): Promise<void> {
@@ -96,12 +97,12 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
     if (!from) return;
     const link = await deps.db.getWalletLink(from.id);
     if (!link) {
-      await ctx.reply(WAGER_COPY.withdrawNoWallet());
+      await ctx.reply(copy.withdrawNoWallet());
       return;
     }
     const arg = commandArg(ctx);
     if (arg === '') {
-      await ctx.reply(WAGER_COPY.withdrawUsage());
+      await ctx.reply(copy.withdrawUsage());
       return;
     }
     const lamports =
@@ -109,21 +110,21 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
         ? await deps.db.balanceLamports(from.id)
         : parseSolToLamports(arg);
     if (lamports === null) {
-      await ctx.reply(WAGER_COPY.withdrawUsage());
+      await ctx.reply(copy.withdrawUsage());
       return;
     }
     if (lamports < WAGER_TUNABLES.MIN_WITHDRAWAL_LAMPORTS) {
-      await ctx.reply(WAGER_COPY.withdrawBelowMin());
+      await ctx.reply(copy.withdrawBelowMin());
       return;
     }
     const result = await deps.db.requestWithdrawal({ user_id: from.id, lamports });
     if (!result.ok) {
       if (result.code === 'no_wallet') {
-        await ctx.reply(WAGER_COPY.withdrawNoWallet());
+        await ctx.reply(copy.withdrawNoWallet());
         return;
       }
       const balance = await deps.db.balanceLamports(from.id);
-      await ctx.reply(WAGER_COPY.withdrawInsufficient(balance));
+      await ctx.reply(copy.withdrawInsufficient(balance));
       return;
     }
     await rememberGroup(ctx, from.id);
@@ -131,7 +132,7 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
       withdrawalId: result.withdrawal_id,
       lamports: lamports.toString(),
     });
-    await ctx.reply(WAGER_COPY.withdrawQueued(lamports));
+    await ctx.reply(copy.withdrawQueued(lamports));
   }
 
   return {

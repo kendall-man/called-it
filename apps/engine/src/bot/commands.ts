@@ -84,7 +84,8 @@ export interface NavigationHandlerCtx {
       EngineDb,
       'upsertGroup' | 'markGroupReady' | 'leaderboard' | 'groupPlayerStats'
     >;
-    readonly env: Pick<Env, 'WEB_BASE_URL' | 'DEPLOYMENT_ENV' | 'BETA_ALLOWED_GROUP_IDS'>;
+    readonly env: Pick<Env, 'WEB_BASE_URL' | 'DEPLOYMENT_ENV' | 'BETA_ALLOWED_GROUP_IDS'>
+      & Partial<Pick<Env, 'SOLANA_NETWORK'>>;
   };
   readonly poster: Pick<Poster, 'post'>;
   readonly say: Say;
@@ -161,6 +162,7 @@ export function registerNavigationCommands(bot: NavigationCommandBot, h: Navigat
       store: groupReadyMarkerStore(h.deps.db),
       group,
       webBaseUrl: h.deps.env.WEB_BASE_URL,
+      solanaNetwork: h.deps.env.SOLANA_NETWORK,
     });
     if (plan.kind === 'post_ready') h.poster.post(ctx.chat.id, plan.text);
   });
@@ -252,6 +254,7 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
   });
 
   bot.command('testmatch', async (ctx) => {
+    if (h.deps.env.SOLANA_NETWORK === 'mainnet-beta') return;
     if (!isGroup(ctx.chat.type) || !ctx.from) return;
     if (!isBetaGroupAllowed(h.deps.env, ctx.chat.id)) return;
     const from = ctx.from;

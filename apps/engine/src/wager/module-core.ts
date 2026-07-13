@@ -1,5 +1,5 @@
 import { WAGER_TUNABLES } from './constants.js';
-import { WAGER_COPY } from './copy.js';
+import { createWagerCopy } from './copy.js';
 import { formatSolAmount } from './format.js';
 import {
   applySettlement,
@@ -10,6 +10,7 @@ import { handleStakeTap } from './stake.js';
 import type { WagerModuleCore, WagerStakeDeps } from './port.js';
 
 export function createWagerModuleCore(deps: WagerStakeDeps): WagerModuleCore {
+  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet');
   const sweeper = createSettlementSweeper(deps);
   return {
     async currencyForMint() {
@@ -22,7 +23,7 @@ export function createWagerModuleCore(deps: WagerStakeDeps): WagerModuleCore {
 
     settlementPayoutsLine: (marketId, outcome) => settlementPayoutsLine(deps, marketId, outcome),
 
-    cardFooter: () => WAGER_COPY.cardFooter(),
+    cardFooter: () => copy.cardFooter(),
 
     presetLabels() {
       const [first, second, third] = WAGER_TUNABLES.PRESET_STAKES_LAMPORTS;

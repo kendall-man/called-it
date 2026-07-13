@@ -17,6 +17,7 @@ interface SolanaTreasury<PublicKey> {
 }
 
 interface SolanaConnection<PublicKey> {
+  getGenesisHash(): Promise<string>;
   getBalance(publicKey: PublicKey, commitment: 'confirmed'): Promise<number>;
   getLatestBlockhash(
     commitment: 'finalized',
@@ -73,6 +74,7 @@ export function createWagerSolanaRuntime<
   const chainRuntime: WagerChainRuntime<Connection, Treasury, PublicKey> = {
     publicKey: (treasury) => treasury.publicKey,
     publicKeyAddress: (publicKey) => publicKey.toBase58(),
+    getGenesisHash: (connection) => connection.getGenesisHash(),
     getBalance: (connection, publicKey) => connection.getBalance(publicKey, 'confirmed'),
     getLatestBlockhash: (connection) => connection.getLatestBlockhash('finalized'),
     sendRawTransaction: (connection, raw, options) =>

@@ -49,6 +49,7 @@ function fundedWagerOptions(options: {
   readonly log: Logger;
   readonly db: FakeWagerDb;
   readonly poster: WagerPoster;
+  readonly genesisHash?: string;
 }) {
   return {
     env: options.env,
@@ -61,6 +62,7 @@ function fundedWagerOptions(options: {
     chainRuntime: {
       publicKey: (treasury: string) => treasury,
       publicKeyAddress: (publicKey: string) => publicKey,
+      getGenesisHash: async () => options.genesisHash ?? 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
       getBalance: async () => 0,
       getLatestBlockhash: async () => ({ blockhash: 'blockhash', lastValidBlockHeight: 1 }),
       sendRawTransaction: async () => 'signature',
@@ -244,5 +246,29 @@ describe('production wager wiring', () => {
       reason: 'not_safe_integer',
     });
     expect(JSON.stringify(warnings)).not.toContain(PRIVATE_INVALID_OPS_CHAT);
+  });
+
+  it('refuses funded construction when the RPC genesis hash disagrees with the profile', async () => {
+    const env = loadEnv({
+      ...BASE_ENV,
+      WAGER_MODE_ENABLED: 'true',
+      WAGER_TREASURY_KEYPAIR_B58: 'dedicated-wager-treasury',
+      STAKE_ACCEPTANCE_ENABLED: 'true',
+      TREASURY_COVERAGE_ENFORCED: 'true',
+    });
+    const { db, poster } = makeFakeDeps();
+    const { log } = collectingLogger();
+
+    const construction = createProductionFundedWagerModule(fundedWagerOptions({
+      env,
+      log,
+      db,
+      poster,
+      genesisHash: '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d',
+    }));
+
+    await expect(construction).rejects.toEqual(
+      new EngineEnvironmentError(['SOLANA_NETWORK', 'SOLANA_RPC_URL']),
+    );
   });
 });

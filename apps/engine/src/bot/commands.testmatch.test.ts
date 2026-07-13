@@ -35,6 +35,7 @@ function makeHarness(options: {
   allowed?: boolean;
   admin?: boolean;
   startResult?: 'started' | 'already_active' | 'live_markets';
+  network?: 'devnet' | 'mainnet-beta';
 } = {}) {
   const handlers = new Map<string, (ctx: any) => Promise<unknown>>();
   const posts: string[] = [];
@@ -72,6 +73,7 @@ function makeHarness(options: {
         WEB_BASE_URL: 'https://calledit.example',
         DEPLOYMENT_ENV: 'production',
         BETA_ALLOWED_GROUP_IDS: options.allowed === false ? [] : [GROUP_ID],
+        SOLANA_NETWORK: options.network ?? 'devnet',
       },
       log: { info() {}, warn() {}, error() {}, child() { return this; } },
       now: () => NOW_MS,
@@ -109,6 +111,16 @@ function makeHarness(options: {
 }
 
 describe('/testmatch', () => {
+  it('is inert on mainnet before touching group or fixture state', async () => {
+    const harness = makeHarness({ network: 'mainnet-beta' });
+
+    await harness.run();
+
+    expect(harness.starts).toEqual([]);
+    expect(harness.posts).toEqual([]);
+    expect(harness.operations).toEqual([]);
+  });
+
   it('lets an allowlisted group admin start the latest standard completed match', async () => {
     const harness = makeHarness();
 

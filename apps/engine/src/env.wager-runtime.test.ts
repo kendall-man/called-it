@@ -23,7 +23,49 @@ const STARTER_ONLY_ENV = {
   TREASURY_COVERAGE_ENFORCED: 'false',
 } satisfies NodeJS.ProcessEnv;
 
+const MAINNET_ENV = {
+  ...DEPLOYED_ENV,
+  DEPLOYMENT_ENV: 'production',
+  SOLANA_NETWORK: 'mainnet-beta',
+  SOLANA_RPC_URL: 'https://mainnet-rpc.example.test',
+  WAGER_RUNTIME_MODE: 'funded',
+  WAGER_MODE_ENABLED: 'true',
+  WAGER_TREASURY_KEYPAIR_B58: 'dedicated-mainnet-treasury',
+  STARTER_GRANTS_ENABLED: 'false',
+  STAKE_ACCEPTANCE_ENABLED: 'true',
+  WALLET_MINIAPP_ENABLED: 'false',
+  TREASURY_COVERAGE_ENFORCED: 'true',
+} satisfies NodeJS.ProcessEnv;
+
 describe('wager runtime environment', () => {
+  it('accepts the explicit guarded mainnet funded profile', () => {
+    expect(loadEnv(MAINNET_ENV)).toMatchObject({
+      DEPLOYMENT_ENV: 'production',
+      SOLANA_NETWORK: 'mainnet-beta',
+      WAGER_RUNTIME_MODE: 'funded',
+      STARTER_GRANTS_ENABLED: false,
+      STAKE_ACCEPTANCE_ENABLED: true,
+      WALLET_MINIAPP_ENABLED: false,
+      TREASURY_COVERAGE_ENFORCED: true,
+    });
+  });
+
+  it.each([
+    ['a devnet RPC', { SOLANA_RPC_URL: 'https://api.devnet.solana.com' }, 'SOLANA_RPC_URL'],
+    [
+      'starter-only mode',
+      { WAGER_RUNTIME_MODE: 'starter_only' },
+      'SOLANA_NETWORK, STARTER_GRANTS_ENABLED, TREASURY_COVERAGE_ENFORCED, WAGER_RUNTIME_MODE, WAGER_TREASURY_KEYPAIR_B58',
+    ],
+    ['starter grants', { STARTER_GRANTS_ENABLED: 'true' }, 'SOLANA_NETWORK, STARTER_GRANTS_ENABLED'],
+    ['disabled stake intake', { STAKE_ACCEPTANCE_ENABLED: 'false' }, 'SOLANA_NETWORK, STAKE_ACCEPTANCE_ENABLED'],
+    ['disabled coverage breaker', { TREASURY_COVERAGE_ENFORCED: 'false' }, 'SOLANA_NETWORK, TREASURY_COVERAGE_ENFORCED'],
+  ] as const)('rejects mainnet with %s', (_name, overrides, variables) => {
+    expect(() => loadEnv({ ...MAINNET_ENV, ...overrides })).toThrowError(
+      `Engine environment invalid: ${variables}`,
+    );
+  });
+
   it('derives the development runtime from the legacy compatibility flag', () => {
     // Given local environments that predate the explicit runtime selector
     const disabled = { ...BASE_ENV };

@@ -12,6 +12,7 @@ import type { EvidenceFact, PublicReceipt } from '@/lib/receipts';
 import { PROVENANCE_COPY } from '@/lib/spec-terms';
 import { createAnonServerClient } from '@/lib/supabase';
 import { buildTimeline } from '@/lib/timeline';
+import { isMainnet } from '@/lib/solana-network';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,6 +75,7 @@ export default async function ReceiptPage({
 }: {
   params: Promise<{ marketId: string }>;
 }) {
+  const mainnet = isMainnet();
   const { marketId } = await params;
   if (!UUID_PATTERN.test(marketId)) notFound();
 
@@ -148,7 +150,10 @@ export default async function ReceiptPage({
           </Badge>
         </div>
         <p className="mt-3 text-sm leading-relaxed text-fog">
-          {provenance.blurb} Amounts below use devnet SOL test tokens only.
+          {provenance.blurb}{' '}
+          {mainnet
+            ? 'Amounts below use SOL on Solana mainnet.'
+            : 'Amounts below use devnet SOL test tokens only.'}
         </p>
       </Card>
 

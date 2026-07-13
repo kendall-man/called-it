@@ -22,7 +22,7 @@
  */
 
 import { WAGER_CRON_LOCKS, WAGER_KEYS } from './constants.js';
-import { WAGER_COPY } from './copy.js';
+import { createWagerCopy } from './copy.js';
 import { explorerTxUrl } from '../engineConstants.js';
 import type { WagerModuleDeps, WagerWithdrawalRow } from './port.js';
 
@@ -73,14 +73,21 @@ async function refundAndFail(
   });
   await deps.db.markWithdrawalFailed(row.id, error);
   deps.log.warn('wager_withdrawal_failed', { id: row.id });
-  await notify(deps, row.user_id, async (name) => WAGER_COPY.withdrawFailed(name, row.lamports));
+  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet');
+  await notify(deps, row.user_id, async (name) => copy.withdrawFailed(name, row.lamports));
 }
 
 async function confirm(deps: WagerModuleDeps, row: WagerWithdrawalRow): Promise<void> {
   await deps.db.markWithdrawalConfirmed(row.id);
   deps.log.info('wager_withdrawal_confirmed', { id: row.id, txSig: row.tx_sig });
+  const network = deps.solanaNetwork ?? 'devnet';
+  const copy = createWagerCopy(network);
   await notify(deps, row.user_id, async (name) =>
-    WAGER_COPY.withdrawConfirmed(name, row.lamports, explorerTxUrl(row.tx_sig ?? '')),
+    copy.withdrawConfirmed(
+      name,
+      row.lamports,
+      explorerTxUrl(row.tx_sig ?? '', network),
+    ),
   );
 }
 

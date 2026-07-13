@@ -11,7 +11,7 @@
  */
 
 import { SOLVENCY_PAUSE_REASON_PREFIX, WAGER_TUNABLES } from './constants.js';
-import { WAGER_COPY } from './copy.js';
+import { createWagerCopy } from './copy.js';
 import { assertSafeLamports } from './format.js';
 import type { WagerModuleDeps, WagerPositionRow } from './port.js';
 
@@ -35,6 +35,7 @@ export interface SolvencyMonitor {
 }
 
 export function createSolvencyMonitor(deps: WagerModuleDeps): SolvencyMonitor {
+  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet');
   async function run(): Promise<void> {
     const treasury = await deps.chain.treasuryBalanceLamports();
     if (!treasury.ok) {
@@ -60,7 +61,7 @@ export function createSolvencyMonitor(deps: WagerModuleDeps): SolvencyMonitor {
           required: required.toString(),
         });
         if (deps.opsChatId !== null) {
-          deps.poster.post(deps.opsChatId, WAGER_COPY.opsSolvencyRecovered());
+          deps.poster.post(deps.opsChatId, copy.opsSolvencyRecovered());
         }
       }
       return;
@@ -79,7 +80,7 @@ export function createSolvencyMonitor(deps: WagerModuleDeps): SolvencyMonitor {
       required: required.toString(),
     });
     if (deps.opsChatId !== null) {
-      deps.poster.post(deps.opsChatId, WAGER_COPY.opsSolvencyAlert(treasury.lamports, required));
+      deps.poster.post(deps.opsChatId, copy.opsSolvencyAlert(treasury.lamports, required));
     }
   }
 

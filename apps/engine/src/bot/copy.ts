@@ -1,5 +1,6 @@
 import type { AgentPort } from '../ports.js';
 import type { Logger } from '../log.js';
+import type { SolanaNetwork } from '../solana-network.js';
 import {
   FALLBACK_TEMPLATES,
   type CopyVars,
@@ -15,8 +16,12 @@ function v(vars: CopyVars, key: string, fallback = ''): string {
 
 export type Say = (key: TemplateKey, vars?: CopyVars) => Promise<string>;
 
-export function renderFallback(key: TemplateKey, vars: CopyVars = {}): string {
-  return FALLBACK_TEMPLATES[key](vars);
+export function renderFallback(
+  key: TemplateKey,
+  vars: CopyVars = {},
+  network: SolanaNetwork = 'devnet',
+): string {
+  return FALLBACK_TEMPLATES[key]({ ...vars, __solanaNetwork: network });
 }
 
 /**
@@ -134,9 +139,9 @@ const AGENT_TEMPLATE_MAP: Partial<Record<TemplateKey, (vars: CopyVars) => AgentM
       : null,
 };
 
-export function createSay(agent: AgentPort, log: Logger): Say {
+export function createSay(agent: AgentPort, log: Logger, network: SolanaNetwork = 'devnet'): Say {
   return async (key, vars = {}) => {
-    if (FIXED_PRODUCT_CONTRACT_KEYS.has(key)) return renderFallback(key, vars);
+    if (FIXED_PRODUCT_CONTRACT_KEYS.has(key)) return renderFallback(key, vars, network);
     const mapping = AGENT_TEMPLATE_MAP[key]?.(vars) ?? null;
     if (mapping) {
       try {
@@ -149,6 +154,6 @@ export function createSay(agent: AgentPort, log: Logger): Say {
         });
       }
     }
-    return renderFallback(key, vars);
+    return renderFallback(key, vars, network);
   };
 }

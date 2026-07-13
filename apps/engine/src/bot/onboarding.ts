@@ -1,5 +1,6 @@
 import { renderFallback } from './copy.js';
 import type { BotGroupReadyMarkerResult } from '../ports.js';
+import type { SolanaNetwork } from '../solana-network.js';
 
 export const BOT_ONBOARDING_VERSION = 'calledit_v1' as const;
 
@@ -48,16 +49,18 @@ export async function claimGroupReadiness(
 export function readyMessageForGroup(input: {
   readonly group: { readonly id: number; readonly slug: string };
   readonly webBaseUrl: string;
+  readonly solanaNetwork?: SolanaNetwork;
 }): string {
   return renderFallback('group_ready', {
     webUrl: groupBoardUrl(input.webBaseUrl, input.group.slug),
-  });
+  }, input.solanaNetwork ?? 'devnet');
 }
 
 export async function planGroupReadiness(input: {
   readonly store: GroupReadyMarkerStore;
   readonly group: { readonly id: number; readonly slug: string };
   readonly webBaseUrl: string;
+  readonly solanaNetwork?: SolanaNetwork;
 }): Promise<GroupReadinessPlan> {
   const marker = await claimGroupReadiness(input.store, input.group.id);
   if (!marker.ok) return { kind: 'rejected', code: marker.code };

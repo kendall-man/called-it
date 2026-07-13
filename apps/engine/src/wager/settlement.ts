@@ -8,7 +8,7 @@
  */
 
 import { WAGER_KEYS } from './constants.js';
-import { WAGER_COPY } from './copy.js';
+import { createWagerCopy } from './copy.js';
 import { settlementCredits } from './pot.js';
 import type { WagerSettlementDeps, WagerSettlementOutcome } from './port.js';
 import { participantLabel } from '../points/presentation.js';
@@ -76,23 +76,24 @@ export async function settlementPayoutsLine(
   marketId: string,
   outcome: WagerSettlementOutcome,
 ): Promise<string> {
-  if (outcome === 'void') return WAGER_COPY.payoutsLineVoid();
+  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet');
+  if (outcome === 'void') return copy.payoutsLineVoid();
   const probability = await deps.db.getMarketProbability(marketId);
-  if (probability === null) return WAGER_COPY.payoutsLineNone();
+  if (probability === null) return copy.payoutsLineNone();
   const positions = await deps.db.positionsForMarket(marketId);
   const { payouts, pots } = settlementCredits(positions, outcome, probability);
   // Nothing matched (one side empty) ⇒ everyone got their SOL back, no winners.
-  if (pots.matchedFor === 0n || payouts.size === 0) return WAGER_COPY.payoutsLineNone();
+  if (pots.matchedFor === 0n || payouts.size === 0) return copy.payoutsLineNone();
   const winners = [...payouts].sort(([leftUserId], [rightUserId]) => leftUserId - rightUserId);
   const projectedWinners = winners.slice(0, PAYOUT_IDENTITY_LIMIT);
   const names = await deps.db.getUserNames(projectedWinners.map(([userId]) => userId));
   const parts = projectedWinners.map(([userId, lamports]) =>
-    WAGER_COPY.payoutPart(
+    copy.payoutPart(
       participantLabel({ username: null, displayName: names.get(userId) ?? null }),
       lamports,
     ),
   );
-  return WAGER_COPY.payoutsLine(parts, winners.length - projectedWinners.length);
+  return copy.payoutsLine(parts, winners.length - projectedWinners.length);
 }
 
 export interface SettlementSweeper {

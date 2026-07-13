@@ -7,6 +7,7 @@ import type {
   WagerModuleDeps,
   WagerPoster,
 } from './wager/module.js';
+import { expectedGenesisHash } from './solana-network.js';
 
 type FactoryResult<Value> = Value | Promise<Value>;
 type WagerChain = WagerModuleDeps['chain'];
@@ -31,6 +32,7 @@ export interface WagerChainRuntime<Connection, Treasury, PublicKey> {
   publicKey(treasury: Treasury): PublicKey;
   publicKeyAddress(publicKey: PublicKey): string;
   getBalance(connection: Connection, publicKey: PublicKey): Promise<number>;
+  getGenesisHash(connection: Connection): Promise<string>;
   getLatestBlockhash(
     connection: Connection,
   ): Promise<{ blockhash: string; lastValidBlockHeight: number }>;
@@ -102,12 +104,18 @@ export async function createProductionFundedWagerModule<Connection, Treasury, Pu
   }
   const treasury = options.loadTreasury(treasurySecret);
   const connection = options.createConnection(env.SOLANA_RPC_URL);
+  const genesisHash = await options.chainRuntime.retry(() =>
+    options.chainRuntime.getGenesisHash(connection));
+  if (genesisHash !== expectedGenesisHash(env.SOLANA_NETWORK)) {
+    throw new EngineEnvironmentError(['SOLANA_NETWORK', 'SOLANA_RPC_URL']);
+  }
   const [{ createWagerModule }, { buildFundedWagerDb }] = await Promise.all([
     import('./wager/module.js'),
     import('./wiring-wager-funded-db.js'),
   ]);
   return createWagerModule({
     runtimeMode: 'funded',
+    solanaNetwork: env.SOLANA_NETWORK,
     db: await buildFundedWagerDb(options),
     chain: buildWagerChain(connection, treasury, options.chainRuntime),
     poster,

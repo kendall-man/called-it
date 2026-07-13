@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { PageShell } from '@/components/ui';
 import { buildTelegramGroupAddUrl } from '@/lib/entry';
+import { isMainnet } from '@/lib/solana-network';
 
 export const metadata: Metadata = {
   description: 'Add Callie to your Telegram group to put football calls on the record.',
@@ -13,6 +14,7 @@ const STEPS = [
 ] as const;
 
 export default function LandingPage() {
+  const mainnet = isMainnet();
   const telegramGroupUrl = buildTelegramGroupAddUrl(
     process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME,
   );
@@ -57,7 +59,9 @@ export default function LandingPage() {
         )}
 
         <p className="mt-3 text-sm text-fog">
-          Devnet SOL only. Test tokens have no monetary value.
+          {mainnet
+            ? 'SOL positions use Solana mainnet.'
+            : 'Devnet SOL only. Test tokens have no monetary value.'}
         </p>
       </section>
 

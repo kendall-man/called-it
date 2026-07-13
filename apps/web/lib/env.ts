@@ -22,6 +22,7 @@ const WebEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional(),
+  NEXT_PUBLIC_SOLANA_NETWORK: z.enum(['devnet', 'mainnet-beta']).default('devnet'),
   NEXT_PUBLIC_SOLANA_RPC_URL: z.string().url().optional(),
   NEXT_PUBLIC_TXORACLE_PROGRAM_ID: z.string().min(32).optional(),
   NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: BotUsernameSchema.optional(),
@@ -117,6 +118,17 @@ const WebEnvSchema = z.object({
   const hasProgramId = env.NEXT_PUBLIC_TXORACLE_PROGRAM_ID !== undefined;
   if (hasSolanaUrl !== hasProgramId) {
     addPairIssue('NEXT_PUBLIC_SOLANA_RPC_URL', 'NEXT_PUBLIC_TXORACLE_PROGRAM_ID');
+  }
+  if (
+    env.NEXT_PUBLIC_SOLANA_NETWORK === 'mainnet-beta'
+    && env.NEXT_PUBLIC_SOLANA_RPC_URL !== undefined
+    && /(?:^|[.\-_/?=&])devnet(?:[.\-_/?=&]|$)/i.test(env.NEXT_PUBLIC_SOLANA_RPC_URL)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['NEXT_PUBLIC_SOLANA_RPC_URL'],
+      message: 'mainnet requires a non-devnet RPC URL',
+    });
   }
 
   const walletVariables = [
