@@ -8,12 +8,15 @@ import {
   configureScopedBotCommands,
   registerGroupLifecycleHandlers,
   registerBotErrorHandler,
+  registerWagerCommands,
   type BotErrorRegistrar,
   type BotCommandScopeApi,
   type GroupLifecycleBot,
   type GroupLifecycleContext,
   type GroupLifecycleHandlerCtx,
 } from './bot.js';
+import type { Bot } from 'grammy';
+import type { WagerModule } from '../wager/module.js';
 
 type RecordedLog = {
   readonly event: string;
@@ -177,6 +180,30 @@ describe('group lifecycle logging privacy', () => {
 });
 
 describe('onboarding scopes and lifecycle', () => {
+  it('registers private account handlers for the funded runtime only', () => {
+    const registrations: string[] = [];
+    const bot = {
+      command(command: string) {
+        registrations.push(command);
+      },
+    } as unknown as Bot;
+    const funded = {
+      kind: 'funded',
+      registerCommands(commandBot: { command(command: string): unknown }) {
+        commandBot.command('wallet');
+        commandBot.command('deposit');
+        commandBot.command('withdraw');
+      },
+    } as unknown as WagerModule;
+    const starterOnly = { kind: 'starter_only' } as unknown as WagerModule;
+
+    registerWagerCommands(bot, funded);
+    registerWagerCommands(bot, starterOnly);
+    registerWagerCommands(bot, null);
+
+    expect(registrations).toEqual(['wallet', 'deposit', 'withdraw']);
+  });
+
   it('installs the exact private and group command menus', async () => {
     // Given a Bot API recorder
     const calls: Array<{ readonly commands: readonly { readonly command: string }[]; readonly scope: string }> = [];

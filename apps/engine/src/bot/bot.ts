@@ -13,6 +13,7 @@ import type { EngineDb } from '../ports.js';
 import type { Env } from '../env.js';
 import type { SolanaNetwork } from '../solana-network.js';
 import type { Poster } from './poster.js';
+import type { WagerModule } from '../wager/module.js';
 import {
   claimGroupReadiness,
   groupReadyMarkerStore,
@@ -77,6 +78,10 @@ export async function configureScopedBotCommands(
     { scope: { type: 'all_private_chats' } },
   );
   await api.setMyCommands(GROUP_BOT_COMMANDS, { scope: { type: 'all_group_chats' } });
+}
+
+export function registerWagerCommands(bot: Bot, wager: WagerModule | null): void {
+  if (wager?.kind === 'funded') wager.registerCommands(bot);
 }
 
 export interface GroupLifecycleContext {
@@ -156,6 +161,7 @@ export function registerBotHandlers(bot: Bot, h: HandlerCtx): void {
   registerGroupLifecycleHandlers(bot, h);
 
   registerCommands(bot, h);
+  registerWagerCommands(bot, h.deps.wager);
   registerCallbacks(bot, h);
   registerDetection(bot, h);
 }
