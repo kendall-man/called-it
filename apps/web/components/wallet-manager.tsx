@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   usePrivy,
-  useLoginWithTelegram,
   type WalletWithMetadata,
 } from '@privy-io/react-auth';
 import {
@@ -35,9 +34,10 @@ type SessionState = { readonly kind: 'loading' | 'invalid' } | {
 
 type Phase = 'opening' | 'authenticating' | 'creating' | 'linking' | 'ready' | 'failed';
 
+const TELEGRAM_SEAMLESS_TIMEOUT_MS = 8_000;
+
 export function WalletManager(props: WalletManagerProps) {
   const { ready, authenticated, error: privyError, getAccessToken, logout, user } = usePrivy();
-  const { login } = useLoginWithTelegram();
   const { ready: walletsReady, wallets } = useWallets();
   const { createWallet } = useCreateWallet();
   const { signMessage } = useSignMessage();
@@ -46,7 +46,6 @@ export function WalletManager(props: WalletManagerProps) {
   const [phase, setPhase] = useState<Phase>('opening');
   const [error, setError] = useState('');
   const [canRetry, setCanRetry] = useState(true);
-  const authAttempted = useRef(false);
   const creationAttempted = useRef(false);
   const linkedAttempt = useRef('');
   const embeddedWalletAddress = user?.linkedAccounts.find((account): account is WalletWithMetadata => (
@@ -79,15 +78,17 @@ export function WalletManager(props: WalletManagerProps) {
   }, [privyError]);
 
   useEffect(() => {
-    if (session.kind !== 'valid' || !ready || authenticated || authAttempted.current) return;
-    authAttempted.current = true;
+    if (session.kind !== 'valid' || !ready || authenticated) return;
     setPhase('authenticating');
-    void login().catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : 'Telegram sign-in failed.');
+
+    const timeout = window.setTimeout(() => {
+      setError('Telegram did not confirm this wallet automatically. Return to Telegram and open /wallet again.');
       setCanRetry(true);
       setPhase('failed');
-    });
-  }, [authenticated, login, ready, session]);
+    }, TELEGRAM_SEAMLESS_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [authenticated, ready, session]);
 
   useEffect(() => {
     if (
@@ -147,10 +148,9 @@ export function WalletManager(props: WalletManagerProps) {
     setError('');
     linkedAttempt.current = '';
     creationAttempted.current = false;
-    authAttempted.current = true;
     try {
-      await logout();
-      await login();
+      if (authenticated) await logout();
+      window.location.reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Telegram sign-in failed.');
       setCanRetry(true);
@@ -169,7 +169,7 @@ export function WalletManager(props: WalletManagerProps) {
       <WalletState
         title="Wallet needs attention"
         text={error}
-        action={canRetry ? <div className="mt-5"><WalletButton icon={<RefreshCw size={18} />} onClick={() => void retryTelegramAccount()}>Continue with Telegram</WalletButton></div> : undefined}
+        action={canRetry ? <div className="mt-5"><WalletButton icon={<RefreshCw size={18} />} onClick={() => void retryTelegramAccount()}>Retry Telegram</WalletButton></div> : undefined}
       />
     );
   }
