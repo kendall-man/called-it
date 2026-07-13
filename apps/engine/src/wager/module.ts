@@ -115,7 +115,9 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
       return false;
     }
     const url = new URL('/wallet', deps.webBaseUrl);
-    url.hash = new URLSearchParams({ token }).toString();
+    // Telegram owns the URL fragment for Mini App launch data. Privy's seamless
+    // Telegram login only detects that data when it starts the fragment.
+    url.search = new URLSearchParams({ token }).toString();
     await ctx.reply(text, {
       reply_markup: {
         inline_keyboard: [[{

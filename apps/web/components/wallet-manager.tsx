@@ -60,14 +60,12 @@ export function WalletManager(props: WalletManagerProps) {
 
   useEffect(() => {
     const readSession = () => {
-      const token = new URLSearchParams(window.location.hash.slice(1)).get('token') ?? '';
+      const token = new URLSearchParams(window.location.search).get('token') ?? '';
       setSession(/^[A-Za-z0-9_-]{43}$/.test(token)
         ? { kind: 'valid', token }
         : { kind: 'invalid' });
     };
     readSession();
-    window.addEventListener('hashchange', readSession);
-    return () => window.removeEventListener('hashchange', readSession);
   }, []);
 
   useEffect(() => {
