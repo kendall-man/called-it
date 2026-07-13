@@ -209,7 +209,11 @@ function makeHarness(config: DetectionHarnessConfig = {}): DetectionHarness {
       stripKeyboard: () => undefined,
     },
     say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
-    supervisor: { replayFixture: () => null },
+    supervisor: {
+      replayFixture: () => null,
+      replayRunId: () => null,
+      runGroupExclusive: async (_groupId: number, task: () => Promise<unknown>) => task(),
+    },
     entities: { get: async () => ({ teamNames: ['Brazil'], playerNames: [] }) },
     budget: new LlmBudget(config.llmBudget ?? 100, () => NOW),
   } as unknown as HandlerCtx;

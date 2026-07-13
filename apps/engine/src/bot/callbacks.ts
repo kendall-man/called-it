@@ -19,6 +19,7 @@ import { voidAbandonedMarket } from '../pipeline/void.js';
 import { composeClaimCard } from '../pipeline/render.js';
 import { renderFallback } from './copy.js';
 import { WAGER_TUNABLES } from '../wager/constants.js';
+import { wagerDoubtMultiplier } from '../wager/stake.js';
 import { isBetaGroupAllowed } from './beta-access.js';
 
 async function answer(ctx: Context, text: string): Promise<void> {
@@ -272,6 +273,64 @@ async function refreshStakeCard(h: HandlerCtx, chatId: number, marketId: string)
   }
 }
 
+const replayStakeLocks = new Set<string>();
+
+async function handleReplayStake(
+  h: HandlerCtx,
+  ctx: Context,
+  market: MarketRow,
+  userId: number,
+  side: 'back' | 'doubt',
+  lamports: bigint,
+  inPlay: boolean,
+): Promise<void> {
+  const key = `${market.id}:${userId}`;
+  if (replayStakeLocks.has(key)) {
+    await answer(ctx, await h.say('hold_on'));
+    return;
+  }
+  replayStakeLocks.add(key);
+  try {
+    const placeReplayPosition = h.deps.db.placeReplayPosition;
+    if (placeReplayPosition === undefined) {
+      h.deps.log.warn('replay_position_unavailable', { marketId: market.id });
+      await answer(ctx, await h.say('hiccup'));
+      return;
+    }
+    const multiplier = side === 'back'
+      ? market.quote_multiplier
+      : wagerDoubtMultiplier(market.quote_probability);
+    const result = await placeReplayPosition.call(h.deps.db, {
+      group_id: market.group_id,
+      market_id: market.id,
+      user_id: userId,
+      side,
+      stake: Number(lamports),
+      locked_multiplier: multiplier,
+      locked_odds_message_id: market.odds_message_id,
+      locked_odds_ts: market.odds_ts,
+      state: inPlay ? 'pending' : 'active',
+      placed_at_ms: h.deps.now(),
+    });
+    if (!result.ok) {
+      await answer(ctx, await h.say(result.code === 'closed' ? 'window_closed' : 'stale'));
+      return;
+    }
+    if (result.duplicate) {
+      await answer(ctx, await h.say('replay_position_exists'));
+      return;
+    }
+    h.deps.log.info('replay_position_placed', { marketId: market.id, side });
+    await answer(ctx, await h.say('replay_position_recorded'));
+    await refreshStakeCard(h, market.group_id, market.id);
+  } catch {
+    h.deps.log.warn('replay_position_failed', { marketId: market.id });
+    await answer(ctx, await h.say('hiccup'));
+  } finally {
+    replayStakeLocks.delete(key);
+  }
+}
+
 /**
  * A Back / Against tap. Every market is SOL now, so this delegates straight
  * into the wager module (funds, presets, and copy). The preset index is
@@ -310,13 +369,22 @@ async function handleStake(
   }
   // In-play cutoff — no new bets once a match is deep enough that a stake would
   // be a near-certain snipe.
-  const fixture = await h.deps.db.getFixture(market.fixture_id);
+  const replayFixture = market.is_replay
+    ? h.supervisor.replaySnapshot(chatId)
+    : null;
+  const fixture = replayFixture?.fixture_id === market.fixture_id
+    ? replayFixture
+    : await h.deps.db.getFixture(market.fixture_id);
   const inPlay = fixture !== null && fixture.phase !== 'NS';
   if (inPlay && fixture.minute !== null && fixture.minute >= TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE) {
     await answer(ctx, await h.say('window_closed'));
     return;
   }
   await ensureUserSeen(h, chatId, from);
+  if (market.is_replay) {
+    await handleReplayStake(h, ctx, market, from.id, action.side, lamports, inPlay);
+    return;
+  }
   const result = await wager.handleStakeTap({
     market,
     userId: from.id,

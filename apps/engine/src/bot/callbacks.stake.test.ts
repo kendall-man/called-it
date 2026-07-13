@@ -147,6 +147,28 @@ describe('handleStake - beta starter position', () => {
     expect(toasts).toContain(renderFallback('window_closed'));
   });
 
+  it('uses virtual replay time instead of the durable final fixture for the stake cutoff', async () => {
+    const harness = makeHarness({
+      marketRow: market({ is_replay: true }),
+      fixture: fixtureAt('F', 90),
+      replayFixture: fixtureAt('H1', 10),
+      link: false,
+      balanceLamports: null,
+      starterGrantsEnabled: true,
+      stakeAcceptanceEnabled: true,
+    });
+    const first = stakeCtx(USER_A, 'replay-before-cutoff');
+    const duplicate = stakeCtx(USER_A, 'replay-before-cutoff-again');
+
+    await dispatchCallback(harness.h, first.ctx, stake('back', PRESET_01));
+    await dispatchCallback(harness.h, duplicate.ctx, stake('back', PRESET_01));
+
+    expect(harness.wagerDb.positions).toHaveLength(1);
+    expect(harness.wagerDb.ledger).toHaveLength(0);
+    expect(first.toasts).toEqual([renderFallback('replay_position_recorded')]);
+    expect(duplicate.toasts).toEqual([renderFallback('replay_position_exists')]);
+  });
+
   it('reports a closed market without creating a position', async () => {
     const harness = makeHarness({ marketRow: market({ status: 'settled' }) });
     const { ctx, toasts } = stakeCtx(USER_A);

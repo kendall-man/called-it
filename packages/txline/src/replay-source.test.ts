@@ -213,19 +213,40 @@ describe('ReplaySource.start — virtual clock pacing', () => {
       logger: silentLogger,
     });
     const emitted: MatchEvent[] = [];
+    let endReason: string | null = null;
     source.start(async (event) => {
       emitted.push(event);
-    });
+    }, (reason) => { endReason = reason; });
     try {
       await vi.waitFor(() => expect(emitted.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6]), {
         timeout: 3_000,
       });
+      await vi.waitFor(() => expect(endReason).toBe('completed'));
       const count = emitted.length;
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(emitted.length).toBe(count); // loop ended at the terminal phase
     } finally {
       source.stop();
     }
+  });
+
+  it('reports a callback failure instead of silently completing', async () => {
+    const source = new ReplaySource({
+      client: snapshotClient(),
+      fixtureId: FIXTURE_ID,
+      speed: 60_000,
+      startMs: KICKOFF_MS - 10 * MINUTE_MS,
+      tickVirtualMs: 10 * MINUTE_MS,
+      logger: silentLogger,
+    });
+    let endReason: string | null = null;
+
+    source.start(
+      async () => { throw new Error('settlement failed'); },
+      (reason) => { endReason = reason; },
+    );
+
+    await vi.waitFor(() => expect(endReason).toBe('failed'));
   });
 
   it('rejects a non-positive speed and a second start()', () => {

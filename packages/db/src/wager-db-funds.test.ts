@@ -166,10 +166,10 @@ describe('settlement applied marker', () => {
   it('settledSolMarketsMissingApplied anti-joins settled/voided SOL markets', async () => {
     const { db, fake } = makeHarness();
     fake.seed('markets', [
-      { id: 'm-settled', currency: 'sol', status: 'settled' },
-      { id: 'm-voided', currency: 'sol', status: 'voided' },
-      { id: 'm-open', currency: 'sol', status: 'open' },
-      { id: 'm-rep', currency: 'rep', status: 'settled' },
+      { id: 'm-settled', currency: 'sol', status: 'settled', is_replay: false },
+      { id: 'm-voided', currency: 'sol', status: 'voided', is_replay: false },
+      { id: 'm-open', currency: 'sol', status: 'open', is_replay: false },
+      { id: 'm-rep', currency: 'rep', status: 'settled', is_replay: false },
     ]);
     fake.seed('wager_settlements_applied', [{ market_id: 'm-voided', applied_at: NOW_ISO }]);
     expect(await db.settledSolMarketsMissingApplied()).toEqual(['m-settled']);

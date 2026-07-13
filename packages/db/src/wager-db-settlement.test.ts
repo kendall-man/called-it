@@ -17,18 +17,28 @@ describe('wager settlement recovery query', () => {
         group_id: ALLOWED_GROUP_ID,
         currency: 'sol',
         status: 'settled',
+        is_replay: false,
       },
       {
         id: 'disallowed-settled',
         group_id: DISALLOWED_GROUP_IDS[0],
         currency: 'sol',
         status: 'settled',
+        is_replay: false,
       },
       {
         id: 'disallowed-voided',
         group_id: DISALLOWED_GROUP_IDS[1],
         currency: 'sol',
         status: 'voided',
+        is_replay: false,
+      },
+      {
+        id: 'allowed-replay',
+        group_id: ALLOWED_GROUP_ID,
+        currency: 'sol',
+        status: 'settled',
+        is_replay: true,
       },
     ]);
     const db = settlementDbMethods(fake, [ALLOWED_GROUP_ID]);
@@ -49,12 +59,14 @@ describe('wager settlement recovery query', () => {
         group_id: ALLOWED_GROUP_ID,
         currency: 'sol',
         status: 'settled',
+        is_replay: false,
       },
       {
         id: 'disallowed-settled',
         group_id: DISALLOWED_GROUP_IDS[0],
         currency: 'sol',
         status: 'settled',
+        is_replay: false,
       },
     ]);
     const db = starterOnlyWagerDbFromClient(fake, [ALLOWED_GROUP_ID]);
@@ -75,12 +87,21 @@ describe('wager settlement recovery query', () => {
         group_id: ALLOWED_GROUP_ID,
         currency: 'sol',
         status: 'settled',
+        is_replay: false,
       },
       {
         id: 'second-funded-market',
         group_id: DISALLOWED_GROUP_IDS[0],
         currency: 'sol',
         status: 'voided',
+        is_replay: false,
+      },
+      {
+        id: 'funded-replay',
+        group_id: ALLOWED_GROUP_ID,
+        currency: 'sol',
+        status: 'settled',
+        is_replay: true,
       },
     ]);
     const db = wagerDbFromClient(fake);

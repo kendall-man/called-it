@@ -76,6 +76,7 @@ export interface StakeHarness {
 export interface StakeHarnessOptions {
   marketRow?: MarketRow;
   fixture?: FixtureRow;
+  replayFixture?: FixtureRow | null;
   balanceLamports?: bigint | null;
   link?: boolean;
   starterGrantsEnabled?: boolean;
@@ -93,6 +94,7 @@ type StakeDb = Pick<
   | 'ensureMembership'
   | 'getClaim'
   | 'getGroup'
+  | 'placeReplayPosition'
   | 'positionsForMarket'
   | 'setMarketCardMessage'
 > & PointMethodStubs;
@@ -203,6 +205,24 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
       chattiness: 'nudge' as const,
       is_admin: true,
     }),
+    placeReplayPosition: async (input) => {
+      const duplicate = wagerBundle.db.positions.some(
+        (position) => position.market_id === input.market_id && position.user_id === input.user_id,
+      );
+      if (duplicate) return { ok: true, duplicate: true };
+      const positionId = `replay-position-${wagerBundle.db.positions.length + 1}`;
+      wagerBundle.db.positions.push({
+        id: positionId,
+        market_id: input.market_id,
+        user_id: input.user_id,
+        side: input.side,
+        stake: input.stake,
+        locked_multiplier: input.locked_multiplier,
+        state: input.state,
+        placed_at_ms: input.placed_at_ms,
+      });
+      return { ok: true, duplicate: false, position_id: positionId };
+    },
     positionsForMarket: async (): Promise<PositionRow[]> => wagerBundle.db.positions,
     setMarketCardMessage: async () => undefined,
   });
@@ -233,7 +253,10 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
       stripKeyboard: () => undefined,
     },
     say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
-    supervisor: { replayFixture: () => null },
+    supervisor: {
+      replayFixture: () => opts.replayFixture?.fixture_id ?? null,
+      replaySnapshot: () => opts.replayFixture ?? null,
+    },
     budget: new LlmBudget(1000, () => NOW),
     queue: new SendQueue({ ratePerMinute: 1, collapseMs: 0, now: () => NOW }),
     entities: new EntityCache(db, () => NOW),

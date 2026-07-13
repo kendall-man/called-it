@@ -16,6 +16,7 @@ export {
   InMemoryCursorStore,
   sleep,
   type CursorStore,
+  type EventSourceEndReason,
   type MatchEventSource,
 } from './event-source.js';
 export { LiveSource, type LiveSourceOptions, type LiveStreamClient } from './live-source.js';

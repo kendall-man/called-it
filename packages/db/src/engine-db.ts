@@ -67,6 +67,11 @@ const PLAYER_SEARCH_LIMIT = 20;
 /** 72 bits of entropy → 12-char base64url slug; unguessable per the PRD. */
 const SLUG_ENTROPY_BYTES = 9;
 
+export type ReplayPositionResult =
+  | { readonly ok: true; readonly duplicate: true }
+  | { readonly ok: true; readonly duplicate: false; readonly position_id: string }
+  | { readonly ok: false; readonly code: 'closed' | 'invalid_input' | 'not_replay' | 'wrong_side' };
+
 function generateSlug(): string {
   return randomBytes(SLUG_ENTROPY_BYTES).toString('base64url');
 }
@@ -132,6 +137,7 @@ export interface EngineDb extends GroupPointsDb {
 
   // positions
   insertPosition(input: PositionInsert): Promise<PositionRow>;
+  placeReplayPosition(input: PositionInsert & { group_id: number }): Promise<ReplayPositionResult>;
   positionsForMarket(marketId: string): Promise<PositionRow[]>;
   setPositionStates(ids: string[], state: PositionState): Promise<void>;
 
@@ -433,6 +439,22 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
       return unwrapRows<PositionRow>(
         'insertPosition',
         await client.from('positions').insert(input).select().single(),
+      );
+    },
+
+    async placeReplayPosition(input) {
+      return unwrapRows<ReplayPositionResult>(
+        'placeReplayPosition',
+        await client.rpc('place_replay_position', {
+          p_user_id: input.user_id,
+          p_group_id: input.group_id,
+          p_market_id: input.market_id,
+          p_side: input.side,
+          p_stake: input.stake,
+          p_multiplier: input.locked_multiplier,
+          p_state: input.state,
+          p_placed_at_ms: input.placed_at_ms,
+        }).single(),
       );
     },
 

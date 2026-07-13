@@ -73,6 +73,7 @@ export function settlementDbMethods(
         .from('markets')
         .select('id')
         .eq('currency', 'sol')
+        .eq('is_replay', false)
         .in('status', [...SETTLED_MARKET_STATUSES]);
       if (recoveryGroupIds !== undefined) {
         settledQuery = settledQuery.in('group_id', recoveryGroupIds);

@@ -28,6 +28,11 @@ import type {
   UserRow,
 } from './rows.js';
 
+export type ReplayPositionResult =
+  | { readonly ok: true; readonly duplicate: true }
+  | { readonly ok: true; readonly duplicate: false; readonly position_id: string }
+  | { readonly ok: false; readonly code: 'closed' | 'invalid_input' | 'not_replay' | 'wrong_side' };
+
 export interface EngineDb {
   upsertGroup(input: { id: number; title: string }): Promise<GroupRow>;
   getGroup(id: number): Promise<GroupRow | null>;
@@ -114,6 +119,18 @@ export interface EngineDb {
     state: 'pending' | 'active';
     placed_at_ms: number;
   }): Promise<PositionRow>;
+  placeReplayPosition?(input: {
+    group_id: number;
+    market_id: string;
+    user_id: number;
+    side: PositionSide;
+    stake: number;
+    locked_multiplier: number;
+    locked_odds_message_id: string | null;
+    locked_odds_ts: number | null;
+    state: 'pending' | 'active';
+    placed_at_ms: number;
+  }): Promise<ReplayPositionResult>;
   positionsForMarket(marketId: string): Promise<PositionRow[]>;
   setPositionStates(ids: string[], state: 'pending' | 'active' | 'void'): Promise<void>;
 

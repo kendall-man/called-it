@@ -230,7 +230,11 @@ function makeHarness(config: HarnessConfig): Harness {
       },
     },
     say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
-    supervisor: { replayFixture: () => null },
+    supervisor: {
+      replayFixture: () => null,
+      replayRunId: () => null,
+      runGroupExclusive: async (_groupId: number, task: () => Promise<unknown>) => task(),
+    },
     budget: new LlmBudget(config.llmBudget ?? 1000, () => now),
   } as unknown as HandlerCtx;
 

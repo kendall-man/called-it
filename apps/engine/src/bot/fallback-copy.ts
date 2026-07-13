@@ -51,6 +51,9 @@ export type TemplateKey =
   | 'replay_blocked_active'
   | 'replay_unknown_fixture'
   | 'replay_stopped'
+  | 'replay_failed'
+  | 'replay_position_recorded'
+  | 'replay_position_exists'
   | 'bookit_needs_reply'
   | 'window_closed'
   | 'group_ready'
@@ -144,13 +147,16 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   table_header: (vars) => `THE TABLE — ${value(vars, 'groupTitle', 'this group')}`,
   slate_intro: (vars) => `Morning, legends — today's card: ${value(vars, 'fixtures', 'check back soon')}`,
   replay_started: (vars) =>
-    `Internal fixture run active: ${value(vars, 'fixture')}. It is outside the direct onboarding path and group board.`,
+    `TEST MATCH: ${value(vars, 'fixture')} is replaying at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. Test results do not change real Points.`,
   replay_finished: (vars) =>
-    `Internal fixture run finished: ${value(vars, 'fixture')}. Any generated receipts remain internal compatibility records.`,
+    `TEST MATCH FINISHED: ${value(vars, 'fixture')}. Test results did not change real Points.`,
   replay_blocked_live: () => 'Not while live calls are open in here — let those settle first.',
-  replay_blocked_active: () => 'An internal fixture run is already active for this group.',
-  replay_unknown_fixture: () => "That fixture is unavailable. Open /table for current calls.",
-  replay_stopped: () => 'Internal fixture run stopped.',
+  replay_blocked_active: () => 'A test match is already running in this group.',
+  replay_unknown_fixture: () => 'No completed match is available for a test run. Try /testmatch with a completed match ID.',
+  replay_stopped: () => 'Test match stopped.',
+  replay_failed: () => 'Test match stopped because its data could not be completed. Run /testmatch to try again.',
+  replay_position_recorded: () => 'Test choice recorded. No starter position or test SOL was used.',
+  replay_position_exists: () => 'Your test choice is already recorded. No starter position or test SOL was used.',
   bookit_needs_reply: () => 'Reply /bookit to the claim you want on the record.',
   window_closed: () => 'Too late for that one — the window is closed.',
   group_ready: (vars) =>

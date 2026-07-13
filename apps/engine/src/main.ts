@@ -110,6 +110,11 @@ async function main(): Promise<void> {
       poster.post(groupId, await say('replay_finished', { fixture: label }));
     })();
   };
+  supervisor.onReplayFailed = (groupId) => {
+    void (async () => {
+      poster.post(groupId, await say('replay_failed'));
+    })();
+  };
 
   bot.use(async (_context, next) => {
     telegramHeartbeatAtMs = deps.now();

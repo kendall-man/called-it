@@ -37,6 +37,7 @@ function seededSharedFake(): FakeSupabase {
     id: MARKET_ID,
     currency: 'sol',
     status: 'settled',
+    is_replay: false,
     quote_probability: 0.4,
   }]);
   fake.seed('settlements', [{ market_id: MARKET_ID, outcome: 'claim_won' }]);

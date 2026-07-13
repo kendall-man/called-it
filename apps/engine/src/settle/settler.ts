@@ -64,19 +64,53 @@ export class Settler {
       return;
     }
     await this.deps.db.updateFixtureFromEvent(event);
-    const markets = await this.deps.db.openMarketsForFixture(event.fixtureId);
+    const markets = (await this.deps.db.openMarketsForFixture(event.fixtureId))
+      .filter((market) => !market.is_replay);
+    await this.reduceMarkets(event, markets);
+  }
+
+  /**
+   * Replays intentionally bypass the durable feed-event key because those
+   * historical sequences already exist. Only test-marked markets in the
+   * requesting group receive the event.
+   */
+  async onReplayEvent(
+    groupId: number,
+    event: MatchEvent,
+    replayStartedAtMs: number = Number.NEGATIVE_INFINITY,
+  ): Promise<void> {
+    const markets = (await this.deps.db.openMarketsForFixture(event.fixtureId))
+      .filter((market) =>
+        market.is_replay &&
+        market.group_id === groupId &&
+        Date.parse(market.created_at) >= replayStartedAtMs
+      );
+    await this.reduceMarkets(event, markets, true);
+  }
+
+  private async reduceMarkets(
+    event: MatchEvent,
+    markets: MarketRow[],
+    strict: boolean = false,
+  ): Promise<void> {
     await this.narrateGoal(event, markets);
     for (const market of markets) {
       try {
         const state = await this.hydrate(market);
         const result = this.deps.engine.reduceMarket(state, event);
-        this.states.set(market.id, result.state);
         await this.applyEffects(market, result.state, result.effects, event);
-      } catch {
+        if (result.state.status === 'settled' || result.state.status === 'voided') {
+          this.states.delete(market.id);
+        } else {
+          this.states.set(market.id, result.state);
+        }
+      } catch (error) {
+        if (strict) this.states.delete(market.id);
         this.deps.log.error('reduce_failed', {
           marketId: market.id,
           seq: event.seq,
         });
+        if (strict) throw error;
       }
     }
   }
@@ -92,8 +126,12 @@ export class Settler {
       }
       try {
         const result = this.deps.engine.checkDebounce(state, nowMs);
-        this.states.set(marketId, result.state);
         await this.applyEffects(market, result.state, result.effects, null);
+        if (result.state.status === 'settled' || result.state.status === 'voided') {
+          this.states.delete(marketId);
+        } else {
+          this.states.set(marketId, result.state);
+        }
       } catch {
         this.deps.log.error('debounce_failed', { marketId });
       }
@@ -209,7 +247,9 @@ export class Settler {
     // applySettlement is idempotent (per-position/per-user keys plus the
     // wager_settlements_applied marker); if the module is somehow off, the
     // wager sweeper re-applies it once re-enabled.
-    if (this.deps.wager) {
+    if (market.is_replay) {
+      // Replay positions never touch the starter or payout ledgers.
+    } else if (this.deps.wager) {
       await this.deps.wager.applySettlement(market.id);
     } else {
       this.deps.log.warn('wager_settlement_deferred', { marketId: market.id, outcome });
@@ -247,7 +287,9 @@ export class Settler {
       this.points,
       { deps: this.deps, market, outcome, voidReason, say: this.say },
       // Keep test-SOL settlement phrasing in the wager-owned path.
-      () => this.solPayoutsLine(market.id, outcome),
+      () => market.is_replay
+        ? Promise.resolve('Test round - no starter position or test SOL moved.')
+        : this.solPayoutsLine(market.id, outcome),
     );
 
     this.poster.post(market.group_id, receipt, {

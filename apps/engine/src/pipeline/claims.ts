@@ -8,7 +8,11 @@
 import type { CompileResult, MarketSpec, PriceQuote, RawClaimParse } from '@calledit/market-engine';
 import { TUNABLES } from '@calledit/market-engine';
 import type { ClaimRow, Deps, FixtureRow, GroupRow, MarketRow } from '../ports.js';
-import { buildCompileContext, readGoals } from './context.js';
+import {
+  buildCompileContext,
+  readGoals,
+  type CompileContextOverrides,
+} from './context.js';
 
 /** Stored in claims.parse (jsonb): the raw parse plus compiled candidates. */
 /** A passive or friend-triggered call expires unless its author confirms within two minutes. */
@@ -75,10 +79,15 @@ export async function proveClaim(
   deps: Deps,
   claim: ClaimRow,
   preferredFixtureId?: number,
+  contextOverrides: CompileContextOverrides = {},
 ): Promise<ProveOutcome> {
   let raw: RawClaimParse;
   try {
-    const seedCtx = await buildCompileContext(deps, preferredFixtureId ?? null);
+    const seedCtx = await buildCompileContext(
+      deps,
+      preferredFixtureId ?? null,
+      contextOverrides,
+    );
     raw = await deps.agent.parse(claim.quoted_text, seedCtx);
   } catch {
     deps.log.warn('parse_failed', { claimId: claim.id });
@@ -102,7 +111,7 @@ export async function proveClaim(
 
   let result: CompileResult;
   try {
-    const ctx = await buildCompileContext(deps, raw.fixtureId);
+    const ctx = await buildCompileContext(deps, raw.fixtureId, contextOverrides);
     result = deps.engine.compileClaim(raw, ctx);
   } catch {
     // buildCompileContext reads the DB — a one-off blip must not kill the claim.
@@ -179,6 +188,7 @@ export async function quoteSpec(
   deps: Deps,
   spec: MarketSpec,
   asOfMs?: number,
+  contextOverrides: CompileContextOverrides = {},
 ): Promise<QuoteOutcome> {
   const fetched = await deps.tx.fetchOdds(spec.fixtureId, asOfMs);
   if (fetched.kind !== 'ok') {
@@ -191,7 +201,7 @@ export async function quoteSpec(
   }
   let ctx;
   try {
-    ctx = await buildCompileContext(deps, spec.fixtureId);
+    ctx = await buildCompileContext(deps, spec.fixtureId, contextOverrides);
   } catch {
     deps.log.warn('price_context_failed', { fixtureId: spec.fixtureId });
     return { kind: 'transient' };

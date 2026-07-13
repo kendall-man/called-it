@@ -30,15 +30,26 @@ export function fixtureToContextFixture(row: FixtureRow): NonNullable<CompileCon
   };
 }
 
+export interface CompileContextOverrides {
+  /** Group-scoped fixture state while a completed match is being replayed. */
+  readonly fixture?: FixtureRow;
+  /** Historical replay clock; live calls continue to use the wall clock. */
+  readonly nowMs?: number;
+}
+
 export async function buildCompileContext(
   deps: Deps,
   fixtureId: number | null,
+  overrides: CompileContextOverrides = {},
 ): Promise<CompileContext> {
   if (fixtureId === null) {
-    return { fixture: null, knownPlayers: [], nowMs: deps.now() };
+    return { fixture: null, knownPlayers: [], nowMs: overrides.nowMs ?? deps.now() };
   }
+  const replayFixture = overrides.fixture?.fixture_id === fixtureId
+    ? overrides.fixture
+    : undefined;
   const [fixture, players] = await Promise.all([
-    deps.db.getFixture(fixtureId),
+    replayFixture === undefined ? deps.db.getFixture(fixtureId) : Promise.resolve(replayFixture),
     deps.db.playersForFixture(fixtureId).catch(() => []),
   ]);
   return {
@@ -48,6 +59,6 @@ export async function buildCompileContext(
       name: p.name,
       participant: p.participant,
     })),
-    nowMs: deps.now(),
+    nowMs: overrides.nowMs ?? deps.now(),
   };
 }

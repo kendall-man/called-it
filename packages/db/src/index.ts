@@ -4,7 +4,11 @@
  * hand-written row types that mirror migrations/0001_init.sql.
  */
 
-export { createEngineDb, type EngineDb } from './engine-db.js';
+export {
+  createEngineDb,
+  type EngineDb,
+  type ReplayPositionResult,
+} from './engine-db.js';
 export { DbError } from './errors.js';
 export {
   groupPointsDbFromClient,

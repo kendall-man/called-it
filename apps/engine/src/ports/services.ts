@@ -38,7 +38,10 @@ export interface EnginePort {
 }
 
 export interface EventSourceLike {
-  start(onEvent: (event: MatchEvent) => Promise<void>): void;
+  start(
+    onEvent: (event: MatchEvent) => Promise<void>,
+    onEnd?: (reason: 'completed' | 'failed' | 'stopped') => void,
+  ): void;
   stop(): void;
   currentAsOfMs?(): number | null;
 }

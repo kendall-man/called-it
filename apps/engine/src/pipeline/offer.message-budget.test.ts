@@ -5,6 +5,7 @@ import { renderFallback, type Say } from '../bot/copy.js';
 import {
   CALLER_ID,
   CALL_FIXTURES,
+  fixtureRows,
   GROUPS,
 } from '../points/telegram-points-flow-fixtures.test-support.js';
 import { createTelegramFlowRuntime } from '../points/telegram-points-flow-runtime.test-support.js';
@@ -66,5 +67,52 @@ describe('offer Telegram message budget', () => {
     expect(sent.text).not.toMatch(/\nline 2 /);
     expect(sent.text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u);
     expect(market.card_tg_message_id).toBe(sent.messageId);
+  });
+
+  it('does not mint a live market when a replay ends during pricing', async () => {
+    const runtime = createTelegramFlowRuntime();
+    const fixture = fixtureRows()[0];
+    const callFixture = CALL_FIXTURES[0];
+    const group = GROUPS.find((candidate) => candidate.id === callFixture.groupId);
+    if (fixture === undefined || group === undefined) throw new TypeError('Replay race fixture is missing');
+    const raw: RawClaimParse = {
+      claimType: 'match_winner', fixtureId: fixture.fixture_id,
+      entityName: fixture.p1_name, entityKind: 'team', comparator: 'gte',
+      threshold: 1, period: 'FT_90', unresolved: null,
+    };
+    let resolveQuote: ((value: Awaited<ReturnType<typeof runtime.deps.tx.fetchOdds>>) => void) | undefined;
+    let markQuoteStarted = (): void => undefined;
+    const quoteStarted = new Promise<void>((resolve) => { markQuoteStarted = resolve; });
+    runtime.deps.tx.fetchOdds = async () => {
+      markQuoteStarted();
+      return new Promise((resolve) => { resolveQuote = resolve; });
+    };
+    runtime.deps.agent.parse = async () => raw;
+    await runtime.h.supervisor.startReplay(group.id, fixture);
+
+    const offering = offerClaim(runtime.h, {
+      chatId: group.id,
+      group,
+      text: `${fixture.p1_name} will beat ${fixture.p2_name}`,
+      claimer: telegramUser(CALLER_ID, 'Dee Caller', 'dee_calls'),
+      sourceMessageId: 701,
+      confidence: 1,
+      announce: true,
+      consent: 'explicit',
+    });
+    await quoteStarted;
+    runtime.h.supervisor.stopReplay(group.id);
+    resolveQuote?.({
+      kind: 'ok',
+      odds: {
+        p1x2: { home: 0.6, draw: 0.25, away: 0.15 },
+        totals: { line: 2.5, overProb: 0.55 },
+        oddsMessageId: 'replay-odds',
+        oddsTsMs: Date.parse(fixture.kickoff_at!) - 60_000,
+      },
+    });
+    await offering;
+
+    expect(runtime.db.marketList()).toEqual([]);
   });
 });

@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { MarketSpec, PriceQuote } from '@calledit/market-engine';
+import type { CompileContext, MarketSpec, PriceQuote, RawClaimParse } from '@calledit/market-engine';
 import { proveClaim, quoteSpec } from './claims.js';
 import type { ClaimRow, Deps, FixtureRow, OddsFetchResult } from '../ports.js';
 
@@ -145,7 +145,7 @@ describe('quoteSpec failure taxonomy', () => {
 });
 
 describe('proveClaim never-throw contract', () => {
-  const RAW = {
+  const RAW: RawClaimParse = {
     claimType: 'match_winner',
     fixtureId: FIXTURE_ID,
     entityName: 'Egypt',
@@ -208,6 +208,51 @@ describe('proveClaim never-throw contract', () => {
     const outcome = await proveClaim(deps, CLAIM, REPLAY_FIXTURE);
     expect(compiledFixtureId).toBe(REPLAY_FIXTURE); // null was overridden to the replay fixture
     expect(outcome.kind).toBe('envelope');
+  });
+
+  it('compiles a completed fixture against group-scoped replay state and clock', async () => {
+    // Given a durable final fixture and its virtual in-play replay snapshot
+    const replayNowMs = Date.parse(FIXTURE.kickoff_at!) + 12 * 60_000;
+    const replayFixture: FixtureRow = {
+      ...FIXTURE,
+      phase: 'H1',
+      minute: 12,
+      last_seq: 120,
+      score: { p1: { goals: 1 }, p2: { goals: 0 } },
+    };
+    let durableReads = 0;
+    let parseContext: CompileContext | undefined;
+    let compileContext: CompileContext | undefined;
+    const deps = makeDeps({
+      getFixture: async () => {
+        durableReads += 1;
+        return { ...FIXTURE, phase: 'F', minute: 90 };
+      },
+    });
+    (deps.agent as unknown as {
+      parse(text: string, context: CompileContext): Promise<RawClaimParse>;
+    }).parse = async (_text, context) => {
+      parseContext = context;
+      return RAW;
+    };
+    (deps.engine as unknown as {
+      compileClaim(raw: RawClaimParse, context: CompileContext): unknown;
+    }).compileClaim = (_raw, context) => {
+      compileContext = context;
+      return { kind: 'ok', spec: SPEC };
+    };
+
+    // When the completed match is proved inside a replay
+    const outcome = await proveClaim(deps, CLAIM, FIXTURE_ID, {
+      fixture: replayFixture,
+      nowMs: replayNowMs,
+    });
+
+    // Then neither parse nor compile sees the durable final state
+    expect(outcome.kind).toBe('envelope');
+    expect(parseContext).toMatchObject({ nowMs: replayNowMs, fixture: { phase: 'H1', minute: 12 } });
+    expect(compileContext).toMatchObject({ nowMs: replayNowMs, fixture: { phase: 'H1', minute: 12 } });
+    expect(durableReads).toBe(0);
   });
 
   it('leaves the parsed fixture untouched when no replay pin is given', async () => {

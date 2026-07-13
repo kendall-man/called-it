@@ -1,12 +1,17 @@
 import type { MatchEvent } from '@calledit/market-engine';
 
+export type EventSourceEndReason = 'completed' | 'failed' | 'stopped';
+
 /**
  * The single ingestion contract: LiveSource (SSE) and ReplaySource (virtual
  * clock over asOf snapshots) both implement it, so the downstream pipeline is
  * byte-for-byte identical in live and replay mode.
  */
 export interface MatchEventSource {
-  start(onEvent: (event: MatchEvent) => Promise<void>): void;
+  start(
+    onEvent: (event: MatchEvent) => Promise<void>,
+    onEnd?: (reason: EventSourceEndReason) => void,
+  ): void;
   stop(): void;
 }
 

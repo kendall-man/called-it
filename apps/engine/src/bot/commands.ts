@@ -6,7 +6,8 @@
 import type { Bot } from 'grammy';
 import { InlineKeyboard } from 'grammy';
 import type { User } from 'grammy/types';
-import type { EngineDb } from '../ports.js';
+import { TERMINAL_PHASES } from '@calledit/market-engine';
+import type { EngineDb, FixtureRow } from '../ports.js';
 import type { Env } from '../env.js';
 import type { Poster } from './poster.js';
 import { ensureChatContext, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
@@ -28,6 +29,33 @@ import {
 
 const GROUP_LEADERBOARD_LIMIT = 10;
 const GROUP_RANK_LIMIT = 100;
+const TEST_MATCH_LOOKBACK_MS = 45 * 24 * 60 * 60_000;
+
+function isReplayableFixture(
+  fixture: FixtureRow | null,
+): fixture is FixtureRow & { kickoff_at: string } {
+  return fixture !== null &&
+    fixture.kickoff_at !== null &&
+    !fixture.coverage_unreliable &&
+    TERMINAL_PHASES.includes(fixture.phase);
+}
+
+async function resolveTestFixture(h: HandlerCtx, argument: string) {
+  if (argument.length > 0) {
+    if (!/^\d+$/.test(argument)) return null;
+    const fixtureId = Number(argument);
+    if (!Number.isSafeInteger(fixtureId) || fixtureId <= 0) return null;
+    const fixture = await h.deps.db.getFixture(fixtureId);
+    return isReplayableFixture(fixture) ? fixture : null;
+  }
+
+  const nowMs = h.deps.now();
+  const fixtures = await h.deps.db.fixturesBetween(nowMs - TEST_MATCH_LOOKBACK_MS, nowMs);
+  return [...fixtures]
+    .filter(isReplayableFixture)
+    .filter((fixture) => fixture.phase === 'F')
+    .sort((left, right) => Date.parse(right.kickoff_at) - Date.parse(left.kickoff_at))[0] ?? null;
+}
 
 function isGroup(chatType: string): boolean {
   return chatType === 'group' || chatType === 'supergroup';
@@ -221,6 +249,61 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
     h.poster.post(ctx.chat.id, await h.say('settings_intro'), {
       keyboard: settingsKeyboard(group.chattiness, group.web_enabled),
     });
+  });
+
+  bot.command('testmatch', async (ctx) => {
+    if (!isGroup(ctx.chat.type) || !ctx.from) return;
+    if (!isBetaGroupAllowed(h.deps.env, ctx.chat.id)) return;
+    const from = ctx.from;
+    const group = await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', from);
+    const replyToMessageId = ctx.message?.message_id;
+    const admin = await isGroupAdmin(h, () => ctx.getChatMember(from.id));
+    if (!admin) {
+      h.poster.post(ctx.chat.id, await h.say('admin_only'), { replyToMessageId });
+      return;
+    }
+    if (h.supervisor.hasActiveReplay(group.id)) {
+      h.poster.post(ctx.chat.id, await h.say('replay_blocked_active'), { replyToMessageId });
+      return;
+    }
+
+    let fixture;
+    try {
+      fixture = await resolveTestFixture(h, (ctx.match ?? '').toString().trim());
+    } catch {
+      h.deps.log.warn('test_match_lookup_failed');
+      h.poster.post(ctx.chat.id, await h.say('hiccup'), { replyToMessageId });
+      return;
+    }
+    if (fixture === null) {
+      h.poster.post(ctx.chat.id, await h.say('replay_unknown_fixture'), { replyToMessageId });
+      return;
+    }
+
+    try {
+      const result = await h.supervisor.startReplay(group.id, fixture);
+      if (result === 'already_active') {
+        h.poster.post(ctx.chat.id, await h.say('replay_blocked_active'), { replyToMessageId });
+        return;
+      }
+      if (result === 'live_markets') {
+        h.poster.post(ctx.chat.id, await h.say('replay_blocked_live'), { replyToMessageId });
+        return;
+      }
+    } catch {
+      h.deps.log.warn('test_match_start_failed', { fixtureId: fixture.fixture_id });
+      h.poster.post(ctx.chat.id, await h.say('hiccup'), { replyToMessageId });
+      return;
+    }
+    h.poster.post(
+      ctx.chat.id,
+      await h.say('replay_started', {
+        fixture: `${fixture.p1_name} vs ${fixture.p2_name}`,
+        p1: fixture.p1_name,
+        p2: fixture.p2_name,
+      }),
+      { replyToMessageId },
+    );
   });
 
   bot.command('bookit', async (ctx) => {
