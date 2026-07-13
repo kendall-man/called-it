@@ -92,7 +92,7 @@ export function WalletManager(props: WalletManagerProps) {
     setPhase('authenticating');
 
     const timeout = window.setTimeout(() => {
-      setError('Telegram did not confirm this wallet automatically. Return to Telegram and open /wallet again.');
+      setError('Telegram sign-in did not complete. Return to Telegram and use the newest /wallet button.');
       setCanRetry(true);
       setPhase('failed');
     }, TELEGRAM_SEAMLESS_TIMEOUT_MS);

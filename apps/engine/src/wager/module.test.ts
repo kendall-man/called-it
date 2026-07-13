@@ -199,10 +199,11 @@ describe('/wallet command', () => {
     expect(db.walletLinkSessions).toHaveLength(1);
     expect(db.walletLinkSessions[0]?.token_hash_hex).toMatch(/^[0-9a-f]{64}$/);
     const button = ctx.replyOptions[0]?.reply_markup.inline_keyboard[0]?.[0];
-    const buttonUrl = button?.web_app.url;
+    const buttonUrl = button?.login_url.url;
     expect(buttonUrl).toMatch(/^https:\/\/called-it\.example\/wallet\/[A-Za-z0-9_-]{43}$/);
     expect(new URL(buttonUrl ?? 'https://invalid.example').search).toBe('');
     expect(new URL(buttonUrl ?? 'https://invalid.example').hash).toBe('');
+    expect(button).not.toHaveProperty('web_app');
     expect(button?.text).toBe(
       'Create or manage wallet',
     );

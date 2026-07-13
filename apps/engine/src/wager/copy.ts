@@ -57,7 +57,7 @@ export function createWagerCopy(network: SolanaNetwork) {
   walletSetupUnavailable: (): string =>
     'Wallet setup is temporarily unavailable. No account state changed. Try /wallet again shortly.',
   walletSetupReady: (): string =>
-    `Create a dedicated Solana ${mainnet ? 'mainnet' : 'devnet'} wallet for Called It, or recover one you already made. Your recovery key stays encrypted on your device. This private link expires in 10 minutes.`,
+    `Create a dedicated Solana ${mainnet ? 'mainnet' : 'devnet'} wallet for Called It, or recover one you already made. Your recovery key stays encrypted on your device. This private link expires in 5 minutes.`,
   walletPrivateOnly: (): string =>
     'For privacy, open my private chat and use /wallet there.',
   walletStatus: (pubkey: string, balanceLamports: bigint): string =>

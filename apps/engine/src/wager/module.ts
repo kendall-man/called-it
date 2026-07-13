@@ -114,14 +114,14 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
       deps.log.warn('wallet_link_session_refused', { code: session.code });
       return false;
     }
-    // Keep both the query string and fragment empty. Telegram Web otherwise
-    // omits or prefixes its Mini App auth fragment, which Privy cannot detect.
+    // Telegram's signed login_url handoff works consistently across Telegram
+    // Web and native clients. Privy consumes the signed query parameters.
     const url = new URL(`/wallet/${token}`, deps.webBaseUrl);
     await ctx.reply(text, {
       reply_markup: {
         inline_keyboard: [[{
           text: 'Create or manage wallet',
-          web_app: { url: url.toString() },
+          login_url: { url: url.toString() },
         }]],
       },
     });

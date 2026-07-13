@@ -20,7 +20,8 @@ const PRIVY_CONFIG = {
     walletChainType: 'solana-only',
   },
   embeddedWallets: {
-    solana: { createOnLogin: 'users-without-wallets' },
+    // WalletManager owns creation so authentication and creation cannot race.
+    solana: { createOnLogin: 'off' },
     showWalletUIs: true,
   },
   externalWallets: {
