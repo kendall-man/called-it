@@ -27,6 +27,12 @@ describe('loadEnv', () => {
     });
   });
 
+  it('treats an explicitly blank proof signer as disabled', () => {
+    const parsed = loadEnv({ ...BASE_ENV, SOLANA_KEYPAIR_B58: '' });
+
+    expect(parsed.SOLANA_KEYPAIR_B58).toBeUndefined();
+  });
+
   it('rejects reuse of the proof wallet as the wager treasury', () => {
     // Given one secret configured for both wallet roles
     const source = {

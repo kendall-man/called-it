@@ -71,7 +71,7 @@ const EnvSchema = z.object({
   SOLANA_NETWORK: z.enum(SOLANA_NETWORKS).default('devnet'),
   SOLANA_RPC_URL: z.string().url().optional(),
   /** Optional: without it the proof worker degrades to "unavailable" badges. */
-  SOLANA_KEYPAIR_B58: z.string().optional(),
+  SOLANA_KEYPAIR_B58: OptionalConfiguredStringSchema,
   TXORACLE_PROGRAM_ID: z.string().min(32),
   TXL_MINT: z.string().min(32),
   WEB_BASE_URL: z.string().url(),
