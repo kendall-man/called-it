@@ -18,6 +18,7 @@ import {
   WalletClientError,
   walletClientErrorMessage,
 } from '@/lib/wallet-client';
+import { walletSessionTokenFromLocation } from '@/lib/wallet-session';
 import { WalletDashboard } from './wallet-dashboard';
 import { WalletButton, WalletState } from './wallet-ui';
 
@@ -35,6 +36,7 @@ type SessionState = { readonly kind: 'loading' | 'invalid' } | {
 type Phase = 'opening' | 'authenticating' | 'creating' | 'linking' | 'ready' | 'failed';
 
 const TELEGRAM_SEAMLESS_TIMEOUT_MS = 8_000;
+const WALLET_PHASE_TIMEOUT_MS = 15_000;
 
 export function WalletManager(props: WalletManagerProps) {
   const { ready, authenticated, error: privyError, getAccessToken, logout, user } = usePrivy();
@@ -60,13 +62,23 @@ export function WalletManager(props: WalletManagerProps) {
 
   useEffect(() => {
     const readSession = () => {
-      const token = new URLSearchParams(window.location.search).get('token') ?? '';
-      setSession(/^[A-Za-z0-9_-]{43}$/.test(token)
+      const token = walletSessionTokenFromLocation(window.location);
+      setSession(token !== null
         ? { kind: 'valid', token }
         : { kind: 'invalid' });
     };
     readSession();
   }, []);
+
+  useEffect(() => {
+    if (session.kind !== 'valid' || phase === 'ready' || phase === 'failed') return;
+    const timeout = window.setTimeout(() => {
+      setError('Secure wallet setup took too long. Close this window, open /wallet in Telegram, and try the newest link.');
+      setCanRetry(true);
+      setPhase('failed');
+    }, WALLET_PHASE_TIMEOUT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [phase, session]);
 
   useEffect(() => {
     if (privyError === null) return;

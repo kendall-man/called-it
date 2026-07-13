@@ -114,10 +114,9 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
       deps.log.warn('wallet_link_session_refused', { code: session.code });
       return false;
     }
-    const url = new URL('/wallet', deps.webBaseUrl);
-    // Telegram owns the URL fragment for Mini App launch data. Privy's seamless
-    // Telegram login only detects that data when it starts the fragment.
-    url.search = new URLSearchParams({ token }).toString();
+    // Keep both the query string and fragment empty. Telegram Web otherwise
+    // omits or prefixes its Mini App auth fragment, which Privy cannot detect.
+    const url = new URL(`/wallet/${token}`, deps.webBaseUrl);
     await ctx.reply(text, {
       reply_markup: {
         inline_keyboard: [[{

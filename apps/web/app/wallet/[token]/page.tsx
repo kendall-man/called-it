@@ -7,6 +7,6 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function WalletPage() {
+export default function WalletSessionPage() {
   return <WalletRoute />;
 }
