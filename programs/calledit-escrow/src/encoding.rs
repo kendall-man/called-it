@@ -65,7 +65,7 @@ impl MarketDocumentV1 {
         if self.activation_delay_seconds != POSITION_ACTIVATION_DELAY_SECONDS_V1 {
             return Err(EncodingError::InvalidActivationDelay);
         }
-        if self.in_play_start_timestamp <= self.odds_timestamp
+        if self.position_cutoff <= self.odds_timestamp
             || self.position_cutoff <= self.in_play_start_timestamp
             || self.resolution_deadline <= self.position_cutoff
         {

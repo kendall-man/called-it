@@ -5,6 +5,15 @@ use anchor_lang::prelude::*;
 
 use crate::state::{Asset, PositionSide, SettlementOutcome};
 
+pub mod admin;
+pub mod attestations;
+pub mod market;
+pub mod position;
+
+pub use admin::*;
+pub use market::*;
+pub use position::*;
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct InitializeConfigArgs {
     pub cluster_genesis_hash: [u8; 32],
@@ -34,12 +43,32 @@ pub struct RotateOracleSetArgs {
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RotateConfigArgs {
+    pub config_authority: Pubkey,
+    pub pause_authority: Pubkey,
+    pub market_creation_authority: Pubkey,
+    pub feed_operator_authority: Pubkey,
+    pub relayer_fee_payer: Pubkey,
+    pub residual_recipient: Pubkey,
+    pub max_sol_position: u64,
+    pub max_usdc_position: u64,
+    pub min_sol_position: u64,
+    pub min_usdc_position: u64,
+    pub max_market_duration_seconds: u64,
+    pub max_resolution_delay_seconds: u64,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct SetPauseArgs {
     pub paused: bool,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct InitializeMarketArgs {
+    pub expected_cluster_genesis_hash: [u8; 32],
+    pub expected_program_id: Pubkey,
+    pub expected_config: Pubkey,
+    pub expected_oracle_set: Pubkey,
     pub market_uuid: [u8; 16],
     pub fixture_id: u64,
     pub claim_spec_hash: [u8; 32],
@@ -69,7 +98,11 @@ pub struct FreezeMarketArgs {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct UnfreezeMarketArgs {
     pub expected_event_epoch: u64,
-    pub attestation_hash: [u8; 32],
+    pub deciding_sequence: u64,
+    pub observed_at: i64,
+    pub issued_at: i64,
+    pub expires_at: i64,
+    pub evidence_hash: [u8; 32],
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -79,6 +112,7 @@ pub struct PlacePositionArgs {
     pub amount: u64,
     pub expected_asset: Asset,
     pub expected_ratio_milli: u32,
+    pub expected_market_document_hash: [u8; 32],
     pub expected_event_epoch: u64,
     pub expected_lot_nonce: u64,
     pub client_intent_hash: [u8; 32],
@@ -95,7 +129,10 @@ pub struct ActivatePositionLotArgs {
 pub struct InvalidatePositionLotArgs {
     pub nonce: u64,
     pub evidence_hash: [u8; 32],
-    pub attestation_expiry_timestamp: i64,
+    pub invalidated_event_epoch: u64,
+    pub deciding_sequence: u64,
+    pub issued_at: i64,
+    pub expires_at: i64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]

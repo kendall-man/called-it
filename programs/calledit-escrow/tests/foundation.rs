@@ -294,6 +294,30 @@ fn market_document_rejects_an_unpinned_activation_delay() {
     );
 }
 
+#[test]
+fn market_document_accepts_an_in_play_quote_after_kickoff() {
+    let document = MarketDocumentV1 {
+        market_uuid: [0; 16],
+        fixture_id: 1,
+        claim_specification_hash: [1; 32],
+        display_terms_hash: [2; 32],
+        asset: Asset::Sol,
+        probability_ppm: 500_000,
+        ratio_milli: 1_000,
+        odds_message_hash: [3; 32],
+        odds_timestamp: 250,
+        in_play_start_timestamp: 200,
+        activation_delay_seconds: 150,
+        position_cutoff: 300,
+        resolution_deadline: 400,
+        fee_bps: 0,
+        oracle_set_epoch: 1,
+        replay_flag: false,
+    };
+
+    assert!(document.encode().is_ok());
+}
+
 fn to_hex(bytes: &[u8]) -> String {
     let mut output = String::with_capacity(bytes.len() * 2);
     for byte in bytes {

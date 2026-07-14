@@ -10,8 +10,20 @@ pub enum EscrowError {
     InvalidAuthority,
     #[msg("The protocol configuration is invalid")]
     InvalidConfig,
+    #[msg("The supplied cluster genesis hash does not match protocol configuration")]
+    GenesisHashMismatch,
+    #[msg("The supplied escrow program ID does not match this program")]
+    ProgramIdMismatch,
+    #[msg("The supplied protocol config account is not canonical")]
+    ConfigMismatch,
+    #[msg("The requested pause state is already active")]
+    PauseStateUnchanged,
     #[msg("The oracle set is invalid")]
     InvalidOracleSet,
+    #[msg("The oracle set epoch must increase")]
+    OracleEpochNotIncreasing,
+    #[msg("The oracle signer set contains a duplicate or default key")]
+    InvalidOracleSigner,
     #[msg("The oracle signature threshold is invalid")]
     InvalidOracleThreshold,
     #[msg("The oracle set is not active for this slot")]
@@ -30,6 +42,16 @@ pub enum EscrowError {
     InvalidTokenProgram,
     #[msg("The supplied vault is not the canonical market vault")]
     InvalidVault,
+    #[msg("The SOL vault is not owned by this program")]
+    InvalidVaultOwner,
+    #[msg("The SOL vault rent reserve is below the rent-exempt minimum")]
+    InvalidVaultRentReserve,
+    #[msg("The supplied token mint must use six decimals")]
+    InvalidMintDecimals,
+    #[msg("The supplied token account is not canonical for its owner and mint")]
+    InvalidTokenAccount,
+    #[msg("The position owner must be a system-owned transaction signer")]
+    InvalidUserSigner,
     #[msg("The market is not in the required state")]
     InvalidMarketState,
     #[msg("The market is frozen")]
@@ -40,6 +62,10 @@ pub enum EscrowError {
     MarketDurationExceeded,
     #[msg("The resolution deadline exceeds protocol limits")]
     ResolutionDelayExceeded,
+    #[msg("The market timestamps are stale or not strictly ordered")]
+    InvalidMarketTimestamps,
+    #[msg("The canonical market document hash does not match the supplied hash")]
+    MarketDocumentHashMismatch,
     #[msg("The position amount is outside protocol limits")]
     InvalidPositionAmount,
     #[msg("A wallet cannot take both sides of the same market")]
@@ -48,6 +74,12 @@ pub enum EscrowError {
     LotNonceMismatch,
     #[msg("The market event epoch changed")]
     EventEpochMismatch,
+    #[msg("The position lot is not pending")]
+    LotNotPending,
+    #[msg("The position lot cannot transition from its current state")]
+    InvalidLotState,
+    #[msg("The position activation delay has not elapsed")]
+    ActivationDelayNotElapsed,
     #[msg("The client signing intent expired")]
     ClientIntentExpired,
     #[msg("Checked arithmetic overflowed")]
@@ -58,6 +90,8 @@ pub enum EscrowError {
     AttestationExpired,
     #[msg("The attestation does not have enough unique valid signatures")]
     SignatureThresholdNotMet,
+    #[msg("The Ed25519 verification instruction is malformed")]
+    InvalidEd25519Instruction,
     #[msg("The market was already settled with this outcome")]
     AlreadySettled,
     #[msg("The market was already settled with a contradictory outcome")]
