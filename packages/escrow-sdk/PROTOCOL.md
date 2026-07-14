@@ -149,3 +149,9 @@ extra instructions. The verifier reconstructs the complete expected v0 message,
 checks trusted RPC genesis/block-height context and intent expiry, then verifies
 the user's Ed25519 signature. The relayer is the fee payer only and cannot
 replace the user signer, source account, amount, side, nonce, market, or asset.
+
+Before opening Privy approval, browser clients call
+`verifySponsoredPositionTransactionBeforeUserSigning`. It applies the same exact
+message checks, requires a valid WebCrypto Ed25519 sponsor signature, and rejects
+any transaction whose user signature slot is already populated. After Privy
+signs, `verifySponsoredPositionTransaction` remains the strict post-sign check.

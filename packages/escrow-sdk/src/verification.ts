@@ -12,6 +12,7 @@ export type EscrowVerificationErrorCode =
   | 'program_mismatch'
   | 'message_mismatch'
   | 'required_signer_mismatch'
+  | 'unexpected_user_signature'
   | 'missing_user_signature'
   | 'invalid_user_signature'
   | 'missing_relayer_signature'
@@ -25,14 +26,27 @@ export class EscrowTransactionVerificationError extends Error {
   }
 }
 
-export interface SponsoredPositionVerificationOptions extends SponsoredPositionTerms {
+export interface SponsoredPositionMessageVerificationOptions extends SponsoredPositionTerms {
   readonly expectedGenesisHash: string;
   readonly observedGenesisHash: string;
   readonly recentBlockhash: string;
   readonly lastValidBlockHeight: bigint;
   readonly currentBlockHeight: bigint;
   readonly currentUnixTimestamp: bigint;
+}
+
+export interface SponsoredPositionVerificationOptions extends SponsoredPositionMessageVerificationOptions {
   readonly requireRelayerSignature?: boolean;
+}
+
+export type SponsoredPositionPreSignVerificationOptions = SponsoredPositionMessageVerificationOptions;
+
+interface VerifiedSponsoredPositionMessage {
+  readonly feePayer: ReturnType<typeof publicKey>;
+  readonly userWallet: ReturnType<typeof publicKey>;
+  readonly message: Uint8Array;
+  readonly userSignatureIndex: number;
+  readonly relayerSignatureIndex: number;
 }
 
 function fail(code: EscrowVerificationErrorCode): never {
@@ -52,6 +66,12 @@ function signatureIndex(transaction: VersionedTransaction, signer: ReturnType<ty
 function presentSignature(transaction: VersionedTransaction, index: number): Uint8Array {
   const signature = transaction.signatures[index];
   if (signature === undefined || signature.every((byte) => byte === 0)) fail('missing_user_signature');
+  return signature;
+}
+
+function relayerSignature(transaction: VersionedTransaction, index: number): Uint8Array {
+  const signature = transaction.signatures[index];
+  if (signature === undefined || signature.every((byte) => byte === 0)) fail('missing_relayer_signature');
   return signature;
 }
 
@@ -76,10 +96,10 @@ async function validSignature(publicKeyBytes: Uint8Array, signature: Uint8Array,
   );
 }
 
-export async function verifySponsoredPositionTransaction(
+function verifySponsoredPositionMessage(
   transaction: VersionedTransaction,
-  options: SponsoredPositionVerificationOptions,
-): Promise<void> {
+  options: SponsoredPositionMessageVerificationOptions,
+): VerifiedSponsoredPositionMessage {
   if (options.expectedGenesisHash.length === 0 || options.observedGenesisHash !== options.expectedGenesisHash) {
     fail('network_mismatch');
   }
@@ -108,17 +128,48 @@ export async function verifySponsoredPositionTransaction(
   if (requiredSigners.length !== 2 || !requiredSigners[0]?.equals(feePayer) || !requiredSigners[1]?.equals(userWallet)) {
     fail('required_signer_mismatch');
   }
-  const message = transaction.message.serialize();
   const userIndex = signatureIndex(transaction, userWallet);
   if (userIndex < 0) fail('required_signer_mismatch');
-  const userSignature = presentSignature(transaction, userIndex);
-  if (!await validSignature(userWallet.toBytes(), userSignature, message)) fail('invalid_user_signature');
+  const relayerIndex = signatureIndex(transaction, feePayer);
+  if (relayerIndex < 0) fail('required_signer_mismatch');
+  return {
+    feePayer,
+    userWallet,
+    message: transaction.message.serialize(),
+    userSignatureIndex: userIndex,
+    relayerSignatureIndex: relayerIndex,
+  };
+}
+
+export async function verifySponsoredPositionTransaction(
+  transaction: VersionedTransaction,
+  options: SponsoredPositionVerificationOptions,
+): Promise<void> {
+  const verified = verifySponsoredPositionMessage(transaction, options);
+  const userSignature = presentSignature(transaction, verified.userSignatureIndex);
+  if (!await validSignature(verified.userWallet.toBytes(), userSignature, verified.message)) {
+    fail('invalid_user_signature');
+  }
 
   if (options.requireRelayerSignature === true) {
-    const relayerIndex = signatureIndex(transaction, feePayer);
-    if (relayerIndex < 0) fail('required_signer_mismatch');
-    const relayerSignature = transaction.signatures[relayerIndex];
-    if (relayerSignature === undefined || relayerSignature.every((byte) => byte === 0)) fail('missing_relayer_signature');
-    if (!await validSignature(feePayer.toBytes(), relayerSignature, message)) fail('invalid_relayer_signature');
+    const signature = relayerSignature(transaction, verified.relayerSignatureIndex);
+    if (!await validSignature(verified.feePayer.toBytes(), signature, verified.message)) {
+      fail('invalid_relayer_signature');
+    }
+  }
+}
+
+export async function verifySponsoredPositionTransactionBeforeUserSigning(
+  transaction: VersionedTransaction,
+  options: SponsoredPositionPreSignVerificationOptions,
+): Promise<void> {
+  const verified = verifySponsoredPositionMessage(transaction, options);
+  const userSignature = transaction.signatures[verified.userSignatureIndex];
+  if (userSignature === undefined || !userSignature.every((byte) => byte === 0)) {
+    fail('unexpected_user_signature');
+  }
+  const signature = relayerSignature(transaction, verified.relayerSignatureIndex);
+  if (!await validSignature(verified.feePayer.toBytes(), signature, verified.message)) {
+    fail('invalid_relayer_signature');
   }
 }
