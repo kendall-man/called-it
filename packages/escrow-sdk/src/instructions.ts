@@ -98,6 +98,10 @@ export interface ClaimPositionInstruction {
   readonly kind: 'claim_position';
 }
 
+export interface CalculatePositionEntitlementInstruction {
+  readonly kind: 'calculate_position_entitlement';
+}
+
 export interface ClosePositionLotsInstruction {
   readonly kind: 'close_position_lots';
   readonly lotNonces: readonly bigint[];
@@ -120,6 +124,7 @@ export type EscrowInstructionRequest =
   | SettleMarketInstruction
   | VoidMarketInstruction
   | TimeoutVoidInstruction
+  | CalculatePositionEntitlementInstruction
   | ClaimPositionInstruction
   | ClosePositionLotsInstruction
   | CloseMarketInstruction;

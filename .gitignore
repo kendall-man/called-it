@@ -26,5 +26,10 @@ wallet.json
 .output
 .workflow-data
 
+# Anchor/Rust local build artifacts
+target/
+.anchor/
+test-ledger/
+
 # Local agent tooling (generic skill packs, not project content)
 .agents/

@@ -61,6 +61,63 @@ affects only markets created after the change. Mainnet ownership must be a
 multisig-controlled operations address. No residual transfer is available while
 any user entitlement remains.
 
+### Canonical document size
+
+The full claim specification and display terms can exceed a Solana transaction.
+Escrow V1 therefore puts their canonical SHA-256 hashes, not their raw UTF-8
+text, into the fixed-size market document. The engine and signing view retain
+the text and verify it against those hashes. The program recomputes the complete
+document hash from the validated fixed-size fields during initialization.
+
+### Aggregate payout unit
+
+The economic payout input is one `UserPosition` per wallet and market. Lots are
+audit records that move amounts among that position's active, pending, and
+refundable buckets. The unchanged payout equations apply once to each aggregate
+position. Existing legacy markets keep their historical database-row rounding
+and are never converted.
+
+### Final forfeited total
+
+The sum of floored losing forfeits cannot be reconstructed from market totals
+alone. Accepting it from the relayer or settlement signers would let an
+off-chain actor influence payouts.
+
+After a valid threshold settlement, the market enters `settling`. A
+permissionless `calculate_position_entitlement` transition processes each
+aggregate `UserPosition` exactly once, computes its base refund with program
+math, and accumulates losing forfeits. When the processed count reaches the
+immutable position count, the program marks the market `settled`; winner claims
+then use the finalized forfeited total. Pause never blocks this calculation or
+claim flow. A void or timeout void remains directly refundable without the
+calculation phase.
+
+### Toolchain pin
+
+Anchor `0.31.2` is not an official release. Escrow V1 pins Anchor `0.31.1`, the
+published patch release in the requested `0.31` line, with its recommended
+Solana `2.1.0` family. The CLI, Rust crates, generated IDL, and TypeScript adapter
+must all use that same Anchor version.
+
+## Frozen Account Budget
+
+Sizes include the 8-byte Anchor discriminator. Rent figures use Solana
+`Rent::default()` and are budget estimates that release tooling must re-check
+against the target cluster before initialization.
+
+| Account | Bytes | Estimated rent-exempt lamports |
+| --- | ---: | ---: |
+| `ProtocolConfig` | 379 | 3,528,720 |
+| `OracleSet` (3 signers) | 136 | 1,837,440 |
+| `Market` | 433 | 3,904,560 |
+| `UserPosition` | 141 | 1,872,240 |
+| `PositionLot` | 158 | 1,990,560 |
+| Classic SPL token account | 165 | 2,039,280 |
+
+The relayer may fund account rent, but every close destination is fixed by
+protocol state. Rent sponsorship never gives the relayer authority over user
+principal or claim destinations.
+
 ## Authority Matrix
 
 | Operation | Required authority | May move user value | Available while paused | Justification |

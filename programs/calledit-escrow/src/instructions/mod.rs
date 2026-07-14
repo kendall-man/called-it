@@ -100,11 +100,13 @@ pub struct InvalidatePositionLotArgs {
 pub struct SettleMarketArgs {
     pub outcome: SettlementOutcome,
     pub deciding_sequence: u64,
-    pub final_forfeited_total: u64,
     pub evidence_hash: [u8; 32],
     pub evidence_commitment: [u8; 32],
     pub attestation_expiry_timestamp: i64,
 }
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct CalculatePositionEntitlementArgs {}
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct VoidMarketArgs {

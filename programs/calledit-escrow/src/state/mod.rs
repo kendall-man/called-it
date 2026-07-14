@@ -19,6 +19,7 @@ pub enum MarketState {
     Opening,
     Open,
     Frozen,
+    Settling,
     Settled,
     Voided,
     Closed,
@@ -129,6 +130,9 @@ pub struct Market {
     /// cannot be reconstructed from matched totals alone when multiple losing
     /// owners exist.
     pub final_forfeited_total: u64,
+    /// Number of aggregate positions whose deterministic base entitlement has
+    /// been calculated permissionlessly after threshold settlement.
+    pub settlement_processed_position_count: u64,
     pub settlement_outcome: SettlementOutcome,
     pub settlement_evidence_hash: [u8; 32],
     pub position_count: u64,
@@ -148,6 +152,10 @@ pub struct UserPosition {
     pub active_amount: u64,
     pub pending_amount: u64,
     pub refundable_amount: u64,
+    /// Active stake/refund component fixed by program math before winner
+    /// winnings are derived from the finalized forfeited total.
+    pub settlement_base_entitlement: u64,
+    pub settlement_processed: bool,
     pub next_lot_nonce: u64,
     pub claimed: bool,
     pub total_paid_amount: u64,

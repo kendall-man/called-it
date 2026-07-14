@@ -19,8 +19,8 @@ use solana_program::rent::Rent;
 fn account_layouts_are_frozen() {
     assert_eq!(ProtocolConfig::INIT_SPACE, 371);
     assert_eq!(OracleSet::INIT_SPACE, 128);
-    assert_eq!(Market::INIT_SPACE, 417);
-    assert_eq!(UserPosition::INIT_SPACE, 124);
+    assert_eq!(Market::INIT_SPACE, 425);
+    assert_eq!(UserPosition::INIT_SPACE, 133);
     assert_eq!(PositionLot::INIT_SPACE, 150);
 }
 

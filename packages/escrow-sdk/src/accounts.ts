@@ -1,7 +1,7 @@
 import type { EscrowAsset, PositionSide, SettlementOutcome } from './domain.js';
 
 export type EscrowAddress = string;
-export type MarketState = 'opening' | 'open' | 'frozen' | 'settled' | 'voided' | 'closed';
+export type MarketState = 'opening' | 'open' | 'frozen' | 'settling' | 'settled' | 'voided' | 'closed';
 export type PositionLotState = 'pending' | 'active' | 'voided';
 
 export interface ProtocolConfigAccount {
@@ -11,6 +11,7 @@ export interface ProtocolConfigAccount {
   readonly configAuthority: EscrowAddress;
   readonly pauseAuthority: EscrowAddress;
   readonly marketCreationAuthority: EscrowAddress;
+  readonly feedOperatorAuthority: EscrowAddress;
   readonly oracleSet: EscrowAddress;
   readonly relayerFeePayer: EscrowAddress;
   readonly clusterGenesisHash: Uint8Array;
@@ -62,6 +63,8 @@ export interface MarketAccount {
   readonly pendingDoubtTotal: bigint;
   readonly finalMatchedBackTotal: bigint;
   readonly finalMatchedDoubtTotal: bigint;
+  readonly finalForfeitedTotal: bigint;
+  readonly settlementProcessedPositionCount: bigint;
   readonly settlementOutcome: Exclude<SettlementOutcome, 'void'> | null;
   readonly settlementEvidenceHash: Uint8Array | null;
   readonly positionCount: bigint;
@@ -81,6 +84,8 @@ export interface UserPositionAccount {
   readonly activeAmount: bigint;
   readonly pendingAmount: bigint;
   readonly refundableAmount: bigint;
+  readonly settlementBaseEntitlement: bigint;
+  readonly settlementProcessed: boolean;
   readonly nextLotNonce: bigint;
   readonly claimed: boolean;
   readonly totalPaidAmount: bigint;
