@@ -123,7 +123,7 @@ export function createDepositWatcher(
     const untilSig = await deps.db.getCursor(streamName);
     const scan = await deps.chain.fetchIncomingTransfers({ asset, untilSig });
     if (!scan.ok) {
-      deps.log.warn('wager_deposit_scan_failed');
+      deps.log.warn('wager_deposit_scan_failed', { asset });
       return;
     }
     // Advance the cursor only once EVERY instruction of a signature is
@@ -150,7 +150,7 @@ export function createDepositWatcher(
       await deps.db.setCursor(streamName, scan.newestSig);
     }
     if (scan.transfers.length > 0) {
-      deps.log.info('wager_deposits_scanned', { transfers: scan.transfers.length });
+      deps.log.info('wager_deposits_scanned', { asset, transfers: scan.transfers.length });
     }
   }
 
@@ -161,7 +161,7 @@ export function createDepositWatcher(
       try {
         await run();
       } catch {
-        deps.log.error('wager_deposit_watcher_failed');
+        deps.log.error('wager_deposit_watcher_failed', { asset });
       } finally {
         await deps.db.releaseCronLock(lockName);
       }

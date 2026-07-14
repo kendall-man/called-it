@@ -142,13 +142,24 @@ describe('deposit watcher', () => {
   });
 
   it('a failed scan moves nothing — cursor stays put', async () => {
-    const { deps, db, chain } = makeFakeDeps();
+    const warnings: Array<{ event: string; fields: Record<string, unknown> | undefined }> = [];
+    const { deps, db, chain } = makeFakeDeps({
+      log: {
+        info: () => undefined,
+        warn: (event, fields) => { warnings.push({ event, fields }); },
+        error: () => undefined,
+      },
+    });
     chain.scan = { ok: false, error: '429' };
 
-    await createDepositWatcher(deps).tick();
+    await createDepositWatcher(deps, 'usdc').tick();
 
     expect(db.cursors.size).toBe(0);
     expect(db.deposits.size).toBe(0);
+    expect(warnings).toContainEqual({
+      event: 'wager_deposit_scan_failed',
+      fields: { asset: 'usdc' },
+    });
   });
 
   it('skips the tick entirely when the singleton lock is held elsewhere', async () => {
