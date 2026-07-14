@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { PgResult } from './errors.js';
 import {
@@ -11,6 +12,31 @@ const LEASE_TOKEN = '00000000-0000-4000-8000-000000000026';
 const NOW = '2026-07-15T12:00:00.000Z';
 const LATER = '2026-07-15T12:10:00.000Z';
 const HASH = 'ab'.repeat(32);
+const RAW_TRANSACTION_BASE64 = 'AQID';
+
+function authorization(overrides: Readonly<Record<string, unknown>> = {}) {
+  return {
+    schemaVersion: 1 as const,
+    programId: 'program-address',
+    relayerFeePayer: 'sponsor-address',
+    canonicalUsdcMint: 'canonical-usdc-mint',
+    marketUuid: MARKET_ID,
+    marketPda: 'market-address',
+    marketDocumentHashHex: HASH,
+    side: 'doubt' as const,
+    amount: '10000000',
+    asset: 'sol' as const,
+    expectedRatioMilli: '1500',
+    expectedEventEpoch: '8',
+    expectedLotNonce: '3',
+    expiresAt: String(Date.parse(LATER) / 1_000),
+    genesisHash: 'devnet-genesis-hash',
+    recentBlockhash: 'recent-blockhash',
+    lastValidBlockHeight: '900',
+    messageHashHex: HASH,
+    ...overrides,
+  };
+}
 
 type RpcCall = Readonly<{ fn: string; args: Readonly<Record<string, unknown>> }>;
 
@@ -125,6 +151,8 @@ describe('escrowDbFromClient', () => {
       eventEpoch: 8n,
       documentHashHex: HASH,
       transactionMessageHashHex: HASH,
+      rawTransactionBase64: RAW_TRANSACTION_BASE64,
+      authorization: authorization(),
       expiresAtIso: LATER,
       nowIso: NOW,
     });
@@ -150,11 +178,90 @@ describe('escrowDbFromClient', () => {
       'escrow_consume_signing_session',
     ]);
     expect(client.calls[0]?.args.p_amount_atomic).toBe('10000000');
+    expect(client.calls[0]?.args).toMatchObject({
+      p_raw_transaction_base64: RAW_TRANSACTION_BASE64,
+      p_authorization: authorization(),
+    });
     expect(client.calls[1]?.args).toMatchObject({
       p_token_hash_hex: HASH,
       p_transaction_message_hash_hex: HASH,
       p_transaction_signature: 'position-signature',
     });
+  });
+
+  it('loads the exact durable presentation by token hash without returning the hash', async () => {
+    const { client, db } = makeDb({
+      data: {
+        ok: true,
+        state: 'pending',
+        user_id: 42,
+        provider_user_id: 'privy-user',
+        provider_wallet_id: 'privy-wallet',
+        owner_pubkey: 'owner-address',
+        market_id: MARKET_ID,
+        side: 'doubt',
+        asset: 'sol',
+        amount_atomic: '10000000',
+        lot_nonce: '3',
+        event_epoch: '8',
+        document_hash_hex: HASH,
+        transaction_message_hash_hex: HASH,
+        raw_transaction_base64: RAW_TRANSACTION_BASE64,
+        authorization: authorization(),
+        transaction_signature: null,
+        expires_at: LATER,
+      },
+      error: null,
+    });
+
+    await expect(db.getSigningSession({ tokenHashHex: HASH, nowIso: NOW })).resolves.toEqual({
+      ok: true,
+      state: 'pending',
+      userId: 42,
+      providerUserId: 'privy-user',
+      providerWalletId: 'privy-wallet',
+      ownerPubkey: 'owner-address',
+      marketId: MARKET_ID,
+      side: 'doubt',
+      asset: 'sol',
+      amountAtomic: 10_000_000n,
+      lotNonce: 3n,
+      eventEpoch: 8n,
+      documentHashHex: HASH,
+      transactionMessageHashHex: HASH,
+      rawTransactionBase64: RAW_TRANSACTION_BASE64,
+      authorization: authorization(),
+      transactionSignature: null,
+      expiresAtIso: LATER,
+    });
+    expect(client.calls).toEqual([{
+      fn: 'escrow_get_signing_session',
+      args: { p_token_hash_hex: HASH, p_now: NOW },
+    }]);
+  });
+
+  it('rejects a presentation whose authorization differs from its normalized binding', () => {
+    const { client, db } = makeDb({ data: { ok: true, created: true }, error: null });
+    expect(() => db.createSigningSession({
+      tokenHashHex: HASH,
+      userId: 42,
+      providerUserId: 'privy-user',
+      providerWalletId: 'privy-wallet',
+      ownerPubkey: 'owner-address',
+      marketId: MARKET_ID,
+      side: 'doubt',
+      asset: 'sol',
+      amountAtomic: 10_000_000n,
+      lotNonce: 3n,
+      eventEpoch: 8n,
+      documentHashHex: HASH,
+      transactionMessageHashHex: HASH,
+      rawTransactionBase64: RAW_TRANSACTION_BASE64,
+      authorization: authorization({ amount: '999' }),
+      expiresAtIso: LATER,
+      nowIso: NOW,
+    })).toThrow('authorizationBinding');
+    expect(client.calls).toHaveLength(0);
   });
 
   it('persists signed bytes before submission and retains one expected signature', async () => {
@@ -291,6 +398,13 @@ describe('escrowDbFromClient', () => {
       eventEpoch: 0n,
       documentHashHex: HASH,
       transactionMessageHashHex: HASH,
+      rawTransactionBase64: RAW_TRANSACTION_BASE64,
+      authorization: authorization({
+        side: 'back',
+        amount: '1',
+        expectedEventEpoch: '0',
+        expectedLotNonce: '0',
+      }),
       expiresAtIso: LATER,
       nowIso: NOW,
     })).toThrow();
@@ -303,6 +417,35 @@ describe('escrowDbFromClient', () => {
       rewindSlot: 1n,
       nowIso: NOW,
     })).rejects.toThrow('db.escrow_rewind_confirmed_chain failed');
+  });
+});
+
+describe('0024 escrow signing-session SQL contract', () => {
+  const migration = readFileSync(new URL('../migrations/0024_escrow.sql', import.meta.url), 'utf8');
+  const getSessionRpc = migration.slice(
+    migration.indexOf('create function public.escrow_get_signing_session('),
+    migration.indexOf('create function public.escrow_consume_signing_session('),
+  );
+
+  it('bounds and cross-binds the exact transaction presentation', () => {
+    expect(migration).toContain('raw_transaction_base64        text not null check');
+    expect(migration).toContain('length(raw_transaction_base64) between 4 and 4096');
+    expect(migration).toContain('pg_column_size(p_payload) <= 8192');
+    expect(migration).toContain('check (public.escrow_signing_authorization_valid(');
+    expect(migration).toContain('and v_existing.raw_transaction_base64 = p_raw_transaction_base64');
+    expect(migration).toContain('and v_existing.authorization_payload = p_authorization');
+  });
+
+  it('keeps lookup private, token-hash scoped, and atomically expires stale sessions', () => {
+    expect(getSessionRpc).toContain('security definer');
+    expect(getSessionRpc).toContain('where token_hash = v_token_hash');
+    expect(getSessionRpc).toContain('for update;');
+    expect(getSessionRpc).toContain("set state = 'expired', updated_at = p_now");
+    expect(getSessionRpc).not.toContain("'token_hash'");
+    expect(migration).toContain("p.proname like 'escrow_%'");
+    expect(migration).toContain('revoke all privileges on function %I.%I(%s) from public, anon, authenticated');
+    expect(migration).toContain('grant execute on function %I.%I(%s) to service_role');
+    expect(migration).not.toMatch(/grant execute on function public\.escrow_get_signing_session[\s\S]*to (?:anon|authenticated)/i);
   });
 });
 

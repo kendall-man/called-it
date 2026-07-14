@@ -346,6 +346,83 @@ create index escrow_relayer_jobs_ready_idx
 create index escrow_relayer_jobs_market_idx
   on public.escrow_relayer_jobs (market_id, kind);
 
+-- Signing-session authorization is intentionally JSON-safe: every u64 is a
+-- canonical decimal string so PostgREST/browser runtimes cannot round it.
+-- The exact key set is frozen at schemaVersion 1 and cross-bound to the
+-- normalized columns used by consume/replay checks.
+create function public.escrow_signing_authorization_valid(
+  p_payload jsonb,
+  p_market_id uuid,
+  p_side text,
+  p_asset text,
+  p_amount_atomic numeric,
+  p_lot_nonce numeric,
+  p_event_epoch numeric,
+  p_document_hash_hex text,
+  p_transaction_message_hash_hex text,
+  p_expires_at timestamptz
+) returns boolean
+language sql
+immutable
+set search_path = public
+as $$
+  select coalesce(
+    jsonb_typeof(p_payload) = 'object'
+    and pg_column_size(p_payload) <= 8192
+    and p_payload ?& array[
+      'schemaVersion', 'programId', 'relayerFeePayer', 'canonicalUsdcMint',
+      'marketUuid', 'marketPda', 'marketDocumentHashHex', 'side', 'amount',
+      'asset', 'expectedRatioMilli', 'expectedEventEpoch', 'expectedLotNonce',
+      'expiresAt', 'genesisHash', 'recentBlockhash', 'lastValidBlockHeight',
+      'messageHashHex'
+    ]
+    and p_payload - array[
+      'schemaVersion', 'programId', 'relayerFeePayer', 'canonicalUsdcMint',
+      'marketUuid', 'marketPda', 'marketDocumentHashHex', 'side', 'amount',
+      'asset', 'expectedRatioMilli', 'expectedEventEpoch', 'expectedLotNonce',
+      'expiresAt', 'genesisHash', 'recentBlockhash', 'lastValidBlockHeight',
+      'messageHashHex'
+    ] = '{}'::jsonb
+    and p_payload -> 'schemaVersion' = '1'::jsonb
+    and jsonb_typeof(p_payload -> 'programId') = 'string'
+    and length(p_payload ->> 'programId') between 1 and 128
+    and jsonb_typeof(p_payload -> 'relayerFeePayer') = 'string'
+    and length(p_payload ->> 'relayerFeePayer') between 1 and 128
+    and jsonb_typeof(p_payload -> 'canonicalUsdcMint') = 'string'
+    and length(p_payload ->> 'canonicalUsdcMint') between 1 and 128
+    and jsonb_typeof(p_payload -> 'marketPda') = 'string'
+    and length(p_payload ->> 'marketPda') between 1 and 128
+    and jsonb_typeof(p_payload -> 'genesisHash') = 'string'
+    and length(p_payload ->> 'genesisHash') between 1 and 128
+    and jsonb_typeof(p_payload -> 'recentBlockhash') = 'string'
+    and length(p_payload ->> 'recentBlockhash') between 1 and 128
+    and jsonb_typeof(p_payload -> 'marketUuid') = 'string'
+    and p_payload ->> 'marketUuid' = p_market_id::text
+    and jsonb_typeof(p_payload -> 'side') = 'string'
+    and p_payload ->> 'side' = p_side
+    and jsonb_typeof(p_payload -> 'asset') = 'string'
+    and p_payload ->> 'asset' = p_asset
+    and jsonb_typeof(p_payload -> 'amount') = 'string'
+    and p_payload ->> 'amount' = p_amount_atomic::text
+    and jsonb_typeof(p_payload -> 'expectedEventEpoch') = 'string'
+    and p_payload ->> 'expectedEventEpoch' = p_event_epoch::text
+    and jsonb_typeof(p_payload -> 'expectedLotNonce') = 'string'
+    and p_payload ->> 'expectedLotNonce' = p_lot_nonce::text
+    and jsonb_typeof(p_payload -> 'expectedRatioMilli') = 'string'
+    and p_payload ->> 'expectedRatioMilli' ~ '^[1-9][0-9]{0,19}$'
+    and jsonb_typeof(p_payload -> 'lastValidBlockHeight') = 'string'
+    and p_payload ->> 'lastValidBlockHeight' ~ '^[1-9][0-9]{0,19}$'
+    and jsonb_typeof(p_payload -> 'expiresAt') = 'string'
+    and date_trunc('second', p_expires_at) = p_expires_at
+    and p_payload ->> 'expiresAt' = extract(epoch from p_expires_at)::bigint::text
+    and jsonb_typeof(p_payload -> 'marketDocumentHashHex') = 'string'
+    and p_payload ->> 'marketDocumentHashHex' = lower(p_document_hash_hex)
+    and jsonb_typeof(p_payload -> 'messageHashHex') = 'string'
+    and p_payload ->> 'messageHashHex' = lower(p_transaction_message_hash_hex),
+    false
+  );
+$$;
+
 create table public.escrow_signing_sessions (
   token_hash                    bytea primary key check (octet_length(token_hash) = 32),
   user_id                       bigint not null references public.users(id),
@@ -360,6 +437,12 @@ create table public.escrow_signing_sessions (
   event_epoch                   numeric(20, 0) not null check (event_epoch >= 0),
   document_hash_hex             text not null check (document_hash_hex ~ '^[0-9A-Fa-f]{64}$'),
   transaction_message_hash_hex  text not null check (transaction_message_hash_hex ~ '^[0-9A-Fa-f]{64}$'),
+  raw_transaction_base64        text not null check (
+                                  length(raw_transaction_base64) between 4 and 4096
+                                  and length(raw_transaction_base64) % 4 = 0
+                                  and raw_transaction_base64 ~ '^[A-Za-z0-9+/]+={0,2}$'
+                                ),
+  authorization_payload         jsonb not null,
   state                         text not null default 'pending'
                                 check (state in ('pending', 'consumed', 'cancelled', 'expired')),
   transaction_signature         text,
@@ -367,6 +450,10 @@ create table public.escrow_signing_sessions (
   created_at                    timestamptz not null,
   consumed_at                   timestamptz,
   updated_at                    timestamptz not null,
+  check (public.escrow_signing_authorization_valid(
+    authorization_payload, market_id, side, asset, amount_atomic, lot_nonce,
+    event_epoch, document_hash_hex, transaction_message_hash_hex, expires_at
+  )),
   check ((state = 'consumed') = (consumed_at is not null and transaction_signature is not null))
 );
 
@@ -1471,6 +1558,8 @@ create function public.escrow_create_signing_session(
   p_event_epoch numeric,
   p_document_hash_hex text,
   p_transaction_message_hash_hex text,
+  p_raw_transaction_base64 text,
+  p_authorization jsonb,
   p_expires_at timestamptz,
   p_now timestamptz
 ) returns jsonb
@@ -1483,8 +1572,21 @@ declare
   v_link public.escrow_market_links%rowtype;
   v_existing public.escrow_signing_sessions%rowtype;
 begin
-  if v_token_hash is null or p_expires_at <= p_now
-     or p_expires_at > p_now + interval '15 minutes' then
+  if v_token_hash is null or p_now is null or p_expires_at is null
+     or p_expires_at <= p_now or p_expires_at > p_now + interval '15 minutes'
+     or p_side not in ('back', 'doubt') or p_asset not in ('sol', 'usdc')
+     or p_amount_atomic is null or p_amount_atomic <= 0
+     or p_lot_nonce is null or p_lot_nonce < 0
+     or p_event_epoch is null or p_event_epoch < 0
+     or p_raw_transaction_base64 is null
+     or length(p_raw_transaction_base64) not between 4 and 4096
+     or length(p_raw_transaction_base64) % 4 <> 0
+     or p_raw_transaction_base64 !~ '^[A-Za-z0-9+/]+={0,2}$'
+     or not public.escrow_signing_authorization_valid(
+       p_authorization, p_market_id, p_side, p_asset, p_amount_atomic,
+       p_lot_nonce, p_event_epoch, p_document_hash_hex,
+       p_transaction_message_hash_hex, p_expires_at
+     ) then
     return jsonb_build_object('ok', false, 'code', 'invalid_input');
   end if;
 
@@ -1531,6 +1633,8 @@ begin
        and v_existing.event_epoch = p_event_epoch
        and lower(v_existing.document_hash_hex) = lower(p_document_hash_hex)
        and lower(v_existing.transaction_message_hash_hex) = lower(p_transaction_message_hash_hex)
+       and v_existing.raw_transaction_base64 = p_raw_transaction_base64
+       and v_existing.authorization_payload = p_authorization
        and v_existing.expires_at = p_expires_at then
       return jsonb_build_object('ok', true, 'created', false);
     end if;
@@ -1540,16 +1644,80 @@ begin
   insert into public.escrow_signing_sessions (
     token_hash, user_id, provider_user_id, provider_wallet_id, owner_pubkey,
     market_id, side, asset, amount_atomic, lot_nonce, event_epoch,
-    document_hash_hex, transaction_message_hash_hex, expires_at,
+    document_hash_hex, transaction_message_hash_hex, raw_transaction_base64,
+    authorization_payload, expires_at,
     created_at, updated_at
   ) values (
     v_token_hash, p_user_id, p_provider_user_id, p_provider_wallet_id, p_owner_pubkey,
     p_market_id, p_side, p_asset, p_amount_atomic, p_lot_nonce, p_event_epoch,
-    lower(p_document_hash_hex), lower(p_transaction_message_hash_hex), p_expires_at,
+    lower(p_document_hash_hex), lower(p_transaction_message_hash_hex),
+    p_raw_transaction_base64, p_authorization, p_expires_at,
     p_now, p_now
   );
 
   return jsonb_build_object('ok', true, 'created', true);
+end;
+$$;
+
+create function public.escrow_get_signing_session(
+  p_token_hash_hex text,
+  p_now timestamptz
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_token_hash bytea := public.escrow_decode_sha256_hex(p_token_hash_hex);
+  v_session public.escrow_signing_sessions%rowtype;
+begin
+  if v_token_hash is null or p_now is null then
+    return jsonb_build_object('ok', false, 'code', 'invalid_input');
+  end if;
+
+  select * into v_session from public.escrow_signing_sessions
+  where token_hash = v_token_hash
+  for update;
+  if v_session.token_hash is null then
+    return jsonb_build_object('ok', false, 'code', 'session_not_found');
+  end if;
+
+  if v_session.state = 'pending' and v_session.expires_at <= p_now then
+    update public.escrow_signing_sessions
+    set state = 'expired', updated_at = p_now
+    where token_hash = v_token_hash;
+    return jsonb_build_object('ok', false, 'code', 'session_expired');
+  end if;
+  if v_session.state = 'expired' then
+    return jsonb_build_object('ok', false, 'code', 'session_expired');
+  end if;
+  if v_session.state = 'cancelled' then
+    return jsonb_build_object('ok', false, 'code', 'session_consumed');
+  end if;
+  if v_session.state not in ('pending', 'consumed') then
+    return jsonb_build_object('ok', false, 'code', 'session_consumed');
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'state', v_session.state,
+    'user_id', v_session.user_id,
+    'provider_user_id', v_session.provider_user_id,
+    'provider_wallet_id', v_session.provider_wallet_id,
+    'owner_pubkey', v_session.owner_pubkey,
+    'market_id', v_session.market_id,
+    'side', v_session.side,
+    'asset', v_session.asset,
+    'amount_atomic', v_session.amount_atomic::text,
+    'lot_nonce', v_session.lot_nonce::text,
+    'event_epoch', v_session.event_epoch::text,
+    'document_hash_hex', v_session.document_hash_hex,
+    'transaction_message_hash_hex', v_session.transaction_message_hash_hex,
+    'raw_transaction_base64', v_session.raw_transaction_base64,
+    'authorization', v_session.authorization_payload,
+    'transaction_signature', v_session.transaction_signature,
+    'expires_at', v_session.expires_at
+  );
 end;
 $$;
 

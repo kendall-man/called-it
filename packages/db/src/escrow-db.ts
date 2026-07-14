@@ -3,7 +3,6 @@ import { DbError, type PgResult } from './errors.js';
 import type {
   AdvanceEscrowChainCursorInput,
   ConsumeEscrowSigningSessionInput,
-  CreateEscrowSigningSessionInput,
   DeadLetterEscrowRelayerJobInput,
   EnqueueEscrowRelayerJobInput,
   EscrowAsset,
@@ -32,18 +31,25 @@ import type {
   RewindEscrowConfirmedChainResult,
   EscrowRelayerLeaseTransitionInput,
 } from './escrow-types.js';
+import type {
+  CreateDurableEscrowSigningSessionInput,
+  DurableEscrowDb,
+  EscrowSigningSessionAuthorizationPayload,
+  GetEscrowSigningSessionInput,
+  GetEscrowSigningSessionResult,
+} from './types.js';
 
 export interface EscrowDbClient {
   rpc(fn: string, args: Record<string, unknown>): PromiseLike<PgResult<unknown>>;
 }
 
-export function createEscrowDb(supabaseUrl: string, serviceRoleKey: string): EscrowDb {
+export function createEscrowDb(supabaseUrl: string, serviceRoleKey: string): DurableEscrowDb {
   return escrowDbFromClient(createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   }));
 }
 
-export function escrowDbFromClient(value: unknown): EscrowDb {
+export function escrowDbFromClient(value: unknown): DurableEscrowDb {
   const client = requireEscrowDbClient(value);
   return {
     upsertMarketLink(input) {
@@ -210,9 +216,19 @@ export function escrowDbFromClient(value: unknown): EscrowDb {
         p_event_epoch: decimal(input.eventEpoch, 'eventEpoch'),
         p_document_hash_hex: input.documentHashHex,
         p_transaction_message_hash_hex: input.transactionMessageHashHex,
+        p_raw_transaction_base64: input.rawTransactionBase64,
+        p_authorization: input.authorization,
         p_expires_at: input.expiresAtIso,
         p_now: input.nowIso,
       }, parseSigningSessionResult);
+    },
+
+    getSigningSession(input) {
+      validateGetSigningSession(input);
+      return rpc(client, 'escrow_get_signing_session', {
+        p_token_hash_hex: input.tokenHashHex,
+        p_now: input.nowIso,
+      }, parseGetSigningSessionResult);
     },
 
     consumeSigningSession(input) {
@@ -318,7 +334,7 @@ export function escrowDbFromClient(value: unknown): EscrowDb {
       timestamp(nowIso, 'nowIso');
       return rpc(client, 'escrow_relayer_backlog', { p_now: nowIso }, parseRelayerBacklog);
     },
-  } satisfies EscrowDb;
+  } satisfies DurableEscrowDb;
 }
 
 export function requireEscrowDbClient(value: unknown): EscrowDbClient {
@@ -434,6 +450,49 @@ function parseSigningSessionResult(operation: string, value: unknown): EscrowSig
     }
   }
   return malformed(operation, 'ok');
+}
+
+function parseGetSigningSessionResult(operation: string, value: unknown): GetEscrowSigningSessionResult {
+  const valueRow = row(operation, value);
+  if (valueRow.ok === false) {
+    switch (valueRow.code) {
+      case 'invalid_input':
+      case 'session_not_found':
+      case 'session_expired':
+      case 'session_consumed':
+        return { ok: false, code: valueRow.code };
+      default:
+        return malformed(operation, 'code');
+    }
+  }
+  if (valueRow.ok !== true) return malformed(operation, 'ok');
+  if (valueRow.state !== 'pending' && valueRow.state !== 'consumed') {
+    return malformed(operation, 'state');
+  }
+  return {
+    ok: true,
+    state: valueRow.state,
+    userId: integer(operation, valueRow.user_id, 'user_id'),
+    providerUserId: string(operation, valueRow.provider_user_id, 'provider_user_id'),
+    providerWalletId: string(operation, valueRow.provider_wallet_id, 'provider_wallet_id'),
+    ownerPubkey: string(operation, valueRow.owner_pubkey, 'owner_pubkey'),
+    marketId: uuid(operation, valueRow.market_id, 'market_id'),
+    side: signingSide(operation, valueRow.side),
+    asset: signingAsset(operation, valueRow.asset),
+    amountAtomic: bigintValue(operation, valueRow.amount_atomic, 'amount_atomic'),
+    lotNonce: bigintValue(operation, valueRow.lot_nonce, 'lot_nonce'),
+    eventEpoch: bigintValue(operation, valueRow.event_epoch, 'event_epoch'),
+    documentHashHex: hashValue(operation, valueRow.document_hash_hex, 'document_hash_hex'),
+    transactionMessageHashHex: hashValue(
+      operation,
+      valueRow.transaction_message_hash_hex,
+      'transaction_message_hash_hex',
+    ),
+    rawTransactionBase64: base64Value(operation, valueRow.raw_transaction_base64, 'raw_transaction_base64'),
+    authorization: authorizationValue(operation, valueRow.authorization),
+    transactionSignature: nullableString(operation, valueRow.transaction_signature, 'transaction_signature'),
+    expiresAtIso: parsedTimestamp(operation, valueRow.expires_at, 'expires_at'),
+  };
 }
 
 function parseRelayerMutation(operation: string, value: unknown): EscrowRelayerMutationResult {
@@ -689,20 +748,28 @@ function validateReconciliation(input: RecordEscrowReconciliationInput): void {
   timestamp(input.checkedAtIso, 'checkedAtIso');
 }
 
-function validateCreateSigningSession(input: CreateEscrowSigningSessionInput): void {
+function validateCreateSigningSession(input: CreateDurableEscrowSigningSessionInput): void {
   hash(input.tokenHashHex, 'tokenHashHex');
   safeInteger(input.userId, 'userId', true);
   nonempty(input.providerUserId, 'providerUserId');
   nonempty(input.providerWalletId, 'providerWalletId');
   nonempty(input.ownerPubkey, 'ownerPubkey');
   uuidInput(input.marketId, 'marketId');
+  if (input.side !== 'back' && input.side !== 'doubt') invalid('side');
   validateAsset(input.asset, 'asset');
   decimal(input.amountAtomic, 'amountAtomic', true);
   decimal(input.lotNonce, 'lotNonce');
   decimal(input.eventEpoch, 'eventEpoch');
   hash(input.documentHashHex, 'documentHashHex');
   hash(input.transactionMessageHashHex, 'transactionMessageHashHex');
+  base64Input(input.rawTransactionBase64, 'rawTransactionBase64');
   timestamp(input.expiresAtIso, 'expiresAtIso');
+  timestamp(input.nowIso, 'nowIso');
+  validateAuthorization(input.authorization, input);
+}
+
+function validateGetSigningSession(input: GetEscrowSigningSessionInput): void {
+  hash(input.tokenHashHex, 'tokenHashHex');
   timestamp(input.nowIso, 'nowIso');
 }
 
@@ -783,6 +850,166 @@ function uuidInput(value: string, field: string): void {
 
 function hash(value: string, field: string): void {
   if (!/^[0-9a-f]{64}$/i.test(value)) invalid(field);
+}
+
+const AUTHORIZATION_KEYS = [
+  'schemaVersion',
+  'programId',
+  'relayerFeePayer',
+  'canonicalUsdcMint',
+  'marketUuid',
+  'marketPda',
+  'marketDocumentHashHex',
+  'side',
+  'amount',
+  'asset',
+  'expectedRatioMilli',
+  'expectedEventEpoch',
+  'expectedLotNonce',
+  'expiresAt',
+  'genesisHash',
+  'recentBlockhash',
+  'lastValidBlockHeight',
+  'messageHashHex',
+] as const;
+
+function validateAuthorization(
+  value: EscrowSigningSessionAuthorizationPayload,
+  binding: CreateDurableEscrowSigningSessionInput,
+): void {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) invalid('authorization');
+  const record = value as unknown as Record<string, unknown>;
+  if (
+    Object.keys(record).length !== AUTHORIZATION_KEYS.length
+    || AUTHORIZATION_KEYS.some((key) => !(key in record))
+    || value.schemaVersion !== 1
+  ) invalid('authorization');
+  boundedNonempty(value.programId, 'authorization.programId');
+  boundedNonempty(value.relayerFeePayer, 'authorization.relayerFeePayer');
+  boundedNonempty(value.canonicalUsdcMint, 'authorization.canonicalUsdcMint');
+  uuidInput(value.marketUuid, 'authorization.marketUuid');
+  boundedNonempty(value.marketPda, 'authorization.marketPda');
+  boundedNonempty(value.genesisHash, 'authorization.genesisHash');
+  boundedNonempty(value.recentBlockhash, 'authorization.recentBlockhash');
+  hash(value.marketDocumentHashHex, 'authorization.marketDocumentHashHex');
+  hash(value.messageHashHex, 'authorization.messageHashHex');
+  unsignedDecimalString(value.amount, 'authorization.amount', true);
+  unsignedDecimalString(value.expectedRatioMilli, 'authorization.expectedRatioMilli', true);
+  unsignedDecimalString(value.expectedEventEpoch, 'authorization.expectedEventEpoch');
+  unsignedDecimalString(value.expectedLotNonce, 'authorization.expectedLotNonce');
+  unsignedDecimalString(value.expiresAt, 'authorization.expiresAt', true);
+  unsignedDecimalString(value.lastValidBlockHeight, 'authorization.lastValidBlockHeight', true);
+  const expiresAtMillis = Date.parse(binding.expiresAtIso);
+  if (
+    value.marketUuid !== binding.marketId
+    || value.side !== binding.side
+    || value.asset !== binding.asset
+    || value.amount !== binding.amountAtomic.toString()
+    || value.expectedEventEpoch !== binding.eventEpoch.toString()
+    || value.expectedLotNonce !== binding.lotNonce.toString()
+    || value.marketDocumentHashHex.toLowerCase() !== binding.documentHashHex.toLowerCase()
+    || value.messageHashHex.toLowerCase() !== binding.transactionMessageHashHex.toLowerCase()
+    || expiresAtMillis % 1_000 !== 0
+    || value.expiresAt !== String(expiresAtMillis / 1_000)
+  ) invalid('authorizationBinding');
+  if (Buffer.byteLength(JSON.stringify(value), 'utf8') > 8_192) invalid('authorization');
+}
+
+function authorizationValue(operation: string, value: unknown): EscrowSigningSessionAuthorizationPayload {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return malformed(operation, 'authorization');
+  }
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).length !== AUTHORIZATION_KEYS.length || AUTHORIZATION_KEYS.some((key) => !(key in record))) {
+    return malformed(operation, 'authorization');
+  }
+  if (record.schemaVersion !== 1) return malformed(operation, 'authorization.schemaVersion');
+  return {
+    schemaVersion: 1,
+    programId: boundedStringValue(operation, record.programId, 'authorization.programId'),
+    relayerFeePayer: boundedStringValue(operation, record.relayerFeePayer, 'authorization.relayerFeePayer'),
+    canonicalUsdcMint: boundedStringValue(operation, record.canonicalUsdcMint, 'authorization.canonicalUsdcMint'),
+    marketUuid: uuid(operation, record.marketUuid, 'authorization.marketUuid'),
+    marketPda: boundedStringValue(operation, record.marketPda, 'authorization.marketPda'),
+    marketDocumentHashHex: hashValue(operation, record.marketDocumentHashHex, 'authorization.marketDocumentHashHex'),
+    side: signingSide(operation, record.side),
+    amount: decimalStringValue(operation, record.amount, 'authorization.amount', true),
+    asset: signingAsset(operation, record.asset),
+    expectedRatioMilli: decimalStringValue(operation, record.expectedRatioMilli, 'authorization.expectedRatioMilli', true),
+    expectedEventEpoch: decimalStringValue(operation, record.expectedEventEpoch, 'authorization.expectedEventEpoch'),
+    expectedLotNonce: decimalStringValue(operation, record.expectedLotNonce, 'authorization.expectedLotNonce'),
+    expiresAt: decimalStringValue(operation, record.expiresAt, 'authorization.expiresAt', true),
+    genesisHash: boundedStringValue(operation, record.genesisHash, 'authorization.genesisHash'),
+    recentBlockhash: boundedStringValue(operation, record.recentBlockhash, 'authorization.recentBlockhash'),
+    lastValidBlockHeight: decimalStringValue(operation, record.lastValidBlockHeight, 'authorization.lastValidBlockHeight', true),
+    messageHashHex: hashValue(operation, record.messageHashHex, 'authorization.messageHashHex'),
+  };
+}
+
+function signingSide(operation: string, value: unknown): 'back' | 'doubt' {
+  if (value === 'back' || value === 'doubt') return value;
+  return malformed(operation, 'side');
+}
+
+function signingAsset(operation: string, value: unknown): EscrowAsset {
+  if (value === 'sol' || value === 'usdc') return value;
+  return malformed(operation, 'asset');
+}
+
+function hashValue(operation: string, value: unknown, field: string): string {
+  const parsed = string(operation, value, field);
+  if (/^[0-9a-f]{64}$/i.test(parsed)) return parsed;
+  return malformed(operation, field);
+}
+
+function base64Input(value: string, field: string): void {
+  if (
+    value.length === 0
+    || value.length > 4_096
+    || value.length % 4 !== 0
+    || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)
+    || Buffer.from(value, 'base64').toString('base64') !== value
+  ) invalid(field);
+}
+
+function base64Value(operation: string, value: unknown, field: string): string {
+  const parsed = string(operation, value, field);
+  if (
+    parsed.length > 0
+    && parsed.length <= 4_096
+    && parsed.length % 4 === 0
+    && /^[A-Za-z0-9+/]+={0,2}$/.test(parsed)
+    && Buffer.from(parsed, 'base64').toString('base64') === parsed
+  ) return parsed;
+  return malformed(operation, field);
+}
+
+function unsignedDecimalString(value: string, field: string, positive = false): void {
+  const expression = positive ? /^[1-9][0-9]{0,19}$/ : /^(?:0|[1-9][0-9]{0,19})$/;
+  if (!expression.test(value)) invalid(field);
+}
+
+function decimalStringValue(
+  operation: string,
+  value: unknown,
+  field: string,
+  positive = false,
+): string {
+  const parsed = string(operation, value, field);
+  const expression = positive ? /^[1-9][0-9]{0,19}$/ : /^(?:0|[1-9][0-9]{0,19})$/;
+  if (expression.test(parsed)) return parsed;
+  return malformed(operation, field);
+}
+
+function boundedNonempty(value: string, field: string): void {
+  nonempty(value, field);
+  if (value.length > 128) invalid(field);
+}
+
+function boundedStringValue(operation: string, value: unknown, field: string): string {
+  const parsed = string(operation, value, field);
+  if (parsed.length > 0 && parsed.length <= 128) return parsed;
+  return malformed(operation, field);
 }
 
 function nonempty(value: string | null, field: string): asserts value is string {

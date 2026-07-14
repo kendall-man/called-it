@@ -18,10 +18,81 @@ import type {
   SettlementOutcome,
   TrustTier,
 } from '@calledit/market-engine';
+import type {
+  CreateEscrowSigningSessionInput,
+  EscrowDb,
+  EscrowSigningSessionResult,
+} from './escrow-types.js';
 
 export type { MarketCurrency } from '@calledit/market-engine';
 
 export type * from './group-points-types.js';
+
+/**
+ * JSON-safe representation of the immutable placement authorization. Integer
+ * values remain decimal strings so PostgREST never rounds u64 values.
+ */
+export interface EscrowSigningSessionAuthorizationPayload {
+  readonly schemaVersion: 1;
+  readonly programId: string;
+  readonly relayerFeePayer: string;
+  readonly canonicalUsdcMint: string;
+  readonly marketUuid: string;
+  readonly marketPda: string;
+  readonly marketDocumentHashHex: string;
+  readonly side: 'back' | 'doubt';
+  readonly amount: string;
+  readonly asset: 'sol' | 'usdc';
+  readonly expectedRatioMilli: string;
+  readonly expectedEventEpoch: string;
+  readonly expectedLotNonce: string;
+  readonly expiresAt: string;
+  readonly genesisHash: string;
+  readonly recentBlockhash: string;
+  readonly lastValidBlockHeight: string;
+  readonly messageHashHex: string;
+}
+
+export interface GetEscrowSigningSessionInput {
+  readonly tokenHashHex: string;
+  readonly nowIso: string;
+}
+
+export type GetEscrowSigningSessionResult =
+  | {
+      readonly ok: true;
+      readonly state: 'pending' | 'consumed';
+      readonly userId: number;
+      readonly providerUserId: string;
+      readonly providerWalletId: string;
+      readonly ownerPubkey: string;
+      readonly marketId: string;
+      readonly side: 'back' | 'doubt';
+      readonly asset: 'sol' | 'usdc';
+      readonly amountAtomic: bigint;
+      readonly lotNonce: bigint;
+      readonly eventEpoch: bigint;
+      readonly documentHashHex: string;
+      readonly transactionMessageHashHex: string;
+      readonly rawTransactionBase64: string;
+      readonly authorization: EscrowSigningSessionAuthorizationPayload;
+      readonly transactionSignature: string | null;
+      readonly expiresAtIso: string;
+    }
+  | {
+      readonly ok: false;
+      readonly code: 'invalid_input' | 'session_not_found' | 'session_expired' | 'session_consumed';
+    };
+
+export interface CreateDurableEscrowSigningSessionInput extends CreateEscrowSigningSessionInput {
+  readonly rawTransactionBase64: string;
+  readonly authorization: EscrowSigningSessionAuthorizationPayload;
+}
+
+export interface DurableEscrowDb extends Omit<EscrowDb, 'createSigningSession'> {
+  createSigningSession(input: CreateDurableEscrowSigningSessionInput): Promise<EscrowSigningSessionResult>;
+  getSigningSession(input: GetEscrowSigningSessionInput): Promise<GetEscrowSigningSessionResult>;
+}
 
 // ── Enumerations backed by CHECK constraints in the migration ─────────────
 
