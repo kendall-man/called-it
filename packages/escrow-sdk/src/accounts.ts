@@ -52,6 +52,7 @@ export interface MarketAccount {
   readonly tokenMint: EscrowAddress | null;
   readonly feeBps: number;
   readonly state: MarketState;
+  readonly replay: boolean;
   readonly createdTimestamp: bigint;
   readonly inPlayStartTimestamp: bigint;
   readonly activationDelaySeconds: bigint;
@@ -67,7 +68,7 @@ export interface MarketAccount {
   readonly finalMatchedDoubtTotal: bigint;
   readonly finalForfeitedTotal: bigint;
   readonly settlementProcessedPositionCount: bigint;
-  readonly settlementOutcome: Exclude<SettlementOutcome, 'void'> | null;
+  readonly settlementOutcome: SettlementOutcome | null;
   readonly settlementEvidenceHash: Uint8Array | null;
   readonly positionCount: bigint;
   readonly claimedPositionCount: bigint;

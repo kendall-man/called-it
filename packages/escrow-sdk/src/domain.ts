@@ -44,10 +44,10 @@ export function encodeMarketDocumentV1(document: MarketDocumentV1): Uint8Array {
   if (document.activationDelaySeconds !== POSITION_ACTIVATION_DELAY_SECONDS_V1) {
     throw new Error(`V1 activation delay must be ${POSITION_ACTIVATION_DELAY_SECONDS_V1} seconds`);
   }
-  if (document.inPlayStartTimestamp <= document.oddsTimestamp) {
-    throw new Error('in-play start must be later than the odds timestamp');
+  if (document.oddsTimestamp >= document.positionCutoff) {
+    throw new Error('odds timestamp must be earlier than the position cutoff');
   }
-  if (document.positionCutoff <= document.inPlayStartTimestamp) {
+  if (document.inPlayStartTimestamp >= document.positionCutoff) {
     throw new Error('position cutoff must be later than the in-play start');
   }
   if (document.resolutionDeadline <= document.positionCutoff) {

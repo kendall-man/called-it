@@ -165,4 +165,41 @@ describe('cross-language market golden vector', () => {
     expect(bytesToHex(hashMarketDocumentV1(document)))
       .toBe(golden.vectors.market!.hash_hex);
   });
+
+  it('accepts an in-play quote after kickoff while both remain before cutoff', () => {
+    const document = {
+      marketUuid: '00112233-4455-6677-8899-aabbccddeeff',
+      fixtureId: 91_001n,
+      claimSpecificationHash: h(10),
+      displayTermsHash: h(11),
+      asset: 'sol' as const,
+      probabilityPpm: 620_000,
+      ratioMilli: 613,
+      oddsMessageHash: h(9),
+      oddsTimestamp: 1_730_002_000n,
+      inPlayStartTimestamp: 1_730_001_800n,
+      activationDelaySeconds: 150n,
+      positionCutoff: 1_730_003_600n,
+      resolutionDeadline: 1_730_090_000n,
+      feeBps: 0,
+      oracleSetEpoch: 7n,
+      replayFlag: false,
+    };
+    expect(() => encodeMarketDocumentV1(document)).not.toThrow();
+  });
+
+  it('rejects either timeline predecessor at or after the cutoff', () => {
+    const document = {
+      marketUuid: '00112233-4455-6677-8899-aabbccddeeff', fixtureId: 91_001n,
+      claimSpecificationHash: h(10), displayTermsHash: h(11), asset: 'sol' as const,
+      probabilityPpm: 620_000, ratioMilli: 613, oddsMessageHash: h(9),
+      oddsTimestamp: 1_730_002_000n, inPlayStartTimestamp: 1_730_001_800n,
+      activationDelaySeconds: 150n, positionCutoff: 1_730_003_600n,
+      resolutionDeadline: 1_730_090_000n, feeBps: 0, oracleSetEpoch: 7n, replayFlag: false,
+    };
+    expect(() => encodeMarketDocumentV1({ ...document, oddsTimestamp: document.positionCutoff }))
+      .toThrow(/odds timestamp/);
+    expect(() => encodeMarketDocumentV1({ ...document, inPlayStartTimestamp: document.positionCutoff }))
+      .toThrow(/in-play start/);
+  });
 });

@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "program_id": "7rfzH5Wvo7YjCavDqNu7c18671xSBguZYTkRrn98uq7q",
+  "market_uuid": "00112233-4455-6677-8899-aabbccddeeff",
+  "sol": {
+    "instruction_data_hex": "da1f5a4b65d105fd00112233445566778899aabbccddeeff0080f0fa02000000000065020000746bfdef6cf562aee152f894d0ad378e68c9c0bcb8ad8aed201b141d486cd340010000000000000004000000000000001a58f668243a7b17e37031b81242ccad23427fdd1269d5bab2267d33e789b4027cbd1d6700000000",
+    "message_sha256": "4a286543e6cec8685a168420a74c06f40f3e7b783096741c771a702db05b51fd",
+    "accounts": [
+      "CLiHgbiHBkvjL2SB1JZXLCmabiMwcojJ4s8F9troc7EL",
+      "Hc6fASJ4wcEi1cUJ7hPXw8bbvpqLjj926cbZHa51vt5F",
+      "6c5fX1cKYGRNNbozjDdUr2s5vfUuS1XTistmZeG2kZY6",
+      "4MfyR4G3NWfVRDWo6iNAHDBZqWMgwZX6FNtMqEW3a9JT",
+      "5GzqF9wNkq4mvek3cEhAgp4zmDBRkjRXMiBWzSrtLQ7x",
+      "37NcACuxSUAJucLazVg98UoZZPR3DuoLAfnBJnxeixBn",
+      "6vndZqyXUuCPe1PFeg5iKJ8fp7FR4oHvZHu9dqd8Xsch",
+      "11111111111111111111111111111111",
+      "11111111111111111111111111111111",
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "11111111111111111111111111111111"
+    ]
+  },
+  "usdc": {
+    "instruction_data_hex": "da1f5a4b65d105fd00112233445566778899aabbccddeeff0040787d01000000000165020000746bfdef6cf562aee152f894d0ad378e68c9c0bcb8ad8aed201b141d486cd34001000000000000000400000000000000b49135a58766781398d04261b92b69ebd489e1a5fff7344ff7174e9b5f53893a7cbd1d6700000000",
+    "message_sha256": "bb8325fa626e3e2a80d49b978eb1f4e356fa9a49aea924e11ebc83786d47982d",
+    "accounts": [
+      "CLiHgbiHBkvjL2SB1JZXLCmabiMwcojJ4s8F9troc7EL",
+      "Hc6fASJ4wcEi1cUJ7hPXw8bbvpqLjj926cbZHa51vt5F",
+      "6c5fX1cKYGRNNbozjDdUr2s5vfUuS1XTistmZeG2kZY6",
+      "4MfyR4G3NWfVRDWo6iNAHDBZqWMgwZX6FNtMqEW3a9JT",
+      "5GzqF9wNkq4mvek3cEhAgp4zmDBRkjRXMiBWzSrtLQ7x",
+      "37NcACuxSUAJucLazVg98UoZZPR3DuoLAfnBJnxeixBn",
+      "5VxrknfSdamERBD2iVp35XEk5orcfyhmWF6MAc7jntBv",
+      "JBbpmJpbzY3SLKTwYCYCmdReKR3cME9Cz7sAsFucitLt",
+      "4Mz4Y6iXdBdAbPMv874YWPgH2oy6QKARovMt2pNurh6e",
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "11111111111111111111111111111111"
+    ]
+  }
+}

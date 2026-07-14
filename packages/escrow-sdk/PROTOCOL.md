@@ -111,3 +111,41 @@ and away `u16` values.
 `ProtocolConfig.residualRecipient` is pinned into every new `Market`. The
 `close_market` request contains no destination. Dust and rent may move only to
 the pinned recipient after all positions are claimed and all lots are resolved.
+
+## Anchor client integration status
+
+The SDK schema in `src/schema.ts` is the single source for instruction, account,
+and event discriminators and ordered account metas. Wave 2 admin, market, and
+position entries match the concrete Anchor `0.31.1` argument structs and
+`Accounts` contexts in the current program source. This includes upgradeable
+program-data proof for config initialization, current/new oracle-set accounts,
+genesis/program/config/oracle bindings for market initialization, and the user
+signer plus canonical asset source for placement.
+
+The current program source does not yet define Wave 3 `Accounts` contexts or
+handlers. The client surface is concrete and uses these centralized integration
+assumptions until generated IDL is available:
+
+- `settle_market` stores the SHA-256 hash of the complete canonical settlement
+  attestation in `evidence_commitment`; threshold Ed25519 instructions precede
+  the program instruction.
+- Settlement, void, and invalidation read the instructions sysvar and the
+  market-pinned oracle-set PDA. Timeout, entitlement calculation, and
+  activation are permissionless and add no caller account.
+- `claim_position` includes a sponsoring payer, market, aggregate position,
+  recorded owner, immutable vault, mint, canonical owner ATA, classic token
+  program, associated-token program, and system program. The owner is never a
+  claim signer and cannot be replaced as destination.
+- `close_position_lots` Borsh-encodes `Vec<u64>` nonces and supplies the lot
+  PDAs as writable remaining accounts. `close_market` supplies the residual
+  recipient only as an account constrained to immutable market state, never as
+  instruction data.
+- SOL uses the all-zero public key for unused mint/token-account slots. USDC
+  always uses the configured mint and classic SPL ATA derivation; Token-2022 is
+  not accepted.
+
+Sponsored user placement messages intentionally use no address lookup tables or
+extra instructions. The verifier reconstructs the complete expected v0 message,
+checks trusted RPC genesis/block-height context and intent expiry, then verifies
+the user's Ed25519 signature. The relayer is the fee payer only and cannot
+replace the user signer, source account, amount, side, nonce, market, or asset.
