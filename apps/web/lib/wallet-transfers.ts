@@ -72,9 +72,10 @@ export async function walletBalances(
   rpcUrl: string,
   wallet: PublicKey,
   network: WalletNetwork,
+  canonicalUsdcMint = USDC_MINTS[network],
 ): Promise<Readonly<Record<WalletAsset, bigint>>> {
   const connection = new Connection(resolveRpcUrl(rpcUrl), 'confirmed');
-  const mint = new PublicKey(USDC_MINTS[network]);
+  const mint = new PublicKey(canonicalUsdcMint);
   const tokenAccount = getAssociatedTokenAddressSync(
     mint,
     wallet,

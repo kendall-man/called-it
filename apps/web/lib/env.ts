@@ -18,6 +18,7 @@ const Base64KeySchema = z.string().refine((value) => {
   return decoded.length === 32 && btoa(decoded) === value;
 });
 const PrivyAppIdSchema = z.string().length(25);
+const SolanaPubkeySchema = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,64}$/);
 const WalletAuthKeyIdSchema = z.string().regex(/^[A-Za-z0-9._-]{1,64}$/);
 const WalletAuthPrivateKeySchema = z.string().regex(/^[A-Za-z0-9+/]{120,}={0,2}$/);
 
@@ -28,13 +29,17 @@ const WebEnvSchema = z.object({
   NEXT_PUBLIC_SOLANA_NETWORK: z.enum(['devnet', 'mainnet-beta']).default('devnet'),
   NEXT_PUBLIC_SOLANA_RPC_URL: z.string().url().optional(),
   NEXT_PUBLIC_TXORACLE_PROGRAM_ID: z.string().min(32).optional(),
-  NEXT_PUBLIC_WAGER_TREASURY_PUBKEY: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,64}$/).optional(),
+  NEXT_PUBLIC_WAGER_TREASURY_PUBKEY: SolanaPubkeySchema.optional(),
+  NEXT_PUBLIC_WAGER_CUSTODY_MODE: z.enum(['legacy', 'escrow']).default('legacy'),
+  NEXT_PUBLIC_ESCROW_PROGRAM_ID: SolanaPubkeySchema.optional(),
+  NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT: SolanaPubkeySchema.optional(),
   NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: BotUsernameSchema.optional(),
   NEXT_PUBLIC_TELEGRAM_STARTGROUP: z.literal('calledit_v1').optional(),
   NEXT_PUBLIC_PRIVY_APP_ID: PrivyAppIdSchema.optional(),
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   SOLANA_RPC_URL: z.string().url().optional(),
+  ESCROW_GENESIS_HASH: z.string().min(1).max(128).optional(),
   CONCIERGE_WALLET_API_URL: z.string().url().optional(),
   WEB_CONCIERGE_TOKEN: z.string().min(32).optional(),
   ENGINE_CONCIERGE_TOKEN_SHA256: Sha256FingerprintSchema.optional(),
@@ -127,6 +132,33 @@ const WebEnvSchema = z.object({
       message: 'origin required',
     });
   }
+
+  if (env.NEXT_PUBLIC_WAGER_CUSTODY_MODE === 'escrow') {
+    const escrowVariables = [
+      ['NEXT_PUBLIC_ESCROW_PROGRAM_ID', env.NEXT_PUBLIC_ESCROW_PROGRAM_ID],
+      ['NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT', env.NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT],
+      ['ESCROW_GENESIS_HASH', env.ESCROW_GENESIS_HASH],
+      ['SOLANA_RPC_URL', env.SOLANA_RPC_URL],
+      ['CONCIERGE_WALLET_API_URL', env.CONCIERGE_WALLET_API_URL],
+      ['WEB_CONCIERGE_TOKEN', env.WEB_CONCIERGE_TOKEN],
+      ['SUPABASE_URL', env.SUPABASE_URL],
+      ['SUPABASE_SERVICE_ROLE_KEY', env.SUPABASE_SERVICE_ROLE_KEY],
+      ['NEXT_PUBLIC_PRIVY_APP_ID', env.NEXT_PUBLIC_PRIVY_APP_ID],
+      ['PRIVY_APP_ID', env.PRIVY_APP_ID],
+      ['PRIVY_APP_SECRET', env.PRIVY_APP_SECRET],
+      ['PRIVY_JWT_VERIFICATION_KEY', env.PRIVY_JWT_VERIFICATION_KEY],
+      ['WALLET_AUTH_PRIVATE_KEY', env.WALLET_AUTH_PRIVATE_KEY],
+      ['WALLET_AUTH_KEY_ID', env.WALLET_AUTH_KEY_ID],
+      ['WEB_BASE_URL', env.WEB_BASE_URL],
+      ['WALLET_PROVIDER', env.WALLET_PROVIDER === 'privy' ? env.WALLET_PROVIDER : undefined],
+      ['WALLET_MINIAPP_ENABLED', env.WALLET_MINIAPP_ENABLED ? 'true' : undefined],
+    ] as const;
+    for (const [name, value] of escrowVariables) {
+      if (value === undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: 'required for escrow custody' });
+      }
+    }
+  }
   if (env.WEB_BASE_URL !== undefined && !isOrigin(env.WEB_BASE_URL)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -163,7 +195,12 @@ const WebEnvSchema = z.object({
     ['WEB_BASE_URL', env.WEB_BASE_URL],
     ['WALLET_LINK_DOMAIN', env.WALLET_LINK_DOMAIN],
     ['SOLANA_RPC_URL', env.SOLANA_RPC_URL],
-    ['NEXT_PUBLIC_WAGER_TREASURY_PUBKEY', env.NEXT_PUBLIC_WAGER_TREASURY_PUBKEY],
+    [
+      'NEXT_PUBLIC_WAGER_TREASURY_PUBKEY',
+      env.NEXT_PUBLIC_WAGER_CUSTODY_MODE === 'escrow'
+        ? 'not-used-in-escrow-mode'
+        : env.NEXT_PUBLIC_WAGER_TREASURY_PUBKEY,
+    ],
     ['NEXT_PUBLIC_PRIVY_APP_ID', env.NEXT_PUBLIC_PRIVY_APP_ID],
     ['PRIVY_APP_ID', env.PRIVY_APP_ID],
     ['PRIVY_APP_SECRET', env.PRIVY_APP_SECRET],

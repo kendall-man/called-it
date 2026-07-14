@@ -213,6 +213,48 @@ describe('web environment', () => {
     expect(parsed).not.toHaveProperty('NEXT_PUBLIC_PRIVY_APP_SECRET');
   });
 
+  it('requires every pinned escrow and Privy boundary when escrow custody is public', () => {
+    expect(() => loadWebEnv({
+      ...BASE_ENV,
+      NEXT_PUBLIC_WAGER_CUSTODY_MODE: 'escrow',
+    })).toThrowError(
+      /ESCROW_GENESIS_HASH.*NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT.*NEXT_PUBLIC_ESCROW_PROGRAM_ID/,
+    );
+  });
+
+  it('accepts escrow custody without a legacy treasury address', () => {
+    const webToken = 'web-bridge-token-with-at-least-32-bytes';
+    const source = {
+      ...BASE_ENV,
+      NEXT_PUBLIC_WAGER_CUSTODY_MODE: 'escrow',
+      NEXT_PUBLIC_ESCROW_PROGRAM_ID: '7rfzH5Wvo7YjCavDqNu7c18671xSBguZYTkRrn98uq7q',
+      NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+      ESCROW_GENESIS_HASH: 'devnet-genesis',
+      CONCIERGE_WALLET_API_URL: 'https://engine.example.test',
+      WEB_CONCIERGE_TOKEN: webToken,
+      ENGINE_CONCIERGE_TOKEN_SHA256: sha256('concierge-route-token-with-32-bytes'),
+      ENGINE_TELEGRAM_TOKEN_SHA256: sha256('telegram-route-token-with-32-bytes-'),
+      ENGINE_OPS_TOKEN_SHA256: sha256('operations-route-token-with-32-bytes'),
+      SUPABASE_URL: 'https://project.supabase.co',
+      SUPABASE_SERVICE_ROLE_KEY: 'server-only-service-role',
+      SOLANA_RPC_URL: 'https://api.devnet.solana.com',
+      NEXT_PUBLIC_PRIVY_APP_ID: 'clp_123456789012345678901',
+      PRIVY_APP_ID: 'clp_123456789012345678901',
+      PRIVY_APP_SECRET: 'server-only-privy-app-secret',
+      PRIVY_JWT_VERIFICATION_KEY: 'verification-key',
+      WALLET_AUTH_PRIVATE_KEY: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==',
+      WALLET_AUTH_KEY_ID: 'calledit-wallet-v1',
+      WALLET_MINIAPP_ENABLED: 'true',
+      WALLET_PROVIDER: 'privy',
+      WEB_BASE_URL: 'https://web.example.test',
+      WALLET_LINK_DOMAIN: 'web.example.test',
+    };
+
+    const parsed = loadWebEnv(source);
+    expect(parsed.NEXT_PUBLIC_WAGER_CUSTODY_MODE).toBe('escrow');
+    expect(parsed.NEXT_PUBLIC_WAGER_TREASURY_PUBKEY).toBeUndefined();
+  });
+
   it('requires the public and server Privy app IDs to match', () => {
     const source = {
       ...BASE_ENV,

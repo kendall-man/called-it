@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@calledit/escrow-sdk": "workspace:*",
     "@calledit/market-engine": "workspace:*",
     "@calledit/solana": "workspace:*",
     "@privy-io/node": "^0.25.0",

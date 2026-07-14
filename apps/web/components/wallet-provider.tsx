@@ -7,6 +7,7 @@ import type { ReactNode } from 'react';
 type WalletProviderProps = {
   readonly appId: string;
   readonly children: ReactNode;
+  readonly landingHeader?: string;
 };
 
 const PRIVY_CONFIG = {
@@ -25,6 +26,19 @@ const PRIVY_CONFIG = {
   },
 } satisfies PrivyClientConfig;
 
-export function WalletProvider({ appId, children }: WalletProviderProps) {
-  return <PrivyProvider appId={appId} config={PRIVY_CONFIG}>{children}</PrivyProvider>;
+export function WalletProvider({ appId, children, landingHeader }: WalletProviderProps) {
+  return (
+    <PrivyProvider
+      appId={appId}
+      config={{
+        ...PRIVY_CONFIG,
+        appearance: {
+          ...PRIVY_CONFIG.appearance,
+          landingHeader: landingHeader ?? PRIVY_CONFIG.appearance.landingHeader,
+        },
+      }}
+    >
+      {children}
+    </PrivyProvider>
+  );
 }

@@ -9,6 +9,8 @@ export type WalletApplicationProps = {
   readonly rpcUrl: string;
   readonly treasuryPubkey: string;
   readonly botUsername: string;
+  readonly custodyMode: 'legacy' | 'escrow';
+  readonly canonicalUsdcMint?: string;
 };
 
 export function WalletApplication(props: WalletApplicationProps) {
@@ -19,6 +21,8 @@ export function WalletApplication(props: WalletApplicationProps) {
         rpcUrl={props.rpcUrl}
         treasuryPubkey={props.treasuryPubkey}
         botUsername={props.botUsername}
+        custodyMode={props.custodyMode}
+        canonicalUsdcMint={props.canonicalUsdcMint}
       />
     </WalletProvider>
   );

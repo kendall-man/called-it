@@ -29,6 +29,8 @@ type WalletManagerProps = {
   readonly rpcUrl: string;
   readonly treasuryPubkey: string;
   readonly botUsername: string;
+  readonly custodyMode: 'legacy' | 'escrow';
+  readonly canonicalUsdcMint?: string;
 };
 
 type SessionState =

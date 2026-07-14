@@ -29,4 +29,21 @@ describe('wallet RPC bridge', () => {
     )).ok).toBe(false);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['getGenesisHash', []],
+    ['getBlockHeight', [{ commitment: 'confirmed' }]],
+    ['isBlockhashValid', ['11111111111111111111111111111111', { commitment: 'confirmed' }]],
+  ])('allows the read-only escrow verification method %s', async (method, params) => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({ jsonrpc: '2.0', id: 1, result: true }),
+    );
+    const result = await proxyWalletRpc(
+      { jsonrpc: '2.0', id: 1, method, params },
+      { rpcUrl: 'https://rpc.example.test', fetchImpl },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
 });

@@ -7,6 +7,9 @@ export function WalletRoute() {
     ? 'mainnet-beta'
     : 'devnet';
   const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
+  const custodyMode = process.env.NEXT_PUBLIC_WAGER_CUSTODY_MODE === 'escrow'
+    ? 'escrow'
+    : 'legacy';
   return (
     <PageShell topRight={<Badge tone={network === 'mainnet-beta' ? 'flood' : 'sky'}>{network === 'mainnet-beta' ? 'Mainnet' : 'Devnet'}</Badge>}>
       {appId === undefined || appId.length === 0 ? (
@@ -18,6 +21,8 @@ export function WalletRoute() {
           rpcUrl="/api/solana/rpc"
           treasuryPubkey={process.env.NEXT_PUBLIC_WAGER_TREASURY_PUBKEY ?? ''}
           botUsername={process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? ''}
+          custodyMode={custodyMode}
+          canonicalUsdcMint={process.env.NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT}
         />
       )}
     </PageShell>

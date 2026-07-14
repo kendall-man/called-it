@@ -11,6 +11,9 @@ const WalletRpcRequestSchema = z.object({
     'getAccountInfo',
     'getTokenAccountBalance',
     'getLatestBlockhash',
+    'getGenesisHash',
+    'getBlockHeight',
+    'isBlockhashValid',
     'sendTransaction',
     'getSignatureStatuses',
   ]),
@@ -51,7 +54,12 @@ function validParams(method: string, params: readonly unknown[]): boolean {
     case 'getTokenAccountBalance':
       return params.length >= 1 && isPubkey(params[0]) && optionalConfig(params[1]);
     case 'getLatestBlockhash':
+    case 'getGenesisHash':
+    case 'getBlockHeight':
       return params.length <= 1 && optionalConfig(params[0]);
+    case 'isBlockhashValid':
+      return params.length >= 1 && typeof params[0] === 'string' &&
+        params[0].length >= 32 && params[0].length <= 128 && optionalConfig(params[1]);
     case 'sendTransaction':
       return params.length >= 1 && typeof params[0] === 'string' &&
         BASE64_TRANSACTION_PATTERN.test(params[0]) && optionalConfig(params[1]);
