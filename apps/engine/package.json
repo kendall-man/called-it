@@ -13,11 +13,13 @@
   "dependencies": {
     "@calledit/agent": "workspace:*",
     "@calledit/db": "workspace:*",
+    "@calledit/escrow-sdk": "workspace:*",
     "@calledit/market-engine": "workspace:*",
     "@calledit/solana": "workspace:*",
     "@calledit/txline": "workspace:*",
     "@grammyjs/auto-retry": "^2.0.2",
     "@grammyjs/runner": "^2.0.3",
+    "@solana/web3.js": "1.98.4",
     "grammy": "^1.32.0",
     "zod": "^3.23.8"
   },

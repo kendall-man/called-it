@@ -1,0 +1,169 @@
+import type { EscrowDb, EscrowRelayerJobRow } from '@calledit/db';
+import { buildSponsoredPositionTransaction, deriveMarketPda } from '@calledit/escrow-sdk';
+import { Keypair } from '@solana/web3.js';
+import { describe, expect, it } from 'vitest';
+import { sponsorTransaction } from './transaction-signatures.js';
+import {
+  createEscrowRelayerWorker,
+  type EscrowRelayChain,
+} from './relayer-worker.js';
+
+const NOW = '2026-07-15T00:00:00.000Z';
+const LATER = '2026-07-15T00:00:10.000Z';
+const BLOCKHASH = '11111111111111111111111111111111';
+const GENESIS_HASH = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
+const MARKET_ID = '123e4567-e89b-12d3-a456-426614174000';
+
+function signedPlacementPayload() {
+  const feePayer = Keypair.generate();
+  const owner = Keypair.generate();
+  const program = Keypair.generate();
+  const mint = Keypair.generate();
+  const built = buildSponsoredPositionTransaction({
+    programId: program.publicKey,
+    relayerFeePayer: feePayer.publicKey,
+    userWallet: owner.publicKey,
+    canonicalUsdcMint: mint.publicKey,
+    marketUuid: MARKET_ID,
+    marketDocumentHash: Uint8Array.from({ length: 32 }, () => 0xab),
+    side: 'back',
+    amount: 25n,
+    asset: 'sol',
+    expectedRatioMilli: 1_500,
+    expectedEventEpoch: 4n,
+    expectedLotNonce: 0n,
+    expiresAt: 2_000_000_000n,
+    genesisHash: GENESIS_HASH,
+    recentBlockhash: BLOCKHASH,
+    lastValidBlockHeight: 900n,
+  });
+  const transaction = built.transaction;
+  const sponsored = sponsorTransaction(transaction, feePayer);
+  transaction.sign([owner]);
+  return {
+    rawTransactionBase64: Buffer.from(transaction.serialize()).toString('base64'),
+    expectedSignature: sponsored.expectedSignature,
+    transactionMessageHashHex: sponsored.messageHashHex,
+    recentBlockhash: BLOCKHASH,
+    lastValidBlockHeight: '900',
+    operation: 'place_position',
+    feePayer: feePayer.publicKey.toBase58(),
+    ownerPubkey: owner.publicKey.toBase58(),
+    programId: program.publicKey.toBase58(),
+    canonicalUsdcMint: mint.publicKey.toBase58(),
+    marketId: MARKET_ID,
+    marketPda: deriveMarketPda(program.publicKey, MARKET_ID).address,
+    marketDocumentHashHex: 'ab'.repeat(32),
+    side: 'back',
+    asset: 'sol',
+    amountAtomic: '25',
+    expectedRatioMilli: 1_500,
+    lotNonce: '0',
+    eventEpoch: '4',
+    expiresAt: '2000000000',
+    genesisHash: GENESIS_HASH,
+  };
+}
+
+function leasedJob(payload: ReturnType<typeof signedPlacementPayload>, raw: string | null): EscrowRelayerJobRow {
+  return {
+    id: '123e4567-e89b-12d3-a456-426614174111', kind: 'position_activation',
+    idempotencyKey: 'placement-a', state: 'leased', cluster: 'devnet', programId: payload.programId,
+    custodyMode: 'escrow', custodyVersion: 1, marketId: payload.marketId, ownerPubkey: payload.ownerPubkey,
+    payload, attempts: 1, maxAttempts: 8, leaseDurationMs: 60_000, dueAt: NOW,
+    leaseOwner: 'worker-a', leaseToken: '123e4567-e89b-12d3-a456-426614174222', leaseExpiresAt: LATER,
+    expectedSignature: raw === null ? null : payload.expectedSignature,
+    rawTransactionBase64: raw,
+    transactionMessageHashHex: raw === null ? null : payload.transactionMessageHashHex,
+    lastValidBlockHeight: raw === null ? null : 900n,
+    errorCode: null, createdAt: NOW, updatedAt: NOW,
+  };
+}
+
+function setup(job: EscrowRelayerJobRow, chainOverrides: Partial<EscrowRelayChain> = {}) {
+  const calls: string[] = [];
+  const broadcasts: string[] = [];
+  const payloadSignature = job.payload.expectedSignature;
+  if (typeof payloadSignature !== 'string') throw new Error('expected placement signature');
+  const db: Pick<EscrowDb,
+    'leaseRelayerJobs' | 'recordRelayerSignedTransaction' | 'markRelayerSubmitted' |
+    'retryRelayerJob' | 'completeRelayerJob' | 'deadLetterRelayerJob'> = {
+      async leaseRelayerJobs() { calls.push('lease'); return [job]; },
+      async recordRelayerSignedTransaction() { calls.push('record_signed'); return { ok: true, created: false, jobId: job.id }; },
+      async markRelayerSubmitted() { calls.push('submitted'); return { ok: true, duplicate: false, state: 'submitted' }; },
+      async retryRelayerJob(input) { calls.push(`retry:${input.confirmationUnknown}`); return { ok: true, duplicate: false, state: input.confirmationUnknown ? 'unknown' : 'retry_wait' }; },
+      async completeRelayerJob() { calls.push('complete'); return { ok: true, duplicate: false, state: 'complete' }; },
+      async deadLetterRelayerJob(input) { calls.push(`dead:${input.errorCode}`); return { ok: true, duplicate: false, state: 'dead' }; },
+    };
+  const chain: EscrowRelayChain = {
+    async broadcast(raw) { broadcasts.push(raw); return payloadSignature; },
+    async signatureState() { return { kind: 'absent' }; },
+    async genesisHash() { return GENESIS_HASH; },
+    async blockHeight() { return 800n; },
+    async isBlockhashValid() { return true; },
+    ...chainOverrides,
+  };
+  const worker = createEscrowRelayerWorker({ db, chain, workerId: 'worker-a', retryAt: () => LATER });
+  return { worker, calls, broadcasts };
+}
+
+describe('sponsored escrow relayer recovery', () => {
+  it('persists fully signed user bytes before first broadcast', async () => {
+    // Given a newly leased durable placement payload
+    const payload = signedPlacementPayload();
+    const fixture = setup(leasedJob(payload, null));
+
+    // When the relay worker processes it
+    const result = await fixture.worker.runOnce(NOW, 1);
+
+    // Then bytes are persisted before the exact transaction is submitted
+    expect(result).toEqual([{ kind: 'submitted', jobId: expect.any(String), signature: payload.expectedSignature }]);
+    expect(fixture.calls).toEqual(['lease', 'record_signed', 'submitted']);
+    expect(fixture.broadcasts).toEqual([payload.rawTransactionBase64]);
+  });
+
+  it('rebroadcasts identical persisted bytes after restart', async () => {
+    // Given a restarted lease whose full-history lookup is absent but blockhash is live
+    const payload = signedPlacementPayload();
+    const fixture = setup(leasedJob(payload, payload.rawTransactionBase64));
+
+    // When recovery runs
+    await fixture.worker.runOnce(NOW, 1);
+
+    // Then no transaction is rebuilt and unknown confirmation remains retryable
+    expect(fixture.broadcasts).toEqual([payload.rawTransactionBase64]);
+    expect(fixture.calls).toEqual(['lease', 'retry:true']);
+  });
+
+  it('terminally rejects an expired user signature after full-history absence', async () => {
+    // Given an expired placement whose signature never landed
+    const payload = signedPlacementPayload();
+    const fixture = setup(leasedJob(payload, payload.rawTransactionBase64), {
+      isBlockhashValid: async () => false,
+      blockHeight: async () => 901n,
+    });
+
+    // When recovery runs
+    await fixture.worker.runOnce(NOW, 1);
+
+    // Then the user signature is preserved and never server-replaced
+    expect(fixture.broadcasts).toHaveLength(0);
+    expect(fixture.calls).toEqual(['lease', 'dead:user_signature_expired']);
+  });
+
+  it('terminally rejects durable terms that no longer match the user-signed message', async () => {
+    // Given a valid user signature paired with a substituted durable amount
+    const payload = { ...signedPlacementPayload(), amountAtomic: '26' };
+    const fixture = setup(leasedJob(payload, null));
+
+    // When first-broadcast verification reconstructs the SDK terms
+    const result = await fixture.worker.runOnce(NOW, 1);
+
+    // Then the corrupted job is dead-lettered without touching the network
+    expect(result).toEqual([{
+      kind: 'terminal', jobId: expect.any(String), errorCode: 'invalid_user_transaction',
+    }]);
+    expect(fixture.broadcasts).toHaveLength(0);
+    expect(fixture.calls).toEqual(['lease', 'dead:invalid_user_transaction']);
+  });
+});
