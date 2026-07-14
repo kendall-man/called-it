@@ -2,6 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { withRetryablePollingConflict } from './polling-retry.js';
 
 describe('withRetryablePollingConflict', () => {
+  it('normalizes the raw Telegram response seen by API transformers', async () => {
+    const onConflict = vi.fn();
+
+    await expect(withRetryablePollingConflict(
+      'getUpdates',
+      async () => ({ ok: false, error_code: 409 }),
+      onConflict,
+    )).rejects.toMatchObject({ message: 'telegram polling overlap; retrying' });
+    expect(onConflict).toHaveBeenCalledOnce();
+  });
+
   it('turns only getUpdates 409 conflicts into retryable errors', async () => {
     const onConflict = vi.fn();
     const conflict = { error_code: 409, description: 'another poller is active' };

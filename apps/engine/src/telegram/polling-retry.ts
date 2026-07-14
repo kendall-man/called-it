@@ -8,6 +8,10 @@ function isPollingConflict(method: string, error: unknown): boolean {
     && error.error_code === 409;
 }
 
+function retryableConflict(): Error {
+  return new Error(RETRYABLE_POLLING_CONFLICT_MESSAGE);
+}
+
 /**
  * grammY retries ordinary fetch failures but treats Telegram 409 as fatal.
  * During a Railway rolling deploy, the old and new pollers overlap briefly,
@@ -19,10 +23,15 @@ export async function withRetryablePollingConflict<Result>(
   onConflict: () => void,
 ): Promise<Result> {
   try {
-    return await operation();
+    const result = await operation();
+    if (isPollingConflict(method, result)) {
+      onConflict();
+      throw retryableConflict();
+    }
+    return result;
   } catch (error) {
     if (!isPollingConflict(method, error)) throw error;
     onConflict();
-    throw new Error(RETRYABLE_POLLING_CONFLICT_MESSAGE);
+    throw retryableConflict();
   }
 }
