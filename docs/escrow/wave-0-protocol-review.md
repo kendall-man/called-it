@@ -77,6 +77,16 @@ refundable buckets. The unchanged payout equations apply once to each aggregate
 position. Existing legacy markets keep their historical database-row rounding
 and are never converted.
 
+### In-play boundary and delay
+
+The program cannot safely accept a client-supplied `in_play` flag. Every market
+document therefore includes the immutable fixture kickoff as
+`in_play_start_timestamp` and pins `activation_delay_seconds=150`, matching the
+existing 60-second feed-delay plus 90-second debounce window. Placements before
+kickoff become active immediately. Placements at or after kickoff become
+pending, observe the current event epoch, and can activate only after the pinned
+delay with no epoch change.
+
 ### Final forfeited total
 
 The sum of floored losing forfeits cannot be reconstructed from market totals
@@ -109,7 +119,7 @@ against the target cluster before initialization.
 | --- | ---: | ---: |
 | `ProtocolConfig` | 379 | 3,528,720 |
 | `OracleSet` (3 signers) | 136 | 1,837,440 |
-| `Market` | 433 | 3,904,560 |
+| `Market` | 449 | 4,015,920 |
 | `UserPosition` | 141 | 1,872,240 |
 | `PositionLot` | 158 | 1,990,560 |
 | Classic SPL token account | 165 | 2,039,280 |

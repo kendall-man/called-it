@@ -8,8 +8,9 @@ use anchor_lang::solana_program::hash::hash;
 use crate::{
     constants::{
         FEED_EVENT_ATTESTATION_DOMAIN_V1, FEE_BPS_V1, MARKET_DOCUMENT_DOMAIN_V1,
-        POSITION_INVALIDATION_DOMAIN_V1, QUOTE_ATTESTATION_DOMAIN_V1, SCHEMA_VERSION_V1,
-        SETTLEMENT_ATTESTATION_DOMAIN_V1, VOID_ATTESTATION_DOMAIN_V1,
+        POSITION_ACTIVATION_DELAY_SECONDS_V1, POSITION_INVALIDATION_DOMAIN_V1,
+        QUOTE_ATTESTATION_DOMAIN_V1, SCHEMA_VERSION_V1, SETTLEMENT_ATTESTATION_DOMAIN_V1,
+        VOID_ATTESTATION_DOMAIN_V1,
     },
     math::ratio_milli,
     state::{Asset, SettlementOutcome},
@@ -20,6 +21,7 @@ pub enum EncodingError {
     InvalidProbability,
     RatioMismatch,
     NonzeroFee,
+    InvalidActivationDelay,
     InvalidDeadlineOrder,
     InvalidValidityWindow,
     InvalidEventEpoch,
@@ -41,6 +43,8 @@ pub struct MarketDocumentV1 {
     pub ratio_milli: u32,
     pub odds_message_hash: [u8; 32],
     pub odds_timestamp: i64,
+    pub in_play_start_timestamp: i64,
+    pub activation_delay_seconds: u64,
     pub position_cutoff: i64,
     pub resolution_deadline: i64,
     pub fee_bps: u16,
@@ -58,7 +62,11 @@ impl MarketDocumentV1 {
         if self.fee_bps != FEE_BPS_V1 {
             return Err(EncodingError::NonzeroFee);
         }
-        if self.position_cutoff <= self.odds_timestamp
+        if self.activation_delay_seconds != POSITION_ACTIVATION_DELAY_SECONDS_V1 {
+            return Err(EncodingError::InvalidActivationDelay);
+        }
+        if self.in_play_start_timestamp <= self.odds_timestamp
+            || self.position_cutoff <= self.in_play_start_timestamp
             || self.resolution_deadline <= self.position_cutoff
         {
             return Err(EncodingError::InvalidDeadlineOrder);
@@ -74,6 +82,8 @@ impl MarketDocumentV1 {
         writer.u32(self.ratio_milli);
         writer.fixed(&self.odds_message_hash);
         writer.i64(self.odds_timestamp);
+        writer.i64(self.in_play_start_timestamp);
+        writer.u64(self.activation_delay_seconds);
         writer.i64(self.position_cutoff);
         writer.i64(self.resolution_deadline);
         writer.u16(self.fee_bps);

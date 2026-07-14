@@ -39,6 +39,8 @@ describe('MarketDocumentV1 canonical encoding', () => {
     ratioMilli: 613,
     oddsMessageHash: h(9),
     oddsTimestamp: 1_730_000_000n,
+    inPlayStartTimestamp: 1_730_001_800n,
+    activationDelaySeconds: 150n,
     positionCutoff: 1_730_003_600n,
     resolutionDeadline: 1_730_090_000n,
     feeBps: 0,
@@ -59,6 +61,8 @@ describe('MarketDocumentV1 canonical encoding', () => {
       .toThrow(/ratio/);
     expect(() => encodeMarketDocumentV1({ ...document, feeBps: 1 }))
       .toThrow(/fee/);
+    expect(() => encodeMarketDocumentV1({ ...document, activationDelaySeconds: 149n }))
+      .toThrow(/activation delay/);
   });
 });
 
@@ -148,6 +152,8 @@ describe('cross-language market golden vector', () => {
       ratioMilli: 613,
       oddsMessageHash: h(9),
       oddsTimestamp: 1_730_000_000n,
+      inPlayStartTimestamp: 1_730_001_800n,
+      activationDelaySeconds: 150n,
       positionCutoff: 1_730_003_600n,
       resolutionDeadline: 1_730_090_000n,
       feeBps: 0,

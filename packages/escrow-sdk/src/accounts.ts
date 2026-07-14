@@ -53,6 +53,8 @@ export interface MarketAccount {
   readonly feeBps: number;
   readonly state: MarketState;
   readonly createdTimestamp: bigint;
+  readonly inPlayStartTimestamp: bigint;
+  readonly activationDelaySeconds: bigint;
   readonly positionCutoffTimestamp: bigint;
   readonly resolutionDeadline: bigint;
   readonly oracleSetEpoch: bigint;

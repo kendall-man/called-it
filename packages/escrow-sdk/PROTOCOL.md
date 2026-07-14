@@ -34,11 +34,13 @@ Fields after the header, in order:
 7. ratio milli (`u32`)
 8. odds message hash (`[u8; 32]`)
 9. odds timestamp (`i64`)
-10. position cutoff (`i64`)
-11. resolution deadline (`i64`)
-12. fee BPS (`u16`, must be zero in V1)
-13. oracle-set epoch (`u64`)
-14. replay flag (`bool`)
+10. in-play start / kickoff timestamp (`i64`)
+11. activation delay seconds (`u64`, exactly `150` in V1)
+12. position cutoff (`i64`)
+13. resolution deadline (`i64`)
+14. fee BPS (`u16`, must be zero in V1)
+15. oracle-set epoch (`u64`)
+16. replay flag (`bool`)
 
 The escrow ratio is derived only from integer PPM:
 

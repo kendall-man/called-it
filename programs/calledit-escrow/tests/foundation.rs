@@ -1,9 +1,9 @@
 use anchor_lang::prelude::Space;
 use calledit_escrow::{
     encoding::{
-        hash_canonical_bytes, AttestationCommonV1, FeedEventAttestationV1, FeedEventKind,
-        MarketDocumentV1, PositionInvalidationAttestationV1, QuoteAttestationV1, ScoreV1,
-        SettlementAttestationV1, VoidAttestationV1, VoidReason,
+        hash_canonical_bytes, AttestationCommonV1, EncodingError, FeedEventAttestationV1,
+        FeedEventKind, MarketDocumentV1, PositionInvalidationAttestationV1, QuoteAttestationV1,
+        ScoreV1, SettlementAttestationV1, VoidAttestationV1, VoidReason,
     },
     math::{compute_pots, ratio_milli, settle_positions, MathError, SettlementInput},
     state::{
@@ -19,7 +19,7 @@ use solana_program::rent::Rent;
 fn account_layouts_are_frozen() {
     assert_eq!(ProtocolConfig::INIT_SPACE, 371);
     assert_eq!(OracleSet::INIT_SPACE, 128);
-    assert_eq!(Market::INIT_SPACE, 425);
+    assert_eq!(Market::INIT_SPACE, 441);
     assert_eq!(UserPosition::INIT_SPACE, 133);
     assert_eq!(PositionLot::INIT_SPACE, 150);
 }
@@ -184,6 +184,8 @@ fn canonical_encodings_match_the_shared_typescript_vectors_byte_for_byte() {
         ratio_milli: 613,
         odds_message_hash: [9; 32],
         odds_timestamp: 1_730_000_000,
+        in_play_start_timestamp: 1_730_001_800,
+        activation_delay_seconds: 150,
         position_cutoff: 1_730_003_600,
         resolution_deadline: 1_730_090_000,
         fee_bps: 0,
@@ -263,6 +265,33 @@ fn canonical_encodings_match_the_shared_typescript_vectors_byte_for_byte() {
             "{name} hash"
         );
     }
+}
+
+#[test]
+fn market_document_rejects_an_unpinned_activation_delay() {
+    let document = MarketDocumentV1 {
+        market_uuid: [0; 16],
+        fixture_id: 1,
+        claim_specification_hash: [1; 32],
+        display_terms_hash: [2; 32],
+        asset: Asset::Sol,
+        probability_ppm: 500_000,
+        ratio_milli: 1_000,
+        odds_message_hash: [3; 32],
+        odds_timestamp: 100,
+        in_play_start_timestamp: 200,
+        activation_delay_seconds: 149,
+        position_cutoff: 300,
+        resolution_deadline: 400,
+        fee_bps: 0,
+        oracle_set_epoch: 1,
+        replay_flag: false,
+    };
+
+    assert_eq!(
+        document.encode(),
+        Err(EncodingError::InvalidActivationDelay)
+    );
 }
 
 fn to_hex(bytes: &[u8]) -> String {

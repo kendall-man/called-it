@@ -53,6 +53,8 @@ pub struct InitializeMarketArgs {
     pub token_mint: Pubkey,
     pub fee_bps: u16,
     pub replay: bool,
+    pub in_play_start_timestamp: i64,
+    pub activation_delay_seconds: u64,
     pub position_cutoff_timestamp: i64,
     pub resolution_deadline: i64,
     pub oracle_set_epoch: u64,

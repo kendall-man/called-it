@@ -116,6 +116,10 @@ pub struct Market {
     /// config rotations can redirect residual dust or reclaimed account rent.
     pub residual_recipient: Pubkey,
     pub created_timestamp: i64,
+    /// Immutable kickoff boundary. Placements at or after this timestamp enter
+    /// the pending anti-snipe state.
+    pub in_play_start_timestamp: i64,
+    pub activation_delay_seconds: u64,
     pub position_cutoff_timestamp: i64,
     pub resolution_deadline: i64,
     pub oracle_set_epoch: u64,

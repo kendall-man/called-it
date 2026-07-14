@@ -2,6 +2,8 @@
 
 pub const SCHEMA_VERSION_V1: u8 = 1;
 pub const MULTIPLIER_SCALE: u64 = 1_000;
+/// Existing engine anti-snipe window: 60s assumed feed delay + 90s debounce.
+pub const POSITION_ACTIVATION_DELAY_SECONDS_V1: u64 = 150;
 pub const PROBABILITY_PPM_SCALE: u32 = 1_000_000;
 pub const FEE_BPS_V1: u16 = 0;
 pub const USDC_DECIMALS: u8 = 6;
