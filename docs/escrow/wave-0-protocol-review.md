@@ -87,6 +87,12 @@ kickoff become active immediately. Placements at or after kickoff become
 pending, observe the current event epoch, and can activate only after the pinned
 delay with no epoch change.
 
+Kickoff and quote time have no required relative order. Pre-match markets have
+quotes before kickoff, while in-play markets are quoted after kickoff. Both
+timestamps must precede the position cutoff, and the cutoff must precede the
+resolution deadline. This preserves live-call support without letting a client
+choose whether a placement receives anti-snipe treatment.
+
 ### Final forfeited total
 
 The sum of floored losing forfeits cannot be reconstructed from market totals
