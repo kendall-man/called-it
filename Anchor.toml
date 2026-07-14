@@ -7,7 +7,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-calledit_escrow = "7rfzH5Wvo7YjCavDqNu7c18671xSBguZYTkRrn98uq7q"
+calledit_escrow = "HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL"
 
 [provider]
 cluster = "Localnet"

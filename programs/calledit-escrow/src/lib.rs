@@ -10,7 +10,7 @@ pub mod instructions;
 pub mod math;
 pub mod state;
 
-declare_id!("7rfzH5Wvo7YjCavDqNu7c18671xSBguZYTkRrn98uq7q");
+declare_id!("HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL");
 
 #[program]
 pub mod calledit_escrow {
