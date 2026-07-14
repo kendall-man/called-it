@@ -1,0 +1,187 @@
+name: escrow
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+    paths:
+      - "programs/calledit-escrow/**"
+      - "packages/escrow-sdk/**"
+      - "packages/db/**"
+      - "apps/engine/src/escrow/**"
+      - "apps/web/lib/position-*.ts"
+      - "apps/web/app/api/position/**"
+      - "scripts/escrow/**"
+      - ".github/workflows/escrow.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Anchor.toml"
+  pull_request:
+    paths:
+      - "programs/calledit-escrow/**"
+      - "packages/escrow-sdk/**"
+      - "packages/db/**"
+      - "apps/engine/src/escrow/**"
+      - "apps/web/lib/position-*.ts"
+      - "apps/web/app/api/position/**"
+      - "scripts/escrow/**"
+      - ".github/workflows/escrow.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Anchor.toml"
+  workflow_dispatch:
+    inputs:
+      evidence_path:
+        description: "Tracked sanitized evidence under release-evidence/ (verification only)"
+        required: false
+        type: string
+      verification_mode:
+        description: "This workflow never deploys or mutates chain state"
+        required: true
+        default: VERIFY_ONLY
+        type: choice
+        options:
+          - VERIFY_ONLY
+
+permissions:
+  contents: read
+
+concurrency:
+  group: escrow-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-controls:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.11.1
+
+      - name: Install workspace
+        run: npx -y pnpm@10.33.0 install --frozen-lockfile
+
+      - name: Typecheck and test release controls
+        run: |
+          npx -y pnpm@10.33.0 exec tsc -p scripts/escrow/tsconfig.json --noEmit
+          npx -y pnpm@10.33.0 exec tsx --test scripts/escrow/release-controls.test.ts
+
+      - name: Check fake fixture IDL policy
+        run: npx -y pnpm@10.33.0 exec tsx scripts/escrow/cli.ts idl-policy --idl scripts/escrow/fixtures/idl-policy-pass.example.json
+
+  rust-and-idl:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Cache Cargo
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: escrow-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'Anchor.toml') }}
+
+      - name: Rust format, check, clippy, and tests
+        run: |
+          cargo fmt --all -- --check
+          cargo check -p calledit-escrow --all-targets --locked
+          cargo clippy -p calledit-escrow --all-targets --locked -- -D warnings
+          cargo test -p calledit-escrow --locked
+
+      - name: Install pinned Anchor CLI
+        run: |
+          if ! command -v anchor >/dev/null || [ "$(anchor --version)" != "anchor-cli 0.31.1" ]; then
+            cargo install anchor-cli --version 0.31.1 --locked
+          fi
+
+      - name: Generate and enforce deployed-IDL policy
+        run: |
+          mkdir -p target/idl
+          anchor idl build -p calledit_escrow -o target/idl/calledit_escrow.json
+          npx -y pnpm@10.33.0 exec tsx scripts/escrow/cli.ts idl-policy --idl target/idl/calledit_escrow.json
+
+      - name: Build SBF when the runner provides Solana platform tools
+        run: |
+          if command -v cargo-build-sbf >/dev/null; then
+            anchor build
+          else
+            echo "SBF build skipped: this hosted runner has no cargo-build-sbf. The devnet release runner must execute it."
+          fi
+
+  focused-app-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.11.1
+
+      - name: Install workspace
+        run: npx -y pnpm@10.33.0 install --frozen-lockfile
+
+      - name: Escrow SDK
+        run: |
+          npx -y pnpm@10.33.0 --filter @calledit/escrow-sdk typecheck
+          npx -y pnpm@10.33.0 --filter @calledit/escrow-sdk test
+
+      - name: Database escrow slice
+        run: |
+          npx -y pnpm@10.33.0 --filter @calledit/db typecheck
+          npx -y pnpm@10.33.0 --filter @calledit/db exec vitest run src/escrow-db.test.ts src/escrow-migration.test.ts
+
+      - name: Engine escrow slice
+        run: |
+          npx -y pnpm@10.33.0 --filter @calledit/engine typecheck
+          npx -y pnpm@10.33.0 --filter @calledit/engine exec vitest run src/escrow
+
+      - name: Web signing slice
+        run: |
+          npx -y pnpm@10.33.0 --filter @calledit/web typecheck
+          npx -y pnpm@10.33.0 --filter @calledit/web exec vitest run lib/position-chain.test.ts lib/position-contract.test.ts lib/position-flow.test.ts lib/position-server.test.ts
+
+  mainnet-verification-only:
+    if: github.event_name == 'workflow_dispatch' && inputs.evidence_path != ''
+    needs:
+      - release-controls
+      - rust-and-idl
+      - focused-app-tests
+    runs-on: ubuntu-24.04
+    environment: mainnet-verification
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288ca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.11.1
+
+      - name: Install workspace
+        run: npx -y pnpm@10.33.0 install --frozen-lockfile
+
+      - name: Enforce verification-only evidence gate
+        env:
+          EVIDENCE_PATH: ${{ inputs.evidence_path }}
+          VERIFICATION_MODE: ${{ inputs.verification_mode }}
+        run: |
+          set -euo pipefail
+          test "$VERIFICATION_MODE" = VERIFY_ONLY
+          case "$EVIDENCE_PATH" in
+            release-evidence/*.json) ;;
+            *) echo "Evidence must be a tracked sanitized JSON file under release-evidence/" >&2; exit 2 ;;
+          esac
+          test -f "$EVIDENCE_PATH"
+          npx -y pnpm@10.33.0 exec tsx scripts/escrow/cli.ts mainnet-gate --evidence "$EVIDENCE_PATH"
+          echo "Verification passed. This workflow has no deployment or chain-mutation step."

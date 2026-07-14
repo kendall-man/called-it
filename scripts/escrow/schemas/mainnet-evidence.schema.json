@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://called.it/schemas/escrow/mainnet-evidence-v1.json",
+  "title": "Called It escrow mainnet verification evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "network", "releaseManifestSha256", "releaseVerificationArtifactSha256", "releaseVerifiedAt", "localValidator", "devnetE2e", "directClaimEngineDown", "pausedTimeoutVoid", "relayerRecovery", "legacyAudit", "soakSamples", "independentReview", "externalAudit", "authorities", "canary", "explicitApproval"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "network": { "const": "mainnet-beta" },
+    "releaseManifestSha256": { "$ref": "#/$defs/sha256" },
+    "releaseVerificationArtifactSha256": { "$ref": "#/$defs/sha256" },
+    "releaseVerifiedAt": { "$ref": "#/$defs/timestamp" },
+    "localValidator": { "$ref": "#/$defs/passedArtifact" },
+    "devnetE2e": { "$ref": "#/$defs/passedArtifact" },
+    "directClaimEngineDown": { "$ref": "#/$defs/passedArtifact" },
+    "pausedTimeoutVoid": { "$ref": "#/$defs/passedArtifact" },
+    "relayerRecovery": { "$ref": "#/$defs/passedArtifact" },
+    "legacyAudit": { "$ref": "#/$defs/passedArtifact" },
+    "soakSamples": { "type": "array", "minItems": 7, "items": { "$ref": "#/$defs/soakSample" } },
+    "independentReview": { "$ref": "#/$defs/review" },
+    "externalAudit": { "$ref": "#/$defs/review" },
+    "authorities": { "type": "array", "minItems": 6, "items": { "$ref": "#/$defs/authority" } },
+    "canary": { "type": "object" },
+    "explicitApproval": { "type": "object" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "passedArtifact": { "type": "object", "required": ["passed", "artifactSha256"], "properties": { "passed": { "const": true }, "artifactSha256": { "$ref": "#/$defs/sha256" } } },
+    "soakSample": { "type": "object", "additionalProperties": false, "required": ["capturedAt", "driftAtomic", "signerAgreement", "relayerHealthy", "indexerHealthy", "rpcIdentityMatch", "artifactSha256"], "properties": { "capturedAt": { "$ref": "#/$defs/timestamp" }, "driftAtomic": { "const": "0" }, "signerAgreement": { "const": true }, "relayerHealthy": { "const": true }, "indexerHealthy": { "const": true }, "rpcIdentityMatch": { "const": true }, "artifactSha256": { "$ref": "#/$defs/sha256" } } },
+    "review": { "type": "object", "additionalProperties": false, "required": ["passed", "artifactSha256", "criticalOpen", "highOpen"], "properties": { "passed": { "const": true }, "artifactSha256": { "$ref": "#/$defs/sha256" }, "criticalOpen": { "const": 0 }, "highOpen": { "const": 0 } } },
+    "authority": { "type": "object", "additionalProperties": false, "required": ["role", "address", "multisig", "threshold", "signerCount"], "properties": { "role": { "type": "string" }, "address": { "type": "string" }, "multisig": { "const": true }, "threshold": { "type": "integer", "minimum": 2 }, "signerCount": { "type": "integer", "minimum": 2 } } }
+  }
+}

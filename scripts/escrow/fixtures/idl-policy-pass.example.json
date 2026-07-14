@@ -1,0 +1,14 @@
+{
+  "address": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+  "instructions": [
+    { "name": "initialize_market", "accounts": [{ "name": "market", "writable": true }, { "name": "vault", "writable": true }], "args": [] },
+    { "name": "place_position", "accounts": [{ "name": "owner", "signer": true }, { "name": "vault", "writable": true }], "args": [] },
+    { "name": "claim_position", "accounts": [{ "name": "owner", "signer": true }, { "name": "vault", "writable": true }], "args": [] },
+    { "name": "claim_position_for", "accounts": [{ "name": "payer", "signer": true }, { "name": "owner" }, { "name": "vault", "writable": true }], "args": [] },
+    { "name": "void_market", "accounts": [{ "name": "config" }, { "name": "market", "writable": true }], "args": [] },
+    { "name": "timeout_void", "accounts": [{ "name": "market", "writable": true }], "args": [] },
+    { "name": "close_position_lots", "accounts": [{ "name": "position", "writable": true }], "args": [] },
+    { "name": "close_market", "accounts": [{ "name": "vault", "writable": true }, { "name": "residual_recipient", "writable": true }], "args": [] }
+  ],
+  "types": []
+}
