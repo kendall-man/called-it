@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Deps } from '../ports.js';
 import type { Env } from '../env.js';
 import type { Logger } from '../log.js';
@@ -82,6 +82,32 @@ async function route(
     sendJson(res, report.status === 'ready' ? 200 : 503, report);
     return;
   }
+  if (req.method === 'POST' && path === '/api/telegram-webhook') {
+    if (
+      options.env.TELEGRAM_INGRESS !== 'webhook'
+      || options.telegramIngress === undefined
+      || options.env.TELEGRAM_WEBHOOK_SECRET_TOKEN === undefined
+    ) {
+      sendJson(res, 404, { error: 'not_found' });
+      return;
+    }
+    if (!telegramWebhookSecretMatches(req, options.env.TELEGRAM_WEBHOOK_SECRET_TOKEN)) {
+      sendJson(res, 401, { error: 'unauthorized' });
+      return;
+    }
+    if (options.drainState.isDraining()) {
+      sendJson(res, 503, { error: 'draining' });
+      return;
+    }
+    const update = body.value;
+    if (!isRecord(update)) {
+      sendJson(res, 400, { error: 'bad_request' });
+      return;
+    }
+    await options.telegramIngress.accept(update);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
   const routeScope = allowedScopes(req.method ?? 'GET', path);
   if (routeScope === null) {
     sendJson(res, 404, { error: 'not_found' });
@@ -150,6 +176,15 @@ async function route(
     return;
   }
   sendJson(res, 404, { error: 'not_found' });
+}
+
+function telegramWebhookSecretMatches(req: IncomingMessage, expected: string): boolean {
+  const supplied = req.headers['x-telegram-bot-api-secret-token'];
+  if (typeof supplied !== 'string') return false;
+  const suppliedBytes = Buffer.from(supplied);
+  const expectedBytes = Buffer.from(expected);
+  return suppliedBytes.length === expectedBytes.length
+    && timingSafeEqual(suppliedBytes, expectedBytes);
 }
 
 function routeCredentials(env: Env): RouteCredentials {

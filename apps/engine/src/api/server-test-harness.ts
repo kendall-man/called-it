@@ -1,4 +1,5 @@
 import type { Server } from 'node:http';
+import type { Env } from '../env.js';
 import type { Logger } from '../log.js';
 import type { Deps, EngineDb, FixtureRow, MarketRow } from '../ports.js';
 import type { Poster } from '../bot/poster.js';
@@ -199,6 +200,7 @@ export async function startHarness(options: {
   readiness?: ReadinessEvaluator;
   drainState?: DrainState;
   log?: Logger;
+  env?: Partial<Env>;
   parse?: Deps['agent']['parse'];
   wager?: Deps['wager'];
   telegramIngress?: TelegramIngressPort;
@@ -223,6 +225,7 @@ export async function startHarness(options: {
   });
   const env = {
     ...TEST_ENV,
+    ...options.env,
     PORT: 0,
   };
   const poster: Poster = {

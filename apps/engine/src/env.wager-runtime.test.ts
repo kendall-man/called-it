@@ -50,6 +50,18 @@ describe('wager runtime environment', () => {
     });
   });
 
+  it('accepts signed webhook ingress for the guarded mainnet funded profile', () => {
+    expect(loadEnv({
+      ...MAINNET_ENV,
+      TELEGRAM_INGRESS: 'webhook',
+      TELEGRAM_WEBHOOK_SECRET_TOKEN: 'mainnet-telegram-webhook-secret-token',
+    })).toMatchObject({
+      SOLANA_NETWORK: 'mainnet-beta',
+      WAGER_RUNTIME_MODE: 'funded',
+      TELEGRAM_INGRESS: 'webhook',
+    });
+  });
+
   it.each([
     ['a devnet RPC', { SOLANA_RPC_URL: 'https://api.devnet.solana.com' }, 'SOLANA_RPC_URL'],
     [

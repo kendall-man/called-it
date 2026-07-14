@@ -85,10 +85,9 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8790),
   /**
    * How Telegram updates reach this process. 'poll' long-polls getUpdates
-   * (default, standalone). 'webhook' means the concierge owns the bot's
-   * webhook and forwards non-conversational updates to POST
-   * /api/telegram-ingress — the engine must NOT poll (setWebhook makes
-   * getUpdates return 409).
+   * (default, standalone). 'webhook' accepts Bot API updates directly at
+   * /api/telegram-webhook and preserves the authenticated internal forwarding
+   * route at /api/telegram-ingress. The engine must not poll in webhook mode.
    */
   TELEGRAM_INGRESS: z.enum(['poll', 'webhook']).default('poll'),
   /** Explicit wager capability boundary. Required for staging and production. */
@@ -166,15 +165,6 @@ const EnvSchema = z.object({
     if (!env.TREASURY_COVERAGE_ENFORCED) {
       addPairIssue('SOLANA_NETWORK', 'TREASURY_COVERAGE_ENFORCED');
     }
-  }
-  // The allowlisted beta has one direct engine-bot ingress. Keep webhook
-  // routing disabled until the separate concierge delivery program is resumed.
-  if (deployed && env.TELEGRAM_INGRESS !== 'poll') {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['TELEGRAM_INGRESS'],
-      message: 'allowlisted beta requires direct polling ingress',
-    });
   }
   if (deployed && env.BETA_ALLOWED_GROUP_IDS.length === 0) {
     ctx.addIssue({
