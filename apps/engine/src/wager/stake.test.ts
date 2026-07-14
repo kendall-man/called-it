@@ -75,6 +75,14 @@ describe('handleStakeTap gates', () => {
     expect(result.reply).toBe(WAGER_COPY.paused());
     expect(db.lastStakeArgs).toBeNull();
   });
+
+  it('disabled acceptance switch → paused copy, no funded RPC call', async () => {
+    const { deps, db } = makeFakeDeps({ stakeAcceptanceEnabled: false });
+    db.seedLink(USER, WALLET);
+    const result = await handleStakeTap(deps, tap());
+    expect(result).toEqual({ reply: WAGER_COPY.paused(), placed: false });
+    expect(db.lastStakeArgs).toBeNull();
+  });
 });
 
 describe('handleStakeTap placement', () => {

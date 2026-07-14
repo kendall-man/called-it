@@ -60,6 +60,12 @@ export function offerKeyboard(market: MarketRow): InlineKeyboard {
     );
 }
 
+export function stakeConfirmationKeyboard(intentId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('Confirm', encodeCallback({ t: 'stake_confirm', intentId }))
+    .text('Cancel', encodeCallback({ t: 'stake_cancel', intentId }));
+}
+
 export function voidReplayBlockerKeyboard(marketId: string): InlineKeyboard {
   return new InlineKeyboard().text(
     'Void call',

@@ -187,8 +187,15 @@ export function registerNavigationCommands(bot: NavigationCommandBot, h: Navigat
       });
       return;
     }
-    if (!isBetaGroupAllowed(h.deps.env, ctx.chat.id)) return;
+    if (!isBetaGroupAllowed(h.deps.env, ctx.chat.id)) {
+      h.poster.post(ctx.chat.id, await h.say('beta_access_required'));
+      return;
+    }
     const group = await h.deps.db.upsertGroup({ id: ctx.chat.id, title: ctx.chat.title ?? '' });
+    if (!group.is_admin) {
+      h.poster.post(ctx.chat.id, await h.say('admin_permission_required'));
+      return;
+    }
     const plan = await planGroupReadiness({
       store: groupReadyMarkerStore(h.deps.db),
       group,

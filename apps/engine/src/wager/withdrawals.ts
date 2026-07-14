@@ -91,16 +91,16 @@ async function confirm(deps: WagerModuleDeps, row: WagerWithdrawalRow): Promise<
   );
 }
 
-/** Group post to the user's last wager group — never a DM. */
+/** Financial receipts stay in the user's private Telegram chat. */
 async function notify(
   deps: WagerModuleDeps,
   userId: number,
   line: (name: string) => Promise<string>,
 ): Promise<void> {
   const link = await deps.db.getWalletLink(userId);
-  if (!link || link.last_wager_group_id === null) return;
+  if (!link) return;
   const name = (await deps.db.getUserName(userId)) ?? 'A player';
-  deps.poster.post(link.last_wager_group_id, await line(name));
+  deps.poster.post(userId, await line(name));
 }
 
 async function processSubmitted(deps: WagerModuleDeps, row: WagerWithdrawalRow): Promise<void> {

@@ -133,6 +133,22 @@ export interface WagerStakeTapArgs {
   source: WagerStakeTapSource;
 }
 
+export interface WagerStakeConfirmationArgs extends Omit<WagerStakeTapArgs, 'source'> {
+  /** Telegram callback id used only to deduplicate creation of the prompt. */
+  callbackId: string;
+}
+
+export type WagerStakeConfirmationResult =
+  | { readonly ok: true; readonly intentId: string }
+  | { readonly ok: false; readonly reply: string };
+
+export interface WagerStakeTapResult {
+  readonly reply: string;
+  readonly placed: boolean;
+  /** True for a fresh commit or an idempotent replay of that same commit. */
+  readonly accepted?: true;
+}
+
 /**
  * The source is server-derived, so no Telegram/API client can select starter
  * eligibility. Only a default Telegram card tap can enter the starter branch.
@@ -145,8 +161,10 @@ export type WagerStakeTapSource =
 export interface WagerModuleCore {
   /** Always 'sol' now — every market is a SOL market. Stamped atomically at mint. */
   currencyForMint(groupId: number): Promise<WagerCurrency>;
+  /** Current global acceptance state used to keep Telegram cards honest. */
+  stakesAvailable(): Promise<boolean>;
   /** The stake path shared by buttons and the API; reply is the answer text. */
-  handleStakeTap(args: WagerStakeTapArgs): Promise<{ reply: string; placed: boolean }>;
+  handleStakeTap(args: WagerStakeTapArgs): Promise<WagerStakeTapResult>;
   /** Idempotent money movement for a settled/voided sol market. */
   applySettlement(marketId: string): Promise<void>;
   /** Chat receipt line (SOL amounts are chat-only; public_receipts untouched). */
@@ -165,8 +183,25 @@ export interface StarterOnlyWagerModule extends WagerModuleCore {
 
 export interface FundedWagerModule extends WagerModuleCore {
   readonly kind: 'funded';
-  /** User-global SOL balance (lamports) + linked wallet, for the API wallet route. */
-  walletSummary(userId: number): Promise<{ balanceLamports: bigint; pubkey: string | null }>;
+  /** User-global available/locked SOL + linked wallet for private account surfaces. */
+  walletSummary(userId: number): Promise<{
+    balanceLamports: bigint;
+    lockedLamports: bigint;
+    pubkey: string | null;
+  }>;
+  prepareStakeConfirmation(
+    args: WagerStakeConfirmationArgs,
+  ): Promise<WagerStakeConfirmationResult>;
+  getStakeConfirmation(userId: number, intentId: string): Promise<{
+    readonly marketId: string;
+    readonly groupId: number;
+    readonly side: WagerPositionSide;
+    readonly lamports: bigint;
+  } | null>;
+  confirmStakeConfirmation(args: Omit<WagerStakeConfirmationArgs, 'callbackId'> & {
+    readonly intentId: string;
+  }): Promise<{ reply: string; placed: boolean }>;
+  cancelStakeConfirmation(userId: number, intentId: string): Promise<boolean>;
   registerCommands(bot: WagerBotLike): void;
   /** Custody workers: deposits, withdrawals, and treasury solvency. */
   registerFundedWorkers(registry: WagerCronRegistry): void;

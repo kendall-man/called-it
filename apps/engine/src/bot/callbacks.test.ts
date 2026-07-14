@@ -187,6 +187,7 @@ function makeHarness(config: HarnessConfig): Harness {
   const wager = {
     currencyForMint: async () => 'sol' as const,
     cardFooter: () => '⚠️ devnet SOL — /deposit to load, /withdraw to cash out.',
+    stakesAvailable: async () => true,
     presetLabels: () => ['0.01 SOL', '0.05 SOL', '0.1 SOL'] as [string, string, string],
     applySettlement: async () => undefined,
   };

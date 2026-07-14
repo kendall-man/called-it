@@ -53,7 +53,9 @@ export function createPoster(api: Api, queue: SendQueue, log: Logger): Poster {
       queue.enqueueCardEdit(chatId, marketId, async () => {
         try {
           await api.editMessageText(chatId, messageId, text, {
-            ...(keyboard ? { reply_markup: keyboard } : {}),
+            // Telegram preserves the old inline keyboard when reply_markup is
+            // omitted. An explicit empty keyboard removes stale money actions.
+            reply_markup: keyboard ?? { inline_keyboard: [] },
             link_preview_options: { is_disabled: true },
           });
         } catch (err) {

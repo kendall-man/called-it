@@ -7,11 +7,12 @@
 import { WAGER_TUNABLES } from './constants.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { createWagerCopy } from './copy.js';
-import { parseSolToLamports } from './format.js';
+import { assertSafeLamports, parseSolToLamports } from './format.js';
 import { createDepositWatcher } from './deposits.js';
 import { createWithdrawalExecutor } from './withdrawals.js';
 import { createSolvencyMonitor } from './solvency.js';
 import { createWagerModuleCore } from './module-core.js';
+import { handleStakeTap } from './stake.js';
 import type {
   WagerBotLike,
   WagerCommandCtx,
@@ -21,6 +22,7 @@ import type {
 } from './port.js';
 
 const WALLET_LINK_SESSION_TTL_MS = 5 * 60_000;
+const STAKE_CONFIRMATION_TTL_MS = 2 * 60_000;
 
 // The contract lives in port.ts; re-exported here so seams that import from
 // the module entry point (type-only) resolve without reaching into port.ts.
@@ -64,6 +66,103 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
   const executor = createWithdrawalExecutor(deps);
   const solvency = createSolvencyMonitor(deps);
 
+  async function accountSummary(userId: number): Promise<{
+    balanceLamports: bigint;
+    lockedLamports: bigint;
+    pubkey: string | null;
+  }> {
+    const [balanceLamports, link, marketIds] = await Promise.all([
+      deps.db.balanceLamports(userId),
+      deps.db.getWalletLink(userId),
+      deps.db.openSolMarketIds(),
+    ]);
+    const marketPositions = await Promise.all(
+      marketIds.map((marketId) => deps.db.positionsForMarket(marketId)),
+    );
+    let lockedLamports = 0n;
+    for (const position of marketPositions.flat()) {
+      if (position.user_id !== userId || position.state === 'void') continue;
+      lockedLamports += assertSafeLamports(position.stake, `position ${position.id}`);
+    }
+    return { balanceLamports, lockedLamports, pubkey: link?.pubkey ?? null };
+  }
+
+  async function createConfirmation(
+    args: import('./port.js').WagerStakeConfirmationArgs,
+  ): Promise<import('./port.js').WagerStakeConfirmationResult> {
+    if (!deps.stakeAcceptanceEnabled || (await deps.db.getWagerStatus()).paused) {
+      return { ok: false, reply: copy.paused() };
+    }
+    const link = await deps.db.getWalletLink(args.userId);
+    if (link === null) return { ok: false, reply: copy.unlinkedOnboarding() };
+    const balance = await deps.db.balanceLamports(args.userId);
+    if (balance < args.lamports) return { ok: false, reply: copy.insufficient(balance) };
+
+    const input = {
+      user_id: args.userId,
+      group_id: args.market.group_id,
+      market_id: args.market.id,
+      side: args.side,
+      lamports: args.lamports,
+      intent_key_hash_hex: createHash('sha256')
+        .update(`telegram:stake-confirmation:${args.callbackId}`)
+        .digest('hex'),
+      expires_at: new Date(deps.now() + STAKE_CONFIRMATION_TTL_MS).toISOString(),
+    } as const;
+    let created = await deps.db.createPendingStakeIntent(input);
+    if (!created.ok && created.code === 'active_intent_exists') {
+      const active = await deps.db.resolveActiveStakeIntent(args.userId);
+      if (active.ok) await deps.db.cancelStakeIntent(args.userId, active.intent.id);
+      created = await deps.db.createPendingStakeIntent(input);
+    }
+    if (!created.ok) return { ok: false, reply: copy.confirmationExpired() };
+    if (created.state !== 'ready') {
+      const ready = await deps.db.markStakeIntentFunded(args.userId, created.intent_id);
+      if (!ready.ok) return { ok: false, reply: copy.confirmationExpired() };
+    }
+    return { ok: true, intentId: created.intent_id };
+  }
+
+  async function confirmStake(
+    args: Omit<import('./port.js').WagerStakeConfirmationArgs, 'callbackId'> & {
+      readonly intentId: string;
+    },
+  ): Promise<{ reply: string; placed: boolean }> {
+    const active = await deps.db.resolveActiveStakeIntent(args.userId);
+    if (
+      !active.ok || active.intent.id !== args.intentId || active.intent.state !== 'ready'
+      || active.intent.group_id !== args.market.group_id
+      || active.intent.market_id !== args.market.id
+      || active.intent.side !== args.side
+      || active.intent.lamports !== args.lamports
+    ) return { reply: copy.confirmationExpired(), placed: false };
+
+    const result = await handleStakeTap(deps, {
+      ...args,
+      source: {
+        kind: 'durable_source',
+        idempotencyKey: `telegram:confirmed:${args.intentId}`,
+      },
+    });
+    if (result.accepted === true) {
+      await deps.db.consumeReadyStakeIntent(args.userId, args.intentId);
+    } else {
+      await deps.db.cancelStakeIntent(args.userId, args.intentId);
+    }
+    return { reply: result.reply, placed: result.placed };
+  }
+
+  async function getConfirmation(userId: number, intentId: string) {
+    const active = await deps.db.resolveActiveStakeIntent(userId);
+    if (!active.ok || active.intent.id !== intentId || active.intent.state !== 'ready') return null;
+    return {
+      marketId: active.intent.market_id,
+      groupId: active.intent.group_id,
+      side: active.intent.side,
+      lamports: active.intent.lamports,
+    };
+  }
+
   /** Group commands double as notification-routing breadcrumbs. */
   async function rememberGroup(ctx: WagerCommandCtx, userId: number): Promise<void> {
     const groupId = groupChatId(ctx);
@@ -81,8 +180,12 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
     if (arg === '') {
       const link = await deps.db.getWalletLink(from.id);
       if (link) {
-        const balance = await deps.db.balanceLamports(from.id);
-        const status = copy.walletStatus(link.pubkey, balance);
+        const summary = await accountSummary(from.id);
+        const status = copy.walletStatus(
+          link.pubkey,
+          summary.balanceLamports,
+          summary.lockedLamports,
+        );
         if (!(await replyWithWalletLink(ctx, from.id, status))) await ctx.reply(status);
         return;
       }
@@ -181,12 +284,16 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
     kind: 'funded',
     ...createWagerModuleCore(deps),
 
-    async walletSummary(userId) {
-      const [balanceLamports, link] = await Promise.all([
-        deps.db.balanceLamports(userId),
-        deps.db.getWalletLink(userId),
-      ]);
-      return { balanceLamports, pubkey: link?.pubkey ?? null };
+    walletSummary: accountSummary,
+
+    prepareStakeConfirmation: createConfirmation,
+
+    getStakeConfirmation: getConfirmation,
+
+    confirmStakeConfirmation: confirmStake,
+
+    async cancelStakeConfirmation(userId, intentId) {
+      return (await deps.db.cancelStakeIntent(userId, intentId)).ok;
     },
 
     registerCommands(bot: WagerBotLike) {

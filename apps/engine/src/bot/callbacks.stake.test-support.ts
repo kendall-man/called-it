@@ -71,6 +71,7 @@ export interface StakeHarness {
   h: HandlerCtx;
   wagerDb: FakeWagerDb;
   cardEdits: Array<{ chatId: number; marketId: string; messageId: number }>;
+  posts: Array<{ chatId: number; text: string; options: unknown }>;
 }
 
 export interface StakeHarnessOptions {
@@ -83,6 +84,7 @@ export interface StakeHarnessOptions {
   stakeAcceptanceEnabled?: boolean;
   starterBudgetEnabled?: boolean;
   refreshableCard?: boolean;
+  solanaNetwork?: 'devnet' | 'mainnet-beta';
 }
 
 type StakeDb = Pick<
@@ -116,7 +118,7 @@ interface StakeDeps {
 interface StakeHandler {
   deps: StakeDeps;
   poster: {
-    post: () => void;
+    post: (chatId: number, text: string, options?: unknown) => void;
     editCard: (chatId: number, marketId: string, messageId: number) => void;
     stripKeyboard: () => void;
   };
@@ -153,6 +155,7 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
     now: () => NOW,
     walletMiniappEnabled: false,
     stakeAcceptanceEnabled: opts.stakeAcceptanceEnabled ?? false,
+    solanaNetwork: opts.solanaNetwork ?? 'devnet',
   });
   installAtomicStarterRpc(wagerBundle.db, opts.starterBudgetEnabled ?? true);
   const starterOnly =
@@ -189,6 +192,7 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
       }
     : null;
   const cardEdits: Array<{ chatId: number; marketId: string; messageId: number }> = [];
+  const posts: Array<{ chatId: number; text: string; options: unknown }> = [];
   const db = asEngineDb({
     ...createPointMethodStubs({ kind: 'empty', groupId: CHAT_ID }),
     getMarket: async (id: string) => (id === market.id ? { ...market } : null),
@@ -243,10 +247,13 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
         STARTER_GRANTS_ENABLED: opts.starterGrantsEnabled ?? false,
         WALLET_MINIAPP_ENABLED: false,
         STAKE_ACCEPTANCE_ENABLED: opts.stakeAcceptanceEnabled ?? false,
+        SOLANA_NETWORK: opts.solanaNetwork ?? 'devnet',
       },
     },
     poster: {
-      post: () => undefined,
+      post: (chatId: number, text: string, options?: unknown) => {
+        posts.push({ chatId, text, options });
+      },
       editCard: (chatId: number, marketId: string, messageId: number) => {
         cardEdits.push({ chatId, marketId, messageId });
       },
@@ -261,7 +268,7 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
     queue: new SendQueue({ ratePerMinute: 1, collapseMs: 0, now: () => NOW }),
     entities: new EntityCache(db, () => NOW),
   });
-  return { h, wagerDb: wagerBundle.db, cardEdits };
+  return { h, wagerDb: wagerBundle.db, cardEdits, posts };
 }
 
 export function makeStakeContext(

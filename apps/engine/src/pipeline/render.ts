@@ -38,6 +38,11 @@ export interface ComposedCard {
   text: string;
 }
 
+export interface ComposeClaimCardOptions {
+  /** False removes the impression that the public card can currently accept SOL. */
+  positionsAvailable?: boolean;
+}
+
 function participantKey(value: PositionParticipant): string {
   return `${value.user_id}:${value.side}`;
 }
@@ -84,7 +89,11 @@ function participantSides(
   };
 }
 
-export async function composeClaimCard(deps: Deps, market: MarketRow): Promise<ComposedCard | null> {
+export async function composeClaimCard(
+  deps: Deps,
+  market: MarketRow,
+  options: ComposeClaimCardOptions = {},
+): Promise<ComposedCard | null> {
   const [claim, positions, group, participants] = await Promise.all([
     deps.db.getClaim(market.claim_id),
     deps.db.positionsForMarket(market.id),
@@ -114,6 +123,9 @@ export async function composeClaimCard(deps: Deps, market: MarketRow): Promise<C
     matchedPct: pots.matchedPct,
     isReplay: market.is_replay,
     receiptUrl: receiptUrl(deps, market.id),
+    ...(options.positionsAvailable !== undefined
+      ? { positionsAvailable: options.positionsAvailable }
+      : {}),
     ...(footer !== undefined ? { footer } : {}),
   });
   return { chatId: market.group_id, messageId: market.card_tg_message_id, text };

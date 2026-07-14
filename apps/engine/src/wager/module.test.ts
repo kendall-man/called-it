@@ -4,7 +4,7 @@ import { createWagerModule } from './module.js';
 import { WAGER_COPY } from './copy.js';
 import { WAGER_KEYS, WAGER_TUNABLES } from './constants.js';
 import { makeFakeDeps } from './fakes.js';
-import type { WagerCommandCtx, WagerCronRegistry } from './port.js';
+import type { WagerCommandCtx, WagerCronRegistry, WagerMarketRow } from './port.js';
 
 const USER = 11;
 const GROUP = -400;
@@ -75,6 +75,16 @@ describe('module surface', () => {
     expect(await createWagerModule(deps).currencyForMint(GROUP)).toBe('sol');
   });
 
+  it('reports stake availability from rollout and persisted breaker state', async () => {
+    const { deps, db } = makeFakeDeps();
+    const module = createWagerModule(deps);
+    expect(await module.stakesAvailable()).toBe(true);
+    db.status = { paused: true, reason: 'solvency: shortfall' };
+    expect(await module.stakesAvailable()).toBe(false);
+    expect(await createWagerModule({ ...deps, stakeAcceptanceEnabled: false }).stakesAvailable())
+      .toBe(false);
+  });
+
   it('presetLamports maps an index to lamports; out-of-range → null', () => {
     const { deps } = makeFakeDeps();
     const module = createWagerModule(deps);
@@ -89,6 +99,7 @@ describe('module surface', () => {
     db.seedBalance(USER, 50_000_000n);
     const summary = await createWagerModule(deps).walletSummary(USER);
     expect(summary.balanceLamports).toBe(50_000_000n);
+    expect(summary.lockedLamports).toBe(0n);
     expect(summary.pubkey).toBe(VALID_PUBKEY);
   });
 
@@ -97,6 +108,22 @@ describe('module surface', () => {
     const summary = await createWagerModule(deps).walletSummary(USER);
     expect(summary.pubkey).toBeNull();
     expect(summary.balanceLamports).toBe(0n);
+    expect(summary.lockedLamports).toBe(0n);
+  });
+
+  it('includes only this user open-market positions in the locked balance', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.openSolMarkets = ['market-open'];
+    db.seedPosition({ market_id: 'market-open', user_id: USER, stake: 10_000_000 });
+    db.seedPosition({ market_id: 'market-open', user_id: USER + 1, stake: 50_000_000 });
+    db.seedPosition({
+      market_id: 'market-open',
+      user_id: USER,
+      stake: 20_000_000,
+      state: 'void',
+    });
+    expect((await createWagerModule(deps).walletSummary(USER)).lockedLamports)
+      .toBe(10_000_000n);
   });
 
   it('presetLabels renders the three presets as exact SOL', () => {
@@ -128,6 +155,74 @@ describe('module surface', () => {
         WAGER_TUNABLES.SOLVENCY_POLL_MS,
       ].sort((a, b) => a - b),
     );
+  });
+});
+
+describe('mainnet position confirmation', () => {
+  const market: WagerMarketRow = {
+    id: '0f14d0ab-9605-4a62-a9e4-5ed26688389b',
+    group_id: GROUP,
+    status: 'open',
+    quote_probability: 0.5,
+    quote_multiplier: 2,
+  };
+
+  it('persists an intent before confirmation and debits exactly once after confirm', async () => {
+    const { deps, db } = makeFakeDeps({ solanaNetwork: 'mainnet-beta' });
+    db.seedLink(USER, VALID_PUBKEY);
+    db.seedBalance(USER, 50_000_000n);
+    const wager = createWagerModule(deps);
+    const prepared = await wager.prepareStakeConfirmation({
+      market,
+      userId: USER,
+      userName: 'Nia',
+      side: 'back',
+      lamports: 10_000_000n,
+      inPlay: false,
+      nowMs: deps.now(),
+      callbackId: 'callback-mainnet-confirm',
+    });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) throw new Error('confirmation fixture was refused');
+    expect(db.pendingIntent?.state).toBe('ready');
+    expect(db.positions).toHaveLength(0);
+
+    const result = await wager.confirmStakeConfirmation({
+      intentId: prepared.intentId,
+      market,
+      userId: USER,
+      userName: 'Nia',
+      side: 'back',
+      lamports: 10_000_000n,
+      inPlay: false,
+      nowMs: deps.now(),
+    });
+
+    expect(result.placed).toBe(true);
+    expect(db.pendingIntent?.state).toBe('consumed');
+    expect(db.positions).toHaveLength(1);
+    expect(await db.balanceLamports(USER)).toBe(40_000_000n);
+  });
+
+  it('cancels without moving SOL', async () => {
+    const { deps, db } = makeFakeDeps({ solanaNetwork: 'mainnet-beta' });
+    db.seedLink(USER, VALID_PUBKEY);
+    db.seedBalance(USER, 50_000_000n);
+    const wager = createWagerModule(deps);
+    const prepared = await wager.prepareStakeConfirmation({
+      market,
+      userId: USER,
+      userName: 'Nia',
+      side: 'doubt',
+      lamports: 10_000_000n,
+      inPlay: false,
+      nowMs: deps.now(),
+      callbackId: 'callback-mainnet-cancel',
+    });
+    if (!prepared.ok) throw new Error('confirmation fixture was refused');
+    expect(await wager.cancelStakeConfirmation(USER, prepared.intentId)).toBe(true);
+    expect(db.positions).toHaveLength(0);
+    expect(await db.balanceLamports(USER)).toBe(50_000_000n);
   });
 });
 

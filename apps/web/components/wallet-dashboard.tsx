@@ -16,6 +16,10 @@ import {
   walletBalance,
 } from '@/lib/wallet-transfers';
 import {
+  requestWalletAccount,
+  type WalletAccountSummary,
+} from '@/lib/wallet-client';
+import {
   WalletButton,
   WalletHeading,
   WalletStatus,
@@ -32,9 +36,11 @@ type WalletDashboardProps = {
 };
 
 export function WalletDashboard(props: WalletDashboardProps) {
-  const { user, linkEmail, linkPasskey } = usePrivy();
+  const { user, getAccessToken, linkEmail, linkPasskey } = usePrivy();
   const { exportWallet } = useExportWallet();
   const [balance, setBalance] = useState<bigint | null>(null);
+  const [account, setAccount] = useState<WalletAccountSummary | null>(null);
+  const [accountError, setAccountError] = useState('');
   const [amount, setAmount] = useState('0.01');
   const [mode, setMode] = useState<'deposit' | 'send'>('deposit');
   const [destination, setDestination] = useState('');
@@ -54,7 +60,44 @@ export function WalletDashboard(props: WalletDashboardProps) {
     }
   }, [props.address, props.rpcUrl]);
 
-  useEffect(() => { void refreshBalance(); }, [refreshBalance]);
+  const refreshAccount = useCallback(async (): Promise<WalletAccountSummary> => {
+    try {
+      const accessToken = await getAccessToken();
+      if (accessToken === null) throw new Error('wallet session unavailable');
+      const summary = await requestWalletAccount(accessToken, props.address);
+      setAccount(summary);
+      setAccountError('');
+      return summary;
+    } catch (cause) {
+      setAccountError('Called It balance could not refresh. Try again shortly.');
+      throw cause;
+    }
+  }, [getAccessToken, props.address]);
+
+  useEffect(() => {
+    void refreshBalance();
+    void refreshAccount().catch(() => undefined);
+    const interval = window.setInterval(() => {
+      void refreshAccount().catch(() => undefined);
+    }, 15_000);
+    return () => window.clearInterval(interval);
+  }, [refreshAccount, refreshBalance]);
+
+  const watchForDepositCredit = useCallback(async (previousAvailable: bigint | null) => {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 5_000));
+      try {
+        const summary = await refreshAccount();
+        if (previousAvailable === null || summary.availableLamports > previousAvailable) {
+          setNotice('Deposit credited. Your Called It balance is ready to use.');
+          return;
+        }
+      } catch {
+        // The regular refresh state already explains a temporary read failure.
+      }
+    }
+    setNotice('Deposit confirmed on-chain and is still being credited. Refresh in a moment.');
+  }, [refreshAccount]);
 
   async function copyAddress() {
     await navigator.clipboard.writeText(props.address);
@@ -88,9 +131,12 @@ export function WalletDashboard(props: WalletDashboardProps) {
       });
       setSignature(result);
       setNotice(mode === 'deposit'
-        ? 'Deposit sent. Your Telegram balance should update within about a minute.'
+        ? 'Deposit sent on-chain. Waiting for Called It to credit it...'
         : 'SOL sent successfully.');
       await refreshBalance();
+      if (mode === 'deposit') {
+        void watchForDepositCredit(account?.availableLamports ?? null);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Transfer failed.');
     } finally {
@@ -101,7 +147,21 @@ export function WalletDashboard(props: WalletDashboardProps) {
   return (
     <div className="space-y-4">
       {error.length > 0 && <WalletStatus tone="error">{error}</WalletStatus>}
+      {accountError.length > 0 && <WalletStatus tone="error">{accountError}</WalletStatus>}
       {notice.length > 0 && <WalletStatus tone="success">{notice}</WalletStatus>}
+      <Card className="rounded-lg">
+        <div className="flex items-start justify-between gap-3">
+          <WalletHeading icon={<ShieldCheck />} title="Called It balance" subtitle="Funds available for calls and withdrawals" />
+          <button type="button" title="Refresh Called It balance" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-fog hover:bg-night-800" onClick={() => void refreshAccount().catch(() => undefined)}>
+            <RefreshCw size={18} />
+          </button>
+        </div>
+        <div className="mt-5 grid grid-cols-2 divide-x divide-line border-y border-line py-4">
+          <BalanceValue label="Available to use" value={account?.availableLamports ?? null} />
+          <BalanceValue label="Locked in open calls" value={account?.lockedLamports ?? null} />
+        </div>
+        <p className="mt-4 text-sm leading-6 text-fog">Available SOL can be used or withdrawn. Locked SOL returns or pays out when each call settles.</p>
+      </Card>
       <Card className="rounded-lg">
         <div className="flex items-start justify-between gap-3">
           <WalletHeading icon={<WalletCards />} title="Your wallet" subtitle={props.network === 'devnet' ? 'Solana devnet' : 'Solana mainnet'} />
@@ -142,6 +202,17 @@ export function WalletDashboard(props: WalletDashboardProps) {
           <SecondaryButton icon={<Download size={18} />} onClick={() => void exportWallet({ address: props.address })}>Export wallet</SecondaryButton>
         </div>
       </Card>
+    </div>
+  );
+}
+
+function BalanceValue(props: { readonly label: string; readonly value: bigint | null }) {
+  return (
+    <div className="min-w-0 px-3 first:pl-0 last:pr-0">
+      <p className="text-xs font-semibold uppercase text-fog">{props.label}</p>
+      <p className="mt-1 break-words text-xl font-bold text-chalk">
+        {props.value === null ? '-' : `${formatSol(props.value)} SOL`}
+      </p>
     </div>
   );
 }

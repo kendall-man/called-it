@@ -18,6 +18,11 @@ const AuthSessionSchema = z.object({
   expiresAt: z.string().datetime(),
 }).strict();
 
+const AccountSchema = z.object({
+  availableLamports: z.string().regex(/^\d+$/),
+  lockedLamports: z.string().regex(/^\d+$/),
+}).strict();
+
 const REQUEST_TIMEOUT_MS = 15_000;
 
 const ErrorSchema = z.object({ error: z.string() }).passthrough();
@@ -82,6 +87,32 @@ export async function linkPrivyWallet(input: {
   if (!verifyResponse.ok || !VerificationSchema.safeParse(verifyBody).success) {
     throw new WalletClientError(responseError(verifyBody));
   }
+}
+
+export interface WalletAccountSummary {
+  readonly availableLamports: bigint;
+  readonly lockedLamports: bigint;
+}
+
+export async function requestWalletAccount(
+  accessToken: string,
+  pubkey: string,
+): Promise<WalletAccountSummary> {
+  const response = await walletFetch('/api/wallet/account', {
+    method: 'POST',
+    headers: authorizationHeaders(accessToken),
+    cache: 'no-store',
+    body: JSON.stringify({ pubkey }),
+  });
+  const body = await responseJson(response);
+  const parsed = AccountSchema.safeParse(body);
+  if (!response.ok || !parsed.success) {
+    throw new WalletClientError(responseError(body));
+  }
+  return {
+    availableLamports: BigInt(parsed.data.availableLamports),
+    lockedLamports: BigInt(parsed.data.lockedLamports),
+  };
 }
 
 export function walletClientErrorMessage(cause: unknown): string {

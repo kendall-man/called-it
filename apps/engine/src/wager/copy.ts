@@ -21,8 +21,8 @@ export function createWagerCopy(network: SolanaNetwork) {
   // ── stake gates & results ────────────────────────────────────────────────
   unlinkedOnboarding: (): string =>
     mainnet
-      ? 'No verified wallet is linked. No SOL moved. Open /wallet in private chat to check your status.'
-      : 'This beta only supports one starter 0.01 SOL position using test SOL, a devnet token with no monetary value. No SOL moved. Try a listed 0.01 SOL call.',
+      ? 'No verified wallet is linked. No SOL moved. Open /wallet in private chat to create or recover your wallet.'
+      : 'No verified wallet is linked. Test SOL is a devnet token with no monetary value. No SOL moved. Open /wallet in private chat to create or recover your wallet.',
   paused: (): string =>
     mainnet
       ? 'SOL positions are temporarily paused. No SOL moved. Try again later.'
@@ -52,6 +52,17 @@ export function createWagerCopy(network: SolanaNetwork) {
       : `${name}'s position is recorded — ${sideLabel} with ${formatSolAmount(lamports)} at up to ×${multiplier}. Test SOL is a devnet token with no monetary value.`,
   stakeReplayed: (): string => "Already got that one — your SOL's on it.",
   staleTap: (): string => 'That ship has sailed.',
+  confirmationPrompt: (
+    name: string,
+    side: string,
+    lamports: bigint,
+    multiplier: string,
+    terms: string,
+  ): string =>
+    `${name}, confirm ${formatSolAmount(lamports)} on "${side}" at up to ×${multiplier}. Call: ${terms}. SOL moves only after Confirm. This expires in 2 minutes.`,
+  confirmationSent: (): string => 'Review the confirmation below. No SOL has moved yet.',
+  confirmationCancelled: (): string => 'Position cancelled. No SOL moved.',
+  confirmationExpired: (): string => 'That confirmation expired. No SOL moved. Tap the call again.',
 
   // ── /wallet ──────────────────────────────────────────────────────────────
   walletSetupUnavailable: (): string =>
@@ -60,8 +71,8 @@ export function createWagerCopy(network: SolanaNetwork) {
     `Create a dedicated Solana ${mainnet ? 'mainnet' : 'devnet'} wallet for Called It, or recover one you already made. Your recovery key stays encrypted on your device. This private link expires in 5 minutes.`,
   walletPrivateOnly: (): string =>
     'For privacy, open my private chat and use /wallet there.',
-  walletStatus: (pubkey: string, balanceLamports: bigint): string =>
-    `Linked wallet: ${shortPubkey(pubkey)}. Available balance: ${formatSolAmount(balanceLamports)} ${networkStamp}. Use /deposit to add ${solLabel} or /withdraw to return it.`,
+  walletStatus: (pubkey: string, balanceLamports: bigint, lockedLamports = 0n): string =>
+    `Linked wallet: ${shortPubkey(pubkey)}. Available to use: ${formatSolAmount(balanceLamports)}. Locked in open calls: ${formatSolAmount(lockedLamports)}. ${networkStamp} Use /deposit to add ${solLabel} or /withdraw to return available funds.`,
 
   // ── /deposit ─────────────────────────────────────────────────────────────
   depositInstructions: (treasuryPubkey: string, linked: boolean): string => {
@@ -101,7 +112,7 @@ export function createWagerCopy(network: SolanaNetwork) {
   withdrawConfirmed: (name: string, lamports: bigint, explorerUrl: string): string =>
     `Withdrawal confirmed: ${formatSolAmount(lamports)} sent to ${name}'s verified wallet. Receipt: ${explorerUrl} ${networkStamp}`,
   withdrawFailed: (name: string, lamports: bigint): string =>
-    `${name}'s withdrawal was not submitted. ${formatSolAmount(lamports)} is available again. No SOL left the account. Open /me before trying again.`,
+    `${name}'s withdrawal was not submitted. ${formatSolAmount(lamports)} is available again. No SOL left the account. Open /wallet in private chat before trying again.`,
 
   // ── card & receipt furniture ─────────────────────────────────────────────
   cardFooter: (): string =>

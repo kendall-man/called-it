@@ -145,7 +145,12 @@ describe('starter stake contract', () => {
       source: { kind: 'telegram_default_card', callbackId: `disabled-${disabledFlag}` },
     }));
 
-    expect(result).toEqual({ reply: WAGER_COPY.starterUnavailable(), placed: false });
+    expect(result).toEqual({
+      reply: disabledFlag === 'stakeAcceptanceEnabled'
+        ? WAGER_COPY.paused()
+        : WAGER_COPY.starterUnavailable(),
+      placed: false,
+    });
     expect(db.lastStakeArgs).toBeNull();
   });
 });

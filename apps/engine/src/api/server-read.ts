@@ -70,7 +70,7 @@ export async function handleWallet(
     default:
       throw new TypeError(`unsupported wager module: ${JSON.stringify(wager)}`);
   }
-  const { balanceLamports, pubkey } = await wager.walletSummary(userId);
+  const { balanceLamports, lockedLamports, pubkey } = await wager.walletSummary(userId);
   const open = await deps.db.openMarketsForGroup(chatId);
   const positions: Array<Record<string, unknown>> = [];
   for (const market of open) {
@@ -92,6 +92,7 @@ export async function handleWallet(
   sendJson(res, 200, {
     linkedWallet: pubkey,
     balanceLamports: balanceLamports.toString(),
+    lockedLamports: lockedLamports.toString(),
     balanceSol: formatSol(balanceLamports),
     positions,
   });

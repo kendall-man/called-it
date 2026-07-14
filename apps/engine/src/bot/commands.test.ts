@@ -146,7 +146,10 @@ describe('navigation command baseline', () => {
       {
         chatId: PRIVATE_CHAT,
         text: 'Called It lives in group chats. Add it to a group.',
-        buttons: [{ text: 'Add to group', url: 'https://t.me/calledit_bot?startgroup=calledit_v1' }],
+        buttons: [{
+          text: 'Add to group',
+          url: 'https://t.me/calledit_bot?startgroup=calledit_v1&admin=manage_chat',
+        }],
       },
       { chatId: PRIVATE_CHAT, text: 'Help recovery', buttons: [] },
     ]);

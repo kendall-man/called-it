@@ -15,6 +15,7 @@ import type {
   WagerLedgerEntry,
   WagerLogger,
   WagerModuleDeps,
+  PendingStakeIntentRow,
   WagerPositionRow,
   WagerPoster,
   WagerSettlementOutcome,
@@ -58,6 +59,7 @@ export class FakeWagerDb implements WagerDb {
   private readonly ledgerKeys = new Set<string>();
   readonly links = new Map<number, WagerWalletLinkRow>();
   readonly walletLinkSessions: Array<Parameters<WagerDb['createWalletLinkSession']>[0]> = [];
+  pendingIntent: PendingStakeIntentRow | null = null;
   readonly deposits = new Map<string, WagerDepositRow>();
   readonly withdrawals = new Map<string, WagerWithdrawalRow>();
   readonly positions: WagerPositionRow[] = [];
@@ -102,6 +104,83 @@ export class FakeWagerDb implements WagerDb {
   ): ReturnType<WagerDb['createWalletLinkSession']> {
     this.walletLinkSessions.push(args);
     return { ok: true, session_id: '00000000-0000-4000-8000-000000000001' };
+  }
+
+  async createPendingStakeIntent(
+    args: Parameters<WagerDb['createPendingStakeIntent']>[0],
+  ): ReturnType<WagerDb['createPendingStakeIntent']> {
+    if (
+      this.pendingIntent !== null
+      && ['pending', 'awaiting_funds', 'ready'].includes(this.pendingIntent.state)
+    ) {
+      return {
+        ok: false,
+        code: 'active_intent_exists',
+        intent_id: this.pendingIntent.id,
+      };
+    }
+    const id = `00000000-0000-4000-8000-${String(++nextId).padStart(12, '0')}`;
+    this.pendingIntent = {
+      id,
+      user_id: args.user_id,
+      group_id: args.group_id,
+      market_id: args.market_id,
+      side: args.side,
+      lamports: args.lamports,
+      state: 'pending',
+      expires_at: args.expires_at,
+      created_at: new Date(0).toISOString(),
+      updated_at: new Date(0).toISOString(),
+    };
+    return { ok: true, intent_id: id, state: 'pending' };
+  }
+
+  async resolveActiveStakeIntent(
+    userId: number,
+  ): ReturnType<WagerDb['resolveActiveStakeIntent']> {
+    const intent = this.pendingIntent;
+    if (
+      intent === null || intent.user_id !== userId
+      || !['pending', 'awaiting_funds', 'ready'].includes(intent.state)
+    ) return { ok: false, code: 'not_found' };
+    return { ok: true, intent: { ...intent } };
+  }
+
+  async markStakeIntentFunded(
+    userId: number,
+    intentId: string,
+  ): ReturnType<WagerDb['markStakeIntentFunded']> {
+    const intent = this.pendingIntent;
+    if (intent === null || intent.user_id !== userId || intent.id !== intentId) {
+      return { ok: false, code: 'not_ready' };
+    }
+    intent.state = 'ready';
+    return { ok: true };
+  }
+
+  async consumeReadyStakeIntent(
+    userId: number,
+    intentId: string,
+  ): ReturnType<WagerDb['consumeReadyStakeIntent']> {
+    const intent = this.pendingIntent;
+    if (
+      intent === null || intent.user_id !== userId || intent.id !== intentId
+      || intent.state !== 'ready'
+    ) return { ok: false, code: 'not_ready' };
+    intent.state = 'consumed';
+    return { ok: true, intent: { ...intent } };
+  }
+
+  async cancelStakeIntent(
+    userId: number,
+    intentId: string,
+  ): ReturnType<WagerDb['cancelStakeIntent']> {
+    const intent = this.pendingIntent;
+    if (intent === null || intent.user_id !== userId || intent.id !== intentId) {
+      return { ok: false, code: 'not_found' };
+    }
+    intent.state = 'cancelled';
+    return { ok: true };
   }
 
   async setLastWagerGroup(userId: number, groupId: number): Promise<void> {
@@ -485,7 +564,7 @@ export function makeFakeDeps(overrides: Partial<WagerModuleDeps> = {}): FakeDeps
     now: () => 1_720_000_000_000,
     opsChatId: null,
     walletMiniappEnabled: false,
-    stakeAcceptanceEnabled: false,
+    stakeAcceptanceEnabled: true,
     ...overrides,
   };
   return { deps, db, chain, poster, trace };

@@ -27,7 +27,10 @@ export type GroupReadinessPlan =
   | { readonly kind: 'rejected'; readonly code: 'invalid_input' | 'group_not_found' };
 
 export function groupInstallUrl(botUsername: string): string {
-  return `https://t.me/${encodeURIComponent(botUsername)}?startgroup=${BOT_ONBOARDING_VERSION}`;
+  const url = new URL(`https://t.me/${encodeURIComponent(botUsername)}`);
+  url.searchParams.set('startgroup', BOT_ONBOARDING_VERSION);
+  url.searchParams.set('admin', 'manage_chat');
+  return url.toString();
 }
 
 export function groupBoardUrl(webBaseUrl: string, groupSlug: string): string {

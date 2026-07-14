@@ -61,7 +61,7 @@ const EXPECTED_STARTER_HELP = [
   '• Choices and named results are visible to everyone in this Telegram group.',
   '• Correct choices earn 10 points automatically.',
   '',
-  'Commands: /bookit · /leaderboard · /mystats · /table · /help',
+  'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /help',
   'Test SOL is devnet-only and has no monetary value.',
 ].join('\n');
 
@@ -186,14 +186,13 @@ describe('fallback copy bank', () => {
     }
   });
 
-  it('renders the exact 418-character Telegram starter help', () => {
+  it('renders the exact Telegram starter help', () => {
     // Given the starter-only help contract
     const help = renderFallback('help');
 
     // When Telegram receives the deterministic help message
     // Then its copy and UTF-16 length remain exact and within Telegram's limit
     expect(help).toBe(EXPECTED_STARTER_HELP);
-    expect(help).toHaveLength(418);
     expect(help.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
   });
 

@@ -68,12 +68,25 @@ export class TelegramFlowWager implements FundedWagerModule {
     return 'Test-SOL pool settled separately. Test SOL has no monetary value.';
   }
 
+  async stakesAvailable(): Promise<boolean> { return true; }
   cardFooter(): string { return 'Test SOL has no monetary value.'; }
   presetLabels(): [string, string, string] { return ['0.01 SOL', '0.05 SOL', '0.1 SOL']; }
   presetLamports(index: number): bigint | null { return index === 0 ? DEFAULT_STAKE_LAMPORTS : null; }
-  async walletSummary(): Promise<{ balanceLamports: bigint; pubkey: string | null }> {
-    return { balanceLamports: 0n, pubkey: WALLET_ADDRESS_SENTINEL };
+  async walletSummary(): Promise<{
+    balanceLamports: bigint;
+    lockedLamports: bigint;
+    pubkey: string | null;
+  }> {
+    return { balanceLamports: 0n, lockedLamports: 0n, pubkey: WALLET_ADDRESS_SENTINEL };
   }
+  async prepareStakeConfirmation(): Promise<{ ok: false; reply: string }> {
+    return { ok: false, reply: 'Unavailable' };
+  }
+  async getStakeConfirmation(): Promise<null> { return null; }
+  async confirmStakeConfirmation(): Promise<{ reply: string; placed: false }> {
+    return { reply: 'Unavailable', placed: false };
+  }
+  async cancelStakeConfirmation(): Promise<boolean> { return false; }
   registerCommands(): void {}
   registerSettlementRecovery(_registry: WagerCronRegistry): void {}
   registerFundedWorkers(_registry: WagerCronRegistry): void {}

@@ -13,7 +13,7 @@ import {
   useWallets,
   type ConnectedStandardSolanaWallet,
 } from '@privy-io/react-auth/solana';
-import { RefreshCw } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import {
   linkPrivyWallet,
   requestWalletAuthSession,
@@ -28,6 +28,7 @@ type WalletManagerProps = {
   readonly network: 'devnet' | 'mainnet-beta';
   readonly rpcUrl: string;
   readonly treasuryPubkey: string;
+  readonly botUsername: string;
 };
 
 type SessionState =
@@ -177,13 +178,13 @@ export function WalletManager(props: WalletManagerProps) {
     return <WalletState title="Opening wallet" text="Checking this private wallet link..." loading />;
   }
   if (session.kind === 'invalid') {
-    return <WalletState title="Open this from Telegram" text="Send /wallet to Called It in a private chat, then tap Create or manage wallet." />;
+    return <FailureState error="Send /wallet to Called It in a private chat, then tap Create or manage wallet." botUsername={props.botUsername} />;
   }
   if (session.kind === 'failed') {
-    return <FailureState error={session.error} />;
+    return <FailureState error={session.error} botUsername={props.botUsername} />;
   }
   if (operation === 'failed') {
-    return <FailureState error={operationError} />;
+    return <FailureState error={operationError} botUsername={props.botUsername} />;
   }
   if (operation !== 'ready') {
     if (operation === 'linking') {
@@ -214,15 +215,22 @@ export function WalletManager(props: WalletManagerProps) {
   );
 }
 
-function FailureState({ error }: { readonly error: string }) {
+function FailureState(props: { readonly error: string; readonly botUsername: string }) {
+  const returnToTelegram = () => {
+    if (props.botUsername.length === 0) {
+      window.history.back();
+      return;
+    }
+    window.location.assign(`https://t.me/${encodeURIComponent(props.botUsername)}`);
+  };
   return (
     <WalletState
       title="Wallet needs attention"
-      text={error}
+      text={props.error}
       action={(
         <div className="mt-5">
-          <WalletButton icon={<RefreshCw size={18} />} onClick={() => window.location.reload()}>
-            Try again
+          <WalletButton icon={<ArrowLeft size={18} />} onClick={returnToTelegram}>
+            Return to Telegram
           </WalletButton>
         </div>
       )}

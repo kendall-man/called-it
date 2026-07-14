@@ -83,9 +83,18 @@ describe('handleStake - beta starter position', () => {
     expect(second.toasts.join(' ')).not.toContain('/wallet');
   });
 
-  it.each([{ starterGrantsEnabled: false }, { stakeAcceptanceEnabled: false }])(
+  it.each([
+    {
+      switches: { starterGrantsEnabled: false },
+      expected: /verified wallet.*test SOL.*no monetary value.*No SOL moved.*\/wallet/i,
+    },
+    {
+      switches: { stakeAcceptanceEnabled: false },
+      expected: /temporarily paused.*No SOL moved/i,
+    },
+  ])(
     'does not create an unlinked starter position while a rollout switch is off',
-    async (switches) => {
+    async ({ switches, expected }) => {
       const harness = makeHarness({
         link: false,
         balanceLamports: null,
@@ -99,11 +108,7 @@ describe('handleStake - beta starter position', () => {
 
       expect(harness.wagerDb.positions).toHaveLength(0);
       expect(harness.wagerDb.ledger).toHaveLength(0);
-      expect(toasts).toEqual([
-        expect.stringMatching(
-          /starter 0\.01 SOL position using test SOL.*no monetary value.*No SOL moved/i,
-        ),
-      ]);
+      expect(toasts).toEqual([expect.stringMatching(expected)]);
     },
   );
 
@@ -177,5 +182,35 @@ describe('handleStake - beta starter position', () => {
 
     expect(harness.wagerDb.positions).toHaveLength(0);
     expect(toasts.some((toast) => toast.toLowerCase().includes('settled'))).toBe(true);
+  });
+});
+
+describe('handleStake - mainnet confirmation', () => {
+  it('moves no SOL on the first tap and debits once only after the owner confirms', async () => {
+    const harness = makeHarness({
+      link: true,
+      balanceLamports: 50_000_000n,
+      starterGrantsEnabled: false,
+      stakeAcceptanceEnabled: true,
+      solanaNetwork: 'mainnet-beta',
+    });
+    const first = stakeCtx(USER_A, 'mainnet-first-tap');
+
+    await dispatchCallback(harness.h, first.ctx, stake('back', PRESET_01));
+
+    expect(harness.wagerDb.positions).toHaveLength(0);
+    expect(await harness.wagerDb.balanceLamports(USER_A)).toBe(50_000_000n);
+    expect(harness.wagerDb.pendingIntent?.state).toBe('ready');
+    expect(harness.posts).toHaveLength(1);
+    expect(harness.posts[0]?.text).toMatch(/confirm 0\.01 SOL.*moves only after Confirm/i);
+    const intentId = harness.wagerDb.pendingIntent?.id;
+    if (intentId === undefined) throw new Error('confirmation intent missing');
+
+    const confirmation = stakeCtx(USER_A, 'mainnet-confirm-tap');
+    await dispatchCallback(harness.h, confirmation.ctx, { t: 'stake_confirm', intentId });
+
+    expect(harness.wagerDb.pendingIntent?.state).toBe('consumed');
+    expect(harness.wagerDb.positions).toHaveLength(1);
+    expect(await harness.wagerDb.balanceLamports(USER_A)).toBe(40_000_000n);
   });
 });

@@ -8,6 +8,7 @@ export type WalletApplicationProps = {
   readonly network: 'devnet' | 'mainnet-beta';
   readonly rpcUrl: string;
   readonly treasuryPubkey: string;
+  readonly botUsername: string;
 };
 
 export function WalletApplication(props: WalletApplicationProps) {
@@ -17,6 +18,7 @@ export function WalletApplication(props: WalletApplicationProps) {
         network={props.network}
         rpcUrl={props.rpcUrl}
         treasuryPubkey={props.treasuryPubkey}
+        botUsername={props.botUsername}
       />
     </WalletProvider>
   );

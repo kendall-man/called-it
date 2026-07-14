@@ -13,6 +13,7 @@ import type {
   WagerStakeErrorCode,
   WagerStakeResult,
   WagerStakeTapArgs,
+  WagerStakeTapResult,
 } from './port.js';
 
 /**
@@ -62,11 +63,12 @@ function assertNeverRuntimeMode(mode: never): never {
 export async function handleStakeTap(
   deps: WagerStakeDeps,
   args: WagerStakeTapArgs,
-): Promise<{ reply: string; placed: boolean }> {
+): Promise<WagerStakeTapResult> {
   const { market, userId, userName, side, lamports, inPlay, nowMs, source } = args;
   const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet');
 
   if (lamports <= 0n) return { reply: copy.staleTap(), placed: false };
+  if (!deps.stakeAcceptanceEnabled) return { reply: copy.paused(), placed: false };
 
   const idempotencyKey =
     source.kind === 'durable_source'
@@ -79,7 +81,6 @@ export async function handleStakeTap(
         source.kind !== 'telegram_default_card'
         || lamports !== WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0]
         || !deps.starterGrantsEnabled
-        || !deps.stakeAcceptanceEnabled
       ) {
         return { reply: copy.starterUnavailable(), placed: false };
       }
@@ -156,6 +157,7 @@ export async function handleStakeTap(
         multiplierLabel(lockedMultiplier),
       ),
       placed: false,
+      accepted: true,
     };
   }
 
@@ -185,5 +187,6 @@ export async function handleStakeTap(
       multiplierLabel(lockedMultiplier),
     ),
     placed: true,
+    accepted: true,
   };
 }

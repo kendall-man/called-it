@@ -20,6 +20,9 @@ export type CallbackAction =
   | { t: 'decline'; claimId: string }
   /** The beta exposes one literal 0.01 test-SOL amount on either outcome. */
   | { t: 'stake'; marketId: string; side: 'back' | 'doubt'; presetIndex: 0 }
+  /** Mainnet second-tap confirmation backed by a durable stake intent. */
+  | { t: 'stake_confirm'; intentId: string }
+  | { t: 'stake_cancel'; intentId: string }
   /** Admin closes an empty live call that is blocking /testmatch. */
   | { t: 'void_replay_blocker'; marketId: string }
   /** /settings chattiness pick. */
@@ -56,6 +59,12 @@ export function encodeCallback(action: CallbackAction): string {
       break;
     case 'stake':
       data = `st:${action.marketId}:${action.side === 'back' ? 'b' : 'd'}:${action.presetIndex}`;
+      break;
+    case 'stake_confirm':
+      data = `sc:${action.intentId}`;
+      break;
+    case 'stake_cancel':
+      data = `sx:${action.intentId}`;
       break;
     case 'void_replay_blocker':
       data = `vr:${action.marketId}`;
@@ -121,6 +130,18 @@ export function decodeCallback(data: string): CallbackAction | null {
         side: sideCode === 'b' ? 'back' : 'doubt',
         presetIndex: 0,
       };
+    }
+    case 'sc': {
+      const intentId = parts[1];
+      return parts.length === 2 && intentId !== undefined && UUID_RE.test(intentId)
+        ? { t: 'stake_confirm', intentId }
+        : null;
+    }
+    case 'sx': {
+      const intentId = parts[1];
+      return parts.length === 2 && intentId !== undefined && UUID_RE.test(intentId)
+        ? { t: 'stake_cancel', intentId }
+        : null;
     }
     case 'vr': {
       const marketId = parts[1];

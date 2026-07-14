@@ -200,7 +200,9 @@ export async function mintOffer(
   }
   const { market } = mintResult;
 
-  const card = await composeClaimCard(h.deps, market);
+  const positionsAvailable = market.is_replay
+    || (h.deps.wager !== null && await h.deps.wager.stakesAvailable());
+  const card = await composeClaimCard(h.deps, market, { positionsAvailable });
   if (!card) return { minted: true };
   const claimer = await h.deps.db.getUser(claim.claimer_user_id);
   const garnish = await h.say('offer_live', { claimer: claimer?.display_name ?? 'legend' });
@@ -211,7 +213,7 @@ export async function mintOffer(
     note: pendingNote,
   }), {
     replyToMessageId: claim.tg_message_id,
-    keyboard: offerKeyboard(market),
+    ...(positionsAvailable ? { keyboard: offerKeyboard(market) } : {}),
     onSent: async (messageId) => {
       await h.deps.db.setMarketCardMessage(market.id, messageId);
     },

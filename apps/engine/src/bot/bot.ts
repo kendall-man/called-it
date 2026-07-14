@@ -20,6 +20,7 @@ import {
   readyMessageForGroup,
 } from './onboarding.js';
 import { isBetaGroupAllowed } from './beta-access.js';
+import { renderFallback } from './copy.js';
 
 export interface BotErrorRegistrar {
   catch(handler: (error: { readonly error: unknown }) => unknown): void;
@@ -50,6 +51,7 @@ export const GROUP_BOT_COMMANDS = [
   { command: 'leaderboard', description: 'View the group top 10' },
   { command: 'mystats', description: 'View your group stats' },
   { command: 'table', description: 'Open the group board' },
+  { command: 'settings', description: 'Manage group call settings' },
   { command: 'help', description: 'How Called It works' },
 ] as const;
 
@@ -117,6 +119,11 @@ export function registerGroupLifecycleHandlers(bot: GroupLifecycleBot, h: GroupL
     if (!isGroupChat(chat.type)) return;
     if (!isBetaGroupAllowed(h.deps.env, chat.id)) {
       h.deps.log.info('beta_group_not_allowlisted');
+      h.poster.post(chat.id, renderFallback(
+        'beta_access_required',
+        {},
+        h.deps.env.SOLANA_NETWORK ?? 'devnet',
+      ));
       return;
     }
     const next = ctx.myChatMember.new_chat_member.status;
@@ -128,6 +135,12 @@ export function registerGroupLifecycleHandlers(bot: GroupLifecycleBot, h: GroupL
       await h.deps.db.setGroupAdmin(chat.id, true);
     } else if (next === 'member') {
       await h.deps.db.setGroupAdmin(chat.id, false);
+      h.poster.post(chat.id, renderFallback(
+        'admin_permission_required',
+        {},
+        h.deps.env.SOLANA_NETWORK ?? 'devnet',
+      ));
+      return;
     } else {
       return;
     }

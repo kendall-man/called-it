@@ -11,16 +11,21 @@ import { TUNABLES } from '@calledit/market-engine';
 import type { ClaimRow, GroupRow, MarketRow } from '../ports.js';
 import { decodeCallback, type CallbackAction } from './callbackData.js';
 import { displayName, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
-import { marketStakeKeyboard, settingsKeyboard } from './keyboards.js';
-import { statusLine } from './cards.js';
+import {
+  marketStakeKeyboard,
+  settingsKeyboard,
+  stakeConfirmationKeyboard,
+} from './keyboards.js';
+import { describeTerms, statusLine } from './cards.js';
 import { readEnvelope } from '../pipeline/claims.js';
 import { mintOffer, retryOffer } from '../pipeline/offer.js';
 import { voidAbandonedMarket } from '../pipeline/void.js';
 import { composeClaimCard } from '../pipeline/render.js';
 import { renderFallback } from './copy.js';
 import { WAGER_TUNABLES } from '../wager/constants.js';
-import { wagerDoubtMultiplier } from '../wager/stake.js';
+import { multiplierLabel, wagerDoubtMultiplier } from '../wager/stake.js';
 import { isBetaGroupAllowed } from './beta-access.js';
+import { createWagerCopy } from '../wager/copy.js';
 
 async function answer(ctx: Context, text: string): Promise<void> {
   try {
@@ -266,9 +271,17 @@ async function handleDecline(h: HandlerCtx, ctx: Context, claimId: string): Prom
 async function refreshStakeCard(h: HandlerCtx, chatId: number, marketId: string): Promise<void> {
   const fresh = await h.deps.db.getMarket(marketId);
   if (fresh && fresh.card_tg_message_id !== null) {
-    const card = await composeClaimCard(h.deps, fresh);
+    const positionsAvailable = fresh.is_replay
+      || (h.deps.wager !== null && await h.deps.wager.stakesAvailable());
+    const card = await composeClaimCard(h.deps, fresh, { positionsAvailable });
     if (card && card.messageId !== null) {
-      h.poster.editCard(chatId, fresh.id, card.messageId, card.text, marketStakeKeyboard(h.deps, fresh));
+      h.poster.editCard(
+        chatId,
+        fresh.id,
+        card.messageId,
+        card.text,
+        positionsAvailable ? marketStakeKeyboard(h.deps, fresh) : undefined,
+      );
     }
   }
 }
@@ -367,8 +380,8 @@ async function handleStake(
     await stale(h, ctx);
     return;
   }
-  // In-play cutoff — no new bets once a match is deep enough that a stake would
-  // be a near-certain snipe.
+  // In-play cutoff — no new positions once a match is deep enough that a tap
+  // would be a near-certain snipe.
   const replayFixture = market.is_replay
     ? h.supervisor.replaySnapshot(chatId)
     : null;
@@ -383,6 +396,40 @@ async function handleStake(
   await ensureUserSeen(h, chatId, from);
   if (market.is_replay) {
     await handleReplayStake(h, ctx, market, from.id, action.side, lamports, inPlay);
+    return;
+  }
+  if (h.deps.env.SOLANA_NETWORK === 'mainnet-beta' && wager.kind === 'funded') {
+    const prepared = await wager.prepareStakeConfirmation({
+      market,
+      userId: from.id,
+      userName: displayName(from),
+      side: action.side,
+      lamports,
+      inPlay,
+      nowMs: h.deps.now(),
+      callbackId,
+    });
+    if (!prepared.ok) {
+      await answer(ctx, prepared.reply);
+      if (!(await wager.stakesAvailable())) await refreshStakeCard(h, chatId, market.id);
+      return;
+    }
+    const multiplier = action.side === 'back'
+      ? market.quote_multiplier
+      : wagerDoubtMultiplier(market.quote_probability);
+    const copy = createWagerCopy('mainnet-beta');
+    const sourceMessageId = callbackMessageId(ctx);
+    h.poster.post(chatId, copy.confirmationPrompt(
+      displayName(from),
+      action.side === 'back' ? 'It happens' : 'It does not',
+      lamports,
+      multiplierLabel(multiplier),
+      describeTerms(market.spec),
+    ), {
+      ...(sourceMessageId !== null ? { replyToMessageId: sourceMessageId } : {}),
+      keyboard: stakeConfirmationKeyboard(prepared.intentId),
+    });
+    await answer(ctx, copy.confirmationSent());
     return;
   }
   const result = await wager.handleStakeTap({
@@ -400,7 +447,78 @@ async function handleStake(
         : { kind: 'telegram_card', callbackId },
   });
   await answer(ctx, result.reply);
-  if (result.placed) await refreshStakeCard(h, chatId, market.id);
+  if (result.placed || !(await wager.stakesAvailable())) {
+    await refreshStakeCard(h, chatId, market.id);
+  }
+}
+
+async function finishStakeConfirmationMessage(ctx: Context, text: string): Promise<void> {
+  try {
+    await ctx.editMessageText(text, { reply_markup: { inline_keyboard: [] } });
+  } catch {
+    // The callback answer still carries the result if the prompt is too old to edit.
+  }
+}
+
+async function handleStakeConfirmation(
+  h: HandlerCtx,
+  ctx: Context,
+  intentId: string,
+  confirm: boolean,
+): Promise<void> {
+  const from = ctx.from;
+  const wager = h.deps.wager;
+  const copy = createWagerCopy(h.deps.env.SOLANA_NETWORK);
+  if (!from || wager?.kind !== 'funded') {
+    await stale(h, ctx);
+    return;
+  }
+  const intent = await wager.getStakeConfirmation(from.id, intentId);
+  if (intent === null || ctx.chat?.id !== intent.groupId) {
+    await answer(ctx, copy.confirmationExpired());
+    return;
+  }
+  if (!confirm) {
+    await wager.cancelStakeConfirmation(from.id, intentId);
+    const cancelled = copy.confirmationCancelled();
+    await finishStakeConfirmationMessage(ctx, cancelled);
+    await answer(ctx, cancelled);
+    return;
+  }
+  const market = await h.deps.db.getMarket(intent.marketId);
+  if (
+    market === null || market.group_id !== intent.groupId || market.currency !== 'sol'
+    || (market.status !== 'open' && market.status !== 'pending_lineup')
+  ) {
+    await wager.cancelStakeConfirmation(from.id, intentId);
+    const expired = copy.confirmationExpired();
+    await finishStakeConfirmationMessage(ctx, expired);
+    await answer(ctx, expired);
+    return;
+  }
+  const fixture = await h.deps.db.getFixture(market.fixture_id);
+  const inPlay = fixture !== null && fixture.phase !== 'NS';
+  if (inPlay && fixture.minute !== null && fixture.minute >= TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE) {
+    await wager.cancelStakeConfirmation(from.id, intentId);
+    const closed = await h.say('window_closed');
+    await finishStakeConfirmationMessage(ctx, closed);
+    await answer(ctx, closed);
+    return;
+  }
+  await ensureUserSeen(h, intent.groupId, from);
+  const result = await wager.confirmStakeConfirmation({
+    intentId,
+    market,
+    userId: from.id,
+    userName: displayName(from),
+    side: intent.side,
+    lamports: intent.lamports,
+    inPlay,
+    nowMs: h.deps.now(),
+  });
+  await finishStakeConfirmationMessage(ctx, result.reply);
+  await answer(ctx, result.reply);
+  await refreshStakeCard(h, intent.groupId, market.id);
 }
 
 async function handleChattiness(
@@ -559,6 +677,12 @@ export async function dispatchCallback(
     case 'stake':
       // SOL stakes are serialized by the wager module's DB advisory locks.
       await handleStake(h, ctx, action);
+      break;
+    case 'stake_confirm':
+      await handleStakeConfirmation(h, ctx, action.intentId, true);
+      break;
+    case 'stake_cancel':
+      await handleStakeConfirmation(h, ctx, action.intentId, false);
       break;
     case 'void_replay_blocker':
       await handleVoidReplayBlocker(h, ctx, action.marketId);

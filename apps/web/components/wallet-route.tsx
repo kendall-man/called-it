@@ -17,6 +17,7 @@ export function WalletRoute() {
           network={network}
           rpcUrl="/api/solana/rpc"
           treasuryPubkey={process.env.NEXT_PUBLIC_WAGER_TREASURY_PUBKEY ?? ''}
+          botUsername={process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? ''}
         />
       )}
     </PageShell>

@@ -17,6 +17,12 @@ export function createWagerModuleCore(deps: WagerStakeDeps): WagerModuleCore {
       return 'sol';
     },
 
+    async stakesAvailable() {
+      if (!deps.stakeAcceptanceEnabled) return false;
+      if (deps.runtimeMode === 'starter_only' && !deps.starterGrantsEnabled) return false;
+      return !(await deps.db.getWagerStatus()).paused;
+    },
+
     handleStakeTap: (args) => handleStakeTap(deps, args),
 
     applySettlement: (marketId) => applySettlement(deps, marketId),

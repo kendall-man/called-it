@@ -63,6 +63,8 @@ export type TemplateKey =
   | 'replay_position_exists'
   | 'bookit_needs_reply'
   | 'window_closed'
+  | 'beta_access_required'
+  | 'admin_permission_required'
   | 'group_ready'
   | 'private_start'
   | 'group_only_recovery'
@@ -91,8 +93,8 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     '• Correct choices earn 10 points automatically.',
     '',
     isMainnet(vars)
-      ? 'Commands: /bookit · /wallet · /deposit · /withdraw · /leaderboard · /mystats · /table · /help'
-      : 'Commands: /bookit · /leaderboard · /mystats · /table · /help',
+      ? 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /help. Wallet commands are available in private chat.'
+      : 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /help',
     isMainnet(vars)
       ? 'SOL deposits and withdrawals use Solana mainnet.'
       : 'Test SOL is devnet-only and has no monetary value.',
@@ -146,7 +148,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   positions_activated: () => 'Window cleared — those calls are locked in at their price.',
   pick_a_lane: () => "You can't back it and doubt it. Pick a lane.",
   insufficient_rep: (vars) =>
-    `Not enough ${isMainnet(vars) ? 'SOL' : 'test SOL'} for that position. Available balance: ${value(vars, 'balance')} SOL. ${isMainnet(vars) ? 'Use /deposit to add SOL.' : 'Open /me for your private account.'}`,
+    `Not enough ${isMainnet(vars) ? 'SOL' : 'test SOL'} for that position. Available balance: ${value(vars, 'balance')} SOL. Open /deposit in private chat to add funds.`,
   cap_reached: (vars) =>
     `This call has reached the ${value(vars, 'cap')} SOL limit for one member. No position changed.`,
   stake_locked: (vars) =>
@@ -182,6 +184,10 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   replay_position_exists: () => 'Your test choice is already recorded. No starter position or test SOL was used.',
   bookit_needs_reply: () => 'Reply /bookit to the claim you want on the record.',
   window_closed: () => 'Too late for that one — the window is closed.',
+  beta_access_required: () =>
+    'Called It is in a limited beta and this group is not enabled yet. No call or SOL changed.',
+  admin_permission_required: () =>
+    'One step left: promote Called It to group admin with permission to manage messages. I will post the ready message when setup is complete.',
   group_ready: (vars) => isMainnet(vars)
     ? `Called It is ready on Solana mainnet. Say a football call, mention me, or reply /bookit to your own message. Choose one of two 0.01 SOL outcomes: "It happens" or "It does not." Choices and named results are visible to everyone in this group. Correct choices earn 10 points automatically. A verified wallet is required; /wallet in private chat shows your status. Board: ${value(vars, 'webUrl', 'the group board')}`
     : `Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Each offer has two fixed 0.01 test-SOL choices: "It happens" or "It does not." Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test SOL is devnet-only with no monetary value. Board: ${value(vars, 'webUrl', 'the group board')}`,

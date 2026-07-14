@@ -27,6 +27,7 @@ export function testWager(
   return {
     kind: 'funded',
     currencyForMint: async () => 'sol',
+    stakesAvailable: async () => true,
     handleStakeTap: async () => ({ reply: '', placed: false }),
     applySettlement: async () => { timeline.push('wager_apply'); },
     settlementPayoutsLine: async () => {
@@ -36,7 +37,11 @@ export function testWager(
     cardFooter: () => '',
     presetLabels: () => ['0.01 SOL', '0.05 SOL', '0.1 SOL'],
     presetLamports: () => null,
-    walletSummary: async () => ({ balanceLamports: 0n, pubkey: null }),
+    walletSummary: async () => ({ balanceLamports: 0n, lockedLamports: 0n, pubkey: null }),
+    prepareStakeConfirmation: async () => ({ ok: false, reply: 'Unavailable' }),
+    getStakeConfirmation: async () => null,
+    confirmStakeConfirmation: async () => ({ reply: 'Unavailable', placed: false }),
+    cancelStakeConfirmation: async () => false,
     registerCommands: () => undefined,
     registerSettlementRecovery: () => undefined,
     registerFundedWorkers: () => undefined,

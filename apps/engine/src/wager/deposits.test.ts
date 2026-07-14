@@ -48,7 +48,7 @@ describe('deposit watcher', () => {
     });
   });
 
-  it('credits a linked sender at/above the minimum and notifies the last wager group', async () => {
+  it('credits a linked sender at/above the minimum and notifies the user privately', async () => {
     const { deps, db, chain, poster } = makeFakeDeps();
     db.seedLink(USER, SENDER, GROUP);
     db.users.set(USER, 'Mika');
@@ -59,7 +59,7 @@ describe('deposit watcher', () => {
     expect(db.ledgerByKey(WAGER_KEYS.deposit('sigA', 0))?.lamports).toBe(5_000_000n);
     expect(db.deposits.get('sigA:0')?.credited_at).not.toBeNull();
     expect(poster.posts).toHaveLength(1);
-    expect(poster.posts[0]?.chatId).toBe(GROUP);
+    expect(poster.posts[0]?.chatId).toBe(USER);
     expect(poster.posts[0]?.text).toContain('Mika');
     expect(db.cursors.get(depositCursorStream(chain.treasuryPubkey()))).toBe('sigA');
   });
@@ -118,7 +118,7 @@ describe('deposit watcher', () => {
     expect(poster.posts).toHaveLength(1);
   });
 
-  it('never notifies without a last wager group (a DM is impossible)', async () => {
+  it('notifies a linked user privately even before their first group position', async () => {
     const { deps, db, chain, poster } = makeFakeDeps();
     db.seedLink(USER, SENDER, null); // linked but never wagered in a group
     chain.setScanTransfers([transfer({ sig: 'sigA' })]);
@@ -126,7 +126,8 @@ describe('deposit watcher', () => {
     await createDepositWatcher(deps).tick();
 
     expect(db.ledgerByKey(WAGER_KEYS.deposit('sigA', 0))).toBeDefined(); // still credited
-    expect(poster.posts).toHaveLength(0);
+    expect(poster.posts).toHaveLength(1);
+    expect(poster.posts[0]?.chatId).toBe(USER);
   });
 
   it('advances the cursor past a transfer-free (dust/spam) scan', async () => {

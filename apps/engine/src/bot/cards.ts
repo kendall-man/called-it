@@ -125,6 +125,8 @@ export interface ClaimCardInput {
   matchedPct: number;
   isReplay: boolean;
   receiptUrl: string;
+  /** False when a rollout or solvency gate has paused new positions. */
+  positionsAvailable?: boolean;
   /** Set by the wager module cardFooter — the devnet-SOL disclosure. */
   footer?: string;
 }
@@ -143,6 +145,9 @@ export function claimCardText(input: ClaimCardInput): string {
     `📋 ${describeTerms(input.spec)}`,
     `📈 Feed says ${formatProbabilityPct(input.probability)}% — back pays ${backMult}, against ${againstMult} if matched (${provenanceChip(input.provenance)})`,
     `🚦 ${statusLine(input.status)}`,
+    ...(input.positionsAvailable === false
+      ? ['⏸ New SOL positions are temporarily paused. No SOL can move.']
+      : []),
     '',
     `⚡ Backing it: ${formatSolAmount(input.back.stakeLamports)} (${input.back.count} in)`,
     `🛑 Against it: ${formatSolAmount(input.doubt.stakeLamports)} (${input.doubt.count} in)`,

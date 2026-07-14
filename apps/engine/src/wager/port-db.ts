@@ -1,10 +1,19 @@
 import type {
+  CreatePendingStakeIntentResult,
+  MutatePendingStakeIntentResult,
+  PendingStakeIntentInput,
+  ResolvePendingStakeIntentResult,
   WagerLedgerEntry,
   WagerStakeInput,
   WagerStakeResult,
 } from '@calledit/db';
 
 export type {
+  CreatePendingStakeIntentResult,
+  MutatePendingStakeIntentResult,
+  PendingStakeIntentInput,
+  PendingStakeIntentRow,
+  ResolvePendingStakeIntentResult,
   WagerLedgerEntry,
   WagerLedgerKind,
   WagerStakeErrorCode,
@@ -98,6 +107,17 @@ export interface WagerDb {
     | { ok: true; session_id: string }
     | { ok: false; code: 'session_invalid' | 'user_not_found' }
   >;
+  createPendingStakeIntent(args: PendingStakeIntentInput): Promise<CreatePendingStakeIntentResult>;
+  resolveActiveStakeIntent(userId: number): Promise<ResolvePendingStakeIntentResult>;
+  markStakeIntentFunded(
+    userId: number,
+    intentId: string,
+  ): Promise<MutatePendingStakeIntentResult>;
+  consumeReadyStakeIntent(
+    userId: number,
+    intentId: string,
+  ): Promise<ResolvePendingStakeIntentResult>;
+  cancelStakeIntent(userId: number, intentId: string): Promise<MutatePendingStakeIntentResult>;
   setLastWagerGroup(userId: number, groupId: number): Promise<void>;
   balanceLamports(userId: number): Promise<bigint>;
   totalLedgerLamports(): Promise<bigint>;

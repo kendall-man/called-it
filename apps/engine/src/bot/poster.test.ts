@@ -28,6 +28,19 @@ function posterHarness(): {
 }
 
 describe('poster failure logging', () => {
+  it('explicitly removes stale buttons when a card edit has no keyboard', async () => {
+    const harness = posterHarness();
+    const edit = vi.spyOn(harness.api, 'editMessageText').mockResolvedValue({} as never);
+
+    harness.poster.editCard(-100, 'market-1', 200, 'Paused card');
+    await harness.queue.idle();
+    harness.queue.stop();
+
+    expect(edit).toHaveBeenCalledWith(-100, 200, 'Paused card', expect.objectContaining({
+      reply_markup: expect.objectContaining({ inline_keyboard: [] }),
+    }));
+  });
+
   it('omits Telegram identity when stripping a keyboard fails', async () => {
     // Given a Telegram failure whose text contains raw identity
     const harness = posterHarness();

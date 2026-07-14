@@ -44,7 +44,7 @@ describe('group onboarding', () => {
     expect(duplicate).toEqual({ kind: 'already_ready' });
   });
 
-  it('uses the canonical least-privilege group install URL and encodes board slugs', () => {
+  it('uses the canonical group install URL with the required permission and encodes board slugs', () => {
     // Given a bot username and a group alias containing URL-reserved characters
     const username = 'calledit_bot';
 
@@ -52,10 +52,11 @@ describe('group onboarding', () => {
     const install = groupInstallUrl(username);
     const board = groupBoardUrl('https://calledit.example/', 'group / ?');
 
-    // Then neither URL grants extra bot permissions or changes the board path
+    // Then the bot requests only its required group permission and preserves the board path
     expect(BOT_ONBOARDING_VERSION).toBe('calledit_v1');
-    expect(install).toBe('https://t.me/calledit_bot?startgroup=calledit_v1');
-    expect(install).not.toContain('admin=');
+    expect(install).toBe(
+      'https://t.me/calledit_bot?startgroup=calledit_v1&admin=manage_chat',
+    );
     expect(board).toBe('https://calledit.example/g/group%20%2F%20%3F');
   });
 

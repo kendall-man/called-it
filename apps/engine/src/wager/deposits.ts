@@ -6,8 +6,9 @@
  * instruction of a signature is persisted, so re-processing converges.
  *
  * Unlinked senders become orphan rows for private operations reconciliation
- * only; they are never auto-claimed by a later wallet link. Notifications are
- * group posts to last_wager_group_id — NEVER a DM (the bot cannot open one).
+ * only; they are never auto-claimed by a later wallet link. Linked users have
+ * already opened the bot privately through /wallet, so financial receipts go
+ * to that private Telegram chat and never expose balances in a group.
  */
 
 import {
@@ -76,11 +77,10 @@ async function creditTransfer(
     ixIndex: transfer.ixIndex,
     lamports: transfer.lamports.toString(),
   });
-  if (link.last_wager_group_id === null) return;
   const name = (await deps.db.getUserName(link.user_id)) ?? 'A player';
   const balance = await deps.db.balanceLamports(link.user_id);
   deps.poster.post(
-    link.last_wager_group_id,
+    link.user_id,
     createWagerCopy(deps.solanaNetwork ?? 'devnet').depositCredited(name, transfer.lamports, balance),
   );
 }
