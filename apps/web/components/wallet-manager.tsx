@@ -208,7 +208,12 @@ export function WalletManager(props: WalletManagerProps) {
         {...props}
         address={activeWallet.address}
         signTransaction={async (transaction) => (
-          await signTransaction({ transaction, wallet: activeWallet, chain })
+          await signTransaction({
+            transaction,
+            wallet: activeWallet,
+            chain,
+            options: { uiOptions: { showWalletUIs: false } },
+          })
         ).signedTransaction}
       />
     </>
