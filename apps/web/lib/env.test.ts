@@ -227,7 +227,7 @@ describe('web environment', () => {
     const source = {
       ...BASE_ENV,
       NEXT_PUBLIC_WAGER_CUSTODY_MODE: 'escrow',
-      NEXT_PUBLIC_ESCROW_PROGRAM_ID: '7rfzH5Wvo7YjCavDqNu7c18671xSBguZYTkRrn98uq7q',
+      NEXT_PUBLIC_ESCROW_PROGRAM_ID: 'HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL',
       NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
       ESCROW_GENESIS_HASH: 'devnet-genesis',
       CONCIERGE_WALLET_API_URL: 'https://engine.example.test',
