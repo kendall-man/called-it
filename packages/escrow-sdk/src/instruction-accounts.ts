@@ -7,6 +7,8 @@ import {
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   CLASSIC_TOKEN_PROGRAM_ID,
+  SOL_ACCOUNT_PLACEHOLDER,
+  deriveClassicAssociatedTokenAddress,
   deriveMarketPda,
   deriveOracleSetPda,
   derivePositionLotPda,
@@ -47,7 +49,7 @@ function assetAccounts(programId: PublicKey, market: PublicKey, asset: 'sol' | '
   readonly vault: PublicKey;
   readonly tokenMint: PublicKey;
 } {
-  const tokenMint = asset === 'usdc' ? publicKey(mint) : PublicKey.default;
+  const tokenMint = asset === 'usdc' ? publicKey(mint) : SOL_ACCOUNT_PLACEHOLDER;
   const vault = asset === 'usdc'
     ? deriveUsdcVaultAddress(market, tokenMint)
     : deriveSolVaultPda(programId, market).publicKey;
@@ -128,8 +130,8 @@ export function escrowInstructionAccounts(request: EscrowInstructionRequest, pro
       const position = positionAccounts(programId, base.market, request.owner, request.expectedLotNonce);
       const asset = assetAccounts(programId, base.market, request.expectedAsset, request.canonicalUsdcMint);
       const assetSource = request.expectedAsset === 'usdc'
-        ? deriveUsdcVaultAddress(position.owner, asset.tokenMint)
-        : PublicKey.default;
+        ? deriveClassicAssociatedTokenAddress(position.owner, asset.tokenMint)
+        : position.owner;
       return metaList(request.kind, { payer: request.payer, ...base, ...position, ...asset, assetSource, ...tokenPrograms() });
     }
     case 'activate_position_lot': {
@@ -159,25 +161,49 @@ export function escrowInstructionAccounts(request: EscrowInstructionRequest, pro
       return metaList(request.kind, { ...base, ...positionAccounts(programId, base.market, request.owner) });
     }
     case 'timeout_void': return metaList(request.kind, common(programId, request.marketUuid));
-    case 'claim_position': {
+    case 'claim_position':
+    case 'claim_position_for': {
       const base = common(programId, request.marketUuid);
       const position = positionAccounts(programId, base.market, request.owner);
       const asset = assetAccounts(programId, base.market, request.asset, request.canonicalUsdcMint);
       const ownerTokenAccount = request.asset === 'usdc'
-        ? deriveUsdcVaultAddress(position.owner, asset.tokenMint)
-        : PublicKey.default;
-      return metaList(request.kind, { payer: request.payer, ...base, ...position, ...asset, ownerTokenAccount, ...tokenPrograms() });
+        ? deriveClassicAssociatedTokenAddress(position.owner, asset.tokenMint)
+        : position.owner;
+      const payer = request.kind === 'claim_position_for' ? request.payer : position.owner;
+      return metaList(request.kind, { payer, ...base, ...position, ...asset, ownerTokenAccount, ...tokenPrograms() });
     }
     case 'close_position_lots': {
       const base = common(programId, request.marketUuid);
       const position = positionAccounts(programId, base.market, request.owner);
       const lots = request.lotNonces.map((nonce) => derivePositionLotPda(programId, base.market, position.owner, nonce).publicKey);
-      return metaList(request.kind, { ...base, ...position, rentRecipient: request.rentRecipient }, lots);
+      return metaList(request.kind, {
+        ...base,
+        ...position,
+        rentRecipient: request.rentRecipient,
+        systemProgram: SystemProgram.programId,
+      }, lots);
+    }
+    case 'close_position': {
+      const base = common(programId, request.marketUuid);
+      return metaList(request.kind, {
+        ...base,
+        ...positionAccounts(programId, base.market, request.owner),
+        rentRecipient: request.rentRecipient,
+      });
     }
     case 'close_market': {
       const base = common(programId, request.marketUuid);
       const asset = assetAccounts(programId, base.market, request.asset, request.canonicalUsdcMint);
-      return metaList(request.kind, { ...base, ...asset, residualRecipient: request.residualRecipient, ...tokenPrograms() });
+      const residualTokenAccount = request.asset === 'usdc'
+        ? deriveClassicAssociatedTokenAddress(request.residualRecipient, asset.tokenMint)
+        : publicKey(request.residualRecipient);
+      return metaList(request.kind, {
+        ...base,
+        ...asset,
+        residualRecipient: request.residualRecipient,
+        residualTokenAccount,
+        ...tokenPrograms(),
+      });
     }
   }
 }

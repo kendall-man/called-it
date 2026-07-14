@@ -56,6 +56,11 @@ export class BorshWriter {
     return this.bytes(bytes);
   }
 
+  string(value: string, name: string): this {
+    const bytes = new TextEncoder().encode(value);
+    return this.u32(bytes.length, `${name} length`).bytes(bytes);
+  }
+
   optionU64(value: bigint | null, name: string): this {
     this.bool(value !== null, `${name} present`);
     return value === null ? this : this.u64(value, name);
@@ -144,6 +149,12 @@ export class BorshReader {
     const length = this.u32(`${name} length`);
     if (length > maximumLength) throw new RangeError(`${name} exceeds maximum length ${maximumLength}`);
     return Array.from({ length }, (_, index) => this.publicKey(`${name}[${index}]`));
+  }
+
+  u64Vector(name: string, maximumLength: number): readonly bigint[] {
+    const length = this.u32(`${name} length`);
+    if (length > maximumLength) throw new RangeError(`${name} exceeds maximum length ${maximumLength}`);
+    return Array.from({ length }, (_, index) => this.u64(`${name}[${index}]`));
   }
 
   finish(name: string): void {

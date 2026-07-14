@@ -12,6 +12,7 @@ export const ESCROW_PDA_SEEDS = {
 
 export const CLASSIC_TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+export const SOL_ACCOUNT_PLACEHOLDER = PublicKey.default;
 
 export interface DerivedPda {
   readonly publicKey: PublicKey;
@@ -70,10 +71,14 @@ export function deriveSolVaultPda(programId: PublicKeyInput, market: PublicKeyIn
   return derive(programId, [seed(ESCROW_PDA_SEEDS.solVault), key(market).toBytes()]);
 }
 
-export function deriveUsdcVaultAddress(market: PublicKeyInput, mint: PublicKeyInput): PublicKey {
+export function deriveClassicAssociatedTokenAddress(authority: PublicKeyInput, mint: PublicKeyInput): PublicKey {
   const [address] = PublicKey.findProgramAddressSync(
-    [key(market).toBytes(), CLASSIC_TOKEN_PROGRAM_ID.toBytes(), key(mint).toBytes()],
+    [key(authority).toBytes(), CLASSIC_TOKEN_PROGRAM_ID.toBytes(), key(mint).toBytes()],
     ASSOCIATED_TOKEN_PROGRAM_ID,
   );
   return address;
+}
+
+export function deriveUsdcVaultAddress(market: PublicKeyInput, mint: PublicKeyInput): PublicKey {
+  return deriveClassicAssociatedTokenAddress(market, mint);
 }

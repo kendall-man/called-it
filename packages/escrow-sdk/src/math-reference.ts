@@ -51,6 +51,11 @@ function minBigint(left: bigint, right: bigint): bigint {
   return left < right ? left : right;
 }
 
+function assertRatio(ratioMilli: bigint): void {
+  assertU64(ratioMilli, 'ratio milli');
+  if (ratioMilli === 0n) throw new RangeError('ratio milli must be positive');
+}
+
 /** Exact compatibility helper for the current JS engine's Math.round path. */
 export function ratioMilliFromProbability(probability: number): bigint {
   if (!Number.isFinite(probability) || probability <= 0 || probability >= 1) {
@@ -111,8 +116,7 @@ export function computePots(
   ratioMilli: bigint,
 ): EscrowPots {
   validatePositions(positions);
-  assertU64(ratioMilli, 'ratio milli');
-  if (ratioMilli === 0n) throw new RangeError('ratio milli must be positive');
+  assertRatio(ratioMilli);
   let backAmount = 0n;
   let doubtAmount = 0n;
   for (const position of positions) {
@@ -154,7 +158,10 @@ export function settlePositions(
     }
   }
 
-  const pots = computePots(positions, ratioMilli);
+  assertRatio(ratioMilli);
+  const pots = outcome === 'void'
+    ? { backAmount: 0n, doubtAmount: 0n, matchedBack: 0n, matchedDoubt: 0n }
+    : computePots(positions, ratioMilli);
   const payouts = new Map<string, bigint>();
   if (outcome !== 'void') {
     const winningSide: PositionSide = outcome === 'claim_won' ? 'back' : 'doubt';

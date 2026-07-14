@@ -148,6 +148,12 @@ export interface PositionInstructionBase {
 
 export interface ClaimPositionInstruction extends PositionInstructionBase {
   readonly kind: 'claim_position';
+  readonly asset: EscrowAsset;
+  readonly canonicalUsdcMint: PublicKeyInput;
+}
+
+export interface ClaimPositionForInstruction extends PositionInstructionBase {
+  readonly kind: 'claim_position_for';
   readonly payer: PublicKeyInput;
   readonly asset: EscrowAsset;
   readonly canonicalUsdcMint: PublicKeyInput;
@@ -161,6 +167,11 @@ export interface ClosePositionLotsInstruction extends PositionInstructionBase {
   readonly kind: 'close_position_lots';
   readonly rentRecipient: PublicKeyInput;
   readonly lotNonces: readonly bigint[];
+}
+
+export interface ClosePositionInstruction extends PositionInstructionBase {
+  readonly kind: 'close_position';
+  readonly rentRecipient: PublicKeyInput;
 }
 
 export interface CloseMarketInstruction {
@@ -187,5 +198,7 @@ export type EscrowInstructionRequest =
   | TimeoutVoidInstruction
   | CalculatePositionEntitlementInstruction
   | ClaimPositionInstruction
+  | ClaimPositionForInstruction
   | ClosePositionLotsInstruction
+  | ClosePositionInstruction
   | CloseMarketInstruction;

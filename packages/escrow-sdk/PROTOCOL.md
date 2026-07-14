@@ -122,27 +122,24 @@ program-data proof for config initialization, current/new oracle-set accounts,
 genesis/program/config/oracle bindings for market initialization, and the user
 signer plus canonical asset source for placement.
 
-The current program source does not yet define Wave 3 `Accounts` contexts or
-handlers. The client surface is concrete and uses these centralized integration
-assumptions until generated IDL is available:
+Wave 3 settlement and recovery entries match program commit `81aedda`, the
+program identity pinned by `666efac`, and the generated Anchor `0.31.1` IDL.
+Settlement and void instructions serialize every
+attestation argument in Rust Borsh order, while their threshold Ed25519
+instructions verify the complete canonical V1 attestation bytes.
 
-- `settle_market` stores the SHA-256 hash of the complete canonical settlement
-  attestation in `evidence_commitment`; threshold Ed25519 instructions precede
-  the program instruction.
-- Settlement, void, and invalidation read the instructions sysvar and the
-  market-pinned oracle-set PDA. Timeout, entitlement calculation, and
-  activation are permissionless and add no caller account.
-- `claim_position` includes a sponsoring payer, market, aggregate position,
-  recorded owner, immutable vault, mint, canonical owner ATA, classic token
-  program, associated-token program, and system program. The owner is never a
-  claim signer and cannot be replaced as destination.
-- `close_position_lots` Borsh-encodes `Vec<u64>` nonces and supplies the lot
-  PDAs as writable remaining accounts. `close_market` supplies the residual
-  recipient only as an account constrained to immutable market state, never as
-  instruction data.
-- SOL uses the all-zero public key for unused mint/token-account slots. USDC
-  always uses the configured mint and classic SPL ATA derivation; Token-2022 is
-  not accepted.
+`claim_position` requires the recorded owner signer and uses that owner as the
+SOL destination. Permissionless sponsored recovery uses `claim_position_for`,
+where the relayer signs only as payer and the recorded owner remains the fixed
+destination. `close_position_lots` includes config and system-program accounts
+before writable remaining lot PDAs; `close_position` closes the aggregate only
+after all lots are gone.
+
+SOL uses the all-zero/system-program key for mint slots, aliases the owner for
+placement source and claim destination slots, and aliases the residual recipient
+for market-close destination slots. USDC always uses the configured mint and
+classic SPL ATA derivation for market vaults and owner/residual destinations;
+Token-2022 is not accepted.
 
 Sponsored user placement messages intentionally use no address lookup tables or
 extra instructions. The verifier reconstructs the complete expected v0 message,

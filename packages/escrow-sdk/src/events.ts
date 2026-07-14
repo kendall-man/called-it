@@ -1,6 +1,7 @@
 import { BorshReader } from './borsh.js';
 import { bytesToHex } from './codec.js';
 import type { EscrowAddress } from './accounts.js';
+import type { VoidReason } from './attestations.js';
 import type { EscrowAsset, PositionSide, SettlementOutcome } from './domain.js';
 import { ESCROW_EVENT_DISCRIMINATORS } from './schema.js';
 
@@ -15,9 +16,13 @@ export type EscrowProgramEvent =
   | { readonly kind: 'PositionPlaced'; readonly market: EscrowAddress; readonly position: EscrowAddress; readonly lot: EscrowAddress; readonly owner: EscrowAddress; readonly nonce: bigint; readonly side: PositionSide; readonly amount: bigint; readonly asset: EscrowAsset; readonly pending: boolean; readonly eventEpoch: bigint; readonly activationAfter: bigint | null; readonly clientIntentHash: Uint8Array }
   | { readonly kind: 'PositionActivated'; readonly market: EscrowAddress; readonly position: EscrowAddress; readonly lot: EscrowAddress; readonly owner: EscrowAddress; readonly nonce: bigint; readonly amount: bigint; readonly eventEpoch: bigint }
   | { readonly kind: 'PositionInvalidated'; readonly market: EscrowAddress; readonly position: EscrowAddress; readonly lot: EscrowAddress; readonly owner: EscrowAddress; readonly nonce: bigint; readonly amount: bigint; readonly eventEpoch: bigint; readonly evidenceHash: Uint8Array }
-  | { readonly kind: 'MarketSettled'; readonly market: EscrowAddress; readonly outcome: SettlementOutcome | null; readonly matchedBack: bigint; readonly matchedDoubt: bigint; readonly forfeitedTotal: bigint; readonly evidenceHash: Uint8Array }
-  | { readonly kind: 'MarketVoided'; readonly market: EscrowAddress; readonly evidenceHash: Uint8Array; readonly timedOut: boolean }
-  | { readonly kind: 'PositionClaimed'; readonly market: EscrowAddress; readonly position: EscrowAddress; readonly owner: EscrowAddress; readonly amount: bigint; readonly asset: EscrowAsset }
+  | { readonly kind: 'MarketSettlementStarted'; readonly market: EscrowAddress; readonly outcome: SettlementOutcome | null; readonly matchedBack: bigint; readonly matchedDoubt: bigint; readonly positionCount: bigint; readonly evidenceHash: Uint8Array }
+  | { readonly kind: 'PositionEntitlementCalculated'; readonly market: EscrowAddress; readonly position: EscrowAddress; readonly owner: EscrowAddress; readonly baseEntitlement: bigint; readonly forfeitedAmount: bigint; readonly processedPositionCount: bigint }
+  | { readonly kind: 'MarketSettled'; readonly market: EscrowAddress; readonly outcome: SettlementOutcome | null; readonly matchedBack: bigint; readonly matchedDoubt: bigint; readonly forfeitedTotal: bigint; readonly evidenceHash: Uint8Array; readonly finalPosition: EscrowAddress | null; readonly finalOwner: EscrowAddress | null; readonly finalBaseEntitlement: bigint | null; readonly finalForfeitedAmount: bigint | null }
+  | { readonly kind: 'MarketVoided'; readonly market: EscrowAddress; readonly evidenceHash: Uint8Array; readonly timedOut: boolean; readonly reason: VoidReason | null; readonly decidingSequence: bigint | null }
+  | { readonly kind: 'PositionClaimed'; readonly market: EscrowAddress; readonly position: EscrowAddress; readonly owner: EscrowAddress; readonly amount: bigint; readonly asset: EscrowAsset; readonly destination: EscrowAddress }
+  | { readonly kind: 'PositionLotsClosed'; readonly market: EscrowAddress; readonly position: EscrowAddress; readonly owner: EscrowAddress; readonly nonces: readonly bigint[]; readonly rentRecipient: EscrowAddress }
+  | { readonly kind: 'PositionClosed'; readonly market: EscrowAddress; readonly position: EscrowAddress; readonly owner: EscrowAddress; readonly rentRecipient: EscrowAddress }
   | { readonly kind: 'MarketClosed'; readonly market: EscrowAddress; readonly dustAmount: bigint; readonly asset: EscrowAsset };
 
 type EventKind = EscrowProgramEvent['kind'];
@@ -25,8 +30,9 @@ type EventKind = EscrowProgramEvent['kind'];
 const EVENT_KINDS = [
   'ProtocolConfigInitialized', 'ProtocolConfigRotated', 'OracleSetRotated', 'ProtocolPauseChanged',
   'MarketInitialized', 'MarketFrozen', 'MarketUnfrozen', 'PositionPlaced',
-  'PositionActivated', 'PositionInvalidated', 'MarketSettled', 'MarketVoided',
-  'PositionClaimed', 'MarketClosed',
+  'PositionActivated', 'PositionInvalidated', 'MarketSettlementStarted',
+  'PositionEntitlementCalculated', 'MarketSettled', 'MarketVoided',
+  'PositionClaimed', 'PositionLotsClosed', 'PositionClosed', 'MarketClosed',
 ] as const;
 
 function eventKind(discriminator: Uint8Array): EventKind {
@@ -71,6 +77,26 @@ function optionalI64(reader: BorshReader, name: string): bigint | null {
   return tag === 0 ? null : reader.i64(name);
 }
 
+function optionalPublicKey(reader: BorshReader, name: string): EscrowAddress | null {
+  const tag = reader.u8(`${name} option`);
+  if (tag > 1) throw new RangeError(`${name} has an invalid Borsh option tag`);
+  return tag === 0 ? null : reader.publicKey(name);
+}
+
+function voidReason(reader: BorshReader): VoidReason {
+  const reasons = ['cancelled', 'abandoned', 'coverage_loss', 'undecidable'] as const;
+  const tag = reader.u8('void reason');
+  const value = reasons[tag];
+  if (value === undefined) throw new RangeError(`invalid void reason tag ${tag}`);
+  return value;
+}
+
+function optionalVoidReason(reader: BorshReader): VoidReason | null {
+  const tag = reader.u8('void reason option');
+  if (tag > 1) throw new RangeError('void reason has an invalid Borsh option tag');
+  return tag === 0 ? null : voidReason(reader);
+}
+
 function decode(kind: EventKind, reader: BorshReader): EscrowProgramEvent {
   switch (kind) {
     case 'ProtocolConfigInitialized': return { kind, config: reader.publicKey('config'), configAuthority: reader.publicKey('config authority'), pauseAuthority: reader.publicKey('pause authority'), marketCreationAuthority: reader.publicKey('market creation authority'), residualRecipient: reader.publicKey('residual recipient'), clusterGenesisHash: reader.fixed(32, 'cluster genesis hash'), canonicalUsdcMint: reader.publicKey('canonical USDC mint'), allowedTokenProgram: reader.publicKey('allowed token program') };
@@ -83,9 +109,13 @@ function decode(kind: EventKind, reader: BorshReader): EscrowProgramEvent {
     case 'PositionPlaced': return { kind, market: reader.publicKey('market'), position: reader.publicKey('position'), lot: reader.publicKey('lot'), owner: reader.publicKey('owner'), nonce: reader.u64('nonce'), side: side(reader), amount: reader.u64('amount'), asset: asset(reader), pending: reader.bool('pending'), eventEpoch: reader.u64('event epoch'), activationAfter: optionalI64(reader, 'activation after'), clientIntentHash: reader.fixed(32, 'client intent hash') };
     case 'PositionActivated': return { kind, market: reader.publicKey('market'), position: reader.publicKey('position'), lot: reader.publicKey('lot'), owner: reader.publicKey('owner'), nonce: reader.u64('nonce'), amount: reader.u64('amount'), eventEpoch: reader.u64('event epoch') };
     case 'PositionInvalidated': return { kind, market: reader.publicKey('market'), position: reader.publicKey('position'), lot: reader.publicKey('lot'), owner: reader.publicKey('owner'), nonce: reader.u64('nonce'), amount: reader.u64('amount'), eventEpoch: reader.u64('event epoch'), evidenceHash: reader.fixed(32, 'evidence hash') };
-    case 'MarketSettled': return { kind, market: reader.publicKey('market'), outcome: outcome(reader), matchedBack: reader.u64('matched back'), matchedDoubt: reader.u64('matched doubt'), forfeitedTotal: reader.u64('forfeited total'), evidenceHash: reader.fixed(32, 'evidence hash') };
-    case 'MarketVoided': return { kind, market: reader.publicKey('market'), evidenceHash: reader.fixed(32, 'evidence hash'), timedOut: reader.bool('timed out') };
-    case 'PositionClaimed': return { kind, market: reader.publicKey('market'), position: reader.publicKey('position'), owner: reader.publicKey('owner'), amount: reader.u64('amount'), asset: asset(reader) };
+    case 'MarketSettlementStarted': return { kind, market: reader.publicKey('market'), outcome: outcome(reader), matchedBack: reader.u64('matched back'), matchedDoubt: reader.u64('matched doubt'), positionCount: reader.u64('position count'), evidenceHash: reader.fixed(32, 'evidence hash') };
+    case 'PositionEntitlementCalculated': return { kind, market: reader.publicKey('market'), position: reader.publicKey('position'), owner: reader.publicKey('owner'), baseEntitlement: reader.u64('base entitlement'), forfeitedAmount: reader.u64('forfeited amount'), processedPositionCount: reader.u64('processed position count') };
+    case 'MarketSettled': return { kind, market: reader.publicKey('market'), outcome: outcome(reader), matchedBack: reader.u64('matched back'), matchedDoubt: reader.u64('matched doubt'), forfeitedTotal: reader.u64('forfeited total'), evidenceHash: reader.fixed(32, 'evidence hash'), finalPosition: optionalPublicKey(reader, 'final position'), finalOwner: optionalPublicKey(reader, 'final owner'), finalBaseEntitlement: reader.optionU64('final base entitlement'), finalForfeitedAmount: reader.optionU64('final forfeited amount') };
+    case 'MarketVoided': return { kind, market: reader.publicKey('market'), evidenceHash: reader.fixed(32, 'evidence hash'), timedOut: reader.bool('timed out'), reason: optionalVoidReason(reader), decidingSequence: reader.optionU64('deciding sequence') };
+    case 'PositionClaimed': return { kind, market: reader.publicKey('market'), position: reader.publicKey('position'), owner: reader.publicKey('owner'), amount: reader.u64('amount'), asset: asset(reader), destination: reader.publicKey('destination') };
+    case 'PositionLotsClosed': return { kind, market: reader.publicKey('market'), position: reader.publicKey('position'), owner: reader.publicKey('owner'), nonces: reader.u64Vector('nonces', 256), rentRecipient: reader.publicKey('rent recipient') };
+    case 'PositionClosed': return { kind, market: reader.publicKey('market'), position: reader.publicKey('position'), owner: reader.publicKey('owner'), rentRecipient: reader.publicKey('rent recipient') };
     case 'MarketClosed': return { kind, market: reader.publicKey('market'), dustAmount: reader.u64('dust amount'), asset: asset(reader) };
   }
 }

@@ -1,4 +1,4 @@
-export const ESCROW_PROGRAM_ID = '7rfzH5Wvo7YjCavDqNu7c18671xSBguZYTkRrn98uq7q';
+export const ESCROW_PROGRAM_ID = 'HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL';
 
 export const ESCROW_INSTRUCTION_DISCRIMINATORS = {
   initialize_config: [208, 127, 21, 1, 194, 190, 196, 70],
@@ -16,7 +16,9 @@ export const ESCROW_INSTRUCTION_DISCRIMINATORS = {
   void_market: [243, 175, 46, 124, 95, 101, 39, 69],
   timeout_void: [12, 211, 235, 186, 179, 108, 98, 208],
   claim_position: [168, 90, 89, 44, 203, 246, 210, 46],
+  claim_position_for: [78, 128, 143, 121, 217, 191, 221, 71],
   close_position_lots: [148, 137, 14, 114, 167, 75, 97, 152],
+  close_position: [123, 134, 81, 0, 49, 68, 98, 98],
   close_market: [88, 154, 248, 186, 48, 14, 123, 244],
 } as const;
 
@@ -50,9 +52,11 @@ export const ESCROW_INSTRUCTION_ACCOUNTS: Readonly<Record<EscrowInstructionKind,
   calculate_position_entitlement: [account('market', false, true), account('position', false, true)],
   void_market: [account('config'), account('oracleSet'), account('market', false, true), account('instructionsSysvar')],
   timeout_void: [account('market', false, true)],
-  claim_position: [account('payer', true, true), account('market', false, true), account('position', false, true), account('owner', false, true), account('vault', false, true), account('tokenMint'), account('ownerTokenAccount', false, true), account('tokenProgram'), account('associatedTokenProgram'), account('systemProgram')],
-  close_position_lots: [account('market'), account('position', false, true), account('rentRecipient', false, true), { ...account('lots', false, true), remaining: true }],
-  close_market: [account('market', false, true), account('vault', false, true), account('residualRecipient', false, true), account('tokenMint'), account('tokenProgram'), account('systemProgram')],
+  claim_position: [account('market', false, true), account('position', false, true), account('owner', true, true), account('vault', false, true), account('tokenMint'), account('ownerTokenAccount', false, true), account('tokenProgram'), account('associatedTokenProgram'), account('systemProgram')],
+  claim_position_for: [account('payer', true, true), account('market', false, true), account('position', false, true), account('owner', false, true), account('vault', false, true), account('tokenMint'), account('ownerTokenAccount', false, true), account('tokenProgram'), account('associatedTokenProgram'), account('systemProgram')],
+  close_position_lots: [account('config'), account('market'), account('position', false, true), account('rentRecipient', false, true), account('systemProgram'), { ...account('lots', false, true), remaining: true }],
+  close_position: [account('config'), account('market', false, true), account('position', false, true), account('rentRecipient', false, true)],
+  close_market: [account('market', false, true), account('vault', false, true), account('residualRecipient', false, true), account('tokenMint'), account('residualTokenAccount', false, true), account('tokenProgram'), account('systemProgram')],
 };
 
 export const ESCROW_ACCOUNT_DISCRIMINATORS = {
@@ -74,8 +78,12 @@ export const ESCROW_EVENT_DISCRIMINATORS = {
   PositionPlaced: [98, 254, 173, 163, 231, 220, 66, 210],
   PositionActivated: [107, 62, 74, 102, 27, 211, 70, 149],
   PositionInvalidated: [214, 165, 186, 120, 136, 141, 216, 202],
+  MarketSettlementStarted: [57, 114, 235, 229, 240, 159, 32, 143],
+  PositionEntitlementCalculated: [237, 117, 56, 238, 241, 136, 79, 53],
   MarketSettled: [237, 212, 22, 175, 201, 117, 215, 99],
   MarketVoided: [217, 12, 138, 39, 108, 75, 89, 26],
   PositionClaimed: [149, 250, 141, 45, 210, 198, 94, 148],
+  PositionLotsClosed: [253, 103, 46, 41, 67, 37, 226, 166],
+  PositionClosed: [157, 163, 227, 228, 13, 97, 138, 121],
   MarketClosed: [86, 91, 119, 43, 94, 0, 217, 113],
 } as const;

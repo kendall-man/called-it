@@ -32,9 +32,10 @@ describe('concrete Anchor instruction adapter', () => {
     const lengths = {
       initialize_config: 344, rotate_config: 248, rotate_oracle_set: 134, set_pause: 9,
       initialize_market: 380, freeze_market: 48, unfreeze_market: 80, place_position: 126,
-      activate_position_lot: 24, invalidate_position_lot: 80, settle_market: 89,
-      calculate_position_entitlement: 8, void_market: 48, timeout_void: 8,
-      claim_position: 8, close_position_lots: 28, close_market: 8,
+      activate_position_lot: 24, invalidate_position_lot: 80, settle_market: 144,
+      calculate_position_entitlement: 8, void_market: 65, timeout_void: 8,
+      claim_position: 8, claim_position_for: 8, close_position_lots: 28,
+      close_position: 8, close_market: 8,
     } as const;
     for (const request of instructionRequests()) {
       expect(materializeInstruction(request, { programId: PROGRAM_ID }).data.length, request.kind)

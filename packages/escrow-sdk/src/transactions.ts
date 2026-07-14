@@ -5,6 +5,12 @@ import {
   VersionedTransaction,
   type TransactionInstruction,
 } from '@solana/web3.js';
+import {
+  encodeSettlementAttestationV1,
+  encodeVoidAttestationV1,
+  type SettlementAttestationV1,
+  type VoidAttestationV1,
+} from './attestations.js';
 import { publicKey, type PublicKeyInput } from './borsh.js';
 import { CanonicalWriter, hashCanonicalBytes, writeDomain } from './codec.js';
 import { deriveMarketPda } from './addresses.js';
@@ -180,4 +186,18 @@ export function buildAttestationVerificationInstructions(
       signature,
     });
   });
+}
+
+export function buildSettlementAttestationVerificationInstructions(
+  attestation: SettlementAttestationV1,
+  signatures: readonly AttestationSignature[],
+): readonly TransactionInstruction[] {
+  return buildAttestationVerificationInstructions(encodeSettlementAttestationV1(attestation), signatures);
+}
+
+export function buildVoidAttestationVerificationInstructions(
+  attestation: VoidAttestationV1,
+  signatures: readonly AttestationSignature[],
+): readonly TransactionInstruction[] {
+  return buildAttestationVerificationInstructions(encodeVoidAttestationV1(attestation), signatures);
 }

@@ -130,8 +130,10 @@ export function instructionRequests(): readonly EscrowInstructionRequest[] {
     { kind: 'calculate_position_entitlement', marketUuid: MARKET_UUID, owner: USER.publicKey },
     { kind: 'void_market', marketUuid: MARKET_UUID, attestation: voidAttestation },
     { kind: 'timeout_void', marketUuid: MARKET_UUID },
-    { kind: 'claim_position', payer: RELAYER.publicKey, marketUuid: MARKET_UUID, owner: USER.publicKey, asset: 'sol', canonicalUsdcMint: USDC_MINT },
-    { kind: 'close_position_lots', marketUuid: MARKET_UUID, owner: USER.publicKey, rentRecipient: key(7), lotNonces: [4n, 5n] },
+    { kind: 'claim_position', marketUuid: MARKET_UUID, owner: USER.publicKey, asset: 'sol', canonicalUsdcMint: USDC_MINT },
+    { kind: 'claim_position_for', payer: RELAYER.publicKey, marketUuid: MARKET_UUID, owner: USER.publicKey, asset: 'sol', canonicalUsdcMint: USDC_MINT },
+    { kind: 'close_position_lots', marketUuid: MARKET_UUID, owner: USER.publicKey, rentRecipient: key(7), lotNonces: [5n, 4n] },
+    { kind: 'close_position', marketUuid: MARKET_UUID, owner: USER.publicKey, rentRecipient: key(7) },
     { kind: 'close_market', marketUuid: MARKET_UUID, asset: 'sol', canonicalUsdcMint: USDC_MINT, residualRecipient: key(7) },
   ];
 }

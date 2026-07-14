@@ -112,9 +112,13 @@ describe('typed Anchor event decoders', () => {
       ['PositionPlaced', new BorshWriter().publicKey(key(1)).publicKey(key(2)).publicKey(key(3)).publicKey(key(4)).u64(5n, 'nonce').u8(0, 'side').u64(6n, 'amount').u8(1, 'asset').bool(true, 'pending').u64(7n, 'epoch').u8(1, 'activation option').i64(8n, 'activation').fixed(hash(9), 32, 'intent')],
       ['PositionActivated', new BorshWriter().publicKey(key(1)).publicKey(key(2)).publicKey(key(3)).publicKey(key(4)).u64(5n, 'nonce').u64(6n, 'amount').u64(7n, 'epoch')],
       ['PositionInvalidated', new BorshWriter().publicKey(key(1)).publicKey(key(2)).publicKey(key(3)).publicKey(key(4)).u64(5n, 'nonce').u64(6n, 'amount').u64(7n, 'epoch').fixed(hash(8), 32, 'evidence')],
-      ['MarketSettled', new BorshWriter().publicKey(key(1)).u8(1, 'outcome').u64(2n, 'back').u64(3n, 'doubt').u64(4n, 'forfeited').fixed(hash(5), 32, 'evidence')],
-      ['MarketVoided', new BorshWriter().publicKey(key(1)).fixed(hash(2), 32, 'evidence').bool(true, 'timed out')],
-      ['PositionClaimed', new BorshWriter().publicKey(key(1)).publicKey(key(2)).publicKey(key(3)).u64(4n, 'amount').u8(0, 'asset')],
+      ['MarketSettlementStarted', new BorshWriter().publicKey(key(1)).u8(1, 'outcome').u64(2n, 'back').u64(3n, 'doubt').u64(4n, 'positions').fixed(hash(5), 32, 'evidence')],
+      ['PositionEntitlementCalculated', new BorshWriter().publicKey(key(1)).publicKey(key(2)).publicKey(key(3)).u64(4n, 'base').u64(5n, 'forfeited').u64(6n, 'processed')],
+      ['MarketSettled', new BorshWriter().publicKey(key(1)).u8(1, 'outcome').u64(2n, 'back').u64(3n, 'doubt').u64(4n, 'forfeited').fixed(hash(5), 32, 'evidence').bool(true, 'position present').publicKey(key(6)).bool(true, 'owner present').publicKey(key(7)).optionU64(8n, 'base').optionU64(9n, 'final forfeited')],
+      ['MarketVoided', new BorshWriter().publicKey(key(1)).fixed(hash(2), 32, 'evidence').bool(false, 'timed out').bool(true, 'reason present').u8(2, 'reason').optionU64(3n, 'sequence')],
+      ['PositionClaimed', new BorshWriter().publicKey(key(1)).publicKey(key(2)).publicKey(key(3)).u64(4n, 'amount').u8(0, 'asset').publicKey(key(5))],
+      ['PositionLotsClosed', new BorshWriter().publicKey(key(1)).publicKey(key(2)).publicKey(key(3)).u64Vector([5n, 4n], 'nonces').publicKey(key(6))],
+      ['PositionClosed', new BorshWriter().publicKey(key(1)).publicKey(key(2)).publicKey(key(3)).publicKey(key(4))],
       ['MarketClosed', new BorshWriter().publicKey(key(1)).u64(2n, 'dust').u8(1, 'asset')],
     ];
     for (const [kind, body] of events) expect(decodeEscrowEvent(eventData(kind, body)).kind).toBe(kind);

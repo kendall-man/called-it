@@ -1,6 +1,9 @@
 import { PublicKey } from '@solana/web3.js';
 import {
-  hashSettlementAttestationV1,
+  encodeSettlementAttestationV1,
+  encodeVoidAttestationV1,
+  type ScoreV1,
+  type VoidReason,
 } from './attestations.js';
 import { BorshWriter, publicKey } from './borsh.js';
 import { assertInteger, bytesToHex, uuidToBytes } from './codec.js';
@@ -11,6 +14,19 @@ import { ESCROW_INSTRUCTION_DISCRIMINATORS } from './schema.js';
 
 const assetTag = (asset: 'sol' | 'usdc'): number => asset === 'sol' ? 0 : 1;
 const sideTag = (side: 'back' | 'doubt'): number => side === 'back' ? 0 : 1;
+const VOID_REASON_TAG: Readonly<Record<VoidReason, number>> = {
+  cancelled: 0,
+  abandoned: 1,
+  coverage_loss: 2,
+  undecidable: 3,
+};
+
+function optionalScore(writer: BorshWriter, score: ScoreV1 | null, name: string): BorshWriter {
+  writer.bool(score !== null, `${name} present`);
+  return score === null
+    ? writer
+    : writer.u16(score.home, `${name} home`).u16(score.away, `${name} away`);
+}
 
 function discriminator(kind: EscrowInstructionRequest['kind']): Uint8Array {
   return Uint8Array.from(ESCROW_INSTRUCTION_DISCRIMINATORS[kind]);
@@ -124,20 +140,38 @@ function encodeRequestArgs(request: EscrowInstructionRequest, programId: PublicK
       .u64(request.attestation.decidingSequence, 'deciding sequence')
       .i64(request.attestation.issuedAt, 'issued timestamp')
       .i64(request.attestation.expiresAt, 'expiry timestamp').finish();
-    case 'settle_market': return new BorshWriter()
-      .u8(request.attestation.outcome === 'claim_won' ? 1 : 2, 'settlement outcome')
-      .u64(request.attestation.decidingSequence, 'deciding sequence')
-      .fixed(request.attestation.evidenceHash, 32, 'evidence hash')
-      .fixed(hashSettlementAttestationV1(request.attestation), 32, 'evidence commitment')
-      .i64(request.attestation.expiresAt, 'attestation expiry timestamp').finish();
-    case 'void_market': return new BorshWriter()
-      .fixed(request.attestation.evidenceHash, 32, 'evidence hash')
-      .i64(request.attestation.expiresAt, 'attestation expiry timestamp').finish();
+    case 'settle_market': {
+      encodeSettlementAttestationV1(request.attestation);
+      const writer = new BorshWriter()
+        .u8(request.attestation.outcome === 'claim_won' ? 1 : 2, 'settlement outcome')
+        .u64(request.attestation.decidingSequence, 'deciding sequence')
+        .string(request.attestation.terminalPhase, 'terminal phase');
+      optionalScore(writer, request.attestation.regulationScore, 'regulation score');
+      optionalScore(writer, request.attestation.fullMatchScore, 'full-match score');
+      return writer
+        .fixed(request.attestation.evidenceSequenceCommitment, 32, 'evidence sequence commitment')
+        .fixed(request.attestation.normalizedEvidenceRoot, 32, 'normalized evidence root')
+        .i64(request.attestation.issuedAt, 'issued timestamp')
+        .i64(request.attestation.expiresAt, 'expiry timestamp')
+        .fixed(request.attestation.evidenceHash, 32, 'evidence hash')
+        .finish();
+    }
+    case 'void_market':
+      encodeVoidAttestationV1(request.attestation);
+      return new BorshWriter()
+        .u8(VOID_REASON_TAG[request.attestation.reason], 'void reason')
+        .u64(request.attestation.decidingSequence, 'deciding sequence')
+        .i64(request.attestation.issuedAt, 'issued timestamp')
+        .i64(request.attestation.expiresAt, 'expiry timestamp')
+        .fixed(request.attestation.evidenceHash, 32, 'evidence hash')
+        .finish();
     case 'close_position_lots': return new BorshWriter()
       .u64Vector(request.lotNonces, 'lot nonces').finish();
     case 'calculate_position_entitlement':
     case 'timeout_void':
     case 'claim_position':
+    case 'claim_position_for':
+    case 'close_position':
     case 'close_market': return new Uint8Array();
   }
 }

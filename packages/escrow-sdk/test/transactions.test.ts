@@ -111,7 +111,7 @@ describe('Privy user-partial and relayer fee-payer flow', () => {
     expect(built.transaction.signatures[0]?.every((byte) => byte === 0)).toBe(true);
     const market = deriveMarketPda(PROGRAM_ID, MARKET_UUID).publicKey;
     expect(built.instruction.keys[6]?.pubkey.equals(deriveSolVaultPda(PROGRAM_ID, market).publicKey)).toBe(true);
-    expect(built.instruction.keys[7]?.pubkey.equals(SystemProgram.programId)).toBe(true);
+    expect(built.instruction.keys[7]?.pubkey.equals(USER.publicKey)).toBe(true);
     await expect(verifySponsoredPositionTransaction(built.transaction, verification(options))).resolves.toBeUndefined();
   });
 

@@ -12,6 +12,7 @@ import {
   ratioMilli as engineRatioMilli,
   settlementCredits as engineSettlementCredits,
 } from '../../../apps/engine/src/wager/pot.js';
+import type { WagerPositionRow } from '../../../apps/engine/src/wager/port.js';
 
 function random(seed: number): () => number {
   let state = seed >>> 0;
@@ -93,6 +94,20 @@ describe('checked payout math reference', () => {
     expect(result.dust).toBe(BigInt(payoutGolden.expected.dust));
   });
 
+  it('uses zero matched pots for a void settlement', () => {
+    const result = settlePositions([
+      { id: 'back', owner: '1', side: 'back', activeAmount: 700n, pendingAmount: 0n, refundableAmount: 0n },
+      { id: 'doubt', owner: '2', side: 'doubt', activeAmount: 900n, pendingAmount: 0n, refundableAmount: 0n },
+    ], 'void', 1_000n);
+
+    expect(result.pots).toEqual({
+      backAmount: 0n,
+      doubtAmount: 0n,
+      matchedBack: 0n,
+      matchedDoubt: 0n,
+    });
+  });
+
   it('matches the current engine and conserves deposits over seeded random markets', () => {
     const next = random(0xc011ed17);
     for (let market = 0; market < 4_000; market += 1) {
@@ -100,7 +115,7 @@ describe('checked payout math reference', () => {
       const outcome = next() < 0.49 ? 'claim_won' : next() < 0.96 ? 'claim_lost' : 'void';
       const count = 1 + Math.floor(next() * 12);
       const positions: EscrowMathPosition[] = [];
-      const enginePositions = [];
+      const enginePositions: WagerPositionRow[] = [];
       for (let index = 0; index < count; index += 1) {
         const activeAmount = BigInt(Math.floor(next() * 1_000_000));
         const pendingAmount = BigInt(Math.floor(next() * 100_000));
@@ -115,14 +130,12 @@ describe('checked payout math reference', () => {
         if (nonzeroActive > 0n) enginePositions.push({
           id: `${id}:active`, market_id: `market-${market}`, user_id: index + 1,
           side, stake: Number(nonzeroActive), state: 'active' as const, locked_multiplier: 1,
-          locked_probability: probability, locked_odds_message_id: null, locked_odds_ts: null,
-          created_at: '2026-01-01T00:00:00.000Z',
+          placed_at_ms: 0,
         });
         if (pendingAmount + refundableAmount > 0n) enginePositions.push({
           id: `${id}:refund`, market_id: `market-${market}`, user_id: index + 1,
           side, stake: Number(pendingAmount + refundableAmount), state: 'void' as const, locked_multiplier: 1,
-          locked_probability: probability, locked_odds_message_id: null, locked_odds_ts: null,
-          created_at: '2026-01-01T00:00:00.000Z',
+          placed_at_ms: 0,
         });
       }
 
