@@ -28,6 +28,7 @@ import { IngestSupervisor } from './ingest/supervisor.js';
 import { startCrons } from './cron/index.js';
 import { startEngineApi } from './api/server.js';
 import { createTelegramIngressHandler } from './api/telegram-ingress-boundary.js';
+import { withRetryablePollingConflict } from './telegram/polling-retry.js';
 import { assertWagerBootable } from './wager-capability.js';
 import {
   createEngineReadinessChecks,
@@ -85,7 +86,11 @@ async function main(): Promise<void> {
   const poster = createPoster(bot.api, queue, log);
   const deps = await createDeps(env, log, poster);
   bot.api.config.use(async (previous, method, payload, signal) => {
-    const result = await previous(method, payload, signal);
+    const result = await withRetryablePollingConflict(
+      method,
+      () => previous(method, payload, signal),
+      () => log.warn('telegram_polling_overlap'),
+    );
     if (method === 'getUpdates') telegramHeartbeatAtMs = deps.now();
     return result;
   });
