@@ -11,6 +11,14 @@ const MillisecondsSchema = z.coerce.number().int().positive().max(86_400_000);
 const Sha256FingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const OptionalConfiguredStringSchema = z.string().optional()
   .transform((value) => value?.trim() === '' ? undefined : value);
+const OptionalBase58AddressSchema = z.preprocess(
+  (value) => typeof value === 'string' && value.trim() === '' ? undefined : value,
+  z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,64}$/).optional(),
+);
+const OptionalUnsignedBigIntSchema = z.preprocess(
+  (value) => typeof value === 'string' && value.trim() === '' ? undefined : value,
+  z.string().regex(/^(?:0|[1-9]\d*)$/).transform(BigInt).optional(),
+);
 const Base64KeySchema = z.string().regex(/^[A-Za-z0-9+/]{43}=$/).refine(
   (value) => Buffer.from(value, 'base64').toString('base64') === value,
 );
@@ -34,6 +42,14 @@ const BetaGroupAllowlistSchema = z.string().default('').transform((value, ctx) =
     groupIds.push(groupId);
   }
   return groupIds;
+});
+const EscrowOracleSignersSchema = z.string().default('').transform((value, ctx) => {
+  const values = value.split(',').map((entry) => entry.trim()).filter(Boolean);
+  if (values.some((entry) => !/^[1-9A-HJ-NP-Za-km-z]{32,64}$/.test(entry))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must contain base58 public keys' });
+    return z.NEVER;
+  }
+  return values;
 });
 
 function isPubliclyRoutableHost(hostname: string): boolean {
@@ -92,6 +108,8 @@ const EnvSchema = z.object({
   TELEGRAM_INGRESS: z.enum(['poll', 'webhook']).default('poll'),
   /** Explicit wager capability boundary. Required for staging and production. */
   WAGER_RUNTIME_MODE: z.enum(WAGER_RUNTIME_MODES).optional(),
+  /** Selects new-market financial routing. Legacy liabilities remain recoverable in both modes. */
+  WAGER_CUSTODY_MODE: z.enum(['legacy', 'escrow']).default('legacy'),
   /** Legacy local input; deployed values must agree with the explicit runtime mode. */
   WAGER_MODE_ENABLED: z.enum(['true', 'false']).default('false'),
   /**
@@ -102,6 +120,28 @@ const EnvSchema = z.object({
   WAGER_TREASURY_KEYPAIR_B58: OptionalConfiguredStringSchema,
   /** Optional ops chat for wager solvency alerts. */
   WAGER_OPS_CHAT_ID: OptionalConfiguredStringSchema,
+  ESCROW_ALLOWED_GROUP_IDS: BetaGroupAllowlistSchema,
+  ESCROW_PROGRAM_ID: OptionalBase58AddressSchema,
+  ESCROW_GENESIS_HASH: OptionalBase58AddressSchema,
+  ESCROW_CANONICAL_USDC_MINT: OptionalBase58AddressSchema,
+  ESCROW_CLASSIC_TOKEN_PROGRAM_ID: OptionalBase58AddressSchema,
+  ESCROW_ORACLE_SET_PDA: OptionalBase58AddressSchema,
+  ESCROW_ORACLE_SET_EPOCH: OptionalUnsignedBigIntSchema,
+  ESCROW_ORACLE_THRESHOLD: z.preprocess(
+    (value) => typeof value === 'string' && value.trim() === '' ? undefined : value,
+    z.coerce.number().int().min(1).max(8).optional(),
+  ),
+  ESCROW_ORACLE_SIGNERS: EscrowOracleSignersSchema,
+  ESCROW_INDEXER_MAX_LAG_SLOTS: OptionalUnsignedBigIntSchema,
+  ESCROW_CONFIG_AUTHORITY: OptionalBase58AddressSchema,
+  ESCROW_PAUSE_AUTHORITY: OptionalBase58AddressSchema,
+  ESCROW_MARKET_CREATION_AUTHORITY: OptionalBase58AddressSchema,
+  ESCROW_UPGRADE_AUTHORITY: OptionalBase58AddressSchema,
+  ESCROW_RESIDUAL_RECIPIENT: OptionalBase58AddressSchema,
+  /** Fee payer only. It must never be accepted as a user position signer. */
+  ESCROW_RELAYER_KEYPAIR_B58: OptionalConfiguredStringSchema,
+  ESCROW_MAINNET_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
   STARTER_GRANTS_ENABLED: z.enum(['true', 'false']).transform((value) => value === 'true'),
   WALLET_MINIAPP_ENABLED: z.enum(['true', 'false']).transform((value) => value === 'true'),
   STAKE_ACCEPTANCE_ENABLED: z.enum(['true', 'false']).transform((value) => value === 'true'),
@@ -250,6 +290,48 @@ const EnvSchema = z.object({
         message: 'required for stake acceptance',
       });
     }
+  }
+
+  if (env.WAGER_CUSTODY_MODE === 'escrow') {
+    const required = [
+      ['ESCROW_PROGRAM_ID', env.ESCROW_PROGRAM_ID],
+      ['ESCROW_GENESIS_HASH', env.ESCROW_GENESIS_HASH],
+      ['ESCROW_CANONICAL_USDC_MINT', env.ESCROW_CANONICAL_USDC_MINT],
+      ['ESCROW_CLASSIC_TOKEN_PROGRAM_ID', env.ESCROW_CLASSIC_TOKEN_PROGRAM_ID],
+      ['ESCROW_ORACLE_SET_PDA', env.ESCROW_ORACLE_SET_PDA],
+      ['ESCROW_ORACLE_SET_EPOCH', env.ESCROW_ORACLE_SET_EPOCH],
+      ['ESCROW_ORACLE_THRESHOLD', env.ESCROW_ORACLE_THRESHOLD],
+      ['ESCROW_INDEXER_MAX_LAG_SLOTS', env.ESCROW_INDEXER_MAX_LAG_SLOTS],
+      ['ESCROW_CONFIG_AUTHORITY', env.ESCROW_CONFIG_AUTHORITY],
+      ['ESCROW_PAUSE_AUTHORITY', env.ESCROW_PAUSE_AUTHORITY],
+      ['ESCROW_MARKET_CREATION_AUTHORITY', env.ESCROW_MARKET_CREATION_AUTHORITY],
+      ['ESCROW_UPGRADE_AUTHORITY', env.ESCROW_UPGRADE_AUTHORITY],
+      ['ESCROW_RESIDUAL_RECIPIENT', env.ESCROW_RESIDUAL_RECIPIENT],
+      ['ESCROW_RELAYER_KEYPAIR_B58', env.ESCROW_RELAYER_KEYPAIR_B58],
+    ] as const;
+    for (const [name, value] of required) {
+      if (value === undefined) addIssue(name, 'required in escrow custody mode');
+    }
+    if (env.ESCROW_ALLOWED_GROUP_IDS.length === 0) {
+      addIssue('ESCROW_ALLOWED_GROUP_IDS', 'escrow requires an allowlisted group');
+    }
+    const uniqueSigners = new Set(env.ESCROW_ORACLE_SIGNERS);
+    if (uniqueSigners.size !== env.ESCROW_ORACLE_SIGNERS.length) {
+      addIssue('ESCROW_ORACLE_SIGNERS', 'must contain unique signers');
+    }
+    if (
+      env.ESCROW_ORACLE_THRESHOLD === undefined ||
+      env.ESCROW_ORACLE_THRESHOLD > uniqueSigners.size
+    ) {
+      addPairIssue('ESCROW_ORACLE_SIGNERS', 'ESCROW_ORACLE_THRESHOLD');
+    }
+  }
+  if (env.ESCROW_MAINNET_ENABLED && (
+    env.DEPLOYMENT_ENV !== 'production' ||
+    env.SOLANA_NETWORK !== 'mainnet-beta' ||
+    env.WAGER_CUSTODY_MODE !== 'escrow'
+  )) {
+    addIssue('ESCROW_MAINNET_ENABLED', 'requires production mainnet escrow custody');
   }
 
   // Sponsor terms: TxL is never wagering collateral. The wager treasury must
