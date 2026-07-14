@@ -292,7 +292,8 @@ create table public.escrow_relayer_jobs (
   id                        uuid primary key default gen_random_uuid(),
   kind                      text not null check (kind in (
                               'market_initialization', 'freeze', 'unfreeze',
-                              'position_activation', 'position_invalidation',
+                              'position_placement', 'position_activation',
+                              'position_invalidation',
                               'settlement_submission', 'timeout_monitoring',
                               'auto_claim', 'account_close'
                             )),
@@ -860,6 +861,86 @@ begin
 end;
 $$;
 
+create function public.escrow_get_market_link(
+  p_cluster text,
+  p_genesis_hash text,
+  p_program_id text,
+  p_market_pda text
+) returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_link record;
+  v_exact_count integer;
+begin
+  if p_cluster not in ('localnet', 'devnet', 'mainnet-beta')
+     or p_genesis_hash is null or length(p_genesis_hash) not between 1 and 128
+     or p_program_id is null or length(p_program_id) not between 1 and 128
+     or p_market_pda is null or length(p_market_pda) not between 1 and 128 then
+    return jsonb_build_object('ok', false, 'code', 'invalid_input');
+  end if;
+
+  select count(*) into v_exact_count
+  from public.escrow_market_links
+  where cluster = p_cluster and program_id = p_program_id and market_pda = p_market_pda;
+  if v_exact_count > 1 then
+    return jsonb_build_object('ok', false, 'code', 'ambiguous');
+  end if;
+  if v_exact_count = 0 then
+    if exists (
+      select 1 from public.escrow_market_links where market_pda = p_market_pda
+    ) then
+      return jsonb_build_object('ok', false, 'code', 'identity_mismatch');
+    end if;
+    return jsonb_build_object('ok', true, 'found', false);
+  end if;
+
+  select ml.*, market.custody_mode as market_custody_mode
+  into v_link
+  from public.escrow_market_links ml
+  join public.markets market on market.id = ml.market_id
+  where ml.cluster = p_cluster and ml.program_id = p_program_id
+    and ml.market_pda = p_market_pda;
+
+  if v_link.genesis_hash is distinct from p_genesis_hash then
+    return jsonb_build_object('ok', false, 'code', 'identity_mismatch');
+  end if;
+  if v_link.custody_mode <> 'escrow' or v_link.market_custody_mode <> 'escrow' then
+    return jsonb_build_object('ok', false, 'code', 'custody_mismatch');
+  end if;
+  if not v_link.canonical then
+    return jsonb_build_object('ok', false, 'code', 'noncanonical');
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'found', true,
+    'market_id', v_link.market_id,
+    'custody_mode', v_link.custody_mode,
+    'market_custody_mode', v_link.market_custody_mode,
+    'custody_version', v_link.custody_version,
+    'cluster', v_link.cluster,
+    'genesis_hash', v_link.genesis_hash,
+    'program_id', v_link.program_id,
+    'market_pda', v_link.market_pda,
+    'vault_pda', v_link.vault_pda,
+    'asset', v_link.asset,
+    'mint_pubkey', v_link.mint_pubkey,
+    'document_hash_hex', v_link.document_hash_hex,
+    'oracle_epoch', v_link.oracle_epoch::text,
+    'event_epoch', v_link.event_epoch::text,
+    'ratio_milli', v_link.ratio_milli::text,
+    'chain_state', v_link.chain_state,
+    'commitment', v_link.commitment,
+    'canonical', v_link.canonical,
+    'projection_stale', v_link.projection_stale
+  );
+end;
+$$;
+
 create function public.escrow_index_position_event(
   p_signature text,
   p_instruction_index integer,
@@ -1316,6 +1397,63 @@ begin
     'ok', true,
     'duplicate', v_duplicate,
     'finalized', p_commitment = 'finalized'
+  );
+end;
+$$;
+
+create function public.escrow_get_chain_cursor(
+  p_cluster text,
+  p_genesis_hash text,
+  p_program_id text
+) returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_cursor public.escrow_chain_cursors%rowtype;
+begin
+  if p_cluster not in ('localnet', 'devnet', 'mainnet-beta')
+     or p_genesis_hash is null or length(p_genesis_hash) not between 1 and 128
+     or p_program_id is null or length(p_program_id) not between 1 and 128 then
+    return jsonb_build_object('ok', false, 'code', 'invalid_input');
+  end if;
+
+  select * into v_cursor from public.escrow_chain_cursors
+  where cluster = p_cluster and program_id = p_program_id;
+  if v_cursor.program_id is null then
+    return jsonb_build_object(
+      'ok', true,
+      'initialized', false,
+      'cluster', p_cluster,
+      'genesis_hash', p_genesis_hash,
+      'program_id', p_program_id,
+      'last_confirmed_slot', '0',
+      'last_confirmed_signature', null,
+      'last_finalized_slot', '0',
+      'last_finalized_signature', null,
+      'updated_at', null
+    );
+  end if;
+  if v_cursor.genesis_hash is distinct from p_genesis_hash then
+    return jsonb_build_object('ok', false, 'code', 'genesis_mismatch');
+  end if;
+  if v_cursor.last_finalized_slot > v_cursor.last_confirmed_slot then
+    raise exception 'escrow_chain_cursor_order_invalid';
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'initialized', true,
+    'cluster', v_cursor.cluster,
+    'genesis_hash', v_cursor.genesis_hash,
+    'program_id', v_cursor.program_id,
+    'last_confirmed_slot', v_cursor.last_confirmed_slot::text,
+    'last_confirmed_signature', v_cursor.last_confirmed_signature,
+    'last_finalized_slot', v_cursor.last_finalized_slot::text,
+    'last_finalized_signature', v_cursor.last_finalized_signature,
+    'updated_at', v_cursor.updated_at
   );
 end;
 $$;

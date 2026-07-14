@@ -13,6 +13,9 @@ const NOW = '2026-07-15T12:00:00.000Z';
 const LATER = '2026-07-15T12:10:00.000Z';
 const HASH = 'ab'.repeat(32);
 const RAW_TRANSACTION_BASE64 = 'AQID';
+const GENESIS_HASH = 'devnet-genesis-hash';
+const PROGRAM_ID = 'program-address';
+const MARKET_PDA = 'market-address';
 
 function authorization(overrides: Readonly<Record<string, unknown>> = {}) {
   return {
@@ -129,6 +132,189 @@ describe('escrowDbFromClient', () => {
         p_now: NOW,
       },
     }]);
+  });
+
+  it('returns an exact zero cursor only when no durable cursor exists', async () => {
+    const { client, db } = makeDb({
+      data: {
+        ok: true,
+        initialized: false,
+        cluster: 'devnet',
+        genesis_hash: GENESIS_HASH,
+        program_id: PROGRAM_ID,
+        last_confirmed_slot: '0',
+        last_confirmed_signature: null,
+        last_finalized_slot: '0',
+        last_finalized_signature: null,
+        updated_at: null,
+      },
+      error: null,
+    });
+
+    await expect(db.getChainCursor({
+      cluster: 'devnet',
+      genesisHash: GENESIS_HASH,
+      programId: PROGRAM_ID,
+    })).resolves.toEqual({
+      ok: true,
+      initialized: false,
+      cluster: 'devnet',
+      genesisHash: GENESIS_HASH,
+      programId: PROGRAM_ID,
+      confirmedSlot: 0n,
+      confirmedSignature: null,
+      finalizedSlot: 0n,
+      finalizedSignature: null,
+      updatedAtIso: null,
+    });
+    expect(client.calls).toEqual([{
+      fn: 'escrow_get_chain_cursor',
+      args: {
+        p_cluster: 'devnet',
+        p_genesis_hash: GENESIS_HASH,
+        p_program_id: PROGRAM_ID,
+      },
+    }]);
+  });
+
+  it('returns ordered confirmed/finalized cursors and fails closed on mismatch', async () => {
+    const { client, db } = makeDb({
+      data: {
+        ok: true,
+        initialized: true,
+        cluster: 'devnet',
+        genesis_hash: GENESIS_HASH,
+        program_id: PROGRAM_ID,
+        last_confirmed_slot: '120',
+        last_confirmed_signature: 'confirmed-signature',
+        last_finalized_slot: '115',
+        last_finalized_signature: 'finalized-signature',
+        updated_at: NOW,
+      },
+      error: null,
+    });
+    await expect(db.getChainCursor({
+      cluster: 'devnet', genesisHash: GENESIS_HASH, programId: PROGRAM_ID,
+    })).resolves.toMatchObject({
+      ok: true,
+      initialized: true,
+      confirmedSlot: 120n,
+      finalizedSlot: 115n,
+    });
+
+    client.response = { data: { ok: false, code: 'genesis_mismatch' }, error: null };
+    await expect(db.getChainCursor({
+      cluster: 'devnet', genesisHash: 'different-genesis', programId: PROGRAM_ID,
+    })).resolves.toEqual({ ok: false, code: 'genesis_mismatch' });
+
+    client.response = {
+      data: {
+        ok: true,
+        initialized: true,
+        cluster: 'devnet',
+        genesis_hash: GENESIS_HASH,
+        program_id: PROGRAM_ID,
+        last_confirmed_slot: '120',
+        last_confirmed_signature: 'confirmed-signature',
+        last_finalized_slot: '121',
+        last_finalized_signature: 'finalized-signature',
+        updated_at: NOW,
+      },
+      error: null,
+    };
+    await expect(db.getChainCursor({
+      cluster: 'devnet', genesisHash: GENESIS_HASH, programId: PROGRAM_ID,
+    })).rejects.toThrow('cursor_binding');
+  });
+
+  it('loads a canonical escrow market link by its full chain identity', async () => {
+    const { client, db } = makeDb({
+      data: {
+        ok: true,
+        found: true,
+        market_id: MARKET_ID,
+        custody_mode: 'escrow',
+        market_custody_mode: 'escrow',
+        custody_version: 1,
+        cluster: 'devnet',
+        genesis_hash: GENESIS_HASH,
+        program_id: PROGRAM_ID,
+        market_pda: MARKET_PDA,
+        vault_pda: 'vault-address',
+        asset: 'usdc',
+        mint_pubkey: 'canonical-usdc-mint',
+        document_hash_hex: HASH,
+        oracle_epoch: '9',
+        event_epoch: '4',
+        ratio_milli: '1500',
+        chain_state: 'closed',
+        commitment: 'finalized',
+        canonical: true,
+        projection_stale: false,
+      },
+      error: null,
+    });
+
+    await expect(db.getMarketLink({
+      cluster: 'devnet',
+      genesisHash: GENESIS_HASH,
+      programId: PROGRAM_ID,
+      marketPda: MARKET_PDA,
+    })).resolves.toEqual({
+      ok: true,
+      found: true,
+      marketId: MARKET_ID,
+      custodyMode: 'escrow',
+      custodyVersion: 1,
+      cluster: 'devnet',
+      genesisHash: GENESIS_HASH,
+      programId: PROGRAM_ID,
+      marketPda: MARKET_PDA,
+      vaultPda: 'vault-address',
+      asset: 'usdc',
+      mintPubkey: 'canonical-usdc-mint',
+      documentHashHex: HASH,
+      oracleEpoch: 9n,
+      eventEpoch: 4n,
+      ratioMilli: 1_500n,
+      chainState: 'closed',
+      commitment: 'finalized',
+      projectionStale: false,
+    });
+    expect(client.calls[0]).toEqual({
+      fn: 'escrow_get_market_link',
+      args: {
+        p_cluster: 'devnet',
+        p_genesis_hash: GENESIS_HASH,
+        p_program_id: PROGRAM_ID,
+        p_market_pda: MARKET_PDA,
+      },
+    });
+  });
+
+  it('propagates market identity failures and rejects mismatched success payloads', async () => {
+    const { client, db } = makeDb({
+      data: { ok: false, code: 'noncanonical' },
+      error: null,
+    });
+    await expect(db.getMarketLink({
+      cluster: 'devnet', genesisHash: GENESIS_HASH, programId: PROGRAM_ID, marketPda: MARKET_PDA,
+    })).resolves.toEqual({ ok: false, code: 'noncanonical' });
+
+    client.response = {
+      data: {
+        ok: true, found: true, market_id: MARKET_ID, custody_mode: 'escrow',
+        market_custody_mode: 'escrow', custody_version: 1, cluster: 'devnet',
+        genesis_hash: 'wrong-genesis', program_id: PROGRAM_ID, market_pda: MARKET_PDA,
+        vault_pda: 'vault-address', asset: 'sol', mint_pubkey: null,
+        document_hash_hex: HASH, oracle_epoch: '9', event_epoch: '4', ratio_milli: '1500',
+        chain_state: 'open', commitment: 'confirmed', canonical: true, projection_stale: false,
+      },
+      error: null,
+    };
+    await expect(db.getMarketLink({
+      cluster: 'devnet', genesisHash: GENESIS_HASH, programId: PROGRAM_ID, marketPda: MARKET_PDA,
+    })).rejects.toThrow('market_binding');
   });
 
   it('creates and consumes a bound single-use signing session', async () => {
@@ -327,6 +513,31 @@ describe('escrowDbFromClient', () => {
     });
   });
 
+  it('treats placement relay work as a distinct durable job kind', async () => {
+    const { client, db } = makeDb({
+      data: { ok: true, created: true, job_id: JOB_ID },
+      error: null,
+    });
+    await db.enqueueRelayerJob({
+      kind: 'position_placement',
+      idempotencyKey: `position:${MARKET_ID}:signature-a`,
+      cluster: 'devnet',
+      programId: PROGRAM_ID,
+      custodyMode: 'escrow',
+      custodyVersion: 1,
+      marketId: MARKET_ID,
+      ownerPubkey: 'owner-address',
+      payload: { operation: 'place_position' },
+      dueAtIso: NOW,
+      maxAttempts: 8,
+      nowIso: NOW,
+    });
+    client.response = { data: [relayerJob('leased', 'position_placement')], error: null };
+    await expect(db.leaseRelayerJobs({ workerId: 'worker-a', nowIso: NOW, limit: 1 }))
+      .resolves.toEqual([expect.objectContaining({ kind: 'position_placement' })]);
+    expect(client.calls[0]?.args.p_kind).toBe('position_placement');
+  });
+
   it('forwards both chain-history and blockhash-expiry evidence before re-signing', async () => {
     const { client, db } = makeDb({
       data: { ok: true, duplicate: false, state: 'retry_wait' },
@@ -447,12 +658,30 @@ describe('0024 escrow signing-session SQL contract', () => {
     expect(migration).toContain('grant execute on function %I.%I(%s) to service_role');
     expect(migration).not.toMatch(/grant execute on function public\.escrow_get_signing_session[\s\S]*to (?:anon|authenticated)/i);
   });
+
+  it('defines placement relay and exact private indexer reads', () => {
+    expect(migration).toContain("'position_placement', 'position_activation'");
+    expect(migration).toContain('create function public.escrow_get_chain_cursor(');
+    expect(migration).toContain('create function public.escrow_get_market_link(');
+    expect(migration).toContain("return jsonb_build_object('ok', false, 'code', 'genesis_mismatch')");
+    expect(migration).toContain('check (last_finalized_slot <= last_confirmed_slot)');
+    expect(migration).toContain("return jsonb_build_object('ok', false, 'code', 'noncanonical')");
+    expect(migration).toContain("return jsonb_build_object('ok', false, 'code', 'custody_mismatch')");
+    expect(migration).toContain("return jsonb_build_object('ok', false, 'code', 'ambiguous')");
+    expect(migration).toContain("'market_id', v_link.market_id");
+    expect(migration).toContain("'vault_pda', v_link.vault_pda");
+    expect(migration).toContain("'oracle_epoch', v_link.oracle_epoch::text");
+    expect(migration).toContain("'event_epoch', v_link.event_epoch::text");
+  });
 });
 
-function relayerJob(state: 'leased'): Record<string, unknown> {
+function relayerJob(
+  state: 'leased',
+  kind: 'settlement_submission' | 'position_placement' = 'settlement_submission',
+): Record<string, unknown> {
   return {
     id: JOB_ID,
-    kind: 'settlement_submission',
+    kind,
     idempotency_key: `settle:${MARKET_ID}`,
     state,
     cluster: 'devnet',

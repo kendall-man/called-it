@@ -20,8 +20,13 @@ import type {
 } from '@calledit/market-engine';
 import type {
   CreateEscrowSigningSessionInput,
+  EnqueueEscrowRelayerJobInput,
   EscrowDb,
+  EscrowRelayerJobKind,
+  EscrowRelayerJobRow,
+  EscrowRelayerMutationResult,
   EscrowSigningSessionResult,
+  LeaseEscrowRelayerJobsInput,
 } from './escrow-types.js';
 
 export type { MarketCurrency } from '@calledit/market-engine';
@@ -89,9 +94,82 @@ export interface CreateDurableEscrowSigningSessionInput extends CreateEscrowSign
   readonly authorization: EscrowSigningSessionAuthorizationPayload;
 }
 
-export interface DurableEscrowDb extends Omit<EscrowDb, 'createSigningSession'> {
+export type DurableEscrowRelayerJobKind = EscrowRelayerJobKind | 'position_placement';
+
+export interface DurableEnqueueEscrowRelayerJobInput extends Omit<EnqueueEscrowRelayerJobInput, 'kind'> {
+  readonly kind: DurableEscrowRelayerJobKind;
+}
+
+export interface DurableEscrowRelayerJobRow extends Omit<EscrowRelayerJobRow, 'kind'> {
+  readonly kind: DurableEscrowRelayerJobKind;
+}
+
+export interface GetEscrowChainCursorInput {
+  readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
+  readonly genesisHash: string;
+  readonly programId: string;
+}
+
+export type GetEscrowChainCursorResult =
+  | {
+      readonly ok: true;
+      readonly initialized: boolean;
+      readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
+      readonly genesisHash: string;
+      readonly programId: string;
+      readonly confirmedSlot: bigint;
+      readonly confirmedSignature: string | null;
+      readonly finalizedSlot: bigint;
+      readonly finalizedSignature: string | null;
+      readonly updatedAtIso: string | null;
+    }
+  | { readonly ok: false; readonly code: 'invalid_input' | 'genesis_mismatch' };
+
+export interface GetEscrowMarketLinkInput {
+  readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
+  readonly genesisHash: string;
+  readonly programId: string;
+  readonly marketPda: string;
+}
+
+export type GetEscrowMarketLinkResult =
+  | { readonly ok: true; readonly found: false }
+  | {
+      readonly ok: true;
+      readonly found: true;
+      readonly marketId: string;
+      readonly custodyMode: 'escrow';
+      readonly custodyVersion: number;
+      readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
+      readonly genesisHash: string;
+      readonly programId: string;
+      readonly marketPda: string;
+      readonly vaultPda: string;
+      readonly asset: 'sol' | 'usdc';
+      readonly mintPubkey: string | null;
+      readonly documentHashHex: string;
+      readonly oracleEpoch: bigint;
+      readonly eventEpoch: bigint;
+      readonly ratioMilli: bigint;
+      readonly chainState: 'open' | 'frozen' | 'settled' | 'voided' | 'closed';
+      readonly commitment: 'confirmed' | 'finalized';
+      readonly projectionStale: boolean;
+    }
+  | {
+      readonly ok: false;
+      readonly code: 'invalid_input' | 'identity_mismatch' | 'ambiguous' | 'noncanonical' | 'custody_mismatch';
+    };
+
+export interface DurableEscrowDb extends Omit<
+  EscrowDb,
+  'createSigningSession' | 'enqueueRelayerJob' | 'leaseRelayerJobs'
+> {
   createSigningSession(input: CreateDurableEscrowSigningSessionInput): Promise<EscrowSigningSessionResult>;
   getSigningSession(input: GetEscrowSigningSessionInput): Promise<GetEscrowSigningSessionResult>;
+  getChainCursor(input: GetEscrowChainCursorInput): Promise<GetEscrowChainCursorResult>;
+  getMarketLink(input: GetEscrowMarketLinkInput): Promise<GetEscrowMarketLinkResult>;
+  enqueueRelayerJob(input: DurableEnqueueEscrowRelayerJobInput): Promise<EscrowRelayerMutationResult>;
+  leaseRelayerJobs(input: LeaseEscrowRelayerJobsInput): Promise<readonly DurableEscrowRelayerJobRow[]>;
 }
 
 // ── Enumerations backed by CHECK constraints in the migration ─────────────

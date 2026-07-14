@@ -4,7 +4,6 @@ import type {
   AdvanceEscrowChainCursorInput,
   ConsumeEscrowSigningSessionInput,
   DeadLetterEscrowRelayerJobInput,
-  EnqueueEscrowRelayerJobInput,
   EscrowAsset,
   EscrowClaimEventInput,
   EscrowCluster,
@@ -16,7 +15,6 @@ import type {
   EscrowPositionAccountInput,
   EscrowReconciliationStatus,
   EscrowRelayerBacklog,
-  EscrowRelayerJobKind,
   EscrowRelayerJobRow,
   EscrowRelayerJobState,
   EscrowRelayerMutationResult,
@@ -33,8 +31,15 @@ import type {
 } from './escrow-types.js';
 import type {
   CreateDurableEscrowSigningSessionInput,
+  DurableEnqueueEscrowRelayerJobInput,
   DurableEscrowDb,
+  DurableEscrowRelayerJobKind,
+  DurableEscrowRelayerJobRow,
   EscrowSigningSessionAuthorizationPayload,
+  GetEscrowChainCursorInput,
+  GetEscrowChainCursorResult,
+  GetEscrowMarketLinkInput,
+  GetEscrowMarketLinkResult,
   GetEscrowSigningSessionInput,
   GetEscrowSigningSessionResult,
 } from './types.js';
@@ -76,6 +81,16 @@ export function escrowDbFromClient(value: unknown): DurableEscrowDb {
         p_commitment: input.commitment,
         p_observed_at: input.observedAtIso,
       }, parseIndexResult);
+    },
+
+    getMarketLink(input) {
+      validateGetMarketLink(input);
+      return rpc(client, 'escrow_get_market_link', {
+        p_cluster: input.cluster,
+        p_genesis_hash: input.genesisHash,
+        p_program_id: input.programId,
+        p_market_pda: input.marketPda,
+      }, (operation, value) => parseMarketLink(operation, value, input));
     },
 
     recordPositionEvent(input) {
@@ -170,6 +185,15 @@ export function escrowDbFromClient(value: unknown): DurableEscrowDb {
         p_signature: input.signature,
         p_now: input.nowIso,
       }, parseIndexResult);
+    },
+
+    getChainCursor(input) {
+      validateGetChainCursor(input);
+      return rpc(client, 'escrow_get_chain_cursor', {
+        p_cluster: input.cluster,
+        p_genesis_hash: input.genesisHash,
+        p_program_id: input.programId,
+      }, (operation, value) => parseChainCursor(operation, value, input));
     },
 
     rewindConfirmedChain(input) {
@@ -422,6 +446,132 @@ function parseRewindResult(operation: string, value: unknown): RewindEscrowConfi
   };
 }
 
+function parseChainCursor(
+  operation: string,
+  value: unknown,
+  expected: GetEscrowChainCursorInput,
+): GetEscrowChainCursorResult {
+  const valueRow = row(operation, value);
+  if (valueRow.ok === false) {
+    if (valueRow.code === 'invalid_input' || valueRow.code === 'genesis_mismatch') {
+      return { ok: false, code: valueRow.code };
+    }
+    return malformed(operation, 'code');
+  }
+  if (valueRow.ok !== true) return malformed(operation, 'ok');
+  const initialized = bool(operation, valueRow.initialized, 'initialized');
+  const actualCluster = cluster(operation, valueRow.cluster);
+  const actualGenesisHash = boundedStringValue(operation, valueRow.genesis_hash, 'genesis_hash');
+  const actualProgramId = boundedStringValue(operation, valueRow.program_id, 'program_id');
+  const confirmedSlot = bigintValue(operation, valueRow.last_confirmed_slot, 'last_confirmed_slot');
+  const confirmedSignature = nullableString(
+    operation,
+    valueRow.last_confirmed_signature,
+    'last_confirmed_signature',
+  );
+  const finalizedSlot = bigintValue(operation, valueRow.last_finalized_slot, 'last_finalized_slot');
+  const finalizedSignature = nullableString(
+    operation,
+    valueRow.last_finalized_signature,
+    'last_finalized_signature',
+  );
+  const updatedAtIso = nullableTimestamp(operation, valueRow.updated_at, 'updated_at');
+  if (
+    actualCluster !== expected.cluster
+    || actualGenesisHash !== expected.genesisHash
+    || actualProgramId !== expected.programId
+    || finalizedSlot > confirmedSlot
+    || (confirmedSlot > 0n && confirmedSignature === null)
+    || (finalizedSlot > 0n && finalizedSignature === null)
+    || (initialized && updatedAtIso === null)
+    || (!initialized && (
+      confirmedSlot !== 0n
+      || confirmedSignature !== null
+      || finalizedSlot !== 0n
+      || finalizedSignature !== null
+      || updatedAtIso !== null
+    ))
+  ) return malformed(operation, 'cursor_binding');
+  return {
+    ok: true,
+    initialized,
+    cluster: actualCluster,
+    genesisHash: actualGenesisHash,
+    programId: actualProgramId,
+    confirmedSlot,
+    confirmedSignature,
+    finalizedSlot,
+    finalizedSignature,
+    updatedAtIso,
+  };
+}
+
+function parseMarketLink(
+  operation: string,
+  value: unknown,
+  expected: GetEscrowMarketLinkInput,
+): GetEscrowMarketLinkResult {
+  const valueRow = row(operation, value);
+  if (valueRow.ok === false) {
+    switch (valueRow.code) {
+      case 'invalid_input':
+      case 'identity_mismatch':
+      case 'ambiguous':
+      case 'noncanonical':
+      case 'custody_mismatch':
+        return { ok: false, code: valueRow.code };
+      default:
+        return malformed(operation, 'code');
+    }
+  }
+  if (valueRow.ok !== true) return malformed(operation, 'ok');
+  const found = bool(operation, valueRow.found, 'found');
+  if (!found) return { ok: true, found: false };
+  const actualCluster = cluster(operation, valueRow.cluster);
+  const actualGenesisHash = boundedStringValue(operation, valueRow.genesis_hash, 'genesis_hash');
+  const actualProgramId = boundedStringValue(operation, valueRow.program_id, 'program_id');
+  const actualMarketPda = boundedStringValue(operation, valueRow.market_pda, 'market_pda');
+  const custodyVersion = integer(operation, valueRow.custody_version, 'custody_version');
+  const canonical = bool(operation, valueRow.canonical, 'canonical');
+  const asset = signingAsset(operation, valueRow.asset);
+  const mintPubkey = nullableString(operation, valueRow.mint_pubkey, 'mint_pubkey');
+  const ratioMilli = bigintValue(operation, valueRow.ratio_milli, 'ratio_milli');
+  if (
+    actualCluster !== expected.cluster
+    || actualGenesisHash !== expected.genesisHash
+    || actualProgramId !== expected.programId
+    || actualMarketPda !== expected.marketPda
+    || valueRow.custody_mode !== 'escrow'
+    || valueRow.market_custody_mode !== 'escrow'
+    || custodyVersion < 1
+    || !canonical
+    || (asset === 'sol' && mintPubkey !== null)
+    || (asset === 'usdc' && mintPubkey === null)
+    || ratioMilli < 1n
+  ) return malformed(operation, 'market_binding');
+  return {
+    ok: true,
+    found: true,
+    marketId: uuid(operation, valueRow.market_id, 'market_id'),
+    custodyMode: 'escrow',
+    custodyVersion,
+    cluster: actualCluster,
+    genesisHash: actualGenesisHash,
+    programId: actualProgramId,
+    marketPda: actualMarketPda,
+    vaultPda: boundedStringValue(operation, valueRow.vault_pda, 'vault_pda'),
+    asset,
+    mintPubkey,
+    documentHashHex: hashValue(operation, valueRow.document_hash_hex, 'document_hash_hex'),
+    oracleEpoch: bigintValue(operation, valueRow.oracle_epoch, 'oracle_epoch'),
+    eventEpoch: bigintValue(operation, valueRow.event_epoch, 'event_epoch'),
+    ratioMilli,
+    chainState: marketChainState(operation, valueRow.chain_state),
+    commitment: commitmentValue(operation, valueRow.commitment),
+    projectionStale: bool(operation, valueRow.projection_stale, 'projection_stale'),
+  };
+}
+
 function parseSigningSessionResult(operation: string, value: unknown): EscrowSigningSessionResult {
   const valueRow = row(operation, value);
   if (valueRow.ok === true) {
@@ -525,7 +675,7 @@ function parseRelayerMutation(operation: string, value: unknown): EscrowRelayerM
   return malformed(operation, 'ok');
 }
 
-function parseRelayerJobs(operation: string, value: unknown): readonly EscrowRelayerJobRow[] {
+function parseRelayerJobs(operation: string, value: unknown): readonly DurableEscrowRelayerJobRow[] {
   if (!Array.isArray(value)) return malformed(operation, '<rows>');
   return value.map((item) => {
     const valueRow = row(operation, item);
@@ -598,11 +748,12 @@ function cluster(operation: string, value: unknown): EscrowCluster {
   }
 }
 
-function relayerKind(operation: string, value: unknown): EscrowRelayerJobKind {
+function relayerKind(operation: string, value: unknown): DurableEscrowRelayerJobKind {
   switch (value) {
     case 'market_initialization':
     case 'freeze':
     case 'unfreeze':
+    case 'position_placement':
     case 'position_activation':
     case 'position_invalidation':
     case 'settlement_submission':
@@ -613,6 +764,27 @@ function relayerKind(operation: string, value: unknown): EscrowRelayerJobKind {
     default:
       return malformed(operation, 'kind');
   }
+}
+
+function marketChainState(
+  operation: string,
+  value: unknown,
+): 'open' | 'frozen' | 'settled' | 'voided' | 'closed' {
+  switch (value) {
+    case 'open':
+    case 'frozen':
+    case 'settled':
+    case 'voided':
+    case 'closed':
+      return value;
+    default:
+      return malformed(operation, 'chain_state');
+  }
+}
+
+function commitmentValue(operation: string, value: unknown): EscrowCommitment {
+  if (value === 'confirmed' || value === 'finalized') return value;
+  return malformed(operation, 'commitment');
 }
 
 function relayerState(operation: string, value: unknown): EscrowRelayerJobState {
@@ -664,6 +836,13 @@ function validateMarketLink(input: EscrowMarketLinkInput): void {
   decimal(input.ratioMilli, 'ratioMilli', true);
   validateCommitment(input.commitment, 'commitment');
   timestamp(input.observedAtIso, 'observedAtIso');
+}
+
+function validateGetMarketLink(input: GetEscrowMarketLinkInput): void {
+  validateCluster(input.cluster, 'cluster');
+  boundedNonempty(input.genesisHash, 'genesisHash');
+  boundedNonempty(input.programId, 'programId');
+  boundedNonempty(input.marketPda, 'marketPda');
 }
 
 function validatePositionEvent(input: EscrowPositionEventInput): void {
@@ -736,6 +915,12 @@ function validateCursor(input: AdvanceEscrowChainCursorInput): void {
   timestamp(input.nowIso, 'nowIso');
 }
 
+function validateGetChainCursor(input: GetEscrowChainCursorInput): void {
+  validateCluster(input.cluster, 'cluster');
+  boundedNonempty(input.genesisHash, 'genesisHash');
+  boundedNonempty(input.programId, 'programId');
+}
+
 function validateReconciliation(input: RecordEscrowReconciliationInput): void {
   uuidInput(input.marketId, 'marketId');
   validateCluster(input.cluster, 'cluster');
@@ -785,7 +970,7 @@ function validateConsumeSigningSession(input: ConsumeEscrowSigningSessionInput):
   timestamp(input.nowIso, 'nowIso');
 }
 
-function validateEnqueue(input: EnqueueEscrowRelayerJobInput): void {
+function validateEnqueue(input: DurableEnqueueEscrowRelayerJobInput): void {
   relayerKind('escrow_relayer_enqueue', input.kind);
   nonempty(input.idempotencyKey, 'idempotencyKey');
   validateCluster(input.cluster, 'cluster');
