@@ -20,6 +20,8 @@ export type CallbackAction =
   | { t: 'decline'; claimId: string }
   /** The beta exposes one literal 0.01 test-SOL amount on either outcome. */
   | { t: 'stake'; marketId: string; side: 'back' | 'doubt'; presetIndex: 0 }
+  /** Admin closes an empty live call that is blocking /testmatch. */
+  | { t: 'void_replay_blocker'; marketId: string }
   /** /settings chattiness pick. */
   | { t: 'chattiness'; mode: Chattiness }
   /** /settings web-pages toggle. */
@@ -54,6 +56,9 @@ export function encodeCallback(action: CallbackAction): string {
       break;
     case 'stake':
       data = `st:${action.marketId}:${action.side === 'back' ? 'b' : 'd'}:${action.presetIndex}`;
+      break;
+    case 'void_replay_blocker':
+      data = `vr:${action.marketId}`;
       break;
     case 'chattiness':
       data = `sg:${MODE_TO_CODE[action.mode]}`;
@@ -116,6 +121,12 @@ export function decodeCallback(data: string): CallbackAction | null {
         side: sideCode === 'b' ? 'back' : 'doubt',
         presetIndex: 0,
       };
+    }
+    case 'vr': {
+      const marketId = parts[1];
+      return parts.length === 2 && marketId !== undefined && UUID_RE.test(marketId)
+        ? { t: 'void_replay_blocker', marketId }
+        : null;
     }
     case 'sg': {
       const code = parts[1];

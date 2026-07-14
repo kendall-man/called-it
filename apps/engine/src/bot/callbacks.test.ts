@@ -152,6 +152,7 @@ function makeHarness(config: HarnessConfig): Harness {
   const db = {
     ...createPointMethodStubs({ kind: 'empty', groupId: CHAT_ID }),
     getClaim: async (id: string) => (id === claim.id ? { ...claim } : null),
+    getMarket: async (id: string) => markets.find((market) => market.id === id) ?? null,
     getGroup: async (id: number) => (id === CHAT_ID ? GROUP : null),
     getUser: async (id: number) =>
       id === CLAIMER_ID ? { id, display_name: 'Dee', username: 'dee' } : { id, display_name: `U${id}`, username: null },
@@ -263,17 +264,27 @@ function oddsInputs() {
   };
 }
 
-function fakeCtx(userId = CLAIMER_ID): { ctx: Context; toasts: string[] } {
+function fakeCtx(
+  userId = CLAIMER_ID,
+  memberStatus: 'administrator' | 'creator' | 'member' = 'administrator',
+): { ctx: Context; toasts: string[]; editedTexts: string[] } {
   const toasts: string[] = [];
+  const editedTexts: string[] = [];
   const ctx = {
     chat: { id: CHAT_ID },
     from: { id: userId, first_name: 'Dee' },
     callbackQuery: { id: `callback-${userId}`, message: { message_id: 777 } },
+    api: {
+      getChatMember: async () => ({ status: memberStatus }),
+    },
     answerCallbackQuery: async (payload: { text: string }) => {
       toasts.push(payload.text);
     },
+    editMessageText: async (text: string) => {
+      editedTexts.push(text);
+    },
   } as unknown as Context;
-  return { ctx, toasts };
+  return { ctx, toasts, editedTexts };
 }
 
 function keyboardData(post: RecordedPost): string[] {
@@ -621,5 +632,64 @@ describe('decline — pre-mint kill, post-mint void', () => {
     await dispatchCallback(harness.h, other.ctx, { t: 'decline', claimId: CLAIM_ID });
     expect(harness.getClaim().status).toBe('clarifying');
     expect(other.toasts.some((t) => t.toLowerCase().includes('dee'))).toBe(true);
+  });
+});
+
+describe('admin replay-blocker void', () => {
+  function seedBlockingMarket(harness: Harness): MarketRow {
+    const market = {
+      id: '0f14d0ab-9605-4a62-a9e4-5ed26688389b',
+      claim_id: CLAIM_ID,
+      group_id: CHAT_ID,
+      fixture_id: FIXTURE_ID,
+      status: 'open',
+      is_replay: false,
+      currency: 'sol',
+      spec: spec(),
+      card_tg_message_id: null,
+    } as unknown as MarketRow;
+    harness.markets.push(market);
+    return market;
+  }
+
+  it('lets an admin void an empty blocking call and removes the action', async () => {
+    const harness = makeHarness({ claim: claimRow('confirmed') });
+    const market = seedBlockingMarket(harness);
+    const tap = fakeCtx();
+
+    await dispatchCallback(harness.h, tap.ctx, {
+      t: 'void_replay_blocker',
+      marketId: market.id,
+    });
+
+    expect(market.status).toBe('voided');
+    expect(harness.settlements.at(-1)).toMatchObject({ market_id: market.id, outcome: 'void' });
+    expect(tap.editedTexts.at(-1)).toContain('Egypt win this');
+    expect(tap.editedTexts.at(-1)).toContain('Run /testmatch again');
+  });
+
+  it('refuses non-admins and calls that gained a position', async () => {
+    const nonAdminHarness = makeHarness({ claim: claimRow('confirmed') });
+    const nonAdminMarket = seedBlockingMarket(nonAdminHarness);
+    const memberTap = fakeCtx(CLAIMER_ID, 'member');
+    await dispatchCallback(nonAdminHarness.h, memberTap.ctx, {
+      t: 'void_replay_blocker',
+      marketId: nonAdminMarket.id,
+    });
+    expect(nonAdminMarket.status).toBe('open');
+    expect(memberTap.toasts).toContain(renderFallback('admin_only'));
+
+    const positionedHarness = makeHarness({
+      claim: claimRow('confirmed'),
+      positions: [{ state: 'active' }],
+    });
+    const positionedMarket = seedBlockingMarket(positionedHarness);
+    const adminTap = fakeCtx();
+    await dispatchCallback(positionedHarness.h, adminTap.ctx, {
+      t: 'void_replay_blocker',
+      marketId: positionedMarket.id,
+    });
+    expect(positionedMarket.status).toBe('open');
+    expect(adminTap.toasts).toContain(renderFallback('offer_taken'));
   });
 });

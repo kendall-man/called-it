@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { Bot } from 'grammy';
 import type { HandlerCtx } from './context.js';
-import type { FixtureRow, GroupRow } from '../ports.js';
+import type { FixtureRow, GroupRow, MarketRow } from '../ports.js';
 import { renderFallback } from './copy.js';
 import { registerCommands } from './commands.js';
 
 const GROUP_ID = -100_777;
 const ADMIN_ID = 700;
 const NOW_MS = Date.parse('2026-07-13T10:00:00.000Z');
+const BLOCKING_MARKET_ID = '0f14d0ab-9605-4a62-a9e4-5ed26688389b';
+const BLOCKING_CLAIM_ID = 'a3bb189e-8bf9-3888-9912-ace4e6543002';
 
 const STANDARD_FINAL: FixtureRow = {
   fixture_id: 18_209_181,
@@ -35,12 +37,14 @@ function makeHarness(options: {
   allowed?: boolean;
   admin?: boolean;
   startResult?: 'started' | 'already_active' | 'live_markets';
+  blockingPositions?: Array<{ state: 'pending' | 'active' | 'void' }>;
   network?: 'devnet' | 'mainnet-beta';
 } = {}) {
   const handlers = new Map<string, (ctx: any) => Promise<unknown>>();
   const posts: string[] = [];
   const starts: FixtureRow[] = [];
   const operations: string[] = [];
+  const postOptions: Array<Record<string, unknown>> = [];
   const group: GroupRow = {
     id: GROUP_ID,
     title: 'Test Group',
@@ -49,6 +53,15 @@ function makeHarness(options: {
     chattiness: 'trigger_only',
     is_admin: true,
   };
+  const blockingMarket = {
+    id: BLOCKING_MARKET_ID,
+    claim_id: BLOCKING_CLAIM_ID,
+    group_id: GROUP_ID,
+    fixture_id: 18_237_038,
+    status: 'open',
+    is_replay: false,
+    currency: 'sol',
+  } as unknown as MarketRow;
   const bot = {
     command(name: string, handler: (ctx: any) => Promise<unknown>) {
       handlers.set(name, handler);
@@ -68,6 +81,18 @@ function makeHarness(options: {
           operations.push(`fixture:${fixtureId}`);
           return fixtureId === STANDARD_FINAL.fixture_id ? STANDARD_FINAL : null;
         },
+        async openMarketsForGroup() {
+          operations.push('open_markets');
+          return options.startResult === 'live_markets' ? [blockingMarket] : [];
+        },
+        async getClaim() {
+          operations.push('get_claim');
+          return { quoted_text: 'Spain will win against France' };
+        },
+        async positionsForMarket() {
+          operations.push('positions');
+          return options.blockingPositions ?? [];
+        },
       },
       env: {
         WEB_BASE_URL: 'https://calledit.example',
@@ -78,7 +103,12 @@ function makeHarness(options: {
       log: { info() {}, warn() {}, error() {}, child() { return this; } },
       now: () => NOW_MS,
     },
-    poster: { post(_chatId: number, text: string) { posts.push(text); } },
+    poster: {
+      post(_chatId: number, text: string, postOption: Record<string, unknown> = {}) {
+        posts.push(text);
+        postOptions.push(postOption);
+      },
+    },
     say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
     supervisor: {
       hasActiveReplay: () => false,
@@ -92,6 +122,7 @@ function makeHarness(options: {
 
   return {
     operations,
+    postOptions,
     posts,
     starts,
     async run(match = '') {
@@ -157,6 +188,22 @@ describe('/testmatch', () => {
 
     await harness.run();
 
-    expect(harness.posts).toEqual([renderFallback('replay_blocked_live')]);
+    expect(harness.posts[0]).toContain('Spain will win against France');
+    expect(harness.posts[0]).toContain('An admin can void it below.');
+    expect(JSON.stringify(harness.postOptions[0])).toContain('Void call');
+    expect(JSON.stringify(harness.postOptions[0])).toContain(`vr:${BLOCKING_MARKET_ID}`);
+  });
+
+  it('names a blocking call with positions without offering a void action', async () => {
+    const harness = makeHarness({
+      startResult: 'live_markets',
+      blockingPositions: [{ state: 'active' }],
+    });
+
+    await harness.run();
+
+    expect(harness.posts[0]).toContain('Spain will win against France');
+    expect(harness.posts[0]).toContain('must settle normally');
+    expect(JSON.stringify(harness.postOptions[0])).not.toContain('Void call');
   });
 });

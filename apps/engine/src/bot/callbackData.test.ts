@@ -17,6 +17,7 @@ const ROUND_TRIPS: CallbackAction[] = [
   { t: 'decline', claimId: CLAIM_ID },
   { t: 'stake', marketId: MARKET_ID, side: 'back', presetIndex: 0 },
   { t: 'stake', marketId: MARKET_ID, side: 'doubt', presetIndex: 0 },
+  { t: 'void_replay_blocker', marketId: MARKET_ID },
   { t: 'chattiness', mode: 'react_only' },
   { t: 'web', enabled: false },
 ];
@@ -44,6 +45,7 @@ describe('callback data codec', () => {
       `st:${MARKET_ID}:x:1`,
       `st:${MARKET_ID}:b:99`,
       `op:${CLAIM_ID}:`,
+      'vr:not-a-uuid',
       'sg:z',
       'sw:2',
       'unknown:payload',

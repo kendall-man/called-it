@@ -466,6 +466,71 @@ async function handleWeb(h: HandlerCtx, ctx: Context, enabled: boolean): Promise
   }
 }
 
+async function handleVoidReplayBlocker(
+  h: HandlerCtx,
+  ctx: Context,
+  marketId: string,
+): Promise<void> {
+  const chatId = ctx.chat?.id;
+  const from = ctx.from;
+  if (chatId === undefined || !from) {
+    await stale(h, ctx);
+    return;
+  }
+  const admin = await isGroupAdmin(h, () => ctx.api.getChatMember(chatId, from.id));
+  if (!admin) {
+    await answer(ctx, await h.say('admin_only'));
+    return;
+  }
+
+  const result = await h.supervisor.runGroupExclusive(chatId, async () => {
+    const market = await h.deps.db.getMarket(marketId);
+    if (
+      market === null ||
+      market.group_id !== chatId ||
+      market.is_replay ||
+      market.status === 'settled' ||
+      market.status === 'voided'
+    ) return { kind: 'stale' } as const;
+    const positions = await h.deps.db.positionsForMarket(market.id);
+    if (positions.some((position) => position.state !== 'void')) {
+      return { kind: 'has_positions' } as const;
+    }
+    const claim = await h.deps.db.getClaim(market.claim_id);
+    await voidAbandonedMarket(h.deps, market);
+    return {
+      kind: 'voided',
+      market,
+      call: claim?.quoted_text ?? 'the blocking call',
+    } as const;
+  });
+
+  if (result.kind === 'stale') {
+    await stale(h, ctx);
+    return;
+  }
+  if (result.kind === 'has_positions') {
+    await answer(ctx, await h.say('offer_taken'));
+    return;
+  }
+
+  const { market, call } = result;
+  if (market.card_tg_message_id !== null) {
+    const card = await composeClaimCard(h.deps, { ...market, status: 'voided' });
+    if (card?.messageId !== null && card?.messageId !== undefined) {
+      h.poster.editCard(card.chatId, market.id, card.messageId, card.text);
+    }
+  }
+  const confirmation = await h.say('replay_blocking_call_voided', { call });
+  try {
+    await ctx.editMessageText(confirmation, { reply_markup: { inline_keyboard: [] } });
+  } catch {
+    stripCallbackKeyboard(h, ctx);
+    h.poster.post(chatId, confirmation);
+  }
+  await answer(ctx, confirmation);
+}
+
 /**
  * Exported for tests: routes one decoded action through the per-claim lock.
  * Claim-lifecycle taps (prove/option/decline) share the lock so a double-tap —
@@ -494,6 +559,9 @@ export async function dispatchCallback(
     case 'stake':
       // SOL stakes are serialized by the wager module's DB advisory locks.
       await handleStake(h, ctx, action);
+      break;
+    case 'void_replay_blocker':
+      await handleVoidReplayBlocker(h, ctx, action.marketId);
       break;
     case 'chattiness':
       await handleChattiness(h, ctx, action.mode);

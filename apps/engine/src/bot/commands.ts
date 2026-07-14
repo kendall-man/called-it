@@ -11,7 +11,7 @@ import type { EngineDb, FixtureRow } from '../ports.js';
 import type { Env } from '../env.js';
 import type { Poster } from './poster.js';
 import { ensureChatContext, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
-import { settingsKeyboard } from './keyboards.js';
+import { settingsKeyboard, voidReplayBlockerKeyboard } from './keyboards.js';
 import { offerClaim } from '../pipeline/offer.js';
 import type { Say } from './copy.js';
 import {
@@ -59,6 +59,37 @@ async function resolveTestFixture(h: HandlerCtx, argument: string) {
 
 function isGroup(chatType: string): boolean {
   return chatType === 'group' || chatType === 'supergroup';
+}
+
+async function postLiveCallBlocker(
+  h: HandlerCtx,
+  groupId: number,
+  replyToMessageId: number | undefined,
+): Promise<void> {
+  let text = await h.say('replay_blocked_live');
+  let keyboard: InlineKeyboard | undefined;
+  try {
+    const markets = (await h.deps.db.openMarketsForGroup(groupId))
+      .filter((market) => !market.is_replay);
+    const market = markets[0];
+    if (market !== undefined) {
+      const [claim, positions] = await Promise.all([
+        h.deps.db.getClaim(market.claim_id),
+        h.deps.db.positionsForMarket(market.id),
+      ]);
+      const hasPositions = positions.some((position) => position.state !== 'void');
+      text = await h.say('replay_blocked_live', {
+        call: claim?.quoted_text ?? 'An open call',
+        resolution: hasPositions
+          ? 'This call has positions and must settle normally.'
+          : 'No positions are on it. An admin can void it below.',
+      });
+      if (!hasPositions) keyboard = voidReplayBlockerKeyboard(market.id);
+    }
+  } catch {
+    h.deps.log.warn('replay_blocker_lookup_failed');
+  }
+  h.poster.post(groupId, text, { replyToMessageId, ...(keyboard ? { keyboard } : {}) });
 }
 
 export function bookitConsent(
@@ -289,7 +320,7 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
         return;
       }
       if (result === 'live_markets') {
-        h.poster.post(ctx.chat.id, await h.say('replay_blocked_live'), { replyToMessageId });
+        await postLiveCallBlocker(h, group.id, replyToMessageId);
         return;
       }
     } catch {

@@ -60,6 +60,13 @@ export function offerKeyboard(market: MarketRow): InlineKeyboard {
     );
 }
 
+export function voidReplayBlockerKeyboard(marketId: string): InlineKeyboard {
+  return new InlineKeyboard().text(
+    'Void call',
+    encodeCallback({ t: 'void_replay_blocker', marketId }),
+  );
+}
+
 /** A refresh preserves the same two-action public offer contract. */
 export function marketStakeKeyboard(_deps: Deps, market: MarketRow): InlineKeyboard {
   return offerKeyboard(market);

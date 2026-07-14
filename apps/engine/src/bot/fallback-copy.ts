@@ -54,6 +54,7 @@ export type TemplateKey =
   | 'replay_started'
   | 'replay_finished'
   | 'replay_blocked_live'
+  | 'replay_blocking_call_voided'
   | 'replay_blocked_active'
   | 'replay_unknown_fixture'
   | 'replay_stopped'
@@ -162,7 +163,17 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     `TEST MATCH: ${value(vars, 'fixture')} is replaying at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. Test results do not change real Points.`,
   replay_finished: (vars) =>
     `TEST MATCH FINISHED: ${value(vars, 'fixture')}. Test results did not change real Points.`,
-  replay_blocked_live: () => 'Not while live calls are open in here — let those settle first.',
+  replay_blocked_live: (vars) => {
+    const call = value(vars, 'call');
+    if (call.length === 0) return 'Not while live calls are open in here — let those settle first.';
+    return [
+      'Test match blocked by this live call:',
+      `“${call}”`,
+      value(vars, 'resolution', 'Let it settle first.'),
+    ].join('\n');
+  },
+  replay_blocking_call_voided: (vars) =>
+    `Call voided: “${value(vars, 'call', 'the blocking call')}”. Run /testmatch again.`,
   replay_blocked_active: () => 'A test match is already running in this group.',
   replay_unknown_fixture: () => 'No completed match is available for a test run. Try /testmatch with a completed match ID.',
   replay_stopped: () => 'Test match stopped.',
