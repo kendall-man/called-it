@@ -170,6 +170,14 @@ export type QuoteOutcome =
   | { kind: 'no_odds' }
   | { kind: 'unpriceable'; reason: string };
 
+const REPLAY_ODDS_LOOKBACK_MS = [
+  30_000,
+  60_000,
+  2 * 60_000,
+  5 * 60_000,
+  10 * 60_000,
+] as const;
+
 /**
  * The market-engine pricer throws a typed MissingOddsInputError when the feed
  * has not published an input a claim type requires. Detected by name (not
@@ -190,8 +198,8 @@ export async function quoteSpec(
   asOfMs?: number,
   contextOverrides: CompileContextOverrides = {},
 ): Promise<QuoteOutcome> {
-  const fetched = await deps.tx.fetchOdds(spec.fixtureId, asOfMs);
-  if (fetched.kind !== 'ok') {
+  let fetched = await deps.tx.fetchOdds(spec.fixtureId, asOfMs);
+  if (fetched.kind === 'transient') {
     deps.log.info('quote_unavailable', {
       fixtureId: spec.fixtureId,
       claimType: spec.claimType,
@@ -199,34 +207,68 @@ export async function quoteSpec(
     });
     return { kind: fetched.kind };
   }
-  let ctx;
-  try {
-    ctx = await buildCompileContext(deps, spec.fixtureId, contextOverrides);
-  } catch {
-    deps.log.warn('price_context_failed', { fixtureId: spec.fixtureId });
-    return { kind: 'transient' };
-  }
-  try {
-    const quote = deps.engine.priceSpec(spec, fetched.odds, ctx);
-    deps.log.info('price', {
-      fixtureId: spec.fixtureId,
-      claimType: spec.claimType,
-      probability: quote.probability,
-      multiplier: quote.multiplier,
-      provenance: quote.provenance,
-    });
-    return { kind: 'ok', quote };
-  } catch (err) {
-    // priceSpec is pure: a throw means this spec cannot be priced from the
-    // published inputs. A missing required input may still be published
-    // later, so it reads as "no line yet"; anything else is structural.
-    deps.log.warn('price_failed', {
-      fixtureId: spec.fixtureId,
-      claimType: spec.claimType,
-    });
-    return isMissingOddsInput(err)
-      ? { kind: 'no_odds' }
-      : { kind: 'unpriceable', reason: String(err) };
+  let ctx: Awaited<ReturnType<typeof buildCompileContext>> | undefined;
+  let lookbackIndex = 0;
+  let usedLookbackMs: number | null = null;
+
+  while (true) {
+    if (fetched.kind === 'ok') {
+      if (ctx === undefined) {
+        try {
+          ctx = await buildCompileContext(deps, spec.fixtureId, contextOverrides);
+        } catch {
+          deps.log.warn('price_context_failed', { fixtureId: spec.fixtureId });
+          return { kind: 'transient' };
+        }
+      }
+      try {
+        const quote = deps.engine.priceSpec(spec, fetched.odds, ctx);
+        if (usedLookbackMs !== null) {
+          deps.log.info('replay_odds_lookback', {
+            fixtureId: spec.fixtureId,
+            claimType: spec.claimType,
+            lookbackMs: usedLookbackMs,
+          });
+        }
+        deps.log.info('price', {
+          fixtureId: spec.fixtureId,
+          claimType: spec.claimType,
+          probability: quote.probability,
+          multiplier: quote.multiplier,
+          provenance: quote.provenance,
+        });
+        return { kind: 'ok', quote };
+      } catch (err) {
+        if (!isMissingOddsInput(err)) {
+          deps.log.warn('price_failed', {
+            fixtureId: spec.fixtureId,
+            claimType: spec.claimType,
+          });
+          return { kind: 'unpriceable', reason: String(err) };
+        }
+      }
+    }
+
+    const lookbackMs = REPLAY_ODDS_LOOKBACK_MS[lookbackIndex];
+    if (asOfMs === undefined || lookbackMs === undefined) {
+      deps.log.info('quote_unavailable', {
+        fixtureId: spec.fixtureId,
+        claimType: spec.claimType,
+        reason: 'no_odds',
+      });
+      return { kind: 'no_odds' };
+    }
+    lookbackIndex += 1;
+    fetched = await deps.tx.fetchOdds(spec.fixtureId, asOfMs - lookbackMs);
+    if (fetched.kind === 'transient') {
+      deps.log.info('quote_unavailable', {
+        fixtureId: spec.fixtureId,
+        claimType: spec.claimType,
+        reason: fetched.kind,
+      });
+      return { kind: fetched.kind };
+    }
+    usedLookbackMs = lookbackMs;
   }
 }
 

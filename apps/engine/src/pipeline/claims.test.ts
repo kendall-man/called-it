@@ -139,6 +139,41 @@ describe('quoteSpec failure taxonomy', () => {
     expect(structural).toMatchObject({ kind: 'unpriceable' });
   });
 
+  it('uses the nearest earlier line when replay odds are temporarily suspended', async () => {
+    const requestedAsOf: Array<number | undefined> = [];
+    const deps = makeDeps();
+    deps.tx.fetchOdds = async (_fixtureId, asOfMs) => {
+      requestedAsOf.push(asOfMs);
+      return {
+        kind: 'ok',
+        odds: {
+          p1x2: requestedAsOf.length === 1
+            ? null
+            : { home: 0.6, draw: 0.25, away: 0.15 },
+          totals: null,
+          oddsMessageId: `om-${requestedAsOf.length}`,
+          oddsTsMs: asOfMs ?? null,
+        },
+      };
+    };
+    deps.engine.priceSpec = (_spec, odds) => {
+      if (odds.p1x2 === null) {
+        const missing = new Error('1X2 temporarily suspended');
+        missing.name = 'MissingOddsInputError';
+        throw missing;
+      }
+      return { ...QUOTE, oddsMessageId: odds.oddsMessageId, oddsTsMs: odds.oddsTsMs };
+    };
+
+    const result = await quoteSpec(deps, SPEC, NOW);
+
+    expect(result).toEqual({
+      kind: 'ok',
+      quote: { ...QUOTE, oddsMessageId: 'om-2', oddsTsMs: NOW - 30_000 },
+    });
+    expect(requestedAsOf).toEqual([NOW, NOW - 30_000]);
+  });
+
   it('returns the quote on success', async () => {
     expect(await quoteSpec(makeDeps(), SPEC)).toEqual({ kind: 'ok', quote: QUOTE });
   });
