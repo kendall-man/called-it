@@ -15,6 +15,14 @@ use calledit_escrow::{
 use proptest::prelude::*;
 use solana_program::rent::Rent;
 
+fn vector_u64(value: &serde_json::Value, field: &str) -> u64 {
+    value[field]
+        .as_str()
+        .unwrap_or_else(|| panic!("{field} must be a decimal string"))
+        .parse()
+        .unwrap_or_else(|_| panic!("{field} must fit u64"))
+}
+
 #[test]
 fn account_layouts_are_frozen() {
     assert_eq!(ProtocolConfig::INIT_SPACE, 371);
@@ -156,6 +164,98 @@ fn payout_matches_the_shared_cross_language_golden_vector() {
     assert_eq!(result.credits[3].refund, 100);
     assert_eq!(result.total_credited().unwrap(), 2_599);
     assert_eq!(result.dust, 1);
+}
+
+#[test]
+fn rust_matches_the_shared_typescript_differential_corpus() {
+    let corpus: serde_json::Value =
+        serde_json::from_str(include_str!("../vectors/payout-differential-v1.json")).unwrap();
+    assert_eq!(corpus["schema_version"], 1);
+    let cases = corpus["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 512);
+
+    for (case_index, case) in cases.iter().enumerate() {
+        let outcome = match case["outcome"].as_str().unwrap() {
+            "claim_won" => SettlementOutcome::ClaimWon,
+            "claim_lost" => SettlementOutcome::ClaimLost,
+            "void" => SettlementOutcome::Void,
+            value => panic!("unexpected outcome {value}"),
+        };
+        let positions = case["positions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|position| {
+                let side = match position["side"].as_str().unwrap() {
+                    "back" => PositionSide::Back,
+                    "doubt" => PositionSide::Doubt,
+                    value => panic!("unexpected side {value}"),
+                };
+                SettlementInput::new(
+                    position["user_key"].as_u64().unwrap(),
+                    side,
+                    vector_u64(position, "active"),
+                    vector_u64(position, "pending"),
+                    vector_u64(position, "refundable"),
+                )
+            })
+            .collect::<Vec<_>>();
+        let expected = &case["expected"];
+        let actual = settle_positions(
+            &positions,
+            outcome,
+            u32::try_from(vector_u64(case, "ratio_milli")).unwrap(),
+        )
+        .unwrap_or_else(|error| panic!("differential case {case_index} failed: {error:?}"));
+
+        assert_eq!(
+            actual.pots.back,
+            vector_u64(expected, "back"),
+            "case {case_index}"
+        );
+        assert_eq!(
+            actual.pots.doubt,
+            vector_u64(expected, "doubt"),
+            "case {case_index}"
+        );
+        assert_eq!(
+            actual.pots.matched_back,
+            vector_u64(expected, "matched_back"),
+            "case {case_index}"
+        );
+        assert_eq!(
+            actual.pots.matched_doubt,
+            vector_u64(expected, "matched_doubt"),
+            "case {case_index}"
+        );
+        assert_eq!(
+            actual.forfeited_pot,
+            vector_u64(expected, "forfeited_pot"),
+            "case {case_index}"
+        );
+        let credits = expected["credits"].as_array().unwrap();
+        assert_eq!(actual.credits.len(), credits.len(), "case {case_index}");
+        for (actual_credit, expected_credit) in actual.credits.iter().zip(credits) {
+            assert_eq!(
+                actual_credit.user_key,
+                expected_credit["user_key"].as_u64().unwrap()
+            );
+            assert_eq!(actual_credit.refund, vector_u64(expected_credit, "refund"));
+            assert_eq!(actual_credit.payout, vector_u64(expected_credit, "payout"));
+        }
+        assert_eq!(
+            actual.dust,
+            vector_u64(expected, "dust"),
+            "case {case_index}"
+        );
+        let deposited = positions
+            .iter()
+            .try_fold(0u64, |total, position| {
+                total.checked_add(position.total_amount().unwrap())
+            })
+            .unwrap();
+        assert_eq!(actual.total_credited().unwrap() + actual.dust, deposited);
+    }
 }
 
 #[test]
