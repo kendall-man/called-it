@@ -30,8 +30,7 @@ pub struct PlacePosition<'info> {
     #[account(
         mut,
         seeds = [MARKET_SEED, &args.market_uuid],
-        bump = market.bump,
-        constraint = !market.replay @ EscrowError::ReplayMarketNoFunds
+        bump = market.bump
     )]
     pub market: Account<'info, Market>,
     #[account(mut)]
@@ -650,7 +649,7 @@ fn validate_client_expiry(now: i64, client_expiry: i64, cutoff: i64) -> Result<(
 
 fn validate_position_window(
     paused: bool,
-    replay: bool,
+    _replay: bool,
     state: MarketState,
     now: i64,
     cutoff: i64,
@@ -658,7 +657,6 @@ fn validate_position_window(
     expected_event_epoch: u64,
 ) -> Result<()> {
     require!(!paused, EscrowError::ProtocolPaused);
-    require!(!replay, EscrowError::ReplayMarketNoFunds);
     if state == MarketState::Frozen {
         return err!(EscrowError::MarketFrozen);
     }
@@ -989,8 +987,11 @@ mod tests {
     }
 
     #[test]
-    fn replay_markets_fail_closed_before_any_value_transfer() {
-        assert!(validate_position_window(false, true, MarketState::Open, 99, 100, 3, 3).is_err());
+    fn replay_markets_use_the_same_guarded_value_path() {
+        assert!(validate_position_window(false, true, MarketState::Open, 99, 100, 3, 3).is_ok());
+        assert!(validate_position_window(true, true, MarketState::Open, 99, 100, 3, 3).is_err());
+        assert!(validate_position_window(false, true, MarketState::Frozen, 99, 100, 3, 3).is_err());
+        assert!(validate_position_window(false, true, MarketState::Open, 100, 100, 3, 3).is_err());
     }
 
     #[test]
