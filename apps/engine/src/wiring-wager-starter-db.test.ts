@@ -42,6 +42,7 @@ describe('starter-only wager DB wiring', () => {
     // Then its type and runtime surface exclude funded authority
     expect(noForbiddenCapabilities).toBe(true);
     expect(Object.keys(adapter).sort()).toEqual([
+      'getMarketAsset',
       'getMarketProbability',
       'getSettlementOutcome',
       'getUserNames',
@@ -52,6 +53,7 @@ describe('starter-only wager DB wiring', () => {
       'postWagerLedger',
       'setPositionStates',
       'settledSolMarketsMissingApplied',
+      'settledWagerMarketsMissingApplied',
       'wagerStarterStake',
     ]);
     expect(bulkRequests).toEqual([[2, 1]]);

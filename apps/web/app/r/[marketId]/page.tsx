@@ -6,7 +6,7 @@ import { AwaitingConfiguration, DataUnavailable } from '@/components/states';
 import { TimelineList } from '@/components/timeline-list';
 import { TrustBadge, type TrustSnapshot } from '@/components/trust-badge';
 import { Badge, Card, PageShell, SectionTitle } from '@/components/ui';
-import { formatLamportsAsSol, formatMultiplier, formatProbabilityPct } from '@/lib/format';
+import { formatAtomicAmount, formatMultiplier, formatProbabilityPct } from '@/lib/format';
 import { fetchEvidence, fetchReceipt } from '@/lib/queries';
 import type { EvidenceFact, PublicReceipt } from '@/lib/receipts';
 import { PROVENANCE_COPY } from '@/lib/spec-terms';
@@ -35,31 +35,31 @@ function AggregateGrid({ receipt }: { receipt: PublicReceipt }) {
       <div>
         <dt className="text-fog">Happens pot</dt>
         <dd className="mt-1 font-semibold text-chalk">
-          {formatLamportsAsSol(receipt.backPotLamports)}
+          {formatAtomicAmount(receipt.backPotLamports, receipt.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Does not pot</dt>
         <dd className="mt-1 font-semibold text-chalk">
-          {formatLamportsAsSol(receipt.doubtPotLamports)}
+          {formatAtomicAmount(receipt.doubtPotLamports, receipt.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Matched</dt>
         <dd className="mt-1 font-semibold text-chalk">
-          {formatLamportsAsSol(receipt.matchedAmountLamports)}
+          {formatAtomicAmount(receipt.matchedAmountLamports, receipt.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Refunded</dt>
         <dd className="mt-1 font-semibold text-chalk">
-          {formatLamportsAsSol(receipt.refundedAmountLamports)}
+          {formatAtomicAmount(receipt.refundedAmountLamports, receipt.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Payout total</dt>
         <dd className="mt-1 font-semibold text-chalk">
-          {formatLamportsAsSol(receipt.paidAmountLamports)}
+          {formatAtomicAmount(receipt.paidAmountLamports, receipt.currency)}
         </dd>
       </div>
       <div>
@@ -152,8 +152,8 @@ export default async function ReceiptPage({
         <p className="mt-3 text-sm leading-relaxed text-fog">
           {provenance.blurb}{' '}
           {mainnet
-            ? 'Amounts below use SOL on Solana mainnet.'
-            : 'Amounts below use devnet SOL test tokens only.'}
+            ? `Amounts below use ${receipt.currency.toUpperCase()} on Solana mainnet.`
+            : `Amounts below use devnet ${receipt.currency.toUpperCase()} test tokens only.`}
         </p>
       </Card>
 
@@ -182,6 +182,7 @@ export default async function ReceiptPage({
               createdAt: receipt.createdAt,
               settledAt: receipt.settledAt,
               outcome: receipt.outcome,
+              currency: receipt.currency,
             })}
           />
         </div>

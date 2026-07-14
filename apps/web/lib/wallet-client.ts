@@ -21,6 +21,16 @@ const AuthSessionSchema = z.object({
 const AccountSchema = z.object({
   availableLamports: z.string().regex(/^\d+$/),
   lockedLamports: z.string().regex(/^\d+$/),
+  balances: z.object({
+    sol: z.object({
+      availableAtomic: z.string().regex(/^\d+$/),
+      lockedAtomic: z.string().regex(/^\d+$/),
+    }).strict(),
+    usdc: z.object({
+      availableAtomic: z.string().regex(/^\d+$/),
+      lockedAtomic: z.string().regex(/^\d+$/),
+    }).strict(),
+  }).strict().optional(),
 }).strict();
 
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -90,6 +100,10 @@ export async function linkPrivyWallet(input: {
 }
 
 export interface WalletAccountSummary {
+  readonly balances: Readonly<Record<'sol' | 'usdc', {
+    readonly availableAtomic: bigint;
+    readonly lockedAtomic: bigint;
+  }>>;
   readonly availableLamports: bigint;
   readonly lockedLamports: bigint;
 }
@@ -110,6 +124,24 @@ export async function requestWalletAccount(
     throw new WalletClientError(responseError(body));
   }
   return {
+    balances: parsed.data.balances === undefined
+      ? {
+          sol: {
+            availableAtomic: BigInt(parsed.data.availableLamports),
+            lockedAtomic: BigInt(parsed.data.lockedLamports),
+          },
+          usdc: { availableAtomic: 0n, lockedAtomic: 0n },
+        }
+      : {
+          sol: {
+            availableAtomic: BigInt(parsed.data.balances.sol.availableAtomic),
+            lockedAtomic: BigInt(parsed.data.balances.sol.lockedAtomic),
+          },
+          usdc: {
+            availableAtomic: BigInt(parsed.data.balances.usdc.availableAtomic),
+            lockedAtomic: BigInt(parsed.data.balances.usdc.lockedAtomic),
+          },
+        },
     availableLamports: BigInt(parsed.data.availableLamports),
     lockedLamports: BigInt(parsed.data.lockedLamports),
   };

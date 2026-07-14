@@ -2,7 +2,7 @@
  * Derives the receipt page's status timeline from a market's status +
  * settlement columns. Pure; copy stays in the game-show register.
  */
-import type { ReceiptOutcome, ReceiptStatus } from './receipts';
+import type { ReceiptCurrency, ReceiptOutcome, ReceiptStatus } from './receipts';
 
 export type StepState = 'done' | 'current' | 'upcoming';
 
@@ -20,6 +20,7 @@ export interface TimelineInput {
   createdAt: string;
   settledAt: string | null;
   outcome: ReceiptOutcome | null;
+  currency?: ReceiptCurrency;
 }
 
 const LIVE_STEP_COPY: Record<Exclude<ReceiptStatus, 'settled' | 'voided'>, [string, string]> = {
@@ -72,7 +73,10 @@ export function buildTimeline(input: TimelineInput): TimelineStep[] {
     ];
   }
 
-  const [liveLabel, liveDetail] = LIVE_STEP_COPY[input.status];
+  const [liveLabel, defaultLiveDetail] = LIVE_STEP_COPY[input.status];
+  const liveDetail = input.status === 'open'
+    ? `Positions matched in ${(input.currency ?? 'sol').toUpperCase()} — every multiplier locked at tap time`
+    : defaultLiveDetail;
   return [
     called,
     { key: 'live', label: liveLabel, detail: liveDetail, state: 'current', at: null },

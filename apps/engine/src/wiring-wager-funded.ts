@@ -8,6 +8,7 @@ import type {
   WagerPoster,
 } from './wager/module.js';
 import { expectedGenesisHash } from './solana-network.js';
+import type { SolanaNetwork } from './solana-network.js';
 
 type FactoryResult<Value> = Value | Promise<Value>;
 type WagerChain = WagerModuleDeps['chain'];
@@ -32,6 +33,11 @@ export interface WagerChainRuntime<Connection, Treasury, PublicKey> {
   publicKey(treasury: Treasury): PublicKey;
   publicKeyAddress(publicKey: PublicKey): string;
   getBalance(connection: Connection, publicKey: PublicKey): Promise<number>;
+  getUsdcBalance?(
+    connection: Connection,
+    publicKey: PublicKey,
+    network: SolanaNetwork,
+  ): Promise<bigint>;
   getGenesisHash(connection: Connection): Promise<string>;
   getLatestBlockhash(
     connection: Connection,
@@ -60,13 +66,34 @@ export interface WagerChainRuntime<Connection, Treasury, PublicKey> {
   }):
     | { ok: true; rawTxB64: string; sig: string }
     | { ok: false; error: string };
+  buildUsdcTransfer?(args: {
+    from: Treasury;
+    to: string;
+    amountAtomic: bigint;
+    network: SolanaNetwork;
+    recentBlockhash: string;
+    lastValidBlockHeight: number;
+  }):
+    | { ok: true; rawTxB64: string; sig: string }
+    | { ok: false; error: string };
   broadcastRawTx(rpc: RetryRpc, rawTxB64: string): ReturnType<WagerChain['broadcastRawTx']>;
   getSigStatus(rpc: RetryRpc, sig: string): ReturnType<WagerChain['getSigStatus']>;
   isBlockheightExceeded(
     rpc: RetryRpc,
     lastValidBlockHeight: number,
   ): ReturnType<WagerChain['isBlockheightExceeded']>;
-  fetchIncomingTransfers(
+  fetchIncomingSolTransfers?(
+    connection: Connection,
+    treasuryAddress: string,
+    options: { untilSig?: string },
+  ): ReturnType<WagerChain['fetchIncomingTransfers']>;
+  fetchIncomingUsdcTransfers?(
+    connection: Connection,
+    treasuryAddress: string,
+    network: SolanaNetwork,
+    options: { untilSig?: string },
+  ): ReturnType<WagerChain['fetchIncomingTransfers']>;
+  fetchIncomingTransfers?(
     connection: Connection,
     treasuryAddress: string,
     options: { untilSig?: string },
@@ -117,7 +144,7 @@ export async function createProductionFundedWagerModule<Connection, Treasury, Pu
     runtimeMode: 'funded',
     solanaNetwork: env.SOLANA_NETWORK,
     db: await buildFundedWagerDb(options),
-    chain: buildWagerChain(connection, treasury, options.chainRuntime),
+    chain: buildWagerChain(connection, treasury, env.SOLANA_NETWORK, options.chainRuntime),
     poster,
     log,
     now: () => Date.now(),
@@ -131,6 +158,7 @@ export async function createProductionFundedWagerModule<Connection, Treasury, Pu
 function buildWagerChain<Connection, Treasury, PublicKey>(
   connection: Connection,
   treasury: Treasury,
+  network: SolanaNetwork,
   runtime: WagerChainRuntime<Connection, Treasury, PublicKey>,
 ): WagerChain {
   const publicKey = runtime.publicKey(treasury);
@@ -145,16 +173,23 @@ function buildWagerChain<Connection, Treasury, PublicKey>(
   };
   return {
     treasuryPubkey: () => treasuryAddress,
-    async treasuryBalanceLamports() {
+    async treasuryBalance(asset) {
       try {
-        const lamports = await runtime.retry(() => runtime.getBalance(connection, publicKey));
-        return { ok: true, lamports: BigInt(lamports) };
+        const amountAtomic = asset === 'sol'
+          ? BigInt(await runtime.retry(() => runtime.getBalance(connection, publicKey)))
+          : await runtime.retry(() => {
+              if (runtime.getUsdcBalance === undefined) {
+                throw new Error('USDC balance adapter unavailable');
+              }
+              return runtime.getUsdcBalance(connection, publicKey, network);
+            });
+        return { ok: true, amountAtomic };
       } catch (error) {
         if (!(error instanceof Error)) throw error;
-        return { ok: false, error: `getBalance: ${error.message}` };
+        return { ok: false, error: `get ${asset} balance: ${error.message}` };
       }
     },
-    async buildTransfer({ to, lamports }) {
+    async buildTransfer({ asset, to, amountAtomic }) {
       let latest: { blockhash: string; lastValidBlockHeight: number };
       try {
         latest = await runtime.retry(() => runtime.getLatestBlockhash(connection));
@@ -162,13 +197,17 @@ function buildWagerChain<Connection, Treasury, PublicKey>(
         if (!(error instanceof Error)) throw error;
         return { ok: false, error: `getLatestBlockhash: ${error.message}` };
       }
-      const built = runtime.buildSolTransfer({
+      const common = {
         from: treasury,
         to,
-        lamports,
         recentBlockhash: latest.blockhash,
         lastValidBlockHeight: latest.lastValidBlockHeight,
-      });
+      };
+      const built = asset === 'sol'
+        ? runtime.buildSolTransfer({ ...common, lamports: amountAtomic })
+        : runtime.buildUsdcTransfer === undefined
+          ? { ok: false as const, error: 'USDC transfer adapter unavailable' }
+          : runtime.buildUsdcTransfer({ ...common, amountAtomic, network });
       if (!built.ok) return { ok: false, error: built.error, permanent: true };
       return {
         ok: true,
@@ -180,10 +219,18 @@ function buildWagerChain<Connection, Treasury, PublicKey>(
     broadcastRawTx: (rawTxB64) => runtime.broadcastRawTx(retryRpc, rawTxB64),
     getSigStatus: (sig) => runtime.getSigStatus(retryRpc, sig),
     isBlockheightExceeded: (height) => runtime.isBlockheightExceeded(retryRpc, height),
-    fetchIncomingTransfers: ({ untilSig }) =>
-      runtime.fetchIncomingTransfers(connection, treasuryAddress, {
-        ...(untilSig === null ? {} : { untilSig }),
-      }),
+    fetchIncomingTransfers: ({ asset, untilSig }) => {
+      const options = untilSig === null ? {} : { untilSig };
+      if (asset === 'sol') {
+        const scanner = runtime.fetchIncomingSolTransfers ?? runtime.fetchIncomingTransfers;
+        return scanner === undefined
+          ? Promise.resolve({ ok: false, error: 'SOL deposit scanner unavailable' })
+          : scanner(connection, treasuryAddress, options);
+      }
+      return runtime.fetchIncomingUsdcTransfers === undefined
+        ? Promise.resolve({ ok: false, error: 'USDC deposit scanner unavailable' })
+        : runtime.fetchIncomingUsdcTransfers(connection, treasuryAddress, network, options);
+    },
   };
 }
 

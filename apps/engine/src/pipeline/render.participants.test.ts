@@ -144,7 +144,7 @@ describe('composeClaimCard participant projection', () => {
     expect(card?.text).not.toContain('and 1 more');
     expect(card?.text).not.toMatch(/\u0000|\u202e/u);
     expect(card?.text).toContain(`Receipt: https://web.test/r/${MARKET_ID}`);
-    expect(card?.text).toContain('Test SOL is a devnet token with no monetary value.');
+    expect(card?.text).toContain('Test SOL has no monetary value.');
   });
 
   it('edits one named card and posts nothing when three duplicate taps race', async () => {

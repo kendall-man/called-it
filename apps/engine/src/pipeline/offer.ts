@@ -199,13 +199,18 @@ export async function mintOffer(
     return { minted: false };
   }
   const { market } = mintResult;
+  const currency = market.currency === 'usdc' ? 'usdc' : 'sol';
 
   const positionsAvailable = market.is_replay
-    || (h.deps.wager !== null && await h.deps.wager.stakesAvailable());
+    || (h.deps.wager !== null && await h.deps.wager.stakesAvailable(currency));
   const card = await composeClaimCard(h.deps, market, { positionsAvailable });
   if (!card) return { minted: true };
   const claimer = await h.deps.db.getUser(claim.claimer_user_id);
-  const garnish = await h.say('offer_live', { claimer: claimer?.display_name ?? 'legend' });
+  const garnish = await h.say('offer_live', {
+    claimer: claimer?.display_name ?? 'legend',
+    amount: h.deps.wager?.presetLabels(currency)[0]
+      ?? (currency === 'usdc' ? '1 USDC' : '0.01 SOL'),
+  });
   const pendingNote = market.status === 'pending_lineup' ? await h.say('pending_lineup_note') : '';
   h.poster.post(claim.group_id, composeTelegramMessage({
     body: card.text,

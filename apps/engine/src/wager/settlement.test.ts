@@ -84,6 +84,24 @@ describe('applySettlement — peer-matched', () => {
     expect(db.applied.has('m1')).toBe(true);
   });
 
+  it('settles a USDC market entirely in USDC atomic units', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.settlements.set('usdc-market', 'claim_won');
+    db.seedMarketProbability('usdc-market', EVEN);
+    db.seedMarketAsset('usdc-market', 'usdc');
+    db.seedPosition({ market_id: 'usdc-market', user_id: 1, side: 'back', stake: 1_000_000 });
+    db.seedPosition({ market_id: 'usdc-market', user_id: 2, side: 'doubt', stake: 1_000_000 });
+
+    await applySettlement(deps, 'usdc-market');
+
+    expect(db.ledgerByKey(WAGER_KEYS.payout('usdc-market', 1))).toMatchObject({
+      asset: 'usdc',
+      lamports: 2_000_000n,
+    });
+    expect(db.ledger.filter((entry) => entry.market_id === 'usdc-market')
+      .every((entry) => entry.asset === 'usdc')).toBe(true);
+  });
+
   it('refunds the unmatched excess on the heavier side', async () => {
     const { deps, db } = makeFakeDeps();
     db.settlements.set('m1', 'claim_won');
@@ -290,7 +308,7 @@ describe('settlementPayoutsLine', () => {
     const { deps } = makeFakeDeps();
     const voidLine = await settlementPayoutsLine(deps, 'm1', 'void');
     const noneLine = await settlementPayoutsLine(deps, 'm1', 'claim_won');
-    expect(voidLine).toBe('Call off — every SOL stake returned. (devnet)');
+    expect(voidLine).toBe('Call off — every SOL position returned. (devnet)');
     expect(noneLine).toBe('No SOL changed hands. (devnet)');
   });
 });

@@ -1,4 +1,4 @@
-import type { SettlementOutcome } from '@calledit/market-engine';
+import type { SettlementOutcome, WagerAsset } from '@calledit/market-engine';
 import type {
   CreatePendingStakeIntentResult,
   MutatePendingStakeIntentResult,
@@ -49,18 +49,23 @@ export interface StarterOnlyWagerDb {
   postWagerLedger(entry: WagerSettlementLedgerEntry): Promise<{ inserted: boolean }>;
 
   getMarketProbability(marketId: string): Promise<number | null>;
+  getMarketAsset(marketId: string): Promise<WagerAsset | null>;
   getSettlementOutcome(marketId: string): Promise<SettlementOutcome | null>;
   hasSettlementApplied(marketId: string): Promise<boolean>;
   insertSettlementApplied(marketId: string): Promise<void>;
+  settledWagerMarketsMissingApplied(): Promise<string[]>;
+  /** Rolling-deploy compatibility alias for SOL-only callers. */
   settledSolMarketsMissingApplied(): Promise<string[]>;
 
-  getWagerStatus(): Promise<WagerStatusRow>;
+  getWagerStatus(asset?: WagerAsset): Promise<WagerStatusRow>;
   wagerStarterStake(args: WagerStarterStakeInput): Promise<WagerStakeResult>;
 }
 
 export interface WagerDb {
   setGroupEnabled(groupId: number, enabled: boolean, byUserId: number): Promise<void>;
   isGroupEnabled(groupId: number): Promise<boolean>;
+  setGroupDefaultAsset(groupId: number, asset: WagerAsset, byUserId: number): Promise<void>;
+  groupDefaultAsset(groupId: number): Promise<WagerAsset>;
 
   getWalletLink(userId: number): Promise<WagerWalletLinkRow | null>;
   getWalletLinkByPubkey(pubkey: string): Promise<WagerWalletLinkRow | null>;
@@ -68,8 +73,8 @@ export interface WagerDb {
 
   postWagerLedger(entry: WagerLedgerEntry): Promise<{ inserted: boolean }>;
   stakeDebitedLamportsForMarket(marketId: string): Promise<bigint>;
-  balanceLamports(userId: number): Promise<bigint>;
-  totalLedgerLamports(): Promise<bigint>;
+  balanceLamports(userId: number, asset?: WagerAsset): Promise<bigint>;
+  totalLedgerLamports(asset?: WagerAsset): Promise<bigint>;
 
   upsertDeposit(row: WagerDepositInsert): Promise<{ inserted: boolean }>;
   markDepositCredited(txSig: string, ixIndex: number, userId: number): Promise<void>;
@@ -84,19 +89,23 @@ export interface WagerDb {
   markWithdrawalFailed(id: string, error: string): Promise<void>;
 
   getMarketProbability(marketId: string): Promise<number | null>;
+  getMarketAsset(marketId: string): Promise<WagerAsset | null>;
   getSettlementOutcome(marketId: string): Promise<SettlementOutcome | null>;
   hasSettlementApplied(marketId: string): Promise<boolean>;
   insertSettlementApplied(marketId: string): Promise<void>;
+  settledWagerMarketsMissingApplied(): Promise<string[]>;
   settledSolMarketsMissingApplied(): Promise<string[]>;
   settledFundedReplayMarketsMissingApplied(): Promise<string[]>;
 
-  getWagerStatus(): Promise<WagerStatusRow>;
+  getWagerStatus(asset?: WagerAsset): Promise<WagerStatusRow>;
+  setWagerStatus(asset: WagerAsset, paused: boolean, reason: string | null): Promise<void>;
   setWagerStatus(paused: boolean, reason: string | null): Promise<void>;
 
+  openWagerMarkets(): Promise<Array<{ id: string; currency: WagerAsset }>>;
   openSolMarketIds(): Promise<string[]>;
 
   wagerStake(args: WagerStakeInput): Promise<WagerStakeResult>;
-  requestWithdrawal(args: { user_id: number; lamports: bigint }): Promise<WagerWithdrawResult>;
+  requestWithdrawal(args: { user_id: number; asset?: WagerAsset; lamports: bigint }): Promise<WagerWithdrawResult>;
 
   verifyWalletLink(args: VerifiedWalletLinkInput): Promise<VerifiedWalletLinkResult>;
   createWalletLinkSession(args: WalletLinkSessionInput): Promise<WalletLinkSessionResult>;

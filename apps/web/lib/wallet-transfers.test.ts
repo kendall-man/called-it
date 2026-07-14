@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { Keypair, SystemProgram, Transaction } from '@solana/web3.js';
-import { formatSol, parseSolAmount, validateSignedTransaction } from './wallet-transfers';
+import {
+  formatSol,
+  formatWalletAmount,
+  parseSolAmount,
+  parseWalletAmount,
+  validateSignedTransaction,
+} from './wallet-transfers';
 
 describe('wallet transfer amount parsing', () => {
   it('uses exact decimal lamports without floating point rounding', () => {
@@ -8,6 +14,13 @@ describe('wallet transfer amount parsing', () => {
     expect(parseSolAmount('0.01')).toBe(10_000_000n);
     expect(parseSolAmount('1.000000001')).toBe(1_000_000_001n);
     expect(formatSol(1_000_000_001n)).toBe('1.000000001');
+  });
+
+  it('uses six exact decimals for USDC', () => {
+    expect(parseWalletAmount('1', 'usdc')).toBe(1_000_000n);
+    expect(parseWalletAmount('1.000001', 'usdc')).toBe(1_000_001n);
+    expect(parseWalletAmount('0.0000001', 'usdc')).toBeNull();
+    expect(formatWalletAmount(5_500_001n, 'usdc')).toBe('5.500001');
   });
 
   it('rejects zero, negative, malformed, and over-precise amounts', () => {

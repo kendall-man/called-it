@@ -12,7 +12,7 @@
  * a balance.
  */
 
-import type { PositionSide } from '@calledit/market-engine';
+import type { PositionSide, WagerAsset } from '@calledit/market-engine';
 import type { PositionState } from './types.js';
 
 // ── Enumerations backed by CHECK constraints in migration 0002 ─────────────
@@ -40,13 +40,14 @@ export type WagerStakeErrorCode =
   | 'wallet_required';
 
 /** Typed rejection codes returned by the wager_request_withdrawal RPC. */
-export type WagerWithdrawErrorCode = 'no_wallet' | 'insufficient';
+export type WagerWithdrawErrorCode = 'no_wallet' | 'insufficient' | 'invalid_asset';
 
 // ── Table rows (as surfaced by the façade: lamports already bigint) ────────
 
 export interface WagerGroupRow {
   group_id: number;
   enabled: boolean;
+  default_asset: WagerAsset;
   /** Admin who last toggled wager mode for this group. */
   enabled_by: number;
   updated_at: string;
@@ -68,7 +69,8 @@ export interface WagerLedgerRow {
   group_id: number | null;
   market_id: string | null;
   kind: WagerLedgerKind;
-  /** Signed lamports delta; balance is user-global (sum by user_id). */
+  asset: WagerAsset;
+  /** Signed atomic-unit delta; balance is user-global per asset. */
   lamports: bigint;
   idempotency_key: string;
   created_at: string;
@@ -80,6 +82,8 @@ export interface WagerDepositRow {
   /** Instruction index — one tx can carry several transfers to the treasury. */
   ix_index: number;
   sender_pubkey: string;
+  asset: WagerAsset;
+  mint_pubkey: string | null;
   lamports: bigint;
   slot: number;
   /** null = orphan: sender pubkey was not linked when the deposit landed. */
@@ -94,6 +98,7 @@ export interface WagerWithdrawalRow {
   user_id: number;
   /** Copied from the wallet link inside the RPC — never caller-supplied. */
   dest_pubkey: string;
+  asset: WagerAsset;
   lamports: bigint;
   state: WagerWithdrawalState;
   /** Deterministic signature, persisted BEFORE broadcast. */
@@ -112,6 +117,7 @@ export interface WagerSettlementAppliedRow {
 }
 
 export interface WagerStatusRow {
+  asset?: WagerAsset;
   /** Persisted circuit breaker: blocks NEW stakes only, never payouts/withdrawals. */
   paused: boolean;
   reason: string | null;
@@ -145,7 +151,9 @@ export interface WagerLedgerEntry {
   group_id: number | null;
   market_id: string | null;
   kind: WagerLedgerKind;
-  /** Signed lamports delta. */
+  /** Omitted only by legacy SOL callers; new financial paths set it explicitly. */
+  asset?: WagerAsset;
+  /** Signed atomic-unit delta. */
   lamports: bigint;
   idempotency_key: string;
 }
@@ -159,6 +167,8 @@ export interface WagerDepositInsert {
   tx_sig: string;
   ix_index: number;
   sender_pubkey: string;
+  asset?: WagerAsset;
+  mint_pubkey?: string | null;
   lamports: bigint;
   slot: number;
 }
@@ -206,6 +216,7 @@ export interface PendingStakeIntentRow {
   group_id: number;
   market_id: string;
   side: PositionSide;
+  asset: WagerAsset;
   lamports: bigint;
   state: PendingStakeIntentState;
   expires_at: string;

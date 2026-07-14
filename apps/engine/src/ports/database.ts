@@ -91,7 +91,7 @@ export interface EngineDb {
     quote_multiplier: number;
     odds_message_id: string | null;
     odds_ts: number | null;
-    currency?: 'rep' | 'sol';
+    currency?: import('@calledit/market-engine').MarketCurrency;
   }): Promise<MarketRow>;
   getMarket(id: string): Promise<MarketRow | null>;
   updateMarketStatus(id: string, status: MarketStatus): Promise<void>;

@@ -16,7 +16,7 @@ export function EvidenceList({
   if (state === 'unavailable') {
     return (
       <p className="text-sm leading-relaxed text-fog">
-        Public evidence details are unavailable right now. The recorded outcome and SOL totals have
+        Public evidence details are unavailable right now. The recorded outcome and asset totals have
         not changed.
       </p>
     );

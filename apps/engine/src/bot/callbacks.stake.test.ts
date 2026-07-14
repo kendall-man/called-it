@@ -174,6 +174,28 @@ describe('handleStake - beta starter position', () => {
     expect(duplicate.toasts).toEqual([renderFallback('replay_position_exists')]);
   });
 
+  it('keeps a funded devnet replay ledger-free even when the user has a balance', async () => {
+    const harness = makeHarness({
+      marketRow: market({ is_replay: true }),
+      fixture: fixtureAt('F', 90),
+      replayFixture: fixtureAt('H1', 10),
+      link: true,
+      balanceLamports: 50_000_000n,
+      starterGrantsEnabled: false,
+      stakeAcceptanceEnabled: true,
+      solanaNetwork: 'devnet',
+    });
+    const { ctx, toasts } = stakeCtx(USER_A, 'funded-devnet-replay');
+
+    await dispatchCallback(harness.h, ctx, stake('back', PRESET_01));
+
+    expect(harness.wagerDb.positions).toHaveLength(1);
+    expect(await harness.wagerDb.balanceLamports(USER_A)).toBe(50_000_000n);
+    expect(harness.wagerDb.ledger).toHaveLength(1);
+    expect(harness.wagerDb.pendingIntent).toBeNull();
+    expect(toasts).toEqual([renderFallback('replay_position_recorded')]);
+  });
+
   it('reports a closed market without creating a position', async () => {
     const harness = makeHarness({ marketRow: market({ status: 'settled' }) });
     const { ctx, toasts } = stakeCtx(USER_A);

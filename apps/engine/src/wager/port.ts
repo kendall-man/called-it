@@ -8,6 +8,7 @@ import type {
   WagerSettlementOutcome,
 } from './port-db.js';
 import type { SolanaNetwork } from '../solana-network.js';
+import type { WagerAsset } from '@calledit/market-engine';
 
 export type * from './port-db.js';
 
@@ -43,6 +44,8 @@ export type WagerBlockheightCheck =
   | { ok: false; error: string };
 
 export interface WagerIncomingTransfer {
+  asset: WagerAsset;
+  mintPubkey: string | null;
   sig: string;
   /** One tx can carry several transfers to the treasury — each credits separately. */
   ixIndex: number;
@@ -63,24 +66,27 @@ export type WagerDepositScan =
   | { ok: false; error: string };
 
 export type WagerBalanceResult =
-  | { ok: true; lamports: bigint }
+  | { ok: true; amountAtomic: bigint }
   | { ok: false; error: string };
 
 export interface WagerChain {
   /** The dedicated wager treasury address (safe to show in chat). */
   treasuryPubkey(): string;
-  treasuryBalanceLamports(): Promise<WagerBalanceResult>;
+  treasuryBalance(asset: WagerAsset): Promise<WagerBalanceResult>;
   /**
    * Fetch a fresh blockhash, build and locally sign a treasury→dest transfer.
    * The signature is known PRE-broadcast; identical bytes ⇒ identical sig, so
    * rebroadcast is always safe.
    */
-  buildTransfer(args: { to: string; lamports: bigint }): Promise<WagerBuiltTransfer>;
+  buildTransfer(args: { asset: WagerAsset; to: string; amountAtomic: bigint }): Promise<WagerBuiltTransfer>;
   broadcastRawTx(rawTxB64: string): Promise<WagerBroadcastResult>;
   getSigStatus(sig: string): Promise<WagerSigStatus>;
   isBlockheightExceeded(lastValidBlockHeight: number): Promise<WagerBlockheightCheck>;
   /** Incoming system transfers to the treasury newer than the cursor sig. */
-  fetchIncomingTransfers(args: { untilSig: string | null }): Promise<WagerDepositScan>;
+  fetchIncomingTransfers(args: {
+    asset: WagerAsset;
+    untilSig: string | null;
+  }): Promise<WagerDepositScan>;
 }
 
 // ── Engine seams (structural subsets of Poster / Logger / grammy Bot) ─────
@@ -162,7 +168,7 @@ export interface WagerModuleCore {
   /** Always 'sol' now — every market is a SOL market. Stamped atomically at mint. */
   currencyForMint(groupId: number): Promise<WagerCurrency>;
   /** Current global acceptance state used to keep Telegram cards honest. */
-  stakesAvailable(): Promise<boolean>;
+  stakesAvailable(asset?: WagerAsset): Promise<boolean>;
   /** The stake path shared by buttons and the API; reply is the answer text. */
   handleStakeTap(args: WagerStakeTapArgs): Promise<WagerStakeTapResult>;
   /** Idempotent money movement for a settled/voided sol market. */
@@ -172,10 +178,10 @@ export interface WagerModuleCore {
   ): Promise<void>;
   /** Chat receipt line (SOL amounts are chat-only; public_receipts untouched). */
   settlementPayoutsLine(marketId: string, outcome: WagerSettlementOutcome): Promise<string>;
-  cardFooter(): string;
-  presetLabels(): [string, string, string];
+  cardFooter(asset?: WagerAsset): string;
+  presetLabels(asset?: WagerAsset): [string, string, string];
   /** Preset button index → lamports (out-of-range → null). */
-  presetLamports(index: number): bigint | null;
+  presetLamports(index: number, asset?: WagerAsset): bigint | null;
   /** DB-only recovery for ledger effects after settlement crashes. */
   registerSettlementRecovery(registry: WagerCronRegistry): void;
 }
@@ -188,10 +194,14 @@ export interface FundedWagerModule extends WagerModuleCore {
   readonly kind: 'funded';
   /** User-global available/locked SOL + linked wallet for private account surfaces. */
   walletSummary(userId: number): Promise<{
+    balances: Readonly<Record<WagerAsset, { availableAtomic: bigint; lockedAtomic: bigint }>>;
+    /** Legacy SOL aliases retained for the existing engine API during rollout. */
     balanceLamports: bigint;
     lockedLamports: bigint;
     pubkey: string | null;
   }>;
+  setGroupDefaultAsset(groupId: number, asset: WagerAsset, byUserId: number): Promise<void>;
+  groupAssetMessage(asset: WagerAsset, changed: boolean): string;
   prepareStakeConfirmation(
     args: WagerStakeConfirmationArgs,
   ): Promise<WagerStakeConfirmationResult>;
@@ -199,6 +209,7 @@ export interface FundedWagerModule extends WagerModuleCore {
     readonly marketId: string;
     readonly groupId: number;
     readonly side: WagerPositionSide;
+    readonly asset: WagerAsset;
     readonly lamports: bigint;
   } | null>;
   confirmStakeConfirmation(args: Omit<WagerStakeConfirmationArgs, 'callbackId'> & {

@@ -1,6 +1,6 @@
-import { WAGER_TUNABLES } from './constants.js';
+import { presetStakes, WAGER_TUNABLES } from './constants.js';
 import { createWagerCopy } from './copy.js';
-import { formatSolAmount } from './format.js';
+import { formatAssetAmount } from './format.js';
 import {
   applySettlement,
   createSettlementSweeper,
@@ -10,17 +10,19 @@ import { handleStakeTap } from './stake.js';
 import type { WagerModuleCore, WagerStakeDeps } from './port.js';
 
 export function createWagerModuleCore(deps: WagerStakeDeps): WagerModuleCore {
-  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet');
   const sweeper = createSettlementSweeper(deps);
   return {
-    async currencyForMint() {
-      return 'sol';
+    async currencyForMint(groupId) {
+      return deps.runtimeMode === 'funded'
+        ? deps.db.groupDefaultAsset(groupId)
+        : 'sol';
     },
 
-    async stakesAvailable() {
+    async stakesAvailable(asset = 'sol') {
       if (!deps.stakeAcceptanceEnabled) return false;
       if (deps.runtimeMode === 'starter_only' && !deps.starterGrantsEnabled) return false;
-      return !(await deps.db.getWagerStatus()).paused;
+      if (deps.runtimeMode === 'starter_only' && asset !== 'sol') return false;
+      return !(await deps.db.getWagerStatus(asset)).paused;
     },
 
     handleStakeTap: (args) => handleStakeTap(deps, args),
@@ -29,15 +31,19 @@ export function createWagerModuleCore(deps: WagerStakeDeps): WagerModuleCore {
 
     settlementPayoutsLine: (marketId, outcome) => settlementPayoutsLine(deps, marketId, outcome),
 
-    cardFooter: () => copy.cardFooter(),
+    cardFooter: (asset = 'sol') => createWagerCopy(deps.solanaNetwork ?? 'devnet', asset).cardFooter(),
 
-    presetLabels() {
-      const [first, second, third] = WAGER_TUNABLES.PRESET_STAKES_LAMPORTS;
-      return [formatSolAmount(first), formatSolAmount(second), formatSolAmount(third)];
+    presetLabels(asset = 'sol') {
+      const [first, second, third] = presetStakes(asset);
+      return [
+        formatAssetAmount(first, asset),
+        formatAssetAmount(second, asset),
+        formatAssetAmount(third, asset),
+      ];
     },
 
-    presetLamports(index) {
-      return WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[index] ?? null;
+    presetLamports(index, asset = 'sol') {
+      return presetStakes(asset)[index] ?? null;
     },
 
     registerSettlementRecovery(registry) {

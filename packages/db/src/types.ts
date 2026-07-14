@@ -11,12 +11,15 @@
 
 import type {
   GamePhase,
+  MarketCurrency,
   MarketSpec,
   MarketStatus,
   MatchEventKind,
   SettlementOutcome,
   TrustTier,
 } from '@calledit/market-engine';
+
+export type { MarketCurrency } from '@calledit/market-engine';
 
 export type * from './group-points-types.js';
 
@@ -34,9 +37,6 @@ export type ClaimStatus =
   | 'expired';
 
 export type LedgerKind = 'stake' | 'payout' | 'refund' | 'topup' | 'seed';
-
-/** Stake currency for a market (markets.currency, migration 0002). */
-export type MarketCurrency = 'rep' | 'sol';
 
 export type PriceProvenance = 'market' | 'modelled';
 

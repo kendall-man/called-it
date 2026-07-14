@@ -19,7 +19,7 @@ export type ReceiptOutcome = 'claim_won' | 'claim_lost' | 'void';
 export type ReceiptTier = 'chain_proven' | 'oracle_resolved';
 export type ProofStatus = 'pending' | 'verified' | 'failed' | 'unavailable';
 export type PriceProvenance = 'market' | 'modelled';
-export type ReceiptCurrency = 'sol';
+export type ReceiptCurrency = 'sol' | 'usdc';
 
 export interface PublicMarketTerms {
   readonly fixtureId: number;
@@ -163,7 +163,7 @@ const OUTCOMES: readonly ReceiptOutcome[] = ['claim_won', 'claim_lost', 'void'];
 const TIERS: readonly ReceiptTier[] = ['chain_proven', 'oracle_resolved'];
 const PROOF_STATUSES: readonly ProofStatus[] = ['pending', 'verified', 'failed', 'unavailable'];
 const PROVENANCES: readonly PriceProvenance[] = ['market', 'modelled'];
-const CURRENCIES: readonly ReceiptCurrency[] = ['sol'];
+const CURRENCIES: readonly ReceiptCurrency[] = ['sol', 'usdc'];
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PUBLIC_GROUP_SLUG = /^[A-Za-z0-9_-]{1,80}$/;
 const PROOF_HASH = /^[A-Za-z0-9+/=_-]{16,256}$/;

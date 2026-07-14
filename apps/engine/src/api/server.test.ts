@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   CHAT_ID,
+  MARKET,
   MARKET_ID,
   OPS_TOKEN,
   PRIVATE_DISPLAY_NAME,
@@ -133,8 +134,29 @@ describe('engine application API', () => {
     assertPrivateApiBoundary(body);
   });
 
-  it('returns the wallet as a SOL stack with the linked pubkey', async () => {
-    const harness = await startHarness();
+  it('serves USDC markets with asset-aware atomic and display amounts', async () => {
+    const harness = await startHarness({ market: { ...MARKET, currency: 'usdc' } });
+    const response = await fetch(`${harness.base}/api/groups/${CHAT_ID}/snapshot`, {
+      headers: authed,
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      markets: [{
+        currency: 'usdc',
+        forAtomic: '0',
+        forAmount: '0',
+      }],
+    });
+    expect(body).toMatchObject({
+      markets: [expect.not.objectContaining({ forSol: expect.anything() })],
+    });
+    assertPrivateApiBoundary(body);
+  });
+
+  it('returns both asset balances with legacy SOL aliases', async () => {
+    const harness = await startHarness({ balanceUsdcAtomic: 2_500_000n });
     const response = await fetch(
       `${harness.base}/api/groups/${CHAT_ID}/users/${USER_ID}/wallet`,
       { headers: authed },
@@ -146,6 +168,10 @@ describe('engine application API', () => {
       linkedWallet: 'Wa11etPubkey1111111111111111111111111111',
       balanceLamports: '1000000000',
       balanceSol: '1',
+      balances: {
+        sol: { availableAtomic: '1000000000', availableAmount: '1' },
+        usdc: { availableAtomic: '2500000', availableAmount: '2.5' },
+      },
     });
     assertPrivateApiBoundary(body);
   });

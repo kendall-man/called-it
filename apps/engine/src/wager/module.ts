@@ -4,10 +4,11 @@
  * Deps.wager null when disabled).
  */
 
-import { WAGER_TUNABLES } from './constants.js';
+import { minimumWithdrawal, WAGER_TUNABLES } from './constants.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { createWagerCopy } from './copy.js';
-import { assertSafeLamports, parseSolToLamports } from './format.js';
+import { assertSafeLamports, parseAssetAmount } from './format.js';
+import { isWagerAsset, type WagerAsset } from '@calledit/market-engine';
 import { createDepositWatcher } from './deposits.js';
 import { createWithdrawalExecutor } from './withdrawals.js';
 import { createSolvencyMonitor } from './solvency.js';
@@ -62,41 +63,61 @@ function groupChatId(ctx: WagerCommandCtx): number | null {
 
 export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
   const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet');
-  const watcher = createDepositWatcher(deps);
+  const depositWatchers = [
+    createDepositWatcher(deps, 'sol'),
+    createDepositWatcher(deps, 'usdc'),
+  ] as const;
   const executor = createWithdrawalExecutor(deps);
   const solvency = createSolvencyMonitor(deps);
 
   async function accountSummary(userId: number): Promise<{
+    balances: Readonly<Record<WagerAsset, { availableAtomic: bigint; lockedAtomic: bigint }>>;
     balanceLamports: bigint;
     lockedLamports: bigint;
     pubkey: string | null;
   }> {
-    const [balanceLamports, link, marketIds] = await Promise.all([
-      deps.db.balanceLamports(userId),
+    const [solAvailable, usdcAvailable, link, markets] = await Promise.all([
+      deps.db.balanceLamports(userId, 'sol'),
+      deps.db.balanceLamports(userId, 'usdc'),
       deps.db.getWalletLink(userId),
-      deps.db.openSolMarketIds(),
+      deps.db.openWagerMarkets(),
     ]);
     const marketPositions = await Promise.all(
-      marketIds.map((marketId) => deps.db.positionsForMarket(marketId)),
+      markets.map(async (market) => ({
+        currency: market.currency,
+        positions: await deps.db.positionsForMarket(market.id),
+      })),
     );
-    let lockedLamports = 0n;
-    for (const position of marketPositions.flat()) {
-      if (position.user_id !== userId || position.state === 'void') continue;
-      lockedLamports += assertSafeLamports(position.stake, `position ${position.id}`);
+    const locked: Record<WagerAsset, bigint> = { sol: 0n, usdc: 0n };
+    for (const market of marketPositions) {
+      for (const position of market.positions) {
+        if (position.user_id !== userId || position.state === 'void') continue;
+        locked[market.currency] += assertSafeLamports(position.stake, `position ${position.id}`);
+      }
     }
-    return { balanceLamports, lockedLamports, pubkey: link?.pubkey ?? null };
+    return {
+      balances: {
+        sol: { availableAtomic: solAvailable, lockedAtomic: locked.sol },
+        usdc: { availableAtomic: usdcAvailable, lockedAtomic: locked.usdc },
+      },
+      balanceLamports: solAvailable,
+      lockedLamports: locked.sol,
+      pubkey: link?.pubkey ?? null,
+    };
   }
 
   async function createConfirmation(
     args: import('./port.js').WagerStakeConfirmationArgs,
   ): Promise<import('./port.js').WagerStakeConfirmationResult> {
-    if (!deps.stakeAcceptanceEnabled || (await deps.db.getWagerStatus()).paused) {
-      return { ok: false, reply: copy.paused() };
+    const asset = args.market.currency ?? 'sol';
+    const assetCopy = createWagerCopy(deps.solanaNetwork ?? 'devnet', asset);
+    if (!deps.stakeAcceptanceEnabled || (await deps.db.getWagerStatus(asset)).paused) {
+      return { ok: false, reply: assetCopy.paused() };
     }
     const link = await deps.db.getWalletLink(args.userId);
-    if (link === null) return { ok: false, reply: copy.unlinkedOnboarding() };
-    const balance = await deps.db.balanceLamports(args.userId);
-    if (balance < args.lamports) return { ok: false, reply: copy.insufficient(balance) };
+    if (link === null) return { ok: false, reply: assetCopy.unlinkedOnboarding() };
+    const balance = await deps.db.balanceLamports(args.userId, asset);
+    if (balance < args.lamports) return { ok: false, reply: assetCopy.insufficient(balance) };
 
     const input = {
       user_id: args.userId,
@@ -115,10 +136,10 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
       if (active.ok) await deps.db.cancelStakeIntent(args.userId, active.intent.id);
       created = await deps.db.createPendingStakeIntent(input);
     }
-    if (!created.ok) return { ok: false, reply: copy.confirmationExpired() };
+    if (!created.ok) return { ok: false, reply: assetCopy.confirmationExpired() };
     if (created.state !== 'ready') {
       const ready = await deps.db.markStakeIntentFunded(args.userId, created.intent_id);
-      if (!ready.ok) return { ok: false, reply: copy.confirmationExpired() };
+      if (!ready.ok) return { ok: false, reply: assetCopy.confirmationExpired() };
     }
     return { ok: true, intentId: created.intent_id };
   }
@@ -128,14 +149,17 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
       readonly intentId: string;
     },
   ): Promise<{ reply: string; placed: boolean }> {
+    const marketAsset = args.market.currency ?? 'sol';
+    const assetCopy = createWagerCopy(deps.solanaNetwork ?? 'devnet', marketAsset);
     const active = await deps.db.resolveActiveStakeIntent(args.userId);
     if (
       !active.ok || active.intent.id !== args.intentId || active.intent.state !== 'ready'
       || active.intent.group_id !== args.market.group_id
       || active.intent.market_id !== args.market.id
       || active.intent.side !== args.side
+      || active.intent.asset !== marketAsset
       || active.intent.lamports !== args.lamports
-    ) return { reply: copy.confirmationExpired(), placed: false };
+    ) return { reply: assetCopy.confirmationExpired(), placed: false };
 
     const result = await handleStakeTap(deps, {
       ...args,
@@ -159,6 +183,7 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
       marketId: active.intent.market_id,
       groupId: active.intent.group_id,
       side: active.intent.side,
+      asset: active.intent.asset,
       lamports: active.intent.lamports,
     };
   }
@@ -181,11 +206,7 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
       const link = await deps.db.getWalletLink(from.id);
       if (link) {
         const summary = await accountSummary(from.id);
-        const status = copy.walletStatus(
-          link.pubkey,
-          summary.balanceLamports,
-          summary.lockedLamports,
-        );
+        const status = copy.walletOverview(link.pubkey, summary.balances);
         if (!(await replyWithWalletLink(ctx, from.id, status))) await ctx.reply(status);
         return;
       }
@@ -234,7 +255,16 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
     if (!from) return;
     await rememberGroup(ctx, from.id);
     const link = await deps.db.getWalletLink(from.id);
-    await ctx.reply(copy.depositInstructions(deps.chain.treasuryPubkey(), link !== null));
+    const rawAsset = commandArg(ctx).toLowerCase();
+    if (rawAsset !== '' && !isWagerAsset(rawAsset)) {
+      await ctx.reply(copy.depositUsage());
+      return;
+    }
+    const asset: WagerAsset = isWagerAsset(rawAsset) ? rawAsset : 'sol';
+    await ctx.reply(
+      createWagerCopy(deps.solanaNetwork ?? 'devnet', asset)
+        .depositInstructions(deps.chain.treasuryPubkey(), link !== null),
+    );
   }
 
   async function handleWithdrawCommand(ctx: WagerCommandCtx): Promise<void> {
@@ -245,39 +275,49 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
       await ctx.reply(copy.withdrawNoWallet());
       return;
     }
-    const arg = commandArg(ctx);
+    const raw = commandArg(ctx).split(/\s+/).filter(Boolean);
+    const asset: WagerAsset = isWagerAsset(raw[0]?.toLowerCase())
+      ? raw.shift()!.toLowerCase() as WagerAsset
+      : 'sol';
+    const assetCopy = createWagerCopy(deps.solanaNetwork ?? 'devnet', asset);
+    const arg = raw.join(' ');
     if (arg === '') {
-      await ctx.reply(copy.withdrawUsage());
+      await ctx.reply(assetCopy.withdrawUsage());
       return;
     }
     const lamports =
       arg.toLowerCase() === 'all'
-        ? await deps.db.balanceLamports(from.id)
-        : parseSolToLamports(arg);
+        ? await deps.db.balanceLamports(from.id, asset)
+        : parseAssetAmount(arg, asset);
     if (lamports === null) {
-      await ctx.reply(copy.withdrawUsage());
+      await ctx.reply(assetCopy.withdrawUsage());
       return;
     }
-    if (lamports < WAGER_TUNABLES.MIN_WITHDRAWAL_LAMPORTS) {
-      await ctx.reply(copy.withdrawBelowMin());
+    if (lamports < minimumWithdrawal(asset)) {
+      await ctx.reply(assetCopy.withdrawBelowMin());
       return;
     }
-    const result = await deps.db.requestWithdrawal({ user_id: from.id, lamports });
+    const result = await deps.db.requestWithdrawal({ user_id: from.id, asset, lamports });
     if (!result.ok) {
       if (result.code === 'no_wallet') {
-        await ctx.reply(copy.withdrawNoWallet());
+        await ctx.reply(assetCopy.withdrawNoWallet());
         return;
       }
-      const balance = await deps.db.balanceLamports(from.id);
-      await ctx.reply(copy.withdrawInsufficient(balance));
+      if (result.code === 'invalid_asset') {
+        await ctx.reply(assetCopy.withdrawUsage());
+        return;
+      }
+      const balance = await deps.db.balanceLamports(from.id, asset);
+      await ctx.reply(assetCopy.withdrawInsufficient(balance));
       return;
     }
     await rememberGroup(ctx, from.id);
     deps.log.info('wager_withdrawal_requested', {
       withdrawalId: result.withdrawal_id,
+      asset,
       lamports: lamports.toString(),
     });
-    await ctx.reply(copy.withdrawQueued(lamports));
+    await ctx.reply(assetCopy.withdrawQueued(lamports));
   }
 
   return {
@@ -285,6 +325,14 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
     ...createWagerModuleCore(deps),
 
     walletSummary: accountSummary,
+
+    setGroupDefaultAsset: (groupId, asset, byUserId) =>
+      deps.db.setGroupDefaultAsset(groupId, asset, byUserId),
+
+    groupAssetMessage: (asset, changed) => {
+      const assetCopy = createWagerCopy(deps.solanaNetwork ?? 'devnet', asset);
+      return changed ? assetCopy.groupAssetChanged() : assetCopy.groupAssetStatus();
+    },
 
     prepareStakeConfirmation: createConfirmation,
 
@@ -303,7 +351,9 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
     },
 
     registerFundedWorkers(registry: WagerCronRegistry) {
-      registry.every(WAGER_TUNABLES.DEPOSIT_POLL_MS, () => watcher.tick());
+      for (const watcher of depositWatchers) {
+        registry.every(WAGER_TUNABLES.DEPOSIT_POLL_MS, () => watcher.tick());
+      }
       registry.every(WAGER_TUNABLES.OUTBOX_TICK_MS, () => executor.tick());
       registry.every(WAGER_TUNABLES.SOLVENCY_POLL_MS, () => solvency.tick());
     },

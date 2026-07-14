@@ -30,7 +30,11 @@ async function signPersistBroadcast(
   deps: WagerModuleDeps,
   row: WagerWithdrawalRow,
 ): Promise<void> {
-  const built = await deps.chain.buildTransfer({ to: row.dest_pubkey, lamports: row.lamports });
+  const built = await deps.chain.buildTransfer({
+    asset: row.asset,
+    to: row.dest_pubkey,
+    amountAtomic: row.lamports,
+  });
   if (!built.ok) {
     if (built.permanent) {
       await refundAndFail(deps, row, `build: ${built.error}`);
@@ -68,12 +72,13 @@ async function refundAndFail(
     group_id: null,
     market_id: null,
     kind: 'withdrawal_refund',
+    asset: row.asset,
     lamports: row.lamports,
     idempotency_key: WAGER_KEYS.withdrawalRefund(row.id),
   });
   await deps.db.markWithdrawalFailed(row.id, error);
   deps.log.warn('wager_withdrawal_failed', { id: row.id });
-  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet');
+  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet', row.asset);
   await notify(deps, row.user_id, async (name) => copy.withdrawFailed(name, row.lamports));
 }
 
@@ -81,7 +86,7 @@ async function confirm(deps: WagerModuleDeps, row: WagerWithdrawalRow): Promise<
   await deps.db.markWithdrawalConfirmed(row.id);
   deps.log.info('wager_withdrawal_confirmed', { id: row.id, txSig: row.tx_sig });
   const network = deps.solanaNetwork ?? 'devnet';
-  const copy = createWagerCopy(network);
+  const copy = createWagerCopy(network, row.asset);
   await notify(deps, row.user_id, async (name) =>
     copy.withdrawConfirmed(
       name,

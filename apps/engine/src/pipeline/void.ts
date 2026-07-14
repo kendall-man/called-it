@@ -9,6 +9,7 @@
  * kickoff sweep (non-replay markets whose fixture started with no positions).
  */
 
+import { isWagerAsset } from '@calledit/market-engine';
 import type { Deps, MarketRow } from '../ports.js';
 
 type VoidAbandonedMarketDeps = {
@@ -31,7 +32,7 @@ export async function voidAbandonedMarket(
   });
   // Refund any escrowed stakes (there should be none on an abandoned market,
   // but applySettlement is the single money-movement path and is idempotent).
-  if (market.currency === 'sol' && deps.wager) {
+  if (isWagerAsset(market.currency) && deps.wager) {
     await deps.wager.applySettlement(market.id);
   }
   deps.log.info('market_voided_abandoned', { marketId: market.id });

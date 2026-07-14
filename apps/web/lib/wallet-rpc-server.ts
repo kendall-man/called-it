@@ -8,6 +8,8 @@ const WalletRpcRequestSchema = z.object({
   id: z.union([z.string().max(64), z.number().finite()]),
   method: z.enum([
     'getBalance',
+    'getAccountInfo',
+    'getTokenAccountBalance',
     'getLatestBlockhash',
     'sendTransaction',
     'getSignatureStatuses',
@@ -45,6 +47,8 @@ export async function proxyWalletRpc(
 function validParams(method: string, params: readonly unknown[]): boolean {
   switch (method) {
     case 'getBalance':
+    case 'getAccountInfo':
+    case 'getTokenAccountBalance':
       return params.length >= 1 && isPubkey(params[0]) && optionalConfig(params[1]);
     case 'getLatestBlockhash':
       return params.length <= 1 && optionalConfig(params[0]);

@@ -18,6 +18,7 @@ export function rpcDbMethods(client: WagerDbClient): RpcDb {
     async requestWithdrawal(args) {
       const result = await client.rpc('wager_request_withdrawal', {
         p_user_id: args.user_id,
+        p_asset: args.asset ?? 'sol',
         p_lamports: lamportsToDb('requestWithdrawal.lamports', args.lamports),
       });
       const payload = unwrapRows<unknown>('wager_request_withdrawal', result);

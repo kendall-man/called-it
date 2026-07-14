@@ -2,6 +2,7 @@ import type {
   GamePhase,
   MarketSpec,
   MarketStatus,
+  MarketCurrency,
   PositionSide,
   SettlementOutcome,
   TrustTier,
@@ -169,7 +170,7 @@ export interface MarketRow {
   odds_ts: number | null;
   card_tg_message_id: number | null;
   created_at: string;
-  currency?: 'rep' | 'sol';
+  currency?: MarketCurrency;
 }
 
 export interface PositionRow {

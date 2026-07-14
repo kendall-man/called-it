@@ -195,6 +195,7 @@ export async function closeActiveServer(): Promise<void> {
 
 export async function startHarness(options: {
   balanceLamports?: bigint;
+  balanceUsdcAtomic?: bigint;
   link?: boolean;
   market?: MarketRow;
   readiness?: ReadinessEvaluator;
@@ -211,6 +212,7 @@ export async function startHarness(options: {
   if (wager !== null) {
     if (options.link ?? true) wagerBundle.db.seedLink(USER_ID, PUBKEY);
     wagerBundle.db.seedBalance(USER_ID, options.balanceLamports ?? 1_000_000_000n);
+    wagerBundle.db.seedBalance(USER_ID, options.balanceUsdcAtomic ?? 0n, 'seed:usdc', 'usdc');
     wagerBundle.db.seedMarketProbability(MARKET_ID, 0.5);
   }
   const log = options.log ?? createLogger();

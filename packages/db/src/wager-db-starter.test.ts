@@ -41,8 +41,8 @@ function seededSharedFake(): FakeSupabase {
     quote_probability: 0.4,
   }]);
   fake.seed('settlements', [{ market_id: MARKET_ID, outcome: 'claim_won' }]);
-  fake.seed('wager_status', [{
-    id: 1,
+  fake.seed('wager_asset_status', [{
+    asset: 'sol',
     paused: false,
     reason: null,
     updated_at: NOW_ISO,
@@ -84,6 +84,7 @@ describe('starter-only wager database facade', () => {
     const db = starterOnlyWagerDbFromClient(new FakeSupabase(), undefined);
 
     expect(Object.keys(db).sort()).toEqual([
+      'getMarketAsset',
       'getMarketProbability',
       'getSettlementOutcome',
       'getWagerStatus',
@@ -91,6 +92,7 @@ describe('starter-only wager database facade', () => {
       'insertSettlementApplied',
       'postWagerLedger',
       'settledSolMarketsMissingApplied',
+      'settledWagerMarketsMissingApplied',
       'wagerStarterStake',
     ]);
     expect(Reflect.get(db, 'wagerStake')).toBeUndefined();

@@ -48,14 +48,15 @@ export function confirmKeyboard(claimId: string): InlineKeyboard {
 
 /** The beta exposes exactly the two fixed 0.01 SOL choices. */
 export function offerKeyboard(market: MarketRow): InlineKeyboard {
+  const amount = market.currency === 'usdc' ? '1 USDC' : '0.01 SOL';
   return new InlineKeyboard()
     .text(
-      'It happens · 0.01 SOL',
+      `It happens · ${amount}`,
       encodeCallback({ t: 'stake', marketId: market.id, side: 'back', presetIndex: 0 }),
     )
     .row()
     .text(
-      'It does not · 0.01 SOL',
+      `It does not · ${amount}`,
       encodeCallback({ t: 'stake', marketId: market.id, side: 'doubt', presetIndex: 0 }),
     );
 }

@@ -25,6 +25,7 @@ import type {
   WagerWithdrawalRow,
   WagerWithdrawResult,
 } from './port.js';
+import type { WagerAsset } from '@calledit/market-engine';
 
 export const silentLog: WagerLogger = {
   info: () => undefined,
@@ -65,12 +66,23 @@ export class FakeWagerDb implements WagerDb {
   readonly positions: WagerPositionRow[] = [];
   readonly settlements = new Map<string, WagerSettlementOutcome>();
   readonly marketProbabilities = new Map<string, number>();
+  readonly marketAssets = new Map<string, WagerAsset>();
   readonly applied = new Set<string>();
   readonly fundedReplayMarkets: string[] = [];
   readonly groupsEnabled = new Map<number, boolean>();
+  readonly groupAssets = new Map<number, WagerAsset>();
   readonly cursors = new Map<string, string>();
   readonly users = new Map<number, string>();
-  status: { paused: boolean; reason: string | null } = { paused: false, reason: null };
+  readonly statuses = new Map<WagerAsset, { paused: boolean; reason: string | null }>([
+    ['sol', { paused: false, reason: null }],
+    ['usdc', { paused: false, reason: null }],
+  ]);
+  get status(): { paused: boolean; reason: string | null } {
+    return this.statuses.get('sol') ?? { paused: false, reason: null };
+  }
+  set status(value: { paused: boolean; reason: string | null }) {
+    this.statuses.set('sol', value);
+  }
   openSolMarkets: string[] = [];
   cronLockGranted = true;
   /** When set, wagerStake returns this instead of the default happy path. */
@@ -87,6 +99,14 @@ export class FakeWagerDb implements WagerDb {
 
   async isGroupEnabled(groupId: number): Promise<boolean> {
     return this.groupsEnabled.get(groupId) ?? false;
+  }
+
+  async setGroupDefaultAsset(groupId: number, asset: WagerAsset): Promise<void> {
+    this.groupAssets.set(groupId, asset);
+  }
+
+  async groupDefaultAsset(groupId: number): Promise<WagerAsset> {
+    return this.groupAssets.get(groupId) ?? 'sol';
   }
 
   async getWalletLink(userId: number): Promise<WagerWalletLinkRow | null> {
@@ -127,6 +147,7 @@ export class FakeWagerDb implements WagerDb {
       group_id: args.group_id,
       market_id: args.market_id,
       side: args.side,
+      asset: this.marketAssets.get(args.market_id) ?? 'sol',
       lamports: args.lamports,
       state: 'pending',
       expires_at: args.expires_at,
@@ -189,14 +210,16 @@ export class FakeWagerDb implements WagerDb {
     if (link) link.last_wager_group_id = groupId;
   }
 
-  async balanceLamports(userId: number): Promise<bigint> {
+  async balanceLamports(userId: number, asset: WagerAsset = 'sol'): Promise<bigint> {
     return this.ledger
-      .filter((entry) => entry.user_id === userId)
+      .filter((entry) => entry.user_id === userId && (entry.asset ?? 'sol') === asset)
       .reduce((sum, entry) => sum + entry.lamports, 0n);
   }
 
-  async totalLedgerLamports(): Promise<bigint> {
-    return this.ledger.reduce((sum, entry) => sum + entry.lamports, 0n);
+  async totalLedgerLamports(asset: WagerAsset = 'sol'): Promise<bigint> {
+    return this.ledger
+      .filter((entry) => (entry.asset ?? 'sol') === asset)
+      .reduce((sum, entry) => sum + entry.lamports, 0n);
   }
 
   async postWagerLedger(entry: WagerLedgerEntry): Promise<{ inserted: boolean }> {
@@ -227,8 +250,9 @@ export class FakeWagerDb implements WagerDb {
     if (ledgerKey !== undefined && this.ledgerKeys.has(ledgerKey)) {
       return { ok: true, duplicate: true };
     }
-    if (this.status.paused) return { ok: false, code: 'paused' };
-    const balance = await this.balanceLamports(args.user_id);
+    const asset = this.marketAssets.get(args.market_id) ?? 'sol';
+    if (this.statuses.get(asset)?.paused) return { ok: false, code: 'paused' };
+    const balance = await this.balanceLamports(args.user_id, asset);
     if (balance < args.lamports) return { ok: false, code: 'insufficient' };
     const positionId = freshId('pos');
     this.positions.push({
@@ -246,6 +270,7 @@ export class FakeWagerDb implements WagerDb {
       group_id: args.group_id,
       market_id: args.market_id,
       kind: 'stake',
+      asset,
       lamports: -args.lamports,
       idempotency_key: ledgerKey ?? `wager:stake:${positionId}`,
     });
@@ -254,17 +279,20 @@ export class FakeWagerDb implements WagerDb {
 
   async requestWithdrawal(args: {
     user_id: number;
+    asset?: WagerAsset;
     lamports: bigint;
   }): Promise<WagerWithdrawResult> {
+    const asset = args.asset ?? 'sol';
     const link = this.links.get(args.user_id);
     if (!link) return { ok: false, code: 'no_wallet' };
-    const balance = await this.balanceLamports(args.user_id);
+    const balance = await this.balanceLamports(args.user_id, asset);
     if (balance < args.lamports) return { ok: false, code: 'insufficient' };
     const id = freshId('wd');
     this.withdrawals.set(id, {
       id,
       user_id: args.user_id,
       dest_pubkey: link.pubkey,
+      asset,
       lamports: args.lamports,
       state: 'debited',
       tx_sig: null,
@@ -277,6 +305,7 @@ export class FakeWagerDb implements WagerDb {
       group_id: null,
       market_id: null,
       kind: 'withdrawal',
+      asset,
       lamports: -args.lamports,
       idempotency_key: `wager:withdrawal:${id}`,
     });
@@ -291,6 +320,8 @@ export class FakeWagerDb implements WagerDb {
     tx_sig: string;
     ix_index: number;
     sender_pubkey: string;
+    asset: WagerAsset;
+    mint_pubkey: string | null;
     lamports: bigint;
     slot: number;
   }): Promise<{ inserted: boolean }> {
@@ -359,6 +390,10 @@ export class FakeWagerDb implements WagerDb {
     return this.marketProbabilities.get(marketId) ?? null;
   }
 
+  async getMarketAsset(marketId: string): Promise<WagerAsset | null> {
+    return this.marketAssets.get(marketId) ?? 'sol';
+  }
+
   async getSettlementOutcome(marketId: string): Promise<WagerSettlementOutcome | null> {
     return this.settlements.get(marketId) ?? null;
   }
@@ -375,6 +410,10 @@ export class FakeWagerDb implements WagerDb {
     return [...this.settlements.keys()].filter((marketId) => !this.applied.has(marketId));
   }
 
+  async settledWagerMarketsMissingApplied(): Promise<string[]> {
+    return this.settledSolMarketsMissingApplied();
+  }
+
   async settledFundedReplayMarketsMissingApplied(): Promise<string[]> {
     return this.fundedReplayMarkets.filter((marketId) => !this.applied.has(marketId));
   }
@@ -383,12 +422,26 @@ export class FakeWagerDb implements WagerDb {
     return this.openSolMarkets;
   }
 
-  async getWagerStatus(): Promise<{ paused: boolean; reason: string | null }> {
-    return this.status;
+  async openWagerMarkets(): Promise<Array<{ id: string; currency: WagerAsset }>> {
+    return this.openSolMarkets.map((id) => ({ id, currency: this.marketAssets.get(id) ?? 'sol' }));
   }
 
-  async setWagerStatus(paused: boolean, reason: string | null): Promise<void> {
-    this.status = { paused, reason };
+  async getWagerStatus(asset: WagerAsset = 'sol') {
+    const status = this.statuses.get(asset) ?? { paused: false, reason: null };
+    return { asset, ...status };
+  }
+
+  async setWagerStatus(
+    assetOrPaused: WagerAsset | boolean,
+    pausedOrReason: boolean | string | null,
+    maybeReason?: string | null,
+  ): Promise<void> {
+    const asset = typeof assetOrPaused === 'string' ? assetOrPaused : 'sol';
+    const paused = typeof assetOrPaused === 'boolean' ? assetOrPaused : pausedOrReason as boolean;
+    const reason = typeof assetOrPaused === 'boolean'
+      ? pausedOrReason as string | null
+      : maybeReason ?? null;
+    this.statuses.set(asset, { paused, reason });
   }
 
   async getCursor(streamName: string): Promise<string | null> {
@@ -432,13 +485,19 @@ export class FakeWagerDb implements WagerDb {
     });
   }
 
-  seedBalance(userId: number, lamports: bigint, key = `seed:${userId}`): void {
+  seedBalance(
+    userId: number,
+    lamports: bigint,
+    key = `seed:${userId}`,
+    asset: WagerAsset = 'sol',
+  ): void {
     this.ledgerKeys.add(key);
     this.ledger.push({
       user_id: userId,
       group_id: null,
       market_id: null,
       kind: 'deposit',
+      asset,
       lamports,
       idempotency_key: key,
     });
@@ -446,6 +505,10 @@ export class FakeWagerDb implements WagerDb {
 
   seedMarketProbability(marketId: string, probability: number): void {
     this.marketProbabilities.set(marketId, probability);
+  }
+
+  seedMarketAsset(marketId: string, asset: WagerAsset): void {
+    this.marketAssets.set(marketId, asset);
   }
 
   seedPosition(position: Partial<WagerPositionRow> & { market_id: string }): WagerPositionRow {
@@ -469,11 +532,15 @@ export class FakeWagerDb implements WagerDb {
     sender_pubkey: string;
     lamports: bigint;
     slot?: number;
+    asset?: WagerAsset;
+    mint_pubkey?: string | null;
   }): void {
     this.deposits.set(this.depositKey(row.tx_sig, row.ix_index), {
       tx_sig: row.tx_sig,
       ix_index: row.ix_index,
       sender_pubkey: row.sender_pubkey,
+      asset: row.asset ?? 'sol',
+      mint_pubkey: row.mint_pubkey ?? null,
       lamports: row.lamports,
       slot: row.slot ?? 1,
       user_id: null,
@@ -490,6 +557,7 @@ export class FakeWagerChain implements WagerChain {
   readonly trace: string[];
   treasury = 'TreasuryPubkey1111111111111111111111111111';
   treasuryLamports = 10_000_000_000n;
+  treasuryUsdc = 10_000_000_000n;
   treasuryBalanceFails = false;
   scan: WagerDepositScan = { ok: true, transfers: [], newestSig: null };
   buildFails: { error: string; permanent?: boolean } | null = null;
@@ -507,14 +575,16 @@ export class FakeWagerChain implements WagerChain {
     return this.treasury;
   }
 
-  async treasuryBalanceLamports(): Promise<
-    { ok: true; lamports: bigint } | { ok: false; error: string }
-  > {
+  async treasuryBalance(asset: WagerAsset): ReturnType<WagerChain['treasuryBalance']> {
     if (this.treasuryBalanceFails) return { ok: false, error: 'rpc down' };
-    return { ok: true, lamports: this.treasuryLamports };
+    return { ok: true, amountAtomic: asset === 'sol' ? this.treasuryLamports : this.treasuryUsdc };
   }
 
-  async buildTransfer(args: { to: string; lamports: bigint }): Promise<WagerBuiltTransfer> {
+  async buildTransfer(args: {
+    asset: WagerAsset;
+    to: string;
+    amountAtomic: bigint;
+  }): Promise<WagerBuiltTransfer> {
     this.trace.push(`chain.buildTransfer:${args.to}`);
     if (this.buildFails) return { ok: false, ...this.buildFails };
     this.buildCount += 1;

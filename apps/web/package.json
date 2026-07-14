@@ -10,12 +10,14 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@calledit/market-engine": "workspace:*",
     "@calledit/solana": "workspace:*",
     "@privy-io/node": "^0.25.0",
     "@privy-io/react-auth": "^3.34.0",
     "@solana-program/memo": "^0.10.0",
     "@solana-program/system": "0.10.0",
     "@solana-program/token": "^0.9.0",
+    "@solana/spl-token": "^0.4.15",
     "@solana/kit": "5.5.1",
     "@solana/web3.js": "^1.98.4",
     "@supabase/supabase-js": "^2.47.0",

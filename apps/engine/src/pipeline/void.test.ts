@@ -56,4 +56,39 @@ describe('void abandoned market logging', () => {
       fields: { marketId: MARKET_ID },
     }]);
   });
+
+  it.each(['sol', 'usdc'] as const)(
+    'routes abandoned %s markets through wager settlement',
+    async (currency) => {
+      const applied: string[] = [];
+      const deps = {
+        db: {
+          updateMarketStatus: async () => undefined,
+          insertSettlement: async () => undefined,
+        },
+        wager: { applySettlement: async (marketId: string) => { applied.push(marketId); } },
+        log: { info: () => undefined },
+      };
+
+      await voidAbandonedMarket(deps, { ...MARKET, currency });
+
+      expect(applied).toEqual([MARKET_ID]);
+    },
+  );
+
+  it('does not send legacy Rep markets through wager settlement', async () => {
+    const applied: string[] = [];
+    const deps = {
+      db: {
+        updateMarketStatus: async () => undefined,
+        insertSettlement: async () => undefined,
+      },
+      wager: { applySettlement: async (marketId: string) => { applied.push(marketId); } },
+      log: { info: () => undefined },
+    };
+
+    await voidAbandonedMarket(deps, MARKET);
+
+    expect(applied).toEqual([]);
+  });
 });

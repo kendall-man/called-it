@@ -15,10 +15,11 @@ import {
   depositCursorStream,
   WAGER_CRON_LOCKS,
   WAGER_KEYS,
-  WAGER_TUNABLES,
+  minimumDeposit,
 } from './constants.js';
 import { createWagerCopy } from './copy.js';
 import type { WagerIncomingTransfer, WagerModuleDeps, WagerWalletLinkRow } from './port.js';
+import type { WagerAsset } from '@calledit/market-engine';
 
 export interface OrphanDepositOpsClassification {
   orphanCount: number;
@@ -36,14 +37,16 @@ export interface OrphanDepositOpsClassification {
 export async function classifyOrphanDepositsForOps(
   deps: WagerModuleDeps,
   pubkey: string,
+  asset: WagerAsset = 'sol',
 ): Promise<OrphanDepositOpsClassification> {
-  const orphans = await deps.db.orphanDepositsBySender(pubkey);
+  const orphans = (await deps.db.orphanDepositsBySender(pubkey))
+    .filter((deposit) => deposit.asset === asset);
   let totalLamports = 0n;
   let creditableCount = 0;
   let dustCount = 0;
   for (const deposit of orphans) {
     totalLamports += deposit.lamports;
-    if (deposit.lamports < WAGER_TUNABLES.MIN_DEPOSIT_LAMPORTS) dustCount += 1;
+    if (deposit.lamports < minimumDeposit(asset)) dustCount += 1;
     else creditableCount += 1;
   }
   return {
@@ -65,6 +68,7 @@ async function creditTransfer(
     group_id: null,
     market_id: null,
     kind: 'deposit',
+    asset: transfer.asset,
     lamports: transfer.lamports,
     idempotency_key: WAGER_KEYS.deposit(transfer.sig, transfer.ixIndex),
   });
@@ -78,10 +82,11 @@ async function creditTransfer(
     lamports: transfer.lamports.toString(),
   });
   const name = (await deps.db.getUserName(link.user_id)) ?? 'A player';
-  const balance = await deps.db.balanceLamports(link.user_id);
+  const balance = await deps.db.balanceLamports(link.user_id, transfer.asset);
   deps.poster.post(
     link.user_id,
-    createWagerCopy(deps.solanaNetwork ?? 'devnet').depositCredited(name, transfer.lamports, balance),
+    createWagerCopy(deps.solanaNetwork ?? 'devnet', transfer.asset)
+      .depositCredited(name, transfer.lamports, balance),
   );
 }
 
@@ -93,10 +98,12 @@ async function processTransfer(
     tx_sig: transfer.sig,
     ix_index: transfer.ixIndex,
     sender_pubkey: transfer.sender,
+    asset: transfer.asset,
+    mint_pubkey: transfer.mintPubkey,
     lamports: transfer.lamports,
     slot: transfer.slot,
   });
-  if (transfer.lamports < WAGER_TUNABLES.MIN_DEPOSIT_LAMPORTS) return; // stored, never credited
+  if (transfer.lamports < minimumDeposit(transfer.asset)) return; // stored, never credited
   const link = await deps.db.getWalletLinkByPubkey(transfer.sender);
   if (!link) return; // orphan — persisted for later private ops reconciliation
   await creditTransfer(deps, transfer, link);
@@ -106,12 +113,15 @@ export interface DepositWatcher {
   tick(): Promise<void>;
 }
 
-export function createDepositWatcher(deps: WagerModuleDeps): DepositWatcher {
-  const streamName = depositCursorStream(deps.chain.treasuryPubkey());
+export function createDepositWatcher(
+  deps: WagerModuleDeps,
+  asset: WagerAsset = 'sol',
+): DepositWatcher {
+  const streamName = depositCursorStream(deps.chain.treasuryPubkey(), asset);
 
   async function run(): Promise<void> {
     const untilSig = await deps.db.getCursor(streamName);
-    const scan = await deps.chain.fetchIncomingTransfers({ untilSig });
+    const scan = await deps.chain.fetchIncomingTransfers({ asset, untilSig });
     if (!scan.ok) {
       deps.log.warn('wager_deposit_scan_failed');
       return;
@@ -146,13 +156,14 @@ export function createDepositWatcher(deps: WagerModuleDeps): DepositWatcher {
 
   return {
     async tick(): Promise<void> {
-      if (!(await deps.db.tryCronLock(WAGER_CRON_LOCKS.deposits))) return;
+      const lockName = WAGER_CRON_LOCKS.deposits(asset);
+      if (!(await deps.db.tryCronLock(lockName))) return;
       try {
         await run();
       } catch {
         deps.log.error('wager_deposit_watcher_failed');
       } finally {
-        await deps.db.releaseCronLock(WAGER_CRON_LOCKS.deposits);
+        await deps.db.releaseCronLock(lockName);
       }
     },
   };

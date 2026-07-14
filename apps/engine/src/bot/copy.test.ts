@@ -57,16 +57,17 @@ const EXPECTED_STARTER_HELP = [
   'How this works:',
   '• Add Called It to a Telegram group.',
   '• Reply /bookit to your own football call.',
-  '• Tap one of two fixed outcomes: "It happens · 0.01 SOL" or "It does not · 0.01 SOL".',
+  '• Choose It happens or It does not, then pick an amount in the call asset.',
+  '• SOL is the default. Group admins can use /currency sol or /currency usdc for new calls.',
   '• Choices and named results are visible to everyone in this Telegram group.',
   '• Correct choices earn 10 points automatically.',
   '',
-  'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /help',
-  'Test SOL is devnet-only and has no monetary value.',
+  'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /help',
+  'Test SOL and test USDC are devnet-only and have no monetary value.',
 ].join('\n');
 
 const EXPECTED_STARTER_INTRO =
-  'Add Called It to a Telegram group. Reply /bookit to your own football call, then tap one of two fixed outcomes: "It happens · 0.01 SOL" or "It does not · 0.01 SOL". Choices and named results are visible to everyone in this Telegram group. Use /leaderboard, /mystats, or /table. Correct choices earn 10 points automatically. Test SOL is devnet-only and has no monetary value.';
+  'Add Called It to a Telegram group. Reply /bookit to your own football call, then choose It happens or It does not using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test assets are devnet-only and have no monetary value.';
 
 const UNAVAILABLE_STARTER_PATHS = [
   { name: 'wallet', pattern: /\bwallets?\b/i },

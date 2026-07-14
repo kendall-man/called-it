@@ -183,6 +183,7 @@ function makeHarness(config: DetectionHarnessConfig = {}): DetectionHarness {
     wager: {
       currencyForMint: async () => 'sol' as const,
       cardFooter: () => '',
+      presetLabels: () => ['0.01 SOL', '0.05 SOL', '0.1 SOL'],
       stakesAvailable: async () => true,
     },
     proofSubmitter: null,

@@ -4,6 +4,7 @@ import { SETTLED_MARKET_STATUSES } from './wager-db-core.js';
 import {
   manyRows,
   maybeRow,
+  parseAssetRow,
   parseIdRow,
   parseMarketIdRow,
   parseProbabilityRow,
@@ -13,9 +14,11 @@ import {
 type SettlementDb = Pick<
   WagerDb,
   | 'getMarketProbability'
+  | 'getMarketAsset'
   | 'getSettlementOutcome'
   | 'hasSettlementApplied'
   | 'insertSettlementApplied'
+  | 'settledWagerMarketsMissingApplied'
   | 'settledSolMarketsMissingApplied'
 >;
 type FundedReplaySettlementDb = Pick<WagerDb, 'settledFundedReplayMarketsMissingApplied'>;
@@ -33,6 +36,15 @@ export function settlementDbMethods(
         parseProbabilityRow,
       );
       return row?.quote_probability ?? null;
+    },
+
+    async getMarketAsset(marketId) {
+      const row = await maybeRow(
+        'getMarketAsset',
+        client.from('markets').select('asset:currency').eq('id', marketId).maybeSingle(),
+        parseAssetRow,
+      );
+      return row?.asset ?? null;
     },
 
     async getSettlementOutcome(marketId) {
@@ -66,24 +78,45 @@ export function settlementDbMethods(
       );
     },
 
-    async settledSolMarketsMissingApplied() {
+    async settledWagerMarketsMissingApplied() {
       if (recoveryGroupIds !== undefined && recoveryGroupIds.length === 0) return [];
       // Two-step anti-join: PostgREST has no NOT EXISTS, and both sets stay
       // tiny (SOL markets only).
       let settledQuery = client
         .from('markets')
         .select('id')
-        .eq('currency', 'sol')
+        .in('currency', ['sol', 'usdc'])
         .eq('is_replay', false)
         .in('status', [...SETTLED_MARKET_STATUSES]);
       if (recoveryGroupIds !== undefined) {
         settledQuery = settledQuery.in('group_id', recoveryGroupIds);
       }
       const settled = await manyRows(
-        'settledSolMarketsMissingApplied.markets',
+        'settledWagerMarketsMissingApplied.markets',
         settledQuery,
         parseIdRow,
       );
+      if (settled.length === 0) return [];
+      const ids = settled.map((row) => row.id);
+      const applied = await manyRows(
+        'settledWagerMarketsMissingApplied.applied',
+        client.from('wager_settlements_applied').select('market_id').in('market_id', ids),
+        parseMarketIdRow,
+      );
+      const appliedIds = new Set(applied.map((row) => row.market_id));
+      return ids.filter((id) => !appliedIds.has(id));
+    },
+
+    async settledSolMarketsMissingApplied() {
+      if (recoveryGroupIds !== undefined && recoveryGroupIds.length === 0) return [];
+      let settledQuery = client
+        .from('markets')
+        .select('id')
+        .eq('currency', 'sol')
+        .eq('is_replay', false)
+        .in('status', [...SETTLED_MARKET_STATUSES]);
+      if (recoveryGroupIds !== undefined) settledQuery = settledQuery.in('group_id', recoveryGroupIds);
+      const settled = await manyRows('settledSolMarketsMissingApplied.markets', settledQuery, parseIdRow);
       if (settled.length === 0) return [];
       const ids = settled.map((row) => row.id);
       const applied = await manyRows(
@@ -108,7 +141,7 @@ export function fundedReplaySettlementDbMethods(
         client
           .from('markets')
           .select('id')
-          .eq('currency', 'sol')
+          .in('currency', ['sol', 'usdc'])
           .eq('is_replay', true)
           .in('status', [...SETTLED_MARKET_STATUSES]),
         parseIdRow,

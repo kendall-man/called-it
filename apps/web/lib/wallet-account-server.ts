@@ -20,11 +20,13 @@ export interface WalletAccountApiResult {
 }
 
 export interface WalletAccountStore {
-  summary(userId: number, pubkey: string): Promise<{
-    readonly availableLamports: bigint;
-    readonly lockedLamports: bigint;
-  } | null>;
+  summary(userId: number, pubkey: string): Promise<WalletAccountStoreSummary | null>;
 }
+
+type AssetSummary = { readonly availableAtomic: bigint; readonly lockedAtomic: bigint };
+type WalletAccountStoreSummary =
+  | { readonly balances: Readonly<Record<'sol' | 'usdc', AssetSummary>> }
+  | { readonly availableLamports: bigint; readonly lockedLamports: bigint };
 
 export async function getWalletAccountSummary(
   raw: unknown,
@@ -53,11 +55,30 @@ export async function getWalletAccountSummary(
   }
   const summary = await (store ?? createWalletAccountStore()).summary(userId, identity.pubkey);
   if (summary === null) return refusal(403, 'privy_identity_invalid');
+  const balances = 'balances' in summary
+    ? summary.balances
+    : {
+        sol: {
+          availableAtomic: summary.availableLamports,
+          lockedAtomic: summary.lockedLamports,
+        },
+        usdc: { availableAtomic: 0n, lockedAtomic: 0n },
+      };
   return {
     status: 200,
     body: {
-      availableLamports: summary.availableLamports.toString(),
-      lockedLamports: summary.lockedLamports.toString(),
+      balances: {
+        sol: {
+          availableAtomic: balances.sol.availableAtomic.toString(),
+          lockedAtomic: balances.sol.lockedAtomic.toString(),
+        },
+        usdc: {
+          availableAtomic: balances.usdc.availableAtomic.toString(),
+          lockedAtomic: balances.usdc.lockedAtomic.toString(),
+        },
+      },
+      availableLamports: balances.sol.availableAtomic.toString(),
+      lockedLamports: balances.sol.lockedAtomic.toString(),
     },
   };
 }
@@ -82,37 +103,55 @@ function createWalletAccountStore(): WalletAccountStore {
       if (link.data === null) return null;
 
       const [ledger, markets] = await Promise.all([
-        client.from('wager_ledger_entries').select('lamports').eq('user_id', userId),
+        client.from('wager_ledger_entries').select('lamports,asset').eq('user_id', userId),
         client
           .from('markets')
-          .select('id')
-          .eq('currency', 'sol')
+          .select('id,currency')
+          .in('currency', ['sol', 'usdc'])
           .in('status', [...OPEN_MARKET_STATUSES]),
       ]);
       if (ledger.error !== null || markets.error !== null) {
         throw new Error('wallet account lookup failed');
       }
-      const availableLamports = (ledger.data ?? []).reduce(
-        (sum, row) => sum + parseLamports(row.lamports),
-        0n,
-      );
-      const marketIds = (markets.data ?? [])
-        .map((row) => row.id)
-        .filter((id): id is string => typeof id === 'string');
-      if (marketIds.length === 0) return { availableLamports, lockedLamports: 0n };
+      const available = { sol: 0n, usdc: 0n };
+      for (const row of ledger.data ?? []) {
+        const asset = row.asset === 'usdc' ? 'usdc' : 'sol';
+        available[asset] += parseLamports(row.lamports);
+      }
+      const marketAssets = new Map<string, 'sol' | 'usdc'>();
+      for (const row of markets.data ?? []) {
+        if (typeof row.id !== 'string') continue;
+        marketAssets.set(row.id, row.currency === 'usdc' ? 'usdc' : 'sol');
+      }
+      const marketIds = [...marketAssets.keys()];
+      if (marketIds.length === 0) {
+        return {
+          balances: {
+            sol: { availableAtomic: available.sol, lockedAtomic: 0n },
+            usdc: { availableAtomic: available.usdc, lockedAtomic: 0n },
+          },
+        };
+      }
 
       const positions = await client
         .from('positions')
-        .select('stake,state')
+        .select('market_id,stake,state')
         .eq('user_id', userId)
         .in('market_id', marketIds)
         .neq('state', 'void');
       if (positions.error !== null) throw new Error('wallet account lookup failed');
-      const lockedLamports = (positions.data ?? []).reduce(
-        (sum, row) => sum + parseLamports(row.stake),
-        0n,
-      );
-      return { availableLamports, lockedLamports };
+      const locked = { sol: 0n, usdc: 0n };
+      for (const row of positions.data ?? []) {
+        if (typeof row.market_id !== 'string') continue;
+        const asset = marketAssets.get(row.market_id);
+        if (asset !== undefined) locked[asset] += parseLamports(row.stake);
+      }
+      return {
+        balances: {
+          sol: { availableAtomic: available.sol, lockedAtomic: locked.sol },
+          usdc: { availableAtomic: available.usdc, lockedAtomic: locked.usdc },
+        },
+      };
     },
   };
 }

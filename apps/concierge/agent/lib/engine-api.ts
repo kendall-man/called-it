@@ -12,7 +12,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 export interface EngineMarket {
   marketId: string;
   terms: string;
-  currency: 'sol';
+  currency: 'rep' | 'sol' | 'usdc';
   status: string;
   fixtureId: number;
   isReplay: boolean;
@@ -20,11 +20,16 @@ export interface EngineMarket {
   probability: number;
   backers: number;
   doubters: number;
-  /** For/Against pots, lamports as decimal strings and human SOL. */
+  /** Atomic-unit pot values plus asset-aware display amounts. */
+  forAtomic: string;
+  againstAtomic: string;
+  forAmount: string;
+  againstAmount: string;
+  /** Legacy SOL fields retained while older clients roll forward. */
   forLamports: string;
   againstLamports: string;
-  forSol: string;
-  againstSol: string;
+  forSol?: string;
+  againstSol?: string;
   /** 0..100 — matched fraction of the total staked pot. */
   matchedPct: number;
   receiptUrl?: string;
@@ -40,12 +45,21 @@ export interface EngineWallet {
   linkedWallet: string | null;
   balanceLamports: string;
   balanceSol: string;
+  balances: Record<'sol' | 'usdc', {
+    availableAtomic: string;
+    lockedAtomic: string;
+    availableAmount: string;
+    lockedAmount: string;
+  }>;
   positions: Array<{
     marketId: string;
     terms: string;
     side: 'back' | 'doubt';
+    asset: 'sol' | 'usdc';
+    stakeAtomic: string;
+    stakeAmount: string;
     stakeLamports: string;
-    stakeSol: string;
+    stakeSol?: string;
     state: string;
   }>;
 }

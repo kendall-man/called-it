@@ -189,15 +189,26 @@ export class FakeSupabase implements WagerDbClient {
       uniques: [['user_id'], ['pubkey']],
       defaults: { last_wager_group_id: null, created_at: NOW_ISO },
     });
-    this.define('wager_ledger_entries', { uniques: [['idempotency_key']], serialColumn: 'id' });
+    this.define('wager_ledger_entries', {
+      uniques: [['idempotency_key']],
+      serialColumn: 'id',
+      defaults: { asset: 'sol' },
+    });
     this.define('wager_deposits', {
       uniques: [['tx_sig', 'ix_index']],
       serialColumn: 'id',
-      defaults: { user_id: null, credited_at: null, observed_at: NOW_ISO },
+      defaults: {
+        asset: 'sol',
+        mint_pubkey: null,
+        user_id: null,
+        credited_at: null,
+        observed_at: NOW_ISO,
+      },
     });
-    this.define('wager_withdrawals', { uniques: [['id']] });
+    this.define('wager_withdrawals', { uniques: [['id']], defaults: { asset: 'sol' } });
     this.define('wager_settlements_applied', { uniques: [['market_id']] });
     this.define('wager_status', { uniques: [['id']] });
+    this.define('wager_asset_status', { uniques: [['asset']] });
   }
 
   from(table: string): WagerTableBuilder {
@@ -216,7 +227,8 @@ export class FakeSupabase implements WagerDbClient {
   }
 
   seed(table: string, rows: Row[]): void {
-    this.require(table).rows.push(...rows);
+    const target = this.require(table);
+    target.rows.push(...rows.map((row) => ({ ...target.spec.defaults, ...row })));
   }
 
   rows(table: string): Row[] {
@@ -264,6 +276,7 @@ export function withdrawalRow(overrides: Row = {}): Row {
     id: 'w-1',
     user_id: USER_ID,
     dest_pubkey: 'DestPubkey1111111111111111111111111111111111',
+    asset: 'sol',
     lamports: 10_000_000,
     state: 'debited',
     tx_sig: null,

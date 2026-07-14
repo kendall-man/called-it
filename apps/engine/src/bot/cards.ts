@@ -4,7 +4,12 @@
  * this module stays deterministic and testable.
  */
 
-import type { MarketSpec, MarketStatus, SettlementOutcome } from '@calledit/market-engine';
+import type {
+  MarketSpec,
+  MarketStatus,
+  SettlementOutcome,
+  WagerAsset,
+} from '@calledit/market-engine';
 import {
   normalizeInlineText,
   telegramMessageBody,
@@ -17,7 +22,7 @@ import {
   type LeaderboardPlayer,
   type ParticipantIdentity,
 } from '../points/presentation.js';
-import { formatSolAmount } from '../wager/format.js';
+import { formatAssetAmount } from '../wager/format.js';
 import { fullMatchMultiplier } from '../wager/pot.js';
 
 const QUOTED_TEXT_LIMIT = 512;
@@ -85,7 +90,7 @@ export function trustTierLine(tier: MarketSpec['trustTier']): string {
     : 'Oracle-resolved — settled from the signed data feed';
 }
 
-export function statusLine(status: MarketStatus): string {
+export function statusLine(status: MarketStatus, asset: WagerAsset = 'sol'): string {
   switch (status) {
     case 'pending_lineup':
       return 'Waiting on lineups';
@@ -98,7 +103,7 @@ export function statusLine(status: MarketStatus): string {
     case 'settled':
       return 'Settled';
     case 'voided':
-      return 'Call off — SOL returned';
+      return `Call off — ${asset.toUpperCase()} returned`;
   }
 }
 
@@ -109,6 +114,8 @@ export interface SideTally {
 }
 
 export interface ClaimCardInput {
+  /** Omitted only by legacy SOL fixtures. Persisted markets always set it. */
+  currency?: WagerAsset;
   quotedText: string;
   claimerName: string;
   spec: MarketSpec;
@@ -132,6 +139,7 @@ export interface ClaimCardInput {
 }
 
 export function claimCardText(input: ClaimCardInput): string {
+  const currency = input.currency ?? 'sol';
   const backMult = formatMultiplier(fullMatchMultiplier(input.probability, 'back'));
   const againstMult = formatMultiplier(fullMatchMultiplier(input.probability, 'doubt'));
   const showsParticipants =
@@ -144,13 +152,13 @@ export function claimCardText(input: ClaimCardInput): string {
     '',
     `📋 ${describeTerms(input.spec)}`,
     `📈 Feed says ${formatProbabilityPct(input.probability)}% — back pays ${backMult}, against ${againstMult} if matched (${provenanceChip(input.provenance)})`,
-    `🚦 ${statusLine(input.status)}`,
+    `🚦 ${statusLine(input.status, currency)}`,
     ...(input.positionsAvailable === false
-      ? ['⏸ New SOL positions are temporarily paused. No SOL can move.']
+      ? [`⏸ New ${currency.toUpperCase()} positions are temporarily paused. No ${currency.toUpperCase()} can move.`]
       : []),
     '',
-    `⚡ Backing it: ${formatSolAmount(input.back.stakeLamports)} (${input.back.count} in)`,
-    `🛑 Against it: ${formatSolAmount(input.doubt.stakeLamports)} (${input.doubt.count} in)`,
+    `⚡ Backing it: ${formatAssetAmount(input.back.stakeLamports, currency)} (${input.back.count} in)`,
+    `🛑 Against it: ${formatAssetAmount(input.doubt.stakeLamports, currency)} (${input.doubt.count} in)`,
     `🤝 Matched: ${input.matchedPct}%`,
     ...(showsParticipants
       ? [
@@ -175,6 +183,7 @@ export function claimCardText(input: ClaimCardInput): string {
 }
 
 export interface ReceiptCardInput {
+  currency?: WagerAsset;
   quotedText: string;
   claimerName: string;
   spec: MarketSpec;
@@ -193,7 +202,11 @@ export interface ReceiptCardInput {
   };
 }
 
-export function outcomeLine(outcome: SettlementOutcome, claimerName: string): string {
+export function outcomeLine(
+  outcome: SettlementOutcome,
+  claimerName: string,
+  asset: WagerAsset = 'sol',
+): string {
   const claimer = normalizeInlineText(claimerName, PERSON_NAME_LIMIT, 'the claimer');
   switch (outcome) {
     case 'claim_won':
@@ -201,11 +214,12 @@ export function outcomeLine(outcome: SettlementOutcome, claimerName: string): st
     case 'claim_lost':
       return `Not this time — the call goes down.`;
     case 'void':
-      return `Call off — every SOL stake returned.`;
+      return `Call off — every ${asset.toUpperCase()} position returned.`;
   }
 }
 
 export function receiptCardText(input: ReceiptCardInput): string {
+  const currency = input.currency ?? 'sol';
   const backMult = formatMultiplier(fullMatchMultiplier(input.probability, 'back'));
   const againstMult = formatMultiplier(fullMatchMultiplier(input.probability, 'doubt'));
   const quote = normalizeInlineText(input.quotedText, QUOTED_TEXT_LIMIT, 'Call unavailable');
@@ -216,7 +230,7 @@ export function receiptCardText(input: ReceiptCardInput): string {
     '',
     `📋 ${describeTerms(input.spec)}`,
     `📈 Locked at the call: ${formatProbabilityPct(input.probability)}% — back ${backMult}, against ${againstMult} (${provenanceChip(input.provenance)})`,
-    `🏁 ${outcomeLine(input.outcome, input.claimerName)}`,
+    `🏁 ${outcomeLine(input.outcome, input.claimerName, currency)}`,
   ];
   if (input.payoutsLine.length > 0) lines.push(`💠 ${input.payoutsLine}`);
   lines.push(`🔏 ${trustTierLine(input.spec.trustTier)}`);

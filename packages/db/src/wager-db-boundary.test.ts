@@ -33,8 +33,8 @@ describe('table query boundary', () => {
     await expect(settlement.db.getSettlementOutcome(MARKET_ID)).rejects.toThrow(DbError);
 
     const status = makeHarness();
-    status.fake.seed('wager_status', [
-      { id: 1, paused: 'false', reason: null, updated_at: NOW_ISO },
+    status.fake.seed('wager_asset_status', [
+      { asset: 'sol', paused: 'false', reason: null, updated_at: NOW_ISO },
     ]);
     await expect(status.db.getWagerStatus()).rejects.toThrow(DbError);
   });

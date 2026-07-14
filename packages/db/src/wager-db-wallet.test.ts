@@ -137,6 +137,7 @@ describe('verified wallet RPC facade', () => {
                 market_id: MARKET_ID,
                 side: 'back',
                 lamports: 50_000_000,
+                asset: 'sol',
                 state: 'ready',
                 expires_at: '2026-07-10T12:10:00.000Z',
                 created_at: '2026-07-10T12:00:00.000Z',

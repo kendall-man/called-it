@@ -6,7 +6,7 @@
 import type { Bot } from 'grammy';
 import { InlineKeyboard } from 'grammy';
 import type { User } from 'grammy/types';
-import { TERMINAL_PHASES } from '@calledit/market-engine';
+import { isWagerAsset, TERMINAL_PHASES } from '@calledit/market-engine';
 import type { EngineDb, FixtureRow } from '../ports.js';
 import type { Env } from '../env.js';
 import type { Poster } from './poster.js';
@@ -288,6 +288,41 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
     }
     h.poster.post(ctx.chat.id, await h.say('settings_intro'), {
       keyboard: settingsKeyboard(group.chattiness, group.web_enabled),
+    });
+  });
+
+  bot.command('currency', async (ctx) => {
+    if (!isGroup(ctx.chat.type) || !ctx.from) return;
+    if (!isBetaGroupAllowed(h.deps.env, ctx.chat.id)) return;
+    const from = ctx.from;
+    const group = await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', from);
+    const wager = h.deps.wager;
+    if (wager?.kind !== 'funded') return;
+    const admin = await isGroupAdmin(h, () => ctx.getChatMember(from.id));
+    if (!admin) {
+      h.poster.post(ctx.chat.id, await h.say('admin_only'), {
+        replyToMessageId: ctx.message?.message_id,
+      });
+      return;
+    }
+    const requested = (ctx.match ?? '').toString().trim().toLowerCase();
+    if (requested === '') {
+      const current = await wager.currencyForMint(group.id);
+      const asset = current === 'usdc' ? 'usdc' : 'sol';
+      h.poster.post(ctx.chat.id, wager.groupAssetMessage(asset, false), {
+        replyToMessageId: ctx.message?.message_id,
+      });
+      return;
+    }
+    if (!isWagerAsset(requested)) {
+      h.poster.post(ctx.chat.id, 'Use /currency sol or /currency usdc.', {
+        replyToMessageId: ctx.message?.message_id,
+      });
+      return;
+    }
+    await wager.setGroupDefaultAsset(group.id, requested, from.id);
+    h.poster.post(ctx.chat.id, wager.groupAssetMessage(requested, true), {
+      replyToMessageId: ctx.message?.message_id,
     });
   });
 

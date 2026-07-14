@@ -177,7 +177,7 @@ describe('typed RPC errors map to distinct copy', () => {
   it('every refusal says that no SOL moved and gives one recovery action', () => {
     for (const [, line] of cases) {
       expect(line).toMatch(/no SOL moved|unchanged/i);
-      expect(line).toMatch(/try another allowlisted beta group|pick a lane|choose another call|check \/me|use \/deposit|open \/wallet/i);
+      expect(line).toMatch(/try again later|try another allowlisted beta group|pick a lane|choose another call|check \/me|use \/deposit|open \/wallet/i);
     }
   });
 });

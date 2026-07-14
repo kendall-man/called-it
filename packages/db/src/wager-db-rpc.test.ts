@@ -113,7 +113,7 @@ describe('security-definer RPCs', () => {
   it('requestWithdrawal maps ok and typed rejection codes', async () => {
     const ok = makeHarness();
     ok.fake.onRpc('wager_request_withdrawal', (args) => {
-      expect(args).toEqual({ p_user_id: USER_ID, p_lamports: 10_000_000 });
+      expect(args).toEqual({ p_user_id: USER_ID, p_asset: 'sol', p_lamports: 10_000_000 });
       return { data: { ok: true, withdrawal_id: 'w-1' }, error: null };
     });
     expect(await ok.db.requestWithdrawal({ user_id: USER_ID, lamports: 10_000_000n })).toEqual({

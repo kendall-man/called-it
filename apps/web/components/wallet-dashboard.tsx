@@ -9,11 +9,12 @@ import { Download, KeyRound, LoaderCircle, RefreshCw, Send, ShieldCheck, WalletC
 import { Card } from '@/components/ui';
 import {
   explorerTransactionUrl,
-  formatSol,
-  MIN_WALLET_TRANSFER_LAMPORTS,
-  parseSolAmount,
+  formatWalletAmount,
+  minimumWalletTransfer,
+  parseWalletAmount,
   sendWalletTransfer,
-  walletBalance,
+  walletBalances,
+  type WalletAsset,
 } from '@/lib/wallet-transfers';
 import {
   requestWalletAccount,
@@ -38,15 +39,16 @@ type WalletDashboardProps = {
 export function WalletDashboard(props: WalletDashboardProps) {
   const { user, getAccessToken, linkEmail, linkPasskey } = usePrivy();
   const { exportWallet } = useExportWallet();
-  const [balance, setBalance] = useState<bigint | null>(null);
+  const [balances, setBalances] = useState<Readonly<Record<WalletAsset, bigint>> | null>(null);
   const [account, setAccount] = useState<WalletAccountSummary | null>(null);
   const [accountError, setAccountError] = useState('');
   const [amount, setAmount] = useState('0.01');
+  const [asset, setAsset] = useState<WalletAsset>('sol');
   const [mode, setMode] = useState<'deposit' | 'send'>('deposit');
   const [destination, setDestination] = useState('');
   const [pending, setPending] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [notice, setNotice] = useState('Wallet verified. Send SOL here, then deposit it into Called It.');
+  const [notice, setNotice] = useState('Wallet verified. Add SOL or USDC, then deposit it into Called It.');
   const [error, setError] = useState('');
   const [signature, setSignature] = useState('');
   const hasEmail = user?.linkedAccounts.some((account) => account.type === 'email') ?? false;
@@ -54,11 +56,15 @@ export function WalletDashboard(props: WalletDashboardProps) {
 
   const refreshBalance = useCallback(async () => {
     try {
-      setBalance(await walletBalance(props.rpcUrl, new PublicKey(props.address)));
+      setBalances(await walletBalances(
+        props.rpcUrl,
+        new PublicKey(props.address),
+        props.network,
+      ));
     } catch {
       setNotice('Balance could not refresh. Try again shortly.');
     }
-  }, [props.address, props.rpcUrl]);
+  }, [props.address, props.network, props.rpcUrl]);
 
   const refreshAccount = useCallback(async (): Promise<WalletAccountSummary> => {
     try {
@@ -83,12 +89,18 @@ export function WalletDashboard(props: WalletDashboardProps) {
     return () => window.clearInterval(interval);
   }, [refreshAccount, refreshBalance]);
 
-  const watchForDepositCredit = useCallback(async (previousAvailable: bigint | null) => {
+  const watchForDepositCredit = useCallback(async (
+    selectedAsset: WalletAsset,
+    previousAvailable: bigint | null,
+  ) => {
     for (let attempt = 0; attempt < 12; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 5_000));
       try {
         const summary = await refreshAccount();
-        if (previousAvailable === null || summary.availableLamports > previousAvailable) {
+        if (
+          previousAvailable === null
+          || summary.balances[selectedAsset].availableAtomic > previousAvailable
+        ) {
           setNotice('Deposit credited. Your Called It balance is ready to use.');
           return;
         }
@@ -107,9 +119,9 @@ export function WalletDashboard(props: WalletDashboardProps) {
 
   async function submitTransfer(event: FormEvent) {
     event.preventDefault();
-    const lamports = parseSolAmount(amount);
-    if (lamports === null || lamports < MIN_WALLET_TRANSFER_LAMPORTS) {
-      setError('Enter at least 0.001 SOL.');
+    const amountAtomic = parseWalletAmount(amount, asset);
+    if (amountAtomic === null || amountAtomic < minimumWalletTransfer(asset)) {
+      setError(asset === 'sol' ? 'Enter at least 0.001 SOL.' : 'Enter at least 0.1 USDC.');
       return;
     }
     const target = mode === 'deposit' ? props.treasuryPubkey : destination.trim();
@@ -126,16 +138,18 @@ export function WalletDashboard(props: WalletDashboardProps) {
         rpcUrl: props.rpcUrl,
         source: props.address,
         destination: target,
-        lamports,
+        asset,
+        network: props.network,
+        amountAtomic,
         signTransaction: props.signTransaction,
       });
       setSignature(result);
       setNotice(mode === 'deposit'
         ? 'Deposit sent on-chain. Waiting for Called It to credit it...'
-        : 'SOL sent successfully.');
+        : `${asset.toUpperCase()} sent successfully.`);
       await refreshBalance();
       if (mode === 'deposit') {
-        void watchForDepositCredit(account?.availableLamports ?? null);
+        void watchForDepositCredit(asset, account?.balances[asset].availableAtomic ?? null);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Transfer failed.');
@@ -156,11 +170,13 @@ export function WalletDashboard(props: WalletDashboardProps) {
             <RefreshCw size={18} />
           </button>
         </div>
-        <div className="mt-5 grid grid-cols-2 divide-x divide-line border-y border-line py-4">
-          <BalanceValue label="Available to use" value={account?.availableLamports ?? null} />
-          <BalanceValue label="Locked in open calls" value={account?.lockedLamports ?? null} />
+        <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-5 border-y border-line py-4">
+          <BalanceValue label="SOL available" value={account?.balances.sol.availableAtomic ?? null} asset="sol" />
+          <BalanceValue label="SOL locked" value={account?.balances.sol.lockedAtomic ?? null} asset="sol" />
+          <BalanceValue label="USDC available" value={account?.balances.usdc.availableAtomic ?? null} asset="usdc" />
+          <BalanceValue label="USDC locked" value={account?.balances.usdc.lockedAtomic ?? null} asset="usdc" />
         </div>
-        <p className="mt-4 text-sm leading-6 text-fog">Available SOL can be used or withdrawn. Locked SOL returns or pays out when each call settles.</p>
+        <p className="mt-4 text-sm leading-6 text-fog">Available funds can be used or withdrawn. Locked funds return or pay out in the same asset when each call settles.</p>
       </Card>
       <Card className="rounded-lg">
         <div className="flex items-start justify-between gap-3">
@@ -169,26 +185,35 @@ export function WalletDashboard(props: WalletDashboardProps) {
             <RefreshCw size={18} />
           </button>
         </div>
-        <div className="my-5 border-y border-line py-4">
-          <p className="text-xs font-semibold uppercase text-fog">On-chain balance</p>
-          <p className="mt-1 text-3xl font-bold text-chalk">{balance === null ? '-' : `${formatSol(balance)} SOL`}</p>
+        <div className="my-5 grid grid-cols-2 gap-4 border-y border-line py-4">
+          <BalanceValue label="On-chain SOL" value={balances?.sol ?? null} asset="sol" />
+          <BalanceValue label="On-chain USDC" value={balances?.usdc ?? null} asset="usdc" />
         </div>
-        <WalletValue label="Receive SOL at" value={props.address} copied={copied} onCopy={() => void copyAddress()} />
+        <WalletValue label="Receive SOL or USDC at" value={props.address} copied={copied} onCopy={() => void copyAddress()} />
       </Card>
 
       <Card className="rounded-lg">
+        <div className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-night-800 p-1" aria-label="Asset">
+          <AssetButton asset="sol" active={asset === 'sol'} onClick={() => { setAsset('sol'); setAmount('0.01'); }} />
+          <AssetButton asset="usdc" active={asset === 'usdc'} onClick={() => { setAsset('usdc'); setAmount('1'); }} />
+        </div>
         <div className="grid grid-cols-2 gap-1 rounded-lg bg-night-800 p-1">
           <ModeButton active={mode === 'deposit'} onClick={() => setMode('deposit')}>Deposit to Called It</ModeButton>
-          <ModeButton active={mode === 'send'} onClick={() => setMode('send')}>Send SOL</ModeButton>
+          <ModeButton active={mode === 'send'} onClick={() => setMode('send')}>Send {asset.toUpperCase()}</ModeButton>
         </div>
         <form className="mt-5 space-y-4" onSubmit={submitTransfer}>
           {mode === 'send' && <label className="block space-y-2 text-sm font-semibold text-chalk"><span>Destination address</span><input required value={destination} onChange={(event) => setDestination(event.target.value)} className={walletInputClass} /></label>}
-          <label className="block space-y-2 text-sm font-semibold text-chalk"><span>Amount in SOL</span><input required inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} className={walletInputClass} /></label>
+          <label className="block space-y-2 text-sm font-semibold text-chalk"><span>Amount in {asset.toUpperCase()}</span><input required inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} className={walletInputClass} /></label>
           <div className="grid grid-cols-3 gap-2">
-            {['0.01', '0.05', '0.1'].map((preset) => <button key={preset} type="button" className="min-h-11 rounded-lg border border-line text-sm font-semibold text-fog hover:border-pitch-500 hover:text-chalk" onClick={() => setAmount(preset)}>{preset}</button>)}
+            {(asset === 'sol' ? ['0.01', '0.05', '0.1'] : ['1', '5', '10']).map((preset) => <button key={preset} type="button" className="min-h-11 rounded-lg border border-line text-sm font-semibold text-fog hover:border-pitch-500 hover:text-chalk" onClick={() => setAmount(preset)}>{preset}</button>)}
           </div>
+          {asset === 'usdc' && (
+            <p className="text-sm leading-6 text-fog">
+              Keep a small SOL balance in this wallet for Solana network fees.
+            </p>
+          )}
           <WalletButton type="submit" disabled={pending} icon={pending ? <LoaderCircle className="animate-spin" size={18} /> : <Send size={18} />}>
-            {mode === 'deposit' ? 'Deposit SOL' : 'Send SOL'}
+            {mode === 'deposit' ? `Deposit ${asset.toUpperCase()}` : `Send ${asset.toUpperCase()}`}
           </WalletButton>
         </form>
         {signature.length > 0 && <a className="mt-4 block break-all text-sm text-sky-400 underline underline-offset-4" href={explorerTransactionUrl(signature, props.network)} target="_blank" rel="noreferrer">View transaction</a>}
@@ -206,18 +231,30 @@ export function WalletDashboard(props: WalletDashboardProps) {
   );
 }
 
-function BalanceValue(props: { readonly label: string; readonly value: bigint | null }) {
+function BalanceValue(props: {
+  readonly label: string;
+  readonly value: bigint | null;
+  readonly asset: WalletAsset;
+}) {
   return (
     <div className="min-w-0 px-3 first:pl-0 last:pr-0">
       <p className="text-xs font-semibold uppercase text-fog">{props.label}</p>
       <p className="mt-1 break-words text-xl font-bold text-chalk">
-        {props.value === null ? '-' : `${formatSol(props.value)} SOL`}
+        {props.value === null ? '-' : `${formatWalletAmount(props.value, props.asset)} ${props.asset.toUpperCase()}`}
       </p>
     </div>
   );
 }
 
-function ModeButton(props: { readonly active: boolean; readonly onClick: () => void; readonly children: string }) {
+function AssetButton(props: {
+  readonly asset: WalletAsset;
+  readonly active: boolean;
+  readonly onClick: () => void;
+}) {
+  return <button type="button" className={`min-h-11 rounded-md px-2 text-sm font-semibold ${props.active ? 'bg-night-700 text-chalk' : 'text-fog'}`} onClick={props.onClick}>{props.asset.toUpperCase()}</button>;
+}
+
+function ModeButton(props: { readonly active: boolean; readonly onClick: () => void; readonly children: ReactNode }) {
   return <button type="button" className={`min-h-11 rounded-md px-2 text-sm font-semibold ${props.active ? 'bg-night-700 text-chalk' : 'text-fog'}`} onClick={props.onClick}>{props.children}</button>;
 }
 

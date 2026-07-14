@@ -1,4 +1,4 @@
-import type { SettlementOutcome } from '@calledit/market-engine';
+import { isWagerAsset, type SettlementOutcome, type WagerAsset } from '@calledit/market-engine';
 import { DbError, unwrapMaybe, unwrapRows, type PgResult } from './errors.js';
 import type {
   PendingStakeIntentState,
@@ -104,6 +104,31 @@ export function parseEnabledRow(op: string, value: unknown): { readonly enabled:
   return { enabled: booleanField(op, row, 'enabled') };
 }
 
+export function parseAssetRow(op: string, value: unknown): { readonly asset: WagerAsset } {
+  const row = record(op, value);
+  const asset = row.asset;
+  return isWagerAsset(asset) ? { asset } : malformed(op, 'asset');
+}
+
+export function parseDefaultAssetRow(
+  op: string,
+  value: unknown,
+): { readonly default_asset: WagerAsset } {
+  const row = record(op, value);
+  const asset = row.default_asset;
+  return isWagerAsset(asset) ? { default_asset: asset } : malformed(op, 'default_asset');
+}
+
+export function parseIdCurrencyRow(
+  op: string,
+  value: unknown,
+): { readonly id: string; readonly currency: WagerAsset } {
+  const row = record(op, value);
+  const currency = row.currency;
+  if (!isWagerAsset(currency)) return malformed(op, 'currency');
+  return { id: stringField(op, row, 'id'), currency };
+}
+
 export function parseWalletLinkRow(op: string, value: unknown): WagerWalletLinkRow {
   const row = record(op, value);
   return {
@@ -135,6 +160,8 @@ export interface RawDepositRow {
   readonly tx_sig: string;
   readonly ix_index: number;
   readonly sender_pubkey: string;
+  readonly asset: WagerAsset;
+  readonly mint_pubkey: string | null;
   readonly lamports: number;
   readonly slot: number;
   readonly user_id: number | null;
@@ -144,11 +171,15 @@ export interface RawDepositRow {
 
 export function parseDepositRow(op: string, value: unknown): RawDepositRow {
   const row = record(op, value);
+  const asset = row.asset;
+  if (!isWagerAsset(asset)) return malformed(op, 'asset');
   return {
     id: integerField(op, row, 'id'),
     tx_sig: stringField(op, row, 'tx_sig'),
     ix_index: integerField(op, row, 'ix_index'),
     sender_pubkey: stringField(op, row, 'sender_pubkey'),
+    asset,
+    mint_pubkey: nullableStringField(op, row, 'mint_pubkey'),
     lamports: integerField(op, row, 'lamports'),
     slot: integerField(op, row, 'slot'),
     user_id: nullableIntegerField(op, row, 'user_id'),
@@ -161,6 +192,7 @@ export interface RawWithdrawalRow {
   readonly id: string;
   readonly user_id: number;
   readonly dest_pubkey: string;
+  readonly asset: WagerAsset;
   readonly lamports: number;
   readonly state: WagerWithdrawalState;
   readonly tx_sig: string | null;
@@ -175,10 +207,13 @@ export function parseWithdrawalRow(op: string, value: unknown): RawWithdrawalRow
   const row = record(op, value);
   const state = row.state;
   if (!isWithdrawalState(state)) return malformed(op, 'state');
+  const asset = row.asset;
+  if (!isWagerAsset(asset)) return malformed(op, 'asset');
   return {
     id: stringField(op, row, 'id'),
     user_id: integerField(op, row, 'user_id'),
     dest_pubkey: stringField(op, row, 'dest_pubkey'),
+    asset,
     lamports: integerField(op, row, 'lamports'),
     state,
     tx_sig: nullableStringField(op, row, 'tx_sig'),
@@ -220,7 +255,10 @@ export function parseIdRow(op: string, value: unknown): { readonly id: string } 
 
 export function parseWagerStatusRow(op: string, value: unknown): WagerStatusRow {
   const row = record(op, value);
+  const asset = row.asset;
+  if (!isWagerAsset(asset)) return malformed(op, 'asset');
   return {
+    asset,
     paused: booleanField(op, row, 'paused'),
     reason: nullableStringField(op, row, 'reason'),
     updated_at: stringField(op, row, 'updated_at'),
@@ -233,6 +271,7 @@ export interface RawPendingStakeIntentRow {
   readonly group_id: number;
   readonly market_id: string;
   readonly side: 'back' | 'doubt';
+  readonly asset: WagerAsset;
   readonly lamports: number;
   readonly state: PendingStakeIntentState;
   readonly expires_at: string;
@@ -246,12 +285,15 @@ export function parsePendingStakeIntentRow(op: string, value: unknown): RawPendi
   if (!isPositionSide(side)) return malformed(op, 'side');
   const state = row.state;
   if (!isPendingStakeIntentState(state)) return malformed(op, 'state');
+  const asset = row.asset;
+  if (!isWagerAsset(asset)) return malformed(op, 'asset');
   return {
     id: stringField(op, row, 'id'),
     user_id: integerField(op, row, 'user_id'),
     group_id: integerField(op, row, 'group_id'),
     market_id: stringField(op, row, 'market_id'),
     side,
+    asset,
     lamports: integerField(op, row, 'lamports'),
     state,
     expires_at: stringField(op, row, 'expires_at'),

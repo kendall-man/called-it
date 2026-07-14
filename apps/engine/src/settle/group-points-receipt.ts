@@ -45,6 +45,7 @@ export async function prepareGroupPointsReceipt(
       }
     : undefined;
   const receipt = receiptCardText({
+    currency: market.currency === 'usdc' ? 'usdc' : 'sol',
     quotedText: claim?.quoted_text ?? '(original message unavailable)',
     claimerName,
     spec: market.spec,

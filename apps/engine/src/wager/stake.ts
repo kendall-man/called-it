@@ -6,7 +6,7 @@
  */
 
 import { TUNABLES } from '@calledit/market-engine';
-import { WAGER_TUNABLES } from './constants.js';
+import { perMarketStakeCap, presetStakes } from './constants.js';
 import { createWagerCopy, sideLabel, type WagerCopy } from './copy.js';
 import type {
   WagerStakeDeps,
@@ -35,14 +35,19 @@ export function multiplierLabel(multiplier: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
-function copyForStakeError(copy: WagerCopy, code: WagerStakeErrorCode, balanceLamports: bigint): string {
+function copyForStakeError(
+  copy: WagerCopy,
+  code: WagerStakeErrorCode,
+  balanceLamports: bigint,
+  cap: bigint,
+): string {
   switch (code) {
     case 'insufficient':
       return copy.insufficient(balanceLamports);
     case 'wrong_side':
       return copy.pickALane();
     case 'cap':
-      return copy.capReached(WAGER_TUNABLES.PER_MARKET_STAKE_CAP_LAMPORTS);
+      return copy.capReached(cap);
     case 'paused':
       return copy.paused();
     case 'closed':
@@ -65,7 +70,8 @@ export async function handleStakeTap(
   args: WagerStakeTapArgs,
 ): Promise<WagerStakeTapResult> {
   const { market, userId, userName, side, lamports, inPlay, nowMs, source } = args;
-  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet');
+  const asset = market.currency ?? 'sol';
+  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet', asset);
 
   if (lamports <= 0n) return { reply: copy.staleTap(), placed: false };
   if (!deps.stakeAcceptanceEnabled) return { reply: copy.paused(), placed: false };
@@ -79,7 +85,8 @@ export async function handleStakeTap(
     case 'starter_only':
       if (
         source.kind !== 'telegram_default_card'
-        || lamports !== WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0]
+        || asset !== 'sol'
+        || lamports !== presetStakes('sol')[0]
         || !deps.starterGrantsEnabled
       ) {
         return { reply: copy.starterUnavailable(), placed: false };
@@ -99,7 +106,7 @@ export async function handleStakeTap(
   // Gate 2: persisted circuit breaker. The wager_stake RPC re-checks this
   // atomically; the pre-check just answers fast without burning the advisory
   // lock round-trip while the desk is paused.
-  const status = await deps.db.getWagerStatus();
+  const status = await deps.db.getWagerStatus(asset);
   if (status.paused) return { reply: copy.paused(), placed: false };
 
   // Multiplier lock — back gets the quoted multiplier, doubt its complement.
@@ -135,7 +142,7 @@ export async function handleStakeTap(
     // Balance is only fetched on the one error whose copy needs it.
     const balance =
       result.code === 'insufficient' && deps.runtimeMode === 'funded'
-        ? await deps.db.balanceLamports(userId)
+        ? await deps.db.balanceLamports(userId, asset)
         : 0n;
     deps.log.info('wager_stake_refused', {
       marketId: market.id,
@@ -143,7 +150,10 @@ export async function handleStakeTap(
       lamports: lamports.toString(),
       code: result.code,
     });
-    return { reply: copyForStakeError(copy, result.code, balance), placed: false };
+    return {
+      reply: copyForStakeError(copy, result.code, balance, perMarketStakeCap(asset)),
+      placed: false,
+    };
   }
 
   if ('duplicate' in result) {

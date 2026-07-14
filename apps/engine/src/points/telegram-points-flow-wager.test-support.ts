@@ -5,6 +5,7 @@ import type {
   WagerStakeTapSource,
 } from '../wager/module.js';
 import type { TelegramFlowDb } from './telegram-points-flow-db.test-support.js';
+import type { WagerAsset } from '@calledit/market-engine';
 
 const DEFAULT_STAKE_LAMPORTS = 10_000_000n;
 const CHOICE_REPLY = 'Choice recorded with 0.01 test SOL. Test SOL has no monetary value.';
@@ -72,13 +73,19 @@ export class TelegramFlowWager implements FundedWagerModule {
   cardFooter(): string { return 'Test SOL has no monetary value.'; }
   presetLabels(): [string, string, string] { return ['0.01 SOL', '0.05 SOL', '0.1 SOL']; }
   presetLamports(index: number): bigint | null { return index === 0 ? DEFAULT_STAKE_LAMPORTS : null; }
-  async walletSummary(): Promise<{
-    balanceLamports: bigint;
-    lockedLamports: bigint;
-    pubkey: string | null;
-  }> {
-    return { balanceLamports: 0n, lockedLamports: 0n, pubkey: WALLET_ADDRESS_SENTINEL };
+  async walletSummary() {
+    return {
+      balances: {
+        sol: { availableAtomic: 0n, lockedAtomic: 0n },
+        usdc: { availableAtomic: 0n, lockedAtomic: 0n },
+      },
+      balanceLamports: 0n,
+      lockedLamports: 0n,
+      pubkey: WALLET_ADDRESS_SENTINEL,
+    };
   }
+  async setGroupDefaultAsset(_groupId: number, _asset: WagerAsset): Promise<void> {}
+  groupAssetMessage(asset: WagerAsset): string { return `New calls use ${asset}.`; }
   async prepareStakeConfirmation(): Promise<{ ok: false; reply: string }> {
     return { ok: false, reply: 'Unavailable' };
   }

@@ -7,6 +7,7 @@ import type {
   WagerStakeInput,
   WagerStakeResult,
 } from '@calledit/db';
+import type { MarketCurrency, WagerAsset } from '@calledit/market-engine';
 
 export type {
   CreatePendingStakeIntentResult,
@@ -29,7 +30,7 @@ export type WagerStarterStakeInput = Omit<WagerStakeInput, 'starterOnly'> & {
   readonly starterOnly?: never;
 };
 
-export type WagerCurrency = 'rep' | 'sol';
+export type WagerCurrency = MarketCurrency;
 export type WagerPositionSide = 'back' | 'doubt';
 export type WagerPositionState = 'pending' | 'active' | 'void';
 export type WagerSettlementOutcome = 'claim_won' | 'claim_lost' | 'void';
@@ -40,6 +41,7 @@ export interface WagerMarketRow {
   status: string;
   quote_probability: number;
   quote_multiplier: number;
+  currency?: WagerAsset;
 }
 
 export interface WagerPositionRow {
@@ -65,6 +67,8 @@ export interface WagerDepositRow {
   tx_sig: string;
   ix_index: number;
   sender_pubkey: string;
+  asset: WagerAsset;
+  mint_pubkey: string | null;
   lamports: bigint;
   slot: number;
   user_id: number | null;
@@ -77,6 +81,7 @@ export interface WagerWithdrawalRow {
   id: string;
   user_id: number;
   dest_pubkey: string;
+  asset: WagerAsset;
   lamports: bigint;
   state: WagerWithdrawalState;
   tx_sig: string | null;
@@ -85,13 +90,14 @@ export interface WagerWithdrawalRow {
   error: string | null;
 }
 
-export type WagerWithdrawErrorCode = 'insufficient' | 'no_wallet';
+export type WagerWithdrawErrorCode = 'insufficient' | 'no_wallet' | 'invalid_asset';
 
 export type WagerWithdrawResult =
   | { ok: true; withdrawal_id: string }
   | { ok: false; code: WagerWithdrawErrorCode };
 
 export interface WagerStatusRow {
+  asset?: WagerAsset;
   paused: boolean;
   reason: string | null;
 }
@@ -119,16 +125,24 @@ export interface WagerDb {
   ): Promise<ResolvePendingStakeIntentResult>;
   cancelStakeIntent(userId: number, intentId: string): Promise<MutatePendingStakeIntentResult>;
   setLastWagerGroup(userId: number, groupId: number): Promise<void>;
-  balanceLamports(userId: number): Promise<bigint>;
-  totalLedgerLamports(): Promise<bigint>;
+  setGroupDefaultAsset(groupId: number, asset: WagerAsset, byUserId: number): Promise<void>;
+  groupDefaultAsset(groupId: number): Promise<WagerAsset>;
+  balanceLamports(userId: number, asset: WagerAsset): Promise<bigint>;
+  totalLedgerLamports(asset: WagerAsset): Promise<bigint>;
   postWagerLedger(entry: WagerLedgerEntry): Promise<{ inserted: boolean }>;
   stakeDebitedLamportsForMarket(marketId: string): Promise<bigint>;
   wagerStake(args: WagerStakeInput): Promise<WagerStakeResult>;
-  requestWithdrawal(args: { user_id: number; lamports: bigint }): Promise<WagerWithdrawResult>;
+  requestWithdrawal(args: {
+    user_id: number;
+    asset?: WagerAsset;
+    lamports: bigint;
+  }): Promise<WagerWithdrawResult>;
   upsertDeposit(row: {
     tx_sig: string;
     ix_index: number;
     sender_pubkey: string;
+    asset: WagerAsset;
+    mint_pubkey: string | null;
     lamports: bigint;
     slot: number;
   }): Promise<{ inserted: boolean }>;
@@ -144,14 +158,21 @@ export interface WagerDb {
   positionsForMarket(marketId: string): Promise<WagerPositionRow[]>;
   setPositionStates(ids: string[], state: WagerPositionState): Promise<void>;
   getMarketProbability(marketId: string): Promise<number | null>;
+  getMarketAsset(marketId: string): Promise<WagerAsset | null>;
   getSettlementOutcome(marketId: string): Promise<WagerSettlementOutcome | null>;
   hasSettlementApplied(marketId: string): Promise<boolean>;
   insertSettlementApplied(marketId: string): Promise<void>;
+  settledWagerMarketsMissingApplied(): Promise<string[]>;
   settledSolMarketsMissingApplied(): Promise<string[]>;
   settledFundedReplayMarketsMissingApplied(): Promise<string[]>;
+  openWagerMarkets(): Promise<Array<{ id: string; currency: WagerAsset }>>;
   openSolMarketIds(): Promise<string[]>;
-  getWagerStatus(): Promise<WagerStatusRow>;
-  setWagerStatus(paused: boolean, reason: string | null): Promise<void>;
+  getWagerStatus(asset?: WagerAsset): Promise<WagerStatusRow>;
+  setWagerStatus(
+    assetOrPaused: WagerAsset | boolean,
+    pausedOrReason: boolean | string | null,
+    reason?: string | null,
+  ): Promise<void>;
   getCursor(streamName: string): Promise<string | null>;
   setCursor(streamName: string, value: string): Promise<void>;
   tryCronLock(name: string): Promise<boolean>;
@@ -163,11 +184,13 @@ export interface WagerDb {
 type WagerSettlementReadDb = Pick<
   WagerDb,
   | 'getMarketProbability'
+  | 'getMarketAsset'
   | 'getSettlementOutcome'
   | 'hasSettlementApplied'
   | 'positionsForMarket'
   | 'setPositionStates'
   | 'insertSettlementApplied'
+  | 'settledWagerMarketsMissingApplied'
   | 'settledSolMarketsMissingApplied'
   | 'getUserNames'
 >;
@@ -179,6 +202,6 @@ export interface WagerSettlementDb extends WagerSettlementReadDb {
 }
 
 export interface StarterOnlyWagerDb extends WagerSettlementDb {
-  getWagerStatus(): ReturnType<WagerDb['getWagerStatus']>;
+  getWagerStatus(asset?: WagerAsset): ReturnType<WagerDb['getWagerStatus']>;
   wagerStarterStake(args: WagerStarterStakeInput): Promise<WagerStakeResult>;
 }

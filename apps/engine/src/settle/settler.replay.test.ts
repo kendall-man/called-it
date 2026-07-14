@@ -241,11 +241,11 @@ describe('Settler replay isolation', () => {
     // Then terminal state persists, while the wager ledger remains untouched
     expect(persisted).toEqual(['status', 'settlement']);
     expect(wagerSettlements).toBe(0);
-    expect(receipts.join('\n')).toContain('Test round - no starter position or test SOL moved.');
+    expect(receipts.join('\n')).toContain('Test round - no starter position or real funds moved.');
   });
 
-  it('applies mainnet replay settlement and renders the real SOL payout line', async () => {
-    const target = market();
+  it('applies mainnet USDC replay settlement and renders its real payout line', async () => {
+    const target = market({ currency: 'usdc' });
     const wagerSettlements: Array<{ marketId: string; requireFullyBacked: boolean | undefined }> = [];
     const receipts: string[] = [];
     const deps = {
@@ -292,7 +292,7 @@ describe('Settler replay isolation', () => {
             requireFullyBacked: options?.requireFullyBacked,
           });
         },
-        settlementPayoutsLine: async () => 'Alice collects 0.02 SOL. (mainnet)',
+        settlementPayoutsLine: async () => 'Alice collects 2 USDC. (mainnet)',
       },
       env: { WEB_BASE_URL: 'https://calledit.example', SOLANA_NETWORK: 'mainnet-beta' },
       log: { info() {}, warn() {}, error() {}, child() { return this; } },
@@ -316,7 +316,7 @@ describe('Settler replay isolation', () => {
     await settler.onReplayEvent(GROUP_ID, EVENT);
 
     expect(wagerSettlements).toEqual([{ marketId: target.id, requireFullyBacked: true }]);
-    expect(receipts.join('\n')).toContain('Alice collects 0.02 SOL. (mainnet)');
+    expect(receipts.join('\n')).toContain('Alice collects 2 USDC. (mainnet)');
     expect(receipts.join('\n')).not.toContain('Test round');
   });
 });

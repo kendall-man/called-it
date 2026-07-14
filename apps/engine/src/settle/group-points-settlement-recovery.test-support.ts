@@ -37,7 +37,17 @@ export function testWager(
     cardFooter: () => '',
     presetLabels: () => ['0.01 SOL', '0.05 SOL', '0.1 SOL'],
     presetLamports: () => null,
-    walletSummary: async () => ({ balanceLamports: 0n, lockedLamports: 0n, pubkey: null }),
+    walletSummary: async () => ({
+      balances: {
+        sol: { availableAtomic: 0n, lockedAtomic: 0n },
+        usdc: { availableAtomic: 0n, lockedAtomic: 0n },
+      },
+      balanceLamports: 0n,
+      lockedLamports: 0n,
+      pubkey: null,
+    }),
+    setGroupDefaultAsset: async () => undefined,
+    groupAssetMessage: (asset) => `New calls use ${asset}.`,
     prepareStakeConfirmation: async () => ({ ok: false, reply: 'Unavailable' }),
     getStakeConfirmation: async () => null,
     confirmStakeConfirmation: async () => ({ reply: 'Unavailable', placed: false }),

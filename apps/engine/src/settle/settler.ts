@@ -19,7 +19,7 @@ import type {
   Position,
   SettlementOutcome,
 } from '@calledit/market-engine';
-import { TUNABLES } from '@calledit/market-engine';
+import { isWagerAsset, TUNABLES } from '@calledit/market-engine';
 import type { Deps, MarketRow, PositionRow } from '../ports.js';
 import type { Poster } from '../bot/poster.js';
 import type { Say } from '../bot/copy.js';
@@ -243,13 +243,15 @@ export class Settler {
     }
     this.deps.log.info('settled', { marketId: market.id, outcome, decidingSeq, tier });
 
-    // Money moves ONLY through the wager module (every market is SOL). Its
+    // Money moves ONLY through the wager module for SOL/USDC markets. Its
     // applySettlement is idempotent (per-position/per-user keys plus the
     // wager_settlements_applied marker); if the module is somehow off, the
     // wager sweeper re-applies it once re-enabled.
     const fundedMainnetReplay = market.is_replay
       && this.deps.env?.SOLANA_NETWORK === 'mainnet-beta';
-    if (market.is_replay && !fundedMainnetReplay) {
+    if (!isWagerAsset(market.currency)) {
+      // Legacy Rep markets use the shared Rep ledger effects from the reducer.
+    } else if (market.is_replay && !fundedMainnetReplay) {
       // Devnet test matches remain ledger-free.
     } else if (this.deps.wager) {
       await this.deps.wager.applySettlement(
@@ -291,9 +293,11 @@ export class Settler {
     const receipt = await prepareGroupPointsReceipt(
       this.points,
       { deps: this.deps, market, outcome, voidReason, say: this.say },
-      () => market.is_replay && this.deps.env?.SOLANA_NETWORK !== 'mainnet-beta'
-        ? Promise.resolve('Test round - no starter position or test SOL moved.')
-        : this.solPayoutsLine(market.id, outcome),
+      () => !isWagerAsset(market.currency)
+        ? Promise.resolve('')
+        : market.is_replay && this.deps.env?.SOLANA_NETWORK !== 'mainnet-beta'
+          ? Promise.resolve('Test round - no starter position or real funds moved.')
+          : this.solPayoutsLine(market.id, outcome),
     );
 
     this.poster.post(market.group_id, receipt, {
@@ -320,9 +324,9 @@ export class Settler {
     const affected = positions.filter((p) => positionIds.includes(p.id));
     const names: string[] = [];
     for (const position of affected) {
-      // sol stakes live in the wager ledger — their delay-snipe refunds are
+      // Wager positions live in the asset ledger; their delay-snipe refunds are
       // reconciled by the wager module at settlement, never posted as Rep.
-      if (market.currency !== 'sol') {
+      if (!isWagerAsset(market.currency)) {
         await this.deps.db.postLedger({
           group_id: market.group_id,
           user_id: position.user_id,
@@ -346,10 +350,10 @@ export class Settler {
   private async reprice(market: MarketRow): Promise<void> {
     const fresh = await this.deps.db.getMarket(market.id);
     if (!fresh || fresh.status !== 'open') return;
-    // A sol market's mint quote LOCKS the FOR↔AGAINST settlement ratio
+    // A wager market's mint quote LOCKS the FOR↔AGAINST settlement ratio
     // (wager/pot.ts). Repricing it would settle the pot at a different ratio
     // than it was staked against — never touch a live sol quote.
-    if (fresh.currency === 'sol') return;
+    if (isWagerAsset(fresh.currency)) return;
     // Any pricing failure (transient, no line, unpriceable) just skips this
     // reprice tick — the card keeps its last good quote.
     const outcome = await quoteSpec(this.deps, fresh.spec);

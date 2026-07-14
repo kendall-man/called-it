@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { formatLamportsAsSol, formatMultiplier, formatUtc } from '@/lib/format';
+import { formatAtomicAmount, formatMultiplier, formatUtc } from '@/lib/format';
 import type {
   PublicGroupBoardMarket,
   PublicReceipt,
@@ -48,31 +48,31 @@ function AggregateSummary({ market }: { market: PublicGroupBoardMarket }) {
       <div>
         <dt className="text-fog">Happens pot</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
-          {formatLamportsAsSol(market.backPotLamports)}
+          {formatAtomicAmount(market.backPotLamports, market.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Does not pot</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
-          {formatLamportsAsSol(market.doubtPotLamports)}
+          {formatAtomicAmount(market.doubtPotLamports, market.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Matched</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
-          {formatLamportsAsSol(market.matchedAmountLamports)}
+          {formatAtomicAmount(market.matchedAmountLamports, market.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Refunded</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
-          {formatLamportsAsSol(market.refundedAmountLamports)}
+          {formatAtomicAmount(market.refundedAmountLamports, market.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Payout total</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
-          {formatLamportsAsSol(market.paidAmountLamports)}
+          {formatAtomicAmount(market.paidAmountLamports, market.currency)}
         </dd>
       </div>
       <div>
@@ -99,7 +99,7 @@ export function ReceiptRow({ receipt }: { receipt: PublicReceipt }) {
           </span>
           <span className="block text-[11px] text-fog">
             {formatUtc(receipt.createdAt)} - {receipt.positionCount} positions -{' '}
-            {formatLamportsAsSol(receipt.matchedAmountLamports)} matched
+            {formatAtomicAmount(receipt.matchedAmountLamports, receipt.currency)} matched
           </span>
       </span>
       <Badge tone={chip.tone}>{chip.label}</Badge>

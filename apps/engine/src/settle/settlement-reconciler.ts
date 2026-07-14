@@ -1,4 +1,5 @@
 import {
+  isWagerAsset,
   TERMINAL_PHASES,
   TUNABLES,
   VOID_PHASES,
@@ -67,7 +68,7 @@ async function marketsWithPositions(
   fixture: FixtureRow,
 ): Promise<readonly MarketWithPositions[]> {
   const markets = (await db.openMarketsForFixture(fixture.fixture_id))
-    .filter((market) => market.currency === 'sol');
+    .filter((market) => isWagerAsset(market.currency));
   const candidates: MarketWithPositions[] = [];
   for (const market of markets) {
     const positions = await db.positionsForMarket(market.id);

@@ -164,7 +164,7 @@ test('every starter refusal and injected exception preserves the exact prior sta
     await assertNoWriteCode(client, { code: 'starter_unavailable', mutate: async () => undefined });
     await assertNoWriteCode(client, { code: 'paused', mutate: async (c) => {
       await enableStarterBudget(c);
-      await c.query('update wager_status set paused = true where id = 1');
+      await c.query("update wager_asset_status set paused = true where asset = 'sol'");
     } });
     await assertNoWriteCode(client, { code: 'closed', mutate: async (c, fixture) => {
       await enableStarterBudget(c);

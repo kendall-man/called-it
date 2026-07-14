@@ -38,6 +38,7 @@ export function buildStarterOnlyWagerDb(
   }
   return {
     getMarketProbability: (marketId) => wagerDb.getMarketProbability(marketId),
+    getMarketAsset: async () => 'sol',
     getSettlementOutcome: (marketId) => wagerDb.getSettlementOutcome(marketId),
     getWagerStatus: () => wagerDb.getWagerStatus(),
     hasSettlementApplied: (marketId) => wagerDb.hasSettlementApplied(marketId),
@@ -48,6 +49,7 @@ export function buildStarterOnlyWagerDb(
     postWagerLedger: (entry) => wagerDb.postWagerLedger(entry),
     setPositionStates: (ids, state) => engineDb.setPositionStates(ids, state),
     settledSolMarketsMissingApplied: () => wagerDb.settledSolMarketsMissingApplied(),
+    settledWagerMarketsMissingApplied: () => wagerDb.settledSolMarketsMissingApplied(),
     getUserNames(userIds) {
       if (engineDb.getUserNames === undefined) {
         throw new TypeError('engine database facade is missing getUserNames');

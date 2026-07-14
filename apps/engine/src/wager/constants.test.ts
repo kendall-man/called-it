@@ -28,8 +28,10 @@ describe('WAGER_TUNABLES internal consistency', () => {
   });
 
   it('cursor stream names are treasury-scoped', () => {
-    expect(depositCursorStream('Abc')).toBe('wager:deposits:Abc');
+    expect(depositCursorStream('Abc')).toBe('wager:deposits:sol:Abc');
+    expect(depositCursorStream('Abc', 'usdc')).toBe('wager:deposits:usdc:Abc');
     expect(depositCursorStream('Abc')).not.toBe(depositCursorStream('Xyz'));
+    expect(depositCursorStream('Abc')).not.toBe(depositCursorStream('Abc', 'usdc'));
   });
 
   it('idempotency keys are namespaced and mutually distinct', () => {

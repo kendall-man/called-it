@@ -80,24 +80,23 @@ function value(vars: CopyVars, key: string, fallback = ''): string {
 
 export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string> = {
   intro: (vars) => isMainnet(vars)
-    ? 'Add Called It to a Telegram group. Reply /bookit to your own football call, then choose one of two 0.01 SOL outcomes. Choices and named results are visible to everyone in the group. Use /wallet in private chat to review your verified wallet, and /leaderboard, /mystats, or /table in the group.'
-    : 'Add Called It to a Telegram group. Reply /bookit to your own football call, then tap one of two fixed outcomes: "It happens · 0.01 SOL" or "It does not · 0.01 SOL". Choices and named results are visible to everyone in this Telegram group. Use /leaderboard, /mystats, or /table. Correct choices earn 10 points automatically. Test SOL is devnet-only and has no monetary value.',
+    ? 'Add Called It to a Telegram group. Reply /bookit to your own football call, then choose It happens or It does not using SOL or USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in the group. Use /wallet in private chat to review your verified wallet, and /leaderboard, /mystats, or /table in the group.'
+    : 'Add Called It to a Telegram group. Reply /bookit to your own football call, then choose It happens or It does not using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test assets are devnet-only and have no monetary value.',
   help: (vars) => [
     'How this works:',
     '• Add Called It to a Telegram group.',
     '• Reply /bookit to your own football call.',
-    isMainnet(vars)
-      ? '• Tap one of two 0.01 SOL outcomes: "It happens" or "It does not".'
-      : '• Tap one of two fixed outcomes: "It happens · 0.01 SOL" or "It does not · 0.01 SOL".',
+    '• Choose It happens or It does not, then pick an amount in the call asset.',
+    '• SOL is the default. Group admins can use /currency sol or /currency usdc for new calls.',
     '• Choices and named results are visible to everyone in this Telegram group.',
     '• Correct choices earn 10 points automatically.',
     '',
     isMainnet(vars)
-      ? 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /help. Wallet commands are available in private chat.'
-      : 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /help',
+      ? 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /help. Wallet commands are available in private chat.'
+      : 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /help',
     isMainnet(vars)
-      ? 'SOL deposits and withdrawals use Solana mainnet.'
-      : 'Test SOL is devnet-only and has no monetary value.',
+      ? 'SOL and native Circle USDC deposits and withdrawals use Solana mainnet.'
+      : 'Test SOL and test USDC are devnet-only and have no monetary value.',
   ].join('\n'),
   dm_start: (vars) =>
     `I live in group chats — add me to yours and the banter starts pricing itself. ${value(vars, 'addLink')}`,
@@ -127,7 +126,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   budget_spent: () => "I've done all the thinking I can in here for today — catch me tomorrow.",
   market_live: (vars) => `Locked in. ${value(vars, 'claimer')} is on the record — pick a side below.`,
   offer_live: (vars) =>
-    `${value(vars, 'claimer', 'Someone')}'s call is on the board. Choose It happens · 0.01 SOL or It does not · 0.01 SOL below.`,
+    `${value(vars, 'claimer', 'Someone')}'s call is on the board. Choose It happens · ${value(vars, 'amount', '0.01 SOL')} or It does not · ${value(vars, 'amount', '0.01 SOL')} below.`,
   offer_taken: () =>
     "Too late to pull it — there's already money on this one. It rides to the final whistle now.",
   pending_lineup_note: () =>
@@ -182,8 +181,8 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   replay_unknown_fixture: () => 'No completed match is available for a test run. Try /testmatch with a completed match ID.',
   replay_stopped: () => 'Test match stopped.',
   replay_failed: () => 'Test match stopped because its data could not be completed. Run /testmatch to try again.',
-  replay_position_recorded: () => 'Test choice recorded. No starter position or test SOL was used.',
-  replay_position_exists: () => 'Your test choice is already recorded. No starter position or test SOL was used.',
+  replay_position_recorded: () => 'Test choice recorded. No starter position or real funds were used.',
+  replay_position_exists: () => 'Your test choice is already recorded. No starter position or real funds were used.',
   bookit_needs_reply: () => 'Reply /bookit to the claim you want on the record.',
   window_closed: () => 'Too late for that one — the window is closed.',
   beta_access_required: () =>
@@ -191,8 +190,8 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   admin_permission_required: () =>
     'One step left: promote Called It to group admin with permission to manage messages. I will post the ready message when setup is complete.',
   group_ready: (vars) => isMainnet(vars)
-    ? `Called It is ready on Solana mainnet. Say a football call, mention me, or reply /bookit to your own message. Choose one of two 0.01 SOL outcomes: "It happens" or "It does not." Choices and named results are visible to everyone in this group. Correct choices earn 10 points automatically. A verified wallet is required; /wallet in private chat shows your status. Board: ${value(vars, 'webUrl', 'the group board')}`
-    : `Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Each offer has two fixed 0.01 test-SOL choices: "It happens" or "It does not." Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test SOL is devnet-only with no monetary value. Board: ${value(vars, 'webUrl', 'the group board')}`,
+    ? `Called It is ready on Solana mainnet. Say a football call, mention me, or reply /bookit to your own message. Choose "It happens" or "It does not," then pick an amount. New calls use SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this group. Correct choices earn 10 points automatically. A verified wallet is required; /wallet in private chat shows your status. Board: ${value(vars, 'webUrl', 'the group board')}`
+    : `Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Choose "It happens" or "It does not," then pick an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test assets are devnet-only with no monetary value. Board: ${value(vars, 'webUrl', 'the group board')}`,
   private_start: () => 'Called It lives in group chats. Add it to a group to make a football call.',
   group_only_recovery: () => 'Open this command in the group where you want to use Called It.',
   points_unavailable: () => 'Points are temporarily unavailable. Try again shortly.',

@@ -10,6 +10,8 @@ const USER = 7;
 
 function transfer(overrides: Partial<WagerIncomingTransfer>): WagerIncomingTransfer {
   return {
+    asset: overrides.asset ?? 'sol',
+    mintPubkey: overrides.mintPubkey ?? null,
     sig: overrides.sig ?? 'sigA',
     ixIndex: overrides.ixIndex ?? 0,
     sender: overrides.sender ?? SENDER,

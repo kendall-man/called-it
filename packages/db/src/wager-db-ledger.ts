@@ -16,7 +16,11 @@ async function insertLedgerEntry(
     client
       .from('wager_ledger_entries')
       .upsert(
-        { ...entry, lamports: lamportsToDb('postWagerLedger.lamports', entry.lamports) },
+        {
+          ...entry,
+          asset: entry.asset ?? 'sol',
+          lamports: lamportsToDb('postWagerLedger.lamports', entry.lamports),
+        },
         { onConflict: 'idempotency_key', ignoreDuplicates: true },
       )
       .select('id'),

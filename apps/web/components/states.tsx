@@ -8,7 +8,7 @@ export function AwaitingConfiguration() {
       <Card className="mt-10 text-center">
         <h1 className="display-type text-3xl text-chalk">Public records are not ready</h1>
         <p className="mt-3 text-sm leading-relaxed text-fog">
-          This deployment cannot show public group data yet. No SOL moved and no saved call changed.
+          This deployment cannot show public group data yet. No funds moved and no saved call changed.
         </p>
         <Link
           href="/"
@@ -27,7 +27,7 @@ export function DataUnavailable({ retryHref }: { retryHref: string }) {
       <Card className="mt-10 text-center">
         <h1 className="display-type text-3xl text-chalk">Public data is unavailable</h1>
         <p className="mt-3 text-sm leading-relaxed text-fog">
-          We could not load the current public record. No SOL moved and no saved call changed.
+          We could not load the current public record. No funds moved and no saved call changed.
         </p>
         <Link
           href={retryHref}
@@ -46,7 +46,7 @@ export function PublicRecordLoading({ label }: { label: 'group board' | 'receipt
       <Card className="mt-10 text-center" aria-busy="true" aria-live="polite">
         <h1 className="display-type text-3xl text-chalk">Loading public {label}</h1>
         <p className="mt-3 text-sm leading-relaxed text-fog">
-          Loading the latest public record. No SOL moved and no saved call changed.
+          Loading the latest public record. No funds moved and no saved call changed.
         </p>
       </Card>
     </PageShell>

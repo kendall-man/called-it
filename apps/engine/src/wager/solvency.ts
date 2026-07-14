@@ -14,6 +14,7 @@ import { SOLVENCY_PAUSE_REASON_PREFIX, WAGER_TUNABLES } from './constants.js';
 import { createWagerCopy } from './copy.js';
 import { assertSafeLamports } from './format.js';
 import type { WagerModuleDeps, WagerPositionRow } from './port.js';
+import { WAGER_ASSETS } from '@calledit/market-engine';
 
 /**
  * Lamports escrowed in one market's non-void positions — debited from ledger
@@ -35,52 +36,59 @@ export interface SolvencyMonitor {
 }
 
 export function createSolvencyMonitor(deps: WagerModuleDeps): SolvencyMonitor {
-  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet');
   async function run(): Promise<void> {
-    const treasury = await deps.chain.treasuryBalanceLamports();
-    if (!treasury.ok) {
-      // An RPC blip is not insolvency — never move the breaker on ignorance.
-      deps.log.warn('wager_solvency_balance_failed');
-      return;
-    }
-    const ledgerTotal = await deps.db.totalLedgerLamports();
-    let escrowed = 0n;
-    for (const marketId of await deps.db.openSolMarketIds()) {
-      escrowed += escrowedLamports(await deps.db.positionsForMarket(marketId));
-    }
-    const required = ledgerTotal + escrowed + WAGER_TUNABLES.FEE_BUFFER_LAMPORTS;
-    const status = await deps.db.getWagerStatus();
-
-    if (treasury.lamports >= required) {
-      const pausedBySolvency =
-        status.paused && (status.reason ?? '').startsWith(SOLVENCY_PAUSE_REASON_PREFIX);
-      if (pausedBySolvency) {
-        await deps.db.setWagerStatus(false, null);
-        deps.log.info('wager_solvency_recovered', {
-          treasury: treasury.lamports.toString(),
-          required: required.toString(),
-        });
-        if (deps.opsChatId !== null) {
-          deps.poster.post(deps.opsChatId, copy.opsSolvencyRecovered());
-        }
+    const openMarkets = await deps.db.openWagerMarkets();
+    for (const asset of WAGER_ASSETS) {
+      const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet', asset);
+      const treasury = await deps.chain.treasuryBalance(asset);
+      if (!treasury.ok) {
+        // An RPC blip is not insolvency — never move the breaker on ignorance.
+        deps.log.warn('wager_solvency_balance_failed', { asset });
+        continue;
       }
-      return;
-    }
+      const ledgerTotal = await deps.db.totalLedgerLamports(asset);
+      let escrowed = 0n;
+      for (const market of openMarkets) {
+        if (market.currency !== asset) continue;
+        escrowed += escrowedLamports(await deps.db.positionsForMarket(market.id));
+      }
+      const feeBuffer = asset === 'sol' ? WAGER_TUNABLES.FEE_BUFFER_LAMPORTS : 0n;
+      const required = ledgerTotal + escrowed + feeBuffer;
+      const status = await deps.db.getWagerStatus(asset);
 
-    // Violated: pause first (stop the bleeding), then alert ops for a manual
-    // faucet top-up. No automatic airdrop — the broker never fronts money.
-    await deps.db.setWagerStatus(
-      true,
-      `${SOLVENCY_PAUSE_REASON_PREFIX} treasury ${treasury.lamports} < required ${required}`,
-    );
-    deps.log.error('wager_insolvent', {
-      treasury: treasury.lamports.toString(),
-      ledgerTotal: ledgerTotal.toString(),
-      escrowed: escrowed.toString(),
-      required: required.toString(),
-    });
-    if (deps.opsChatId !== null) {
-      deps.poster.post(deps.opsChatId, copy.opsSolvencyAlert(treasury.lamports, required));
+      if (treasury.amountAtomic >= required) {
+        const pausedBySolvency =
+          status.paused && (status.reason ?? '').startsWith(SOLVENCY_PAUSE_REASON_PREFIX);
+        if (pausedBySolvency) {
+          await deps.db.setWagerStatus(asset, false, null);
+          deps.log.info('wager_solvency_recovered', {
+            asset,
+            treasury: treasury.amountAtomic.toString(),
+            required: required.toString(),
+          });
+          if (deps.opsChatId !== null) {
+            deps.poster.post(deps.opsChatId, copy.opsSolvencyRecovered());
+          }
+        }
+        continue;
+      }
+
+      // Violated: pause the affected asset, then alert ops for a manual top-up.
+      await deps.db.setWagerStatus(
+        asset,
+        true,
+        `${SOLVENCY_PAUSE_REASON_PREFIX} treasury ${treasury.amountAtomic} < required ${required}`,
+      );
+      deps.log.error('wager_insolvent', {
+        asset,
+        treasury: treasury.amountAtomic.toString(),
+        ledgerTotal: ledgerTotal.toString(),
+        escrowed: escrowed.toString(),
+        required: required.toString(),
+      });
+      if (deps.opsChatId !== null) {
+        deps.poster.post(deps.opsChatId, copy.opsSolvencyAlert(treasury.amountAtomic, required));
+      }
     }
   }
 

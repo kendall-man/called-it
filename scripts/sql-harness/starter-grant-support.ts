@@ -188,7 +188,7 @@ export async function assertNoWriteCode(client: Client, scenario: { readonly cod
   const before = await stateSnapshot(client, fixture);
   assert.deepEqual(await stake(client, fixture, `no-write-${fixtureOffset}`, scenario.starterOnly ?? true), { ok: false, code: scenario.code });
   assert.deepEqual(await stateSnapshot(client, fixture), before);
-  await client.query('update wager_status set paused = false, reason = null where id = 1');
+  await client.query("update wager_asset_status set paused = false, reason = null where asset = 'sol'");
 }
 
 export async function assertNoWriteStateCode(client: Client, state: DirectStakeState): Promise<void> {

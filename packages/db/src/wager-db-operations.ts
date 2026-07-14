@@ -4,13 +4,12 @@ import {
   nowIso,
   OPEN_MARKET_STATUSES,
   RESIGNABLE_WITHDRAWAL_STATES,
-  WAGER_STATUS_ROW_ID,
   withdrawalFromRaw,
 } from './wager-db-core.js';
 import type { WagerDb, WagerDbClient } from './wager-db-contract.js';
 import {
   manyRows,
-  parseIdRow,
+  parseIdCurrencyRow,
   parseWithdrawalRow,
 } from './wager-db-row-parsers.js';
 import {
@@ -19,6 +18,7 @@ import {
 } from './wager-db-settlement.js';
 import { wagerStatusReaderDbMethods } from './wager-db-status.js';
 import type { WagerWithdrawalState } from './wager-types.js';
+import type { WagerAsset } from '@calledit/market-engine';
 
 type OperationsDb = Pick<
   WagerDb,
@@ -27,13 +27,16 @@ type OperationsDb = Pick<
   | 'markWithdrawalConfirmed'
   | 'markWithdrawalFailed'
   | 'getMarketProbability'
+  | 'getMarketAsset'
   | 'getSettlementOutcome'
   | 'hasSettlementApplied'
   | 'insertSettlementApplied'
+  | 'settledWagerMarketsMissingApplied'
   | 'settledSolMarketsMissingApplied'
   | 'settledFundedReplayMarketsMissingApplied'
   | 'getWagerStatus'
   | 'setWagerStatus'
+  | 'openWagerMarkets'
   | 'openSolMarketIds'
 >;
 
@@ -92,29 +95,44 @@ export function operationsDbMethods(client: WagerDbClient): OperationsDb {
       );
     },
 
-    async setWagerStatus(paused, reason) {
+    async setWagerStatus(
+      assetOrPaused: WagerAsset | boolean,
+      pausedOrReason: boolean | string | null,
+      maybeReason?: string | null,
+    ) {
+      const asset = typeof assetOrPaused === 'string' ? assetOrPaused : 'sol';
+      const paused = typeof assetOrPaused === 'boolean' ? assetOrPaused : pausedOrReason as boolean;
+      const reason = typeof assetOrPaused === 'boolean'
+        ? pausedOrReason as string | null
+        : maybeReason ?? null;
       assertOk(
         'setWagerStatus',
         await client
-          .from('wager_status')
+          .from('wager_asset_status')
           .update({ paused, reason, updated_at: nowIso() })
-          .eq('id', WAGER_STATUS_ROW_ID),
+          .eq('asset', asset),
       );
     },
 
     // ── solvency support ───────────────────────────────────────────────────
 
-    async openSolMarketIds() {
+    async openWagerMarkets() {
       const rows = await manyRows(
-        'openSolMarketIds',
+        'openWagerMarkets',
         client
           .from('markets')
-          .select('id')
-          .eq('currency', 'sol')
+          .select('id,currency')
+          .in('currency', ['sol', 'usdc'])
           .in('status', [...OPEN_MARKET_STATUSES]),
-        parseIdRow,
+        parseIdCurrencyRow,
       );
-      return rows.map((row) => row.id);
+      return rows;
+    },
+
+    async openSolMarketIds() {
+      return (await this.openWagerMarkets())
+        .filter((market) => market.currency === 'sol')
+        .map((market) => market.id);
     },
 
   };

@@ -106,8 +106,10 @@ export async function composeClaimCard(
   const identities = participantSides(participants, market);
   const { back, doubt } = tally(nonVoid);
   const pots = computePots(nonVoid, market.quote_probability);
-  const footer = deps.wager?.cardFooter();
+  const currency = market.currency === 'usdc' ? 'usdc' : 'sol';
+  const footer = deps.wager?.cardFooter(currency);
   const text = claimCardText({
+    currency,
     quotedText: claim.quoted_text,
     claimerName: claimer?.display_name ?? 'the claimer',
     spec: market.spec,

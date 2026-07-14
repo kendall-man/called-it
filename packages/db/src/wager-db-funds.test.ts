@@ -180,14 +180,18 @@ describe('settlement applied marker', () => {
 });
 
 describe('circuit breaker', () => {
-  it('reads and flips the persisted wager_status row', async () => {
+  it('reads and flips the persisted per-asset status row', async () => {
     const { db, fake } = makeHarness();
-    fake.seed('wager_status', [{ id: 1, paused: false, reason: null, updated_at: NOW_ISO }]);
+    fake.seed('wager_asset_status', [
+      { asset: 'sol', paused: false, reason: null, updated_at: NOW_ISO },
+      { asset: 'usdc', paused: false, reason: null, updated_at: NOW_ISO },
+    ]);
     expect((await db.getWagerStatus()).paused).toBe(false);
     await db.setWagerStatus(true, 'solvency invariant violated');
     const status = await db.getWagerStatus();
     expect(status.paused).toBe(true);
     expect(status.reason).toBe('solvency invariant violated');
+    expect((await db.getWagerStatus('usdc')).paused).toBe(false);
   });
 
   it('fails loud when the breaker row is missing', async () => {

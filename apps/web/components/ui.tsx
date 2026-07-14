@@ -110,8 +110,8 @@ export function PageShell({
       <footer className="mt-10 space-y-1 text-center text-xs text-fog/80">
         <p>
           {mainnet
-            ? 'SOL positions settle on Solana mainnet.'
-            : 'Played in devnet SOL — test tokens, not real money.'}
+            ? 'SOL and USDC positions settle on Solana mainnet.'
+            : 'Played in devnet SOL or USDC — test tokens, not real money.'}
         </p>
         <p>Match data by TxLINE · proofs on Solana {mainnet ? 'mainnet' : 'devnet'}.</p>
       </footer>

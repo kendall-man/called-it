@@ -271,8 +271,9 @@ async function handleDecline(h: HandlerCtx, ctx: Context, claimId: string): Prom
 async function refreshStakeCard(h: HandlerCtx, chatId: number, marketId: string): Promise<void> {
   const fresh = await h.deps.db.getMarket(marketId);
   if (fresh && fresh.card_tg_message_id !== null) {
+    const currency = fresh.currency === 'usdc' ? 'usdc' : 'sol';
     const positionsAvailable = fresh.is_replay
-      || (h.deps.wager !== null && await h.deps.wager.stakesAvailable());
+      || (h.deps.wager !== null && await h.deps.wager.stakesAvailable(currency));
     const card = await composeClaimCard(h.deps, fresh, { positionsAvailable });
     if (card && card.messageId !== null) {
       h.poster.editCard(
@@ -362,15 +363,19 @@ async function handleStake(
     return;
   }
   const market: MarketRow | null = await h.deps.db.getMarket(action.marketId);
-  if (!market || market.group_id !== chatId || market.currency !== 'sol') {
+  if (
+    !market || market.group_id !== chatId
+    || (market.currency !== 'sol' && market.currency !== 'usdc')
+  ) {
     await stale(h, ctx);
     return;
   }
+  const wagerMarket = { ...market, currency: market.currency };
   if (market.status !== 'open' && market.status !== 'pending_lineup') {
     await answer(ctx, `${statusLine(market.status)}.`);
     return;
   }
-  const lamports = wager.presetLamports(action.presetIndex);
+  const lamports = wager.presetLamports(action.presetIndex, market.currency);
   if (lamports === null) {
     await stale(h, ctx);
     return;
@@ -394,16 +399,16 @@ async function handleStake(
     return;
   }
   await ensureUserSeen(h, chatId, from);
-  const fundedMainnetReplay = market.is_replay
-    && h.deps.env.SOLANA_NETWORK === 'mainnet-beta'
-    && wager.kind === 'funded';
-  if (market.is_replay && !fundedMainnetReplay) {
+  const fundedReplay = market.is_replay
+    && wager.kind === 'funded'
+    && h.deps.env.SOLANA_NETWORK === 'mainnet-beta';
+  if (market.is_replay && !fundedReplay) {
     await handleReplayStake(h, ctx, market, from.id, action.side, lamports, inPlay);
     return;
   }
   if (h.deps.env.SOLANA_NETWORK === 'mainnet-beta' && wager.kind === 'funded') {
     const prepared = await wager.prepareStakeConfirmation({
-      market,
+      market: wagerMarket,
       userId: from.id,
       userName: displayName(from),
       side: action.side,
@@ -414,13 +419,15 @@ async function handleStake(
     });
     if (!prepared.ok) {
       await answer(ctx, prepared.reply);
-      if (!(await wager.stakesAvailable())) await refreshStakeCard(h, chatId, market.id);
+      if (!(await wager.stakesAvailable(market.currency))) {
+        await refreshStakeCard(h, chatId, market.id);
+      }
       return;
     }
     const multiplier = action.side === 'back'
       ? market.quote_multiplier
       : wagerDoubtMultiplier(market.quote_probability);
-    const copy = createWagerCopy('mainnet-beta');
+    const copy = createWagerCopy('mainnet-beta', market.currency);
     const sourceMessageId = callbackMessageId(ctx);
     h.poster.post(chatId, copy.confirmationPrompt(
       displayName(from),
@@ -436,7 +443,7 @@ async function handleStake(
     return;
   }
   const result = await wager.handleStakeTap({
-    market,
+    market: wagerMarket,
     userId: from.id,
     userName: displayName(from),
     side: action.side,
@@ -444,13 +451,14 @@ async function handleStake(
     inPlay,
     nowMs: h.deps.now(),
     source:
-      lamports === WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0] &&
+      market.currency === 'sol'
+      && lamports === WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0] &&
       h.deps.env.STARTER_GRANTS_ENABLED && h.deps.env.STAKE_ACCEPTANCE_ENABLED
         ? { kind: 'telegram_default_card', callbackId }
         : { kind: 'telegram_card', callbackId },
   });
   await answer(ctx, result.reply);
-  if (result.placed || !(await wager.stakesAvailable())) {
+  if (result.placed || !(await wager.stakesAvailable(market.currency))) {
     await refreshStakeCard(h, chatId, market.id);
   }
 }
@@ -471,12 +479,12 @@ async function handleStakeConfirmation(
 ): Promise<void> {
   const from = ctx.from;
   const wager = h.deps.wager;
-  const copy = createWagerCopy(h.deps.env.SOLANA_NETWORK);
   if (!from || wager?.kind !== 'funded') {
     await stale(h, ctx);
     return;
   }
   const intent = await wager.getStakeConfirmation(from.id, intentId);
+  const copy = createWagerCopy(h.deps.env.SOLANA_NETWORK, intent?.asset ?? 'sol');
   if (intent === null || ctx.chat?.id !== intent.groupId) {
     await answer(ctx, copy.confirmationExpired());
     return;
@@ -490,7 +498,7 @@ async function handleStakeConfirmation(
   }
   const market = await h.deps.db.getMarket(intent.marketId);
   if (
-    market === null || market.group_id !== intent.groupId || market.currency !== 'sol'
+    market === null || market.group_id !== intent.groupId || market.currency !== intent.asset
     || (market.status !== 'open' && market.status !== 'pending_lineup')
   ) {
     await wager.cancelStakeConfirmation(from.id, intentId);
@@ -516,7 +524,7 @@ async function handleStakeConfirmation(
   await ensureUserSeen(h, intent.groupId, from);
   const result = await wager.confirmStakeConfirmation({
     intentId,
-    market,
+    market: { ...market, currency: intent.asset },
     userId: from.id,
     userName: displayName(from),
     side: intent.side,

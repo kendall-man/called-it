@@ -25,6 +25,11 @@ export async function applySettlement(
   options: WagerSettlementOptions = {},
 ): Promise<void> {
   if (await deps.db.hasSettlementApplied(marketId)) return;
+  const asset = await deps.db.getMarketAsset(marketId);
+  if (asset === null) {
+    deps.log.error('wager_settlement_no_asset', { marketId });
+    return;
+  }
   const outcome = await deps.db.getSettlementOutcome(marketId);
   if (outcome === null) return; // not settled yet — the sweeper will be back
 
@@ -68,6 +73,7 @@ export async function applySettlement(
       group_id: null,
       market_id: marketId,
       kind: 'refund',
+      asset,
       lamports: refund.lamports,
       idempotency_key: WAGER_KEYS.refund(refund.positionId),
     });
@@ -81,6 +87,7 @@ export async function applySettlement(
       group_id: null,
       market_id: marketId,
       kind: 'payout',
+      asset,
       lamports,
       idempotency_key: WAGER_KEYS.payout(marketId, userId),
     });
@@ -102,7 +109,9 @@ export async function settlementPayoutsLine(
   marketId: string,
   outcome: WagerSettlementOutcome,
 ): Promise<string> {
-  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet');
+  const asset = await deps.db.getMarketAsset(marketId);
+  if (asset === null) return createWagerCopy(deps.solanaNetwork ?? 'devnet').payoutsLineNone();
+  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet', asset);
   if (outcome === 'void') return copy.payoutsLineVoid();
   const probability = await deps.db.getMarketProbability(marketId);
   if (probability === null) return copy.payoutsLineNone();
@@ -131,7 +140,7 @@ export function createSettlementSweeper(deps: WagerSettlementDeps): SettlementSw
   return {
     async tick(): Promise<void> {
       try {
-        const marketIds = await deps.db.settledSolMarketsMissingApplied();
+        const marketIds = await deps.db.settledWagerMarketsMissingApplied();
         for (const marketId of marketIds) {
           deps.log.info('wager_settlement_sweep', { marketId });
           await applySettlement(deps, marketId);

@@ -32,7 +32,14 @@ describe('private wallet account summary', () => {
       store,
     )).resolves.toEqual({
       status: 200,
-      body: { availableLamports: '25000000', lockedLamports: '10000000' },
+      body: {
+        balances: {
+          sol: { availableAtomic: '25000000', lockedAtomic: '10000000' },
+          usdc: { availableAtomic: '0', lockedAtomic: '0' },
+        },
+        availableLamports: '25000000',
+        lockedLamports: '10000000',
+      },
     });
   });
 

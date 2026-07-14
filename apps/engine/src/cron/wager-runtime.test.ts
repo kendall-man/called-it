@@ -73,6 +73,7 @@ describe('wager runtime cron boundary', () => {
       [
         WAGER_TUNABLES.SETTLEMENT_SWEEP_MS,
         WAGER_TUNABLES.DEPOSIT_POLL_MS,
+        WAGER_TUNABLES.DEPOSIT_POLL_MS,
         WAGER_TUNABLES.OUTBOX_TICK_MS,
         WAGER_TUNABLES.SOLVENCY_POLL_MS,
       ].sort((left, right) => left - right),

@@ -70,9 +70,12 @@ async function invoke(
 }
 
 describe('module surface', () => {
-  it('currencyForMint is always sol (SOL-only product)', async () => {
-    const { deps } = makeFakeDeps();
-    expect(await createWagerModule(deps).currencyForMint(GROUP)).toBe('sol');
+  it('uses the group default asset only for new calls', async () => {
+    const { deps, db } = makeFakeDeps();
+    const module = createWagerModule(deps);
+    expect(await module.currencyForMint(GROUP)).toBe('sol');
+    await db.setGroupDefaultAsset(GROUP, 'usdc');
+    expect(await module.currencyForMint(GROUP)).toBe('usdc');
   });
 
   it('reports stake availability from rollout and persisted breaker state', async () => {
@@ -131,12 +134,19 @@ describe('module surface', () => {
     expect(createWagerModule(deps).presetLabels()).toEqual(['0.01 SOL', '0.05 SOL', '0.1 SOL']);
   });
 
+  it('renders and maps the three USDC presets in six-decimal atomic units', () => {
+    const { deps } = makeFakeDeps();
+    const module = createWagerModule(deps);
+    expect(module.presetLabels('usdc')).toEqual(['1 USDC', '5 USDC', '10 USDC']);
+    expect(module.presetLamports(1, 'usdc')).toBe(5_000_000n);
+  });
+
   it('cardFooter is the copy-bank line', () => {
     const { deps } = makeFakeDeps();
     expect(createWagerModule(deps).cardFooter()).toBe(WAGER_COPY.cardFooter());
   });
 
-  it('funded recovery and workers register the four wager loops at their tunable cadences', () => {
+  it('funded recovery and workers register both deposit watchers and the other wager loops', () => {
     const { deps } = makeFakeDeps();
     const registered: number[] = [];
     const module = createWagerModule(deps);
@@ -150,6 +160,7 @@ describe('module surface', () => {
     expect(registered.sort((a, b) => a - b)).toEqual(
       [
         WAGER_TUNABLES.OUTBOX_TICK_MS,
+        WAGER_TUNABLES.DEPOSIT_POLL_MS,
         WAGER_TUNABLES.DEPOSIT_POLL_MS,
         WAGER_TUNABLES.SETTLEMENT_SWEEP_MS,
         WAGER_TUNABLES.SOLVENCY_POLL_MS,
@@ -331,6 +342,18 @@ describe('/deposit command', () => {
     expect(ctx.replies[0]).toContain('DEVNET ONLY');
     expect(db.links.get(USER)?.last_wager_group_id).toBe(GROUP);
   });
+
+  it('rejects an unknown asset instead of silently treating it as SOL', async () => {
+    const { deps, chain } = makeFakeDeps();
+    const bot = fakeBot();
+    createWagerModule(deps).registerCommands(bot);
+    const ctx = groupCtx('bitcoin');
+
+    await invoke(bot, 'deposit', ctx);
+
+    expect(ctx.replies).toEqual(['Usage: /deposit <sol|usdc>']);
+    expect(ctx.replies[0]).not.toContain(chain.treasuryPubkey());
+  });
 });
 
 describe('/withdraw command', () => {
@@ -360,6 +383,7 @@ describe('/withdraw command', () => {
     // Then the request log retains domain diagnostics without Telegram identity
     expect(infoEvents.find(({ event }) => event === 'wager_withdrawal_requested')?.fields).toEqual({
       withdrawalId: expect.any(String),
+      asset: 'sol',
       lamports: '50000000',
     });
   });

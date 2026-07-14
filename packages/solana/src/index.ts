@@ -62,6 +62,7 @@ export {
 export {
   DEPOSIT_COMMITMENT,
   fetchIncomingTransfers,
+  fetchIncomingTokenTransfers,
   PARSED_TX_BATCH_SIZE,
   SIGNATURE_PAGE_LIMIT,
   type DepositScanRpc,
@@ -72,6 +73,17 @@ export {
   type ParsedTransactionLike,
   type SignatureInfoLike,
 } from './deposits.js';
+export {
+  buildUsdcTransfer,
+  getUsdcBalance,
+  usdcAssociatedTokenAddress,
+  usdcMintAddress,
+  USDC_DECIMALS,
+  USDC_MINTS,
+  type BuildUsdcTransferParams,
+  type BuildUsdcTransferResult,
+  type SupportedSolanaNetwork,
+} from './usdc.js';
 export { isRateLimitError, withRetry, type WithRetryOptions } from './rpc.js';
 
 // Re-exported web3.js essentials so repo-root scripts (which have no direct

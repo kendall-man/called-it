@@ -1,4 +1,5 @@
 import type { ServerResponse } from 'node:http';
+import { formatAtomicAmount, isWagerAsset } from '@calledit/market-engine';
 import type { Deps, MarketRow } from '../ports.js';
 import { describeTerms } from '../bot/cards.js';
 import { computePots } from '../wager/pot.js';
@@ -10,10 +11,13 @@ async function marketSummary(deps: Deps, market: MarketRow, webBaseUrl?: string)
   const positions = await deps.db.positionsForMarket(market.id);
   const live = positions.filter((position) => position.state !== 'void');
   const pots = computePots(live, market.quote_probability);
+  const formatAmount = (amount: bigint): string => isWagerAsset(market.currency)
+    ? formatAtomicAmount(amount, market.currency)
+    : amount.toString();
   return {
     marketId: market.id,
     terms: describeTerms(market.spec),
-    currency: 'sol',
+    currency: market.currency,
     status: market.status,
     fixtureId: market.fixture_id,
     isReplay: market.is_replay,
@@ -23,8 +27,16 @@ async function marketSummary(deps: Deps, market: MarketRow, webBaseUrl?: string)
     doubters: live.filter((position) => position.side === 'doubt').length,
     forLamports: pots.forLamports.toString(),
     againstLamports: pots.againstLamports.toString(),
-    forSol: formatSol(pots.forLamports),
-    againstSol: formatSol(pots.againstLamports),
+    forAtomic: pots.forLamports.toString(),
+    againstAtomic: pots.againstLamports.toString(),
+    forAmount: formatAmount(pots.forLamports),
+    againstAmount: formatAmount(pots.againstLamports),
+    ...(market.currency === 'sol'
+      ? {
+          forSol: formatSol(pots.forLamports),
+          againstSol: formatSol(pots.againstLamports),
+        }
+      : {}),
     matchedPct: pots.matchedPct,
     ...(webBaseUrl ? { receiptUrl: `${webBaseUrl}/r/${market.id}` } : {}),
   };
@@ -70,10 +82,11 @@ export async function handleWallet(
     default:
       throw new TypeError(`unsupported wager module: ${JSON.stringify(wager)}`);
   }
-  const { balanceLamports, lockedLamports, pubkey } = await wager.walletSummary(userId);
+  const { balances, balanceLamports, lockedLamports, pubkey } = await wager.walletSummary(userId);
   const open = await deps.db.openMarketsForGroup(chatId);
   const positions: Array<Record<string, unknown>> = [];
   for (const market of open) {
+    if (!isWagerAsset(market.currency)) continue;
     const mine = (await deps.db.positionsForMarket(market.id)).filter(
       (position) => position.user_id === userId && position.state !== 'void',
     );
@@ -83,8 +96,11 @@ export async function handleWallet(
         marketId: market.id,
         terms: describeTerms(market.spec),
         side: position.side,
+        asset: market.currency,
+        stakeAtomic: stakeLamports.toString(),
+        stakeAmount: formatAtomicAmount(stakeLamports, market.currency),
         stakeLamports: stakeLamports.toString(),
-        stakeSol: formatSol(stakeLamports),
+        ...(market.currency === 'sol' ? { stakeSol: formatSol(stakeLamports) } : {}),
         state: position.state,
       });
     }
@@ -94,6 +110,20 @@ export async function handleWallet(
     balanceLamports: balanceLamports.toString(),
     lockedLamports: lockedLamports.toString(),
     balanceSol: formatSol(balanceLamports),
+    balances: {
+      sol: {
+        availableAtomic: balances.sol.availableAtomic.toString(),
+        lockedAtomic: balances.sol.lockedAtomic.toString(),
+        availableAmount: formatAtomicAmount(balances.sol.availableAtomic, 'sol'),
+        lockedAmount: formatAtomicAmount(balances.sol.lockedAtomic, 'sol'),
+      },
+      usdc: {
+        availableAtomic: balances.usdc.availableAtomic.toString(),
+        lockedAtomic: balances.usdc.lockedAtomic.toString(),
+        availableAmount: formatAtomicAmount(balances.usdc.availableAtomic, 'usdc'),
+        lockedAmount: formatAtomicAmount(balances.usdc.lockedAtomic, 'usdc'),
+      },
+    },
     positions,
   });
 }
