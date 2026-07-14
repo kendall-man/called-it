@@ -247,10 +247,15 @@ export class Settler {
     // applySettlement is idempotent (per-position/per-user keys plus the
     // wager_settlements_applied marker); if the module is somehow off, the
     // wager sweeper re-applies it once re-enabled.
-    if (market.is_replay) {
-      // Replay positions never touch the starter or payout ledgers.
+    const fundedMainnetReplay = market.is_replay
+      && this.deps.env?.SOLANA_NETWORK === 'mainnet-beta';
+    if (market.is_replay && !fundedMainnetReplay) {
+      // Devnet test matches remain ledger-free.
     } else if (this.deps.wager) {
-      await this.deps.wager.applySettlement(market.id);
+      await this.deps.wager.applySettlement(
+        market.id,
+        fundedMainnetReplay ? { requireFullyBacked: true } : undefined,
+      );
     } else {
       this.deps.log.warn('wager_settlement_deferred', { marketId: market.id, outcome });
     }
@@ -286,8 +291,7 @@ export class Settler {
     const receipt = await prepareGroupPointsReceipt(
       this.points,
       { deps: this.deps, market, outcome, voidReason, say: this.say },
-      // Keep test-SOL settlement phrasing in the wager-owned path.
-      () => market.is_replay
+      () => market.is_replay && this.deps.env?.SOLANA_NETWORK !== 'mainnet-beta'
         ? Promise.resolve('Test round - no starter position or test SOL moved.')
         : this.solPayoutsLine(market.id, outcome),
     );

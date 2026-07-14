@@ -166,7 +166,10 @@ export interface WagerModuleCore {
   /** The stake path shared by buttons and the API; reply is the answer text. */
   handleStakeTap(args: WagerStakeTapArgs): Promise<WagerStakeTapResult>;
   /** Idempotent money movement for a settled/voided sol market. */
-  applySettlement(marketId: string): Promise<void>;
+  applySettlement(
+    marketId: string,
+    options?: WagerSettlementOptions,
+  ): Promise<void>;
   /** Chat receipt line (SOL amounts are chat-only; public_receipts untouched). */
   settlementPayoutsLine(marketId: string, outcome: WagerSettlementOutcome): Promise<string>;
   cardFooter(): string;
@@ -213,6 +216,11 @@ export interface WagerSettlementDeps {
   db: WagerSettlementDb;
   log: WagerLogger;
   solanaNetwork?: SolanaNetwork;
+}
+
+export interface WagerSettlementOptions {
+  /** Required for mainnet test matches so legacy free replay rows cannot receive SOL. */
+  readonly requireFullyBacked?: boolean;
 }
 
 interface WagerStakeFlags {

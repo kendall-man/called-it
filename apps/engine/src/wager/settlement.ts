@@ -10,12 +10,20 @@
 import { WAGER_KEYS } from './constants.js';
 import { createWagerCopy } from './copy.js';
 import { settlementCredits } from './pot.js';
-import type { WagerSettlementDeps, WagerSettlementOutcome } from './port.js';
+import type {
+  WagerSettlementDeps,
+  WagerSettlementOptions,
+  WagerSettlementOutcome,
+} from './port.js';
 import { participantLabel } from '../points/presentation.js';
 
 const PAYOUT_IDENTITY_LIMIT = 5;
 
-export async function applySettlement(deps: WagerSettlementDeps, marketId: string): Promise<void> {
+export async function applySettlement(
+  deps: WagerSettlementDeps,
+  marketId: string,
+  options: WagerSettlementOptions = {},
+): Promise<void> {
   if (await deps.db.hasSettlementApplied(marketId)) return;
   const outcome = await deps.db.getSettlementOutcome(marketId);
   if (outcome === null) return; // not settled yet — the sweeper will be back
@@ -28,6 +36,24 @@ export async function applySettlement(deps: WagerSettlementDeps, marketId: strin
   }
 
   const positions = await deps.db.positionsForMarket(marketId);
+  if (options.requireFullyBacked) {
+    const stakeDebitedLamportsForMarket = deps.db.stakeDebitedLamportsForMarket;
+    const positionLamports = positions.reduce(
+      (sum, position) => sum + BigInt(position.stake),
+      0n,
+    );
+    const debitedLamports = stakeDebitedLamportsForMarket === undefined
+      ? 0n
+      : await stakeDebitedLamportsForMarket.call(deps.db, marketId);
+    if (debitedLamports !== positionLamports) {
+      deps.log.error('wager_settlement_unbacked_positions', {
+        marketId,
+        positionLamports: positionLamports.toString(),
+        debitedLamports: debitedLamports.toString(),
+      });
+      return;
+    }
+  }
   const { refunds, payouts, voidedPendingIds, pots } = settlementCredits(
     positions,
     outcome,
@@ -109,6 +135,11 @@ export function createSettlementSweeper(deps: WagerSettlementDeps): SettlementSw
         for (const marketId of marketIds) {
           deps.log.info('wager_settlement_sweep', { marketId });
           await applySettlement(deps, marketId);
+        }
+        const replayMarketIds = await deps.db.settledFundedReplayMarketsMissingApplied?.() ?? [];
+        for (const marketId of replayMarketIds) {
+          deps.log.info('wager_replay_settlement_sweep', { marketId });
+          await applySettlement(deps, marketId, { requireFullyBacked: true });
         }
       } catch {
         deps.log.error('wager_settlement_sweeper_failed');

@@ -394,7 +394,10 @@ async function handleStake(
     return;
   }
   await ensureUserSeen(h, chatId, from);
-  if (market.is_replay) {
+  const fundedMainnetReplay = market.is_replay
+    && h.deps.env.SOLANA_NETWORK === 'mainnet-beta'
+    && wager.kind === 'funded';
+  if (market.is_replay && !fundedMainnetReplay) {
     await handleReplayStake(h, ctx, market, from.id, action.side, lamports, inPlay);
     return;
   }
@@ -496,7 +499,12 @@ async function handleStakeConfirmation(
     await answer(ctx, expired);
     return;
   }
-  const fixture = await h.deps.db.getFixture(market.fixture_id);
+  const replayFixture = market.is_replay
+    ? h.supervisor.replaySnapshot(intent.groupId)
+    : null;
+  const fixture = replayFixture?.fixture_id === market.fixture_id
+    ? replayFixture
+    : await h.deps.db.getFixture(market.fixture_id);
   const inPlay = fixture !== null && fixture.phase !== 'NS';
   if (inPlay && fixture.minute !== null && fixture.minute >= TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE) {
     await wager.cancelStakeConfirmation(from.id, intentId);

@@ -26,6 +26,7 @@ type AccountDb = Pick<
   | 'getWalletLinkByPubkey'
   | 'setLastWagerGroup'
   | 'postWagerLedger'
+  | 'stakeDebitedLamportsForMarket'
   | 'balanceLamports'
   | 'totalLedgerLamports'
   | 'upsertDeposit'

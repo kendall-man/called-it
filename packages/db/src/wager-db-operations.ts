@@ -13,7 +13,10 @@ import {
   parseIdRow,
   parseWithdrawalRow,
 } from './wager-db-row-parsers.js';
-import { settlementDbMethods } from './wager-db-settlement.js';
+import {
+  fundedReplaySettlementDbMethods,
+  settlementDbMethods,
+} from './wager-db-settlement.js';
 import { wagerStatusReaderDbMethods } from './wager-db-status.js';
 import type { WagerWithdrawalState } from './wager-types.js';
 
@@ -28,6 +31,7 @@ type OperationsDb = Pick<
   | 'hasSettlementApplied'
   | 'insertSettlementApplied'
   | 'settledSolMarketsMissingApplied'
+  | 'settledFundedReplayMarketsMissingApplied'
   | 'getWagerStatus'
   | 'setWagerStatus'
   | 'openSolMarketIds'
@@ -36,6 +40,7 @@ type OperationsDb = Pick<
 export function operationsDbMethods(client: WagerDbClient): OperationsDb {
   return {
     ...settlementDbMethods(client),
+    ...fundedReplaySettlementDbMethods(client),
     ...wagerStatusReaderDbMethods(client),
 
     async withdrawalsInState(state) {

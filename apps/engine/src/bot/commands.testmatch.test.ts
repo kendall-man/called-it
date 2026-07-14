@@ -109,7 +109,8 @@ function makeHarness(options: {
         postOptions.push(postOption);
       },
     },
-    say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
+    say: async (key: Parameters<typeof renderFallback>[0], vars = {}) =>
+      renderFallback(key, vars, options.network ?? 'devnet'),
     supervisor: {
       hasActiveReplay: () => false,
       async startReplay(_groupId: number, fixture: FixtureRow) {
@@ -150,7 +151,8 @@ describe('/testmatch', () => {
     expect(harness.starts).toEqual([STANDARD_FINAL]);
     expect(harness.posts).toHaveLength(1);
     expect(harness.posts[0]).toContain('TEST MATCH: France vs Morocco');
-    expect(harness.posts[0]).toContain('Test results do not change real Points.');
+    expect(harness.posts[0]).toContain('Positions use real mainnet SOL and require confirmation.');
+    expect(harness.posts[0]).toContain('Test results do not change Points.');
     expect(harness.operations).toEqual([
       'upsert_group', 'upsert_user', 'membership', 'fixtures_between',
     ]);
@@ -164,7 +166,8 @@ describe('/testmatch', () => {
     expect(harness.starts).toEqual([STANDARD_FINAL]);
     expect(harness.posts).toHaveLength(1);
     expect(harness.posts[0]).toContain('TEST MATCH: France vs Morocco');
-    expect(harness.posts[0]).toContain('Test results do not change real Points.');
+    expect(harness.posts[0]).toContain('No test SOL moves');
+    expect(harness.posts[0]).toContain('test results do not change Points.');
     expect(harness.operations).toEqual([
       'upsert_group', 'upsert_user', 'membership', 'fixtures_between',
     ]);

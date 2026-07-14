@@ -112,4 +112,85 @@ describe('wager settlement recovery query', () => {
     // Then all settled SOL markets remain recoverable
     expect(marketIds).toEqual(['first-funded-market', 'second-funded-market']);
   });
+
+  it('selects only replay settlements that have real stake debits', async () => {
+    const fake = new FakeSupabase();
+    fake.seed('markets', [
+      {
+        id: 'legacy-free-replay',
+        group_id: ALLOWED_GROUP_ID,
+        currency: 'sol',
+        status: 'settled',
+        is_replay: true,
+      },
+      {
+        id: 'funded-replay',
+        group_id: ALLOWED_GROUP_ID,
+        currency: 'sol',
+        status: 'settled',
+        is_replay: true,
+      },
+    ]);
+    fake.seed('wager_ledger_entries', [{
+      id: 1,
+      user_id: 7001,
+      group_id: ALLOWED_GROUP_ID,
+      market_id: 'funded-replay',
+      kind: 'stake',
+      lamports: -10_000_000,
+      idempotency_key: 'wager:stake:funded-replay',
+    }]);
+    const db = wagerDbFromClient(fake);
+
+    const marketIds = await db.settledFundedReplayMarketsMissingApplied();
+
+    expect(marketIds).toEqual(['funded-replay']);
+  });
+
+  it('sums only stake debits for the requested market', async () => {
+    const fake = new FakeSupabase();
+    fake.seed('wager_ledger_entries', [
+      {
+        id: 1,
+        user_id: 7001,
+        group_id: ALLOWED_GROUP_ID,
+        market_id: 'funded-replay',
+        kind: 'stake',
+        lamports: -10_000_000,
+        idempotency_key: 'wager:stake:one',
+      },
+      {
+        id: 2,
+        user_id: 7002,
+        group_id: ALLOWED_GROUP_ID,
+        market_id: 'funded-replay',
+        kind: 'stake',
+        lamports: -20_000_000,
+        idempotency_key: 'wager:stake:two',
+      },
+      {
+        id: 3,
+        user_id: 7001,
+        group_id: null,
+        market_id: 'funded-replay',
+        kind: 'payout',
+        lamports: 30_000_000,
+        idempotency_key: 'wager:payout:one',
+      },
+      {
+        id: 4,
+        user_id: 7003,
+        group_id: ALLOWED_GROUP_ID,
+        market_id: 'other-market',
+        kind: 'stake',
+        lamports: -50_000_000,
+        idempotency_key: 'wager:stake:other',
+      },
+    ]);
+    const db = wagerDbFromClient(fake);
+
+    const debited = await db.stakeDebitedLamportsForMarket('funded-replay');
+
+    expect(debited).toBe(30_000_000n);
+  });
 });

@@ -122,6 +122,7 @@ export interface WagerDb {
   balanceLamports(userId: number): Promise<bigint>;
   totalLedgerLamports(): Promise<bigint>;
   postWagerLedger(entry: WagerLedgerEntry): Promise<{ inserted: boolean }>;
+  stakeDebitedLamportsForMarket(marketId: string): Promise<bigint>;
   wagerStake(args: WagerStakeInput): Promise<WagerStakeResult>;
   requestWithdrawal(args: { user_id: number; lamports: bigint }): Promise<WagerWithdrawResult>;
   upsertDeposit(row: {
@@ -147,6 +148,7 @@ export interface WagerDb {
   hasSettlementApplied(marketId: string): Promise<boolean>;
   insertSettlementApplied(marketId: string): Promise<void>;
   settledSolMarketsMissingApplied(): Promise<string[]>;
+  settledFundedReplayMarketsMissingApplied(): Promise<string[]>;
   openSolMarketIds(): Promise<string[]>;
   getWagerStatus(): Promise<WagerStatusRow>;
   setWagerStatus(paused: boolean, reason: string | null): Promise<void>;
@@ -172,6 +174,8 @@ type WagerSettlementReadDb = Pick<
 
 export interface WagerSettlementDb extends WagerSettlementReadDb {
   postWagerLedger(entry: WagerSettlementLedgerEntry): Promise<{ inserted: boolean }>;
+  stakeDebitedLamportsForMarket?: (marketId: string) => Promise<bigint>;
+  settledFundedReplayMarketsMissingApplied?: () => Promise<string[]>;
 }
 
 export interface StarterOnlyWagerDb extends WagerSettlementDb {

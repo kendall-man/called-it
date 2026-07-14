@@ -25,7 +25,7 @@ export function createWagerModuleCore(deps: WagerStakeDeps): WagerModuleCore {
 
     handleStakeTap: (args) => handleStakeTap(deps, args),
 
-    applySettlement: (marketId) => applySettlement(deps, marketId),
+    applySettlement: (marketId, options) => applySettlement(deps, marketId, options),
 
     settlementPayoutsLine: (marketId, outcome) => settlementPayoutsLine(deps, marketId, outcome),
 

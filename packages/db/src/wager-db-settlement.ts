@@ -18,6 +18,7 @@ type SettlementDb = Pick<
   | 'insertSettlementApplied'
   | 'settledSolMarketsMissingApplied'
 >;
+type FundedReplaySettlementDb = Pick<WagerDb, 'settledFundedReplayMarketsMissingApplied'>;
 
 export function settlementDbMethods(
   client: WagerDbClient,
@@ -92,6 +93,46 @@ export function settlementDbMethods(
       );
       const appliedIds = new Set(applied.map((row) => row.market_id));
       return ids.filter((id) => !appliedIds.has(id));
+    },
+
+  };
+}
+
+export function fundedReplaySettlementDbMethods(
+  client: WagerDbClient,
+): FundedReplaySettlementDb {
+  return {
+    async settledFundedReplayMarketsMissingApplied() {
+      const settled = await manyRows(
+        'settledFundedReplayMarketsMissingApplied.markets',
+        client
+          .from('markets')
+          .select('id')
+          .eq('currency', 'sol')
+          .eq('is_replay', true)
+          .in('status', [...SETTLED_MARKET_STATUSES]),
+        parseIdRow,
+      );
+      if (settled.length === 0) return [];
+      const settledIds = settled.map((row) => row.id);
+      const stakeRows = await manyRows(
+        'settledFundedReplayMarketsMissingApplied.stakes',
+        client
+          .from('wager_ledger_entries')
+          .select('market_id')
+          .in('market_id', settledIds)
+          .eq('kind', 'stake'),
+        parseMarketIdRow,
+      );
+      const fundedIds = [...new Set(stakeRows.map((row) => row.market_id))];
+      if (fundedIds.length === 0) return [];
+      const applied = await manyRows(
+        'settledFundedReplayMarketsMissingApplied.applied',
+        client.from('wager_settlements_applied').select('market_id').in('market_id', fundedIds),
+        parseMarketIdRow,
+      );
+      const appliedIds = new Set(applied.map((row) => row.market_id));
+      return fundedIds.filter((id) => !appliedIds.has(id));
     },
   };
 }

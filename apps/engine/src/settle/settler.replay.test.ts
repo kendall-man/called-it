@@ -173,7 +173,7 @@ describe('Settler replay isolation', () => {
     expect(settlements).toBe(1);
   });
 
-  it('settles replay positions without touching the starter or payout ledger', async () => {
+  it('keeps devnet replay settlement out of the starter and payout ledgers', async () => {
     // Given a replay market whose next historical event decides the call
     const target = market();
     let wagerSettlements = 0;
@@ -216,7 +216,7 @@ describe('Settler replay isolation', () => {
       wager: {
         applySettlement: async () => { wagerSettlements += 1; },
       },
-      env: { WEB_BASE_URL: 'https://calledit.example' },
+      env: { WEB_BASE_URL: 'https://calledit.example', SOLANA_NETWORK: 'devnet' },
       log: { info() {}, warn() {}, error() {}, child() { return this; } },
     } as unknown as Deps;
     const settler = new Settler(
@@ -242,5 +242,81 @@ describe('Settler replay isolation', () => {
     expect(persisted).toEqual(['status', 'settlement']);
     expect(wagerSettlements).toBe(0);
     expect(receipts.join('\n')).toContain('Test round - no starter position or test SOL moved.');
+  });
+
+  it('applies mainnet replay settlement and renders the real SOL payout line', async () => {
+    const target = market();
+    const wagerSettlements: Array<{ marketId: string; requireFullyBacked: boolean | undefined }> = [];
+    const receipts: string[] = [];
+    const deps = {
+      db: {
+        openMarketsForFixture: async () => [target],
+        positionsForMarket: async () => [],
+        updateMarketStatus: async () => undefined,
+        insertSettlement: async () => undefined,
+        getClaim: async () => ({
+          id: target.claim_id,
+          group_id: GROUP_ID,
+          claimer_user_id: 700,
+          tg_message_id: 1,
+          quoted_text: 'France will beat Morocco',
+          status: 'confirmed',
+          classifier_confidence: 1,
+          parse: null,
+          expires_at: null,
+          created_at: target.created_at,
+        }),
+        getUser: async () => ({ id: 700, display_name: 'Alice', username: null }),
+        getMarket: async () => ({ ...target, status: 'settled' }),
+      },
+      engine: {
+        reduceMarket(state: MarketState) {
+          return {
+            state: { ...state, status: 'settled' as const },
+            effects: [{
+              kind: 'settle' as const,
+              outcome: 'claim_won' as const,
+              decidingSeq: EVENT.seq,
+              evidenceSeqs: [EVENT.seq],
+            }],
+          };
+        },
+      },
+      wager: {
+        applySettlement: async (
+          marketId: string,
+          options?: { requireFullyBacked?: boolean },
+        ) => {
+          wagerSettlements.push({
+            marketId,
+            requireFullyBacked: options?.requireFullyBacked,
+          });
+        },
+        settlementPayoutsLine: async () => 'Alice collects 0.02 SOL. (mainnet)',
+      },
+      env: { WEB_BASE_URL: 'https://calledit.example', SOLANA_NETWORK: 'mainnet-beta' },
+      log: { info() {}, warn() {}, error() {}, child() { return this; } },
+    } as unknown as Deps;
+    const settler = new Settler(
+      deps,
+      { post(_chatId: number, text: string) { receipts.push(text); } } as never,
+      async () => 'Settled.',
+      {
+        apply: async () => ({
+          eligible: false,
+          duplicate: false,
+          marketId: target.id,
+          groupId: GROUP_ID,
+          reason: 'replay',
+        }),
+      } as never,
+      null,
+    );
+
+    await settler.onReplayEvent(GROUP_ID, EVENT);
+
+    expect(wagerSettlements).toEqual([{ marketId: target.id, requireFullyBacked: true }]);
+    expect(receipts.join('\n')).toContain('Alice collects 0.02 SOL. (mainnet)');
+    expect(receipts.join('\n')).not.toContain('Test round');
   });
 });

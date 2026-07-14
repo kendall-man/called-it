@@ -161,10 +161,12 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   settings_updated: (vars) => `Done — ${value(vars, 'summary')}.`,
   table_header: (vars) => `THE TABLE — ${value(vars, 'groupTitle', 'this group')}`,
   slate_intro: (vars) => `Morning, legends — today's card: ${value(vars, 'fixtures', 'check back soon')}`,
-  replay_started: (vars) =>
-    `TEST MATCH: ${value(vars, 'fixture')} is replaying at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. Test results do not change real Points.`,
-  replay_finished: (vars) =>
-    `TEST MATCH FINISHED: ${value(vars, 'fixture')}. Test results did not change real Points.`,
+  replay_started: (vars) => isMainnet(vars)
+    ? `TEST MATCH: ${value(vars, 'fixture')} is replaying at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. Positions use real mainnet SOL and require confirmation. Test results do not change Points.`
+    : `TEST MATCH: ${value(vars, 'fixture')} is replaying at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. No test SOL moves and test results do not change Points.`,
+  replay_finished: (vars) => isMainnet(vars)
+    ? `TEST MATCH FINISHED: ${value(vars, 'fixture')}. Mainnet SOL positions were settled; Points did not change.`
+    : `TEST MATCH FINISHED: ${value(vars, 'fixture')}. No test SOL moved and Points did not change.`,
   replay_blocked_live: (vars) => {
     const call = value(vars, 'call');
     if (call.length === 0) return 'Not while live calls are open in here — let those settle first.';

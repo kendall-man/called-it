@@ -186,6 +186,36 @@ describe('handleStake - beta starter position', () => {
 });
 
 describe('handleStake - mainnet confirmation', () => {
+  it('confirms and debits a mainnet replay using the virtual match clock', async () => {
+    const harness = makeHarness({
+      marketRow: market({ is_replay: true }),
+      fixture: fixtureAt('F', 90),
+      replayFixture: fixtureAt('H1', 10),
+      link: true,
+      balanceLamports: 50_000_000n,
+      starterGrantsEnabled: false,
+      stakeAcceptanceEnabled: true,
+      solanaNetwork: 'mainnet-beta',
+    });
+    const first = stakeCtx(USER_A, 'mainnet-replay-first-tap');
+
+    await dispatchCallback(harness.h, first.ctx, stake('back', PRESET_01));
+
+    expect(harness.wagerDb.positions).toHaveLength(0);
+    expect(await harness.wagerDb.balanceLamports(USER_A)).toBe(50_000_000n);
+    expect(harness.wagerDb.pendingIntent?.state).toBe('ready');
+    const intentId = harness.wagerDb.pendingIntent?.id;
+    if (intentId === undefined) throw new Error('confirmation intent missing');
+
+    const confirmation = stakeCtx(USER_A, 'mainnet-replay-confirm-tap');
+    await dispatchCallback(harness.h, confirmation.ctx, { t: 'stake_confirm', intentId });
+
+    expect(harness.wagerDb.pendingIntent?.state).toBe('consumed');
+    expect(harness.wagerDb.positions).toHaveLength(1);
+    expect(await harness.wagerDb.balanceLamports(USER_A)).toBe(40_000_000n);
+    expect(confirmation.toasts.at(-1)).toContain('(mainnet)');
+  });
+
   it('moves no SOL on the first tap and debits once only after the owner confirms', async () => {
     const harness = makeHarness({
       link: true,

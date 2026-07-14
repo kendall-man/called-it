@@ -11,6 +11,55 @@ import { makeFakeDeps } from './fakes.js';
 const EVEN = 0.5;
 
 describe('applySettlement — peer-matched', () => {
+  it('refuses to credit a replay position that has no matching stake debit', async () => {
+    const errors: Array<{ event: string; fields?: Record<string, unknown> }> = [];
+    const { deps, db } = makeFakeDeps({
+      log: {
+        info() {},
+        warn() {},
+        error(event, fields) { errors.push({ event, fields }); },
+      },
+    });
+    db.settlements.set('legacy-replay', 'claim_won');
+    db.seedMarketProbability('legacy-replay', EVEN);
+    db.seedPosition({ market_id: 'legacy-replay', user_id: 1, side: 'back' });
+
+    await applySettlement(deps, 'legacy-replay', { requireFullyBacked: true });
+
+    expect(db.ledger.filter((entry) => entry.kind === 'payout' || entry.kind === 'refund'))
+      .toHaveLength(0);
+    expect(db.applied.has('legacy-replay')).toBe(false);
+    expect(errors).toContainEqual({
+      event: 'wager_settlement_unbacked_positions',
+      fields: {
+        marketId: 'legacy-replay',
+        positionLamports: '10000000',
+        debitedLamports: '0',
+      },
+    });
+  });
+
+  it('settles a replay after every position lamport is backed by a stake debit', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.settlements.set('funded-replay', 'claim_won');
+    db.seedMarketProbability('funded-replay', EVEN);
+    const winner = db.seedPosition({ market_id: 'funded-replay', user_id: 1, side: 'back' });
+    await db.postWagerLedger({
+      user_id: 1,
+      group_id: -100,
+      market_id: 'funded-replay',
+      kind: 'stake',
+      lamports: -10_000_000n,
+      idempotency_key: 'wager:stake:funded-replay',
+    });
+
+    await applySettlement(deps, 'funded-replay', { requireFullyBacked: true });
+
+    expect(db.ledgerByKey(WAGER_KEYS.payout('funded-replay', winner.user_id))?.lamports)
+      .toBe(10_000_000n);
+    expect(db.applied.has('funded-replay')).toBe(true);
+  });
+
   it('pays the winner stake + matched losing pot, refunds pending, voids pending, stamps marker', async () => {
     const { deps, db } = makeFakeDeps();
     db.settlements.set('m1', 'claim_won');
@@ -263,5 +312,26 @@ describe('settlement sweeper', () => {
     const after = db.ledger.length;
     await sweeper.tick();
     expect(db.ledger.length).toBe(after);
+  });
+
+  it('recovers funded replay settlements with backing validation', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.settlements.set('funded-replay', 'claim_won');
+    db.seedMarketProbability('funded-replay', EVEN);
+    const winner = db.seedPosition({ market_id: 'funded-replay', user_id: 1, side: 'back' });
+    await db.postWagerLedger({
+      user_id: 1,
+      group_id: -100,
+      market_id: 'funded-replay',
+      kind: 'stake',
+      lamports: -10_000_000n,
+      idempotency_key: 'wager:stake:funded-replay',
+    });
+    db.fundedReplayMarkets.push('funded-replay');
+
+    await createSettlementSweeper(deps).tick();
+
+    expect(db.ledgerByKey(WAGER_KEYS.payout('funded-replay', winner.user_id))).toBeDefined();
+    expect(db.applied.has('funded-replay')).toBe(true);
   });
 });

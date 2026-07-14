@@ -1,10 +1,10 @@
 import { DbError } from './errors.js';
 import type { StarterOnlyWagerDb, WagerDb, WagerDbClient } from './wager-db-contract.js';
-import { lamportsToDb } from './wager-db-core.js';
-import { manyRows, parseNumericIdRow } from './wager-db-row-parsers.js';
+import { lamportsFromDb, lamportsToDb } from './wager-db-core.js';
+import { manyRows, parseLamportsRow, parseNumericIdRow } from './wager-db-row-parsers.js';
 import type { WagerLedgerEntry } from './wager-types.js';
 
-type LedgerDb = Pick<WagerDb, 'postWagerLedger'>;
+type LedgerDb = Pick<WagerDb, 'postWagerLedger' | 'stakeDebitedLamportsForMarket'>;
 type SettlementLedgerDb = Pick<StarterOnlyWagerDb, 'postWagerLedger'>;
 
 async function insertLedgerEntry(
@@ -28,6 +28,21 @@ async function insertLedgerEntry(
 export function ledgerDbMethods(client: WagerDbClient): LedgerDb {
   return {
     postWagerLedger: (entry) => insertLedgerEntry(client, entry),
+    async stakeDebitedLamportsForMarket(marketId) {
+      const rows = await manyRows(
+        'stakeDebitedLamportsForMarket',
+        client
+          .from('wager_ledger_entries')
+          .select('lamports')
+          .eq('market_id', marketId)
+          .eq('kind', 'stake'),
+        parseLamportsRow,
+      );
+      return rows.reduce(
+        (sum, row) => sum - lamportsFromDb('stakeDebitedLamportsForMarket', row.lamports),
+        0n,
+      );
+    },
   };
 }
 

@@ -67,6 +67,7 @@ export interface WagerDb {
   setLastWagerGroup(userId: number, groupId: number): Promise<void>;
 
   postWagerLedger(entry: WagerLedgerEntry): Promise<{ inserted: boolean }>;
+  stakeDebitedLamportsForMarket(marketId: string): Promise<bigint>;
   balanceLamports(userId: number): Promise<bigint>;
   totalLedgerLamports(): Promise<bigint>;
 
@@ -87,6 +88,7 @@ export interface WagerDb {
   hasSettlementApplied(marketId: string): Promise<boolean>;
   insertSettlementApplied(marketId: string): Promise<void>;
   settledSolMarketsMissingApplied(): Promise<string[]>;
+  settledFundedReplayMarketsMissingApplied(): Promise<string[]>;
 
   getWagerStatus(): Promise<WagerStatusRow>;
   setWagerStatus(paused: boolean, reason: string | null): Promise<void>;

@@ -66,6 +66,7 @@ export class FakeWagerDb implements WagerDb {
   readonly settlements = new Map<string, WagerSettlementOutcome>();
   readonly marketProbabilities = new Map<string, number>();
   readonly applied = new Set<string>();
+  readonly fundedReplayMarkets: string[] = [];
   readonly groupsEnabled = new Map<number, boolean>();
   readonly cursors = new Map<string, string>();
   readonly users = new Map<number, string>();
@@ -204,6 +205,12 @@ export class FakeWagerDb implements WagerDb {
     this.ledgerKeys.add(entry.idempotency_key);
     this.ledger.push(entry);
     return { inserted: true };
+  }
+
+  async stakeDebitedLamportsForMarket(marketId: string): Promise<bigint> {
+    return this.ledger
+      .filter((entry) => entry.market_id === marketId && entry.kind === 'stake')
+      .reduce((sum, entry) => sum - entry.lamports, 0n);
   }
 
   async wagerStake(
@@ -366,6 +373,10 @@ export class FakeWagerDb implements WagerDb {
 
   async settledSolMarketsMissingApplied(): Promise<string[]> {
     return [...this.settlements.keys()].filter((marketId) => !this.applied.has(marketId));
+  }
+
+  async settledFundedReplayMarketsMissingApplied(): Promise<string[]> {
+    return this.fundedReplayMarkets.filter((marketId) => !this.applied.has(marketId));
   }
 
   async openSolMarketIds(): Promise<string[]> {
