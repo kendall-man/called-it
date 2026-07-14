@@ -1,6 +1,9 @@
 use anchor_lang::prelude::*;
 
-use crate::state::{Asset, PositionSide, SettlementOutcome};
+use crate::{
+    encoding::VoidReason,
+    state::{Asset, PositionSide, SettlementOutcome},
+};
 
 #[event]
 pub struct ProtocolConfigInitialized {
@@ -117,6 +120,30 @@ pub struct MarketSettled {
     pub matched_doubt: u64,
     pub forfeited_total: u64,
     pub evidence_hash: [u8; 32],
+    pub final_position: Option<Pubkey>,
+    pub final_owner: Option<Pubkey>,
+    pub final_base_entitlement: Option<u64>,
+    pub final_forfeited_amount: Option<u64>,
+}
+
+#[event]
+pub struct MarketSettlementStarted {
+    pub market: Pubkey,
+    pub outcome: SettlementOutcome,
+    pub matched_back: u64,
+    pub matched_doubt: u64,
+    pub position_count: u64,
+    pub evidence_hash: [u8; 32],
+}
+
+#[event]
+pub struct PositionEntitlementCalculated {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub base_entitlement: u64,
+    pub forfeited_amount: u64,
+    pub processed_position_count: u64,
 }
 
 #[event]
@@ -124,6 +151,8 @@ pub struct MarketVoided {
     pub market: Pubkey,
     pub evidence_hash: [u8; 32],
     pub timed_out: bool,
+    pub reason: Option<VoidReason>,
+    pub deciding_sequence: Option<u64>,
 }
 
 #[event]
@@ -133,6 +162,7 @@ pub struct PositionClaimed {
     pub owner: Pubkey,
     pub amount: u64,
     pub asset: Asset,
+    pub destination: Pubkey,
 }
 
 #[event]
@@ -140,4 +170,21 @@ pub struct MarketClosed {
     pub market: Pubkey,
     pub dust_amount: u64,
     pub asset: Asset,
+}
+
+#[event]
+pub struct PositionLotsClosed {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub nonces: Vec<u64>,
+    pub rent_recipient: Pubkey,
+}
+
+#[event]
+pub struct PositionClosed {
+    pub market: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub rent_recipient: Pubkey,
 }

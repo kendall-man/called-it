@@ -30,7 +30,8 @@ pub struct PlacePosition<'info> {
     #[account(
         mut,
         seeds = [MARKET_SEED, &args.market_uuid],
-        bump = market.bump
+        bump = market.bump,
+        constraint = !market.replay @ EscrowError::ReplayMarketNoFunds
     )]
     pub market: Account<'info, Market>,
     #[account(mut)]
@@ -62,7 +63,7 @@ pub struct PlacePosition<'info> {
     /// classic SPL markets.
     #[account(mut)]
     pub vault: UncheckedAccount<'info>,
-    /// CHECK: Parsed as a classic SPL source account for USDC markets.
+    /// CHECK: Parsed as a classic SPL source for USDC; aliases `owner` for SOL.
     #[account(mut)]
     pub asset_source: UncheckedAccount<'info>,
     /// CHECK: Parsed as the canonical classic SPL mint for USDC markets.
@@ -338,6 +339,7 @@ fn validate_place(
 ) -> Result<()> {
     validate_position_window(
         ctx.accounts.config.paused,
+        ctx.accounts.market.replay,
         ctx.accounts.market.state,
         clock.unix_timestamp,
         ctx.accounts.market.position_cutoff_timestamp,
@@ -450,6 +452,11 @@ fn transfer_sol_principal(ctx: &Context<PlacePosition>, amount: u64) -> Result<(
     require!(
         ctx.accounts.vault.lamports() >= rent_reserve,
         EscrowError::InvalidVaultRentReserve
+    );
+    require_keys_eq!(
+        ctx.accounts.asset_source.key(),
+        ctx.accounts.owner.key(),
+        EscrowError::InvalidTokenAccount
     );
     system_program::transfer(
         CpiContext::new(
@@ -643,6 +650,7 @@ fn validate_client_expiry(now: i64, client_expiry: i64, cutoff: i64) -> Result<(
 
 fn validate_position_window(
     paused: bool,
+    replay: bool,
     state: MarketState,
     now: i64,
     cutoff: i64,
@@ -650,6 +658,7 @@ fn validate_position_window(
     expected_event_epoch: u64,
 ) -> Result<()> {
     require!(!paused, EscrowError::ProtocolPaused);
+    require!(!replay, EscrowError::ReplayMarketNoFunds);
     if state == MarketState::Frozen {
         return err!(EscrowError::MarketFrozen);
     }
@@ -970,11 +979,18 @@ mod tests {
 
     #[test]
     fn intake_guards_pause_freeze_cutoff_and_event_epoch() {
-        assert!(validate_position_window(false, MarketState::Open, 99, 100, 3, 3).is_ok());
-        assert!(validate_position_window(true, MarketState::Open, 99, 100, 3, 3).is_err());
-        assert!(validate_position_window(false, MarketState::Frozen, 99, 100, 3, 3).is_err());
-        assert!(validate_position_window(false, MarketState::Open, 100, 100, 3, 3).is_err());
-        assert!(validate_position_window(false, MarketState::Open, 99, 100, 4, 3).is_err());
+        assert!(validate_position_window(false, false, MarketState::Open, 99, 100, 3, 3).is_ok());
+        assert!(validate_position_window(true, false, MarketState::Open, 99, 100, 3, 3).is_err());
+        assert!(
+            validate_position_window(false, false, MarketState::Frozen, 99, 100, 3, 3).is_err()
+        );
+        assert!(validate_position_window(false, false, MarketState::Open, 100, 100, 3, 3).is_err());
+        assert!(validate_position_window(false, false, MarketState::Open, 99, 100, 4, 3).is_err());
+    }
+
+    #[test]
+    fn replay_markets_fail_closed_before_any_value_transfer() {
+        assert!(validate_position_window(false, true, MarketState::Open, 99, 100, 3, 3).is_err());
     }
 
     #[test]

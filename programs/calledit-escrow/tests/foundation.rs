@@ -268,6 +268,78 @@ fn canonical_encodings_match_the_shared_typescript_vectors_byte_for_byte() {
 }
 
 #[test]
+fn settlement_attestation_binds_every_cross_contract_identity_field() {
+    fn encode(common: AttestationCommonV1) -> Vec<u8> {
+        SettlementAttestationV1 {
+            common,
+            outcome: SettlementOutcome::ClaimWon,
+            deciding_sequence: 44,
+            terminal_phase: "FT",
+            regulation_score: Some(ScoreV1 { home: 2, away: 1 }),
+            full_match_score: Some(ScoreV1 { home: 2, away: 1 }),
+            evidence_sequence_commitment: [8; 32],
+            normalized_evidence_root: [9; 32],
+        }
+        .encode()
+        .unwrap()
+    }
+
+    let common = AttestationCommonV1 {
+        cluster_genesis_hash: [1; 32],
+        escrow_program_id: [2; 32],
+        market_pda: [3; 32],
+        market_document_hash: [4; 32],
+        fixture_id: 5,
+        oracle_set_epoch: 6,
+        issued_at: 100,
+        expires_at: 200,
+        evidence_hash: [7; 32],
+    };
+    let canonical = encode(common);
+    let mutations = [
+        AttestationCommonV1 {
+            cluster_genesis_hash: [11; 32],
+            ..common
+        },
+        AttestationCommonV1 {
+            escrow_program_id: [12; 32],
+            ..common
+        },
+        AttestationCommonV1 {
+            market_pda: [13; 32],
+            ..common
+        },
+        AttestationCommonV1 {
+            market_document_hash: [14; 32],
+            ..common
+        },
+        AttestationCommonV1 {
+            fixture_id: 15,
+            ..common
+        },
+        AttestationCommonV1 {
+            oracle_set_epoch: 16,
+            ..common
+        },
+        AttestationCommonV1 {
+            issued_at: 101,
+            ..common
+        },
+        AttestationCommonV1 {
+            expires_at: 201,
+            ..common
+        },
+        AttestationCommonV1 {
+            evidence_hash: [17; 32],
+            ..common
+        },
+    ];
+    for mutation in mutations {
+        assert_ne!(encode(mutation), canonical);
+    }
+}
+
+#[test]
 fn market_document_rejects_an_unpinned_activation_delay() {
     let document = MarketDocumentV1 {
         market_uuid: [0; 16],

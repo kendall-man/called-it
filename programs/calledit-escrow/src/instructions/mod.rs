@@ -3,16 +3,23 @@
 
 use anchor_lang::prelude::*;
 
-use crate::state::{Asset, PositionSide, SettlementOutcome};
+use crate::{
+    encoding::{ScoreV1, VoidReason},
+    state::{Asset, PositionSide, SettlementOutcome},
+};
 
 pub mod admin;
 pub mod attestations;
+pub mod claims;
 pub mod market;
 pub mod position;
+pub mod settlement;
 
 pub use admin::*;
+pub use claims::*;
 pub use market::*;
 pub use position::*;
+pub use settlement::*;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct InitializeConfigArgs {
@@ -139,9 +146,14 @@ pub struct InvalidatePositionLotArgs {
 pub struct SettleMarketArgs {
     pub outcome: SettlementOutcome,
     pub deciding_sequence: u64,
+    pub terminal_phase: String,
+    pub regulation_score: Option<ScoreV1>,
+    pub full_match_score: Option<ScoreV1>,
+    pub evidence_sequence_commitment: [u8; 32],
+    pub normalized_evidence_root: [u8; 32],
+    pub issued_at: i64,
+    pub expires_at: i64,
     pub evidence_hash: [u8; 32],
-    pub evidence_commitment: [u8; 32],
-    pub attestation_expiry_timestamp: i64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default, PartialEq, Eq)]
@@ -149,6 +161,14 @@ pub struct CalculatePositionEntitlementArgs {}
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct VoidMarketArgs {
+    pub reason: VoidReason,
+    pub deciding_sequence: u64,
+    pub issued_at: i64,
+    pub expires_at: i64,
     pub evidence_hash: [u8; 32],
-    pub attestation_expiry_timestamp: i64,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ClosePositionLotsArgs {
+    pub nonces: Vec<u64>,
 }

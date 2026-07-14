@@ -3,7 +3,7 @@
 //! These are deliberately manual rather than Borsh-derived: signatures bind
 //! the exact documented field order, widths, endianness, and domain prefix.
 
-use anchor_lang::solana_program::hash::hash;
+use anchor_lang::{prelude::*, solana_program::hash::hash};
 
 use crate::{
     constants::{
@@ -189,7 +189,7 @@ impl PositionInvalidationAttestationV1 {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScoreV1 {
     pub home: u16,
     pub away: u16,
@@ -231,7 +231,7 @@ impl SettlementAttestationV1<'_> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VoidReason {
     Cancelled,
     Abandoned,

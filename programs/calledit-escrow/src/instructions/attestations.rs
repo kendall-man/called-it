@@ -49,6 +49,24 @@ pub(crate) fn verify_threshold_signatures(
     issued_at: i64,
     expires_at: i64,
 ) -> Result<()> {
+    verify_threshold_signatures_for_set(
+        oracle_set,
+        instructions_sysvar,
+        message,
+        now,
+        issued_at,
+        expires_at,
+    )
+}
+
+fn verify_threshold_signatures_for_set(
+    oracle_set: &OracleSet,
+    instructions_sysvar: &AccountInfo,
+    message: &[u8],
+    now: i64,
+    issued_at: i64,
+    expires_at: i64,
+) -> Result<()> {
     require!(issued_at <= now, EscrowError::AttestationExpired);
     require!(now <= expires_at, EscrowError::AttestationExpired);
     require!(expires_at > issued_at, EscrowError::AttestationExpired);
@@ -136,15 +154,14 @@ fn checked_slice(data: &[u8], offset: usize, length: usize) -> Result<&[u8]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anchor_lang::solana_program::sysvar::instructions::{
+        construct_instructions_data, store_current_index, BorrowedInstruction,
+    };
 
-    #[test]
-    fn parses_only_self_contained_single_signature_instructions() {
-        let message = b"calledit-message";
-        let public_key = [7u8; 32];
+    fn ed25519_data(public_key: [u8; 32], message: &[u8]) -> Vec<u8> {
         let public_key_offset = ED25519_HEADER_BYTES;
         let signature_offset = public_key_offset + ED25519_PUBLIC_KEY_BYTES;
-        let message_offset = public_key_offset + ED25519_PUBLIC_KEY_BYTES;
-        let message_offset = message_offset + ED25519_SIGNATURE_BYTES;
+        let message_offset = signature_offset + ED25519_SIGNATURE_BYTES;
         let mut data = vec![1, 0];
         for value in [
             signature_offset as u16,
@@ -160,6 +177,53 @@ mod tests {
         data.extend_from_slice(&public_key);
         data.extend_from_slice(&[9; ED25519_SIGNATURE_BYTES]);
         data.extend_from_slice(message);
+        data
+    }
+
+    fn oracle_set(signers: [[u8; 32]; ORACLE_SIGNER_COUNT_V1]) -> OracleSet {
+        OracleSet {
+            version: SCHEMA_VERSION_V1,
+            bump: 1,
+            epoch: 7,
+            signers: signers.into_iter().map(Pubkey::new_from_array).collect(),
+            threshold: ORACLE_THRESHOLD_V1,
+            activation_slot: 1,
+            retirement_slot: None,
+        }
+    }
+
+    fn with_instruction_sysvar<T>(data: &[Vec<u8>], callback: impl FnOnce(&AccountInfo) -> T) -> T {
+        let borrowed: Vec<_> = data
+            .iter()
+            .map(|instruction_data| BorrowedInstruction {
+                program_id: &ed25519_program::ID,
+                accounts: Vec::new(),
+                data: instruction_data,
+            })
+            .collect();
+        let mut sysvar_data = construct_instructions_data(&borrowed);
+        store_current_index(&mut sysvar_data, data.len() as u16);
+        let key = anchor_lang::solana_program::sysvar::instructions::ID;
+        let owner = anchor_lang::solana_program::sysvar::ID;
+        let mut lamports = 0;
+        let account = AccountInfo::new(
+            &key,
+            false,
+            false,
+            &mut lamports,
+            &mut sysvar_data,
+            &owner,
+            false,
+            0,
+        );
+        callback(&account)
+    }
+
+    #[test]
+    fn parses_only_self_contained_single_signature_instructions() {
+        let message = b"calledit-message";
+        let public_key = [7u8; 32];
+        let data = ed25519_data(public_key, message);
 
         assert_eq!(
             parse_verified_ed25519_instruction(&data, message).unwrap(),
@@ -174,5 +238,80 @@ mod tests {
         let mut multiple_signatures = data;
         multiple_signatures[0] = 2;
         assert!(parse_verified_ed25519_instruction(&multiple_signatures, message).is_err());
+    }
+
+    #[test]
+    fn threshold_requires_two_unique_pinned_signers() {
+        let message = b"canonical-settlement";
+        let signers = [[1; 32], [2; 32], [3; 32]];
+        let oracle_set = oracle_set(signers);
+        let unique = [
+            ed25519_data(signers[0], message),
+            ed25519_data(signers[1], message),
+        ];
+        with_instruction_sysvar(&unique, |sysvar| {
+            assert!(
+                verify_threshold_signatures_for_set(&oracle_set, sysvar, message, 15, 10, 20,)
+                    .is_ok()
+            );
+        });
+
+        let duplicate = [
+            ed25519_data(signers[0], message),
+            ed25519_data(signers[0], message),
+        ];
+        with_instruction_sysvar(&duplicate, |sysvar| {
+            assert!(
+                verify_threshold_signatures_for_set(&oracle_set, sysvar, message, 15, 10, 20,)
+                    .is_err()
+            );
+        });
+    }
+
+    #[test]
+    fn threshold_rejects_wrong_message_outsiders_and_expiry_boundaries() {
+        let message = b"canonical-settlement";
+        let signers = [[1; 32], [2; 32], [3; 32]];
+        let oracle_set = oracle_set(signers);
+        let wrong_message = [
+            ed25519_data(signers[0], b"wrong-domain"),
+            ed25519_data(signers[1], b"wrong-domain"),
+        ];
+        with_instruction_sysvar(&wrong_message, |sysvar| {
+            assert!(
+                verify_threshold_signatures_for_set(&oracle_set, sysvar, message, 15, 10, 20,)
+                    .is_err()
+            );
+        });
+
+        let outsider = [
+            ed25519_data([8; 32], message),
+            ed25519_data(signers[0], message),
+        ];
+        with_instruction_sysvar(&outsider, |sysvar| {
+            assert!(
+                verify_threshold_signatures_for_set(&oracle_set, sysvar, message, 15, 10, 20,)
+                    .is_err()
+            );
+        });
+
+        let valid = [
+            ed25519_data(signers[0], message),
+            ed25519_data(signers[1], message),
+        ];
+        with_instruction_sysvar(&valid, |sysvar| {
+            assert!(
+                verify_threshold_signatures_for_set(&oracle_set, sysvar, message, 20, 10, 20,)
+                    .is_ok()
+            );
+            assert!(
+                verify_threshold_signatures_for_set(&oracle_set, sysvar, message, 21, 10, 20,)
+                    .is_err()
+            );
+            assert!(
+                verify_threshold_signatures_for_set(&oracle_set, sysvar, message, 9, 10, 20,)
+                    .is_err()
+            );
+        });
     }
 }

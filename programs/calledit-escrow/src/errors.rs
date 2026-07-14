@@ -56,6 +56,8 @@ pub enum EscrowError {
     InvalidMarketState,
     #[msg("The market is frozen")]
     MarketFrozen,
+    #[msg("Replay markets are test-only and cannot accept value-bearing positions")]
+    ReplayMarketNoFunds,
     #[msg("The position cutoff has passed")]
     PositionCutoffPassed,
     #[msg("The market duration exceeds protocol limits")]
@@ -96,6 +98,20 @@ pub enum EscrowError {
     AlreadySettled,
     #[msg("The market was already settled with a contradictory outcome")]
     ConflictingSettlement,
+    #[msg("Only claim-won or claim-lost is valid for settlement")]
+    InvalidSettlementOutcome,
+    #[msg("The market is still calculating aggregate position entitlements")]
+    SettlementInProgress,
+    #[msg("This aggregate position entitlement was already calculated")]
+    EntitlementAlreadyCalculated,
+    #[msg("This aggregate position entitlement has not been calculated")]
+    EntitlementNotCalculated,
+    #[msg("The market was already voided")]
+    AlreadyVoided,
+    #[msg("The immutable resolution deadline has not been reached")]
+    TimeoutNotReached,
+    #[msg("The position is not claimable in the current market state")]
+    PositionNotClaimable,
     #[msg("Claims can only pay the recorded owner destination")]
     InvalidClaimDestination,
     #[msg("This position was already claimed")]
@@ -106,4 +122,16 @@ pub enum EscrowError {
     VaultUnderfunded,
     #[msg("A protocol accounting invariant was violated")]
     AccountingInvariant,
+    #[msg("The rent recipient is not the configured relayer rent recipient")]
+    InvalidRentRecipient,
+    #[msg("The residual recipient is not the market-pinned recipient")]
+    InvalidResidualRecipient,
+    #[msg("Position lots must be closed exactly once in descending nonce order")]
+    LotCloseOrderMismatch,
+    #[msg("Every position lot must be closed before its aggregate position")]
+    OutstandingLots,
+    #[msg("Every claimed aggregate position must be closed before the market")]
+    OutstandingPositions,
+    #[msg("This account is already terminal or closed")]
+    TerminalState,
 }
