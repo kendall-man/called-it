@@ -202,7 +202,7 @@ const EnvSchema = z.object({
     if (!env.STAKE_ACCEPTANCE_ENABLED) {
       addPairIssue('SOLANA_NETWORK', 'STAKE_ACCEPTANCE_ENABLED');
     }
-    if (!env.TREASURY_COVERAGE_ENFORCED) {
+    if (env.WAGER_CUSTODY_MODE === 'legacy' && !env.TREASURY_COVERAGE_ENFORCED) {
       addPairIssue('SOLANA_NETWORK', 'TREASURY_COVERAGE_ENFORCED');
     }
   }
@@ -275,7 +275,11 @@ const EnvSchema = z.object({
     });
   }
 
-  if (env.STAKE_ACCEPTANCE_ENABLED && wagerRuntimeMode === 'funded') {
+  if (
+    env.STAKE_ACCEPTANCE_ENABLED &&
+    wagerRuntimeMode === 'funded' &&
+    env.WAGER_CUSTODY_MODE === 'legacy'
+  ) {
     if (env.WAGER_TREASURY_KEYPAIR_B58 === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -332,6 +336,13 @@ const EnvSchema = z.object({
     env.WAGER_CUSTODY_MODE !== 'escrow'
   )) {
     addIssue('ESCROW_MAINNET_ENABLED', 'requires production mainnet escrow custody');
+  }
+  if (
+    env.SOLANA_NETWORK === 'mainnet-beta' &&
+    env.WAGER_CUSTODY_MODE === 'escrow' &&
+    !env.ESCROW_MAINNET_ENABLED
+  ) {
+    addIssue('ESCROW_MAINNET_ENABLED', 'must be explicitly enabled for mainnet escrow custody');
   }
 
   // Sponsor terms: TxL is never wagering collateral. The wager treasury must

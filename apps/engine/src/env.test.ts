@@ -7,6 +7,34 @@ function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function completeEscrowEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return {
+    ...BASE_ENV,
+    WAGER_CUSTODY_MODE: 'escrow',
+    ESCROW_ALLOWED_GROUP_IDS: '-100123',
+    ESCROW_PROGRAM_ID: '11111111111111111111111111111111',
+    ESCROW_GENESIS_HASH: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+    ESCROW_CANONICAL_USDC_MINT: '22222222222222222222222222222222',
+    ESCROW_CLASSIC_TOKEN_PROGRAM_ID: '33333333333333333333333333333333',
+    ESCROW_ORACLE_SET_PDA: '44444444444444444444444444444444',
+    ESCROW_ORACLE_SET_EPOCH: '7',
+    ESCROW_ORACLE_THRESHOLD: '2',
+    ESCROW_ORACLE_SIGNERS: [
+      '55555555555555555555555555555555',
+      '66666666666666666666666666666666',
+      '77777777777777777777777777777777',
+    ].join(','),
+    ESCROW_INDEXER_MAX_LAG_SLOTS: '32',
+    ESCROW_CONFIG_AUTHORITY: '88888888888888888888888888888888',
+    ESCROW_PAUSE_AUTHORITY: '99999999999999999999999999999999',
+    ESCROW_MARKET_CREATION_AUTHORITY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    ESCROW_UPGRADE_AUTHORITY: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+    ESCROW_RESIDUAL_RECIPIENT: 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
+    ESCROW_RELAYER_KEYPAIR_B58: 'devnet-relayer-secret',
+    ...overrides,
+  };
+}
+
 describe('loadEnv', () => {
   it('preserves the existing valid defaults when optional settings are absent', () => {
     // Given a complete baseline environment without optional overrides
@@ -40,30 +68,9 @@ describe('loadEnv', () => {
   });
 
   it('parses a complete devnet escrow deployment contract', () => {
-    const parsed = loadEnv({
-      ...BASE_ENV,
-      WAGER_CUSTODY_MODE: 'escrow',
+    const parsed = loadEnv(completeEscrowEnv({
       ESCROW_ALLOWED_GROUP_IDS: '-100123,-100456',
-      ESCROW_PROGRAM_ID: '11111111111111111111111111111111',
-      ESCROW_GENESIS_HASH: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
-      ESCROW_CANONICAL_USDC_MINT: '22222222222222222222222222222222',
-      ESCROW_CLASSIC_TOKEN_PROGRAM_ID: '33333333333333333333333333333333',
-      ESCROW_ORACLE_SET_PDA: '44444444444444444444444444444444',
-      ESCROW_ORACLE_SET_EPOCH: '7',
-      ESCROW_ORACLE_THRESHOLD: '2',
-      ESCROW_ORACLE_SIGNERS: [
-        '55555555555555555555555555555555',
-        '66666666666666666666666666666666',
-        '77777777777777777777777777777777',
-      ].join(','),
-      ESCROW_INDEXER_MAX_LAG_SLOTS: '32',
-      ESCROW_CONFIG_AUTHORITY: '88888888888888888888888888888888',
-      ESCROW_PAUSE_AUTHORITY: '99999999999999999999999999999999',
-      ESCROW_MARKET_CREATION_AUTHORITY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-      ESCROW_UPGRADE_AUTHORITY: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
-      ESCROW_RESIDUAL_RECIPIENT: 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
-      ESCROW_RELAYER_KEYPAIR_B58: 'devnet-relayer-secret',
-    });
+    }));
 
     expect(parsed).toMatchObject({
       WAGER_CUSTODY_MODE: 'escrow',
@@ -74,6 +81,40 @@ describe('loadEnv', () => {
       ESCROW_MAINNET_ENABLED: false,
     });
     expect(parsed.ESCROW_ORACLE_SIGNERS).toHaveLength(3);
+  });
+
+  it('requires the explicit mainnet gate without requiring a legacy treasury', () => {
+    const mainnetEscrow = completeEscrowEnv({
+      DEPLOYMENT_ENV: 'production',
+      BETA_ALLOWED_GROUP_IDS: '-100123',
+      SOLANA_NETWORK: 'mainnet-beta',
+      SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
+      WEB_BASE_URL: 'https://web.example.test',
+      WALLET_LINK_DOMAIN: 'web.example.test',
+      WAGER_RUNTIME_MODE: 'funded',
+      WAGER_MODE_ENABLED: 'true',
+      STARTER_GRANTS_ENABLED: 'false',
+      STAKE_ACCEPTANCE_ENABLED: 'true',
+      WALLET_MINIAPP_ENABLED: 'true',
+      TREASURY_COVERAGE_ENFORCED: 'false',
+      WAGER_TREASURY_KEYPAIR_B58: undefined,
+      ESCROW_MAINNET_ENABLED: 'false',
+    });
+
+    expect(() => loadEnv(mainnetEscrow)).toThrowError(
+      'Engine environment invalid: ESCROW_MAINNET_ENABLED',
+    );
+    expect(loadEnv({
+      ...mainnetEscrow,
+      GLM_BASE_URL: 'https://api.z.ai/api/anthropic',
+      ESCROW_MAINNET_ENABLED: 'true',
+    })).toMatchObject({
+      SOLANA_NETWORK: 'mainnet-beta',
+      WAGER_CUSTODY_MODE: 'escrow',
+      ESCROW_MAINNET_ENABLED: true,
+      TREASURY_COVERAGE_ENFORCED: false,
+      WAGER_TREASURY_KEYPAIR_B58: undefined,
+    });
   });
 
   it('rejects a duplicate or insufficient escrow oracle set', () => {
