@@ -385,6 +385,7 @@ $$;
 do $$
 declare
   v_definition text;
+  v_function regprocedure;
 begin
   select pg_get_functiondef('public.group_points_apply(uuid)'::regprocedure)
   into v_definition;
@@ -397,52 +398,63 @@ begin
     'v_currency not in (''sol'', ''usdc'')'
   );
 
-  select pg_get_functiondef(
-    'public.settlement_record_terminal(uuid,text,bigint,bigint[],text,timestamptz,integer,integer,integer,integer)'::regprocedure
-  ) into v_definition;
-  if position('v_market.currency <> ''sol''' in v_definition) = 0 then
-    raise exception 'settlement_record_terminal SOL guard not found';
-  end if;
-  execute replace(
-    v_definition,
-    'v_market.currency <> ''sol''',
-    'v_market.currency not in (''sol'', ''usdc'')'
+  v_function := to_regprocedure(
+    'public.settlement_record_terminal(uuid,text,bigint,bigint[],text,timestamptz,integer,integer,integer,integer)'
   );
+  if v_function is not null then
+    select pg_get_functiondef(v_function) into v_definition;
+    if position('v_market.currency <> ''sol''' in v_definition) = 0 then
+      raise exception 'settlement_record_terminal SOL guard not found';
+    end if;
+    execute replace(
+      v_definition,
+      'v_market.currency <> ''sol''',
+      'v_market.currency not in (''sol'', ''usdc'')'
+    );
+  end if;
 
-  select pg_get_functiondef(
-    'public.settlement_proof_enqueue(uuid,text,timestamptz,timestamptz,integer,integer,integer,integer)'::regprocedure
-  ) into v_definition;
-  if position('v_market.currency <> ''sol''' in v_definition) = 0 then
-    raise exception 'settlement_proof_enqueue SOL guard not found';
-  end if;
-  execute replace(
-    v_definition,
-    'v_market.currency <> ''sol''',
-    'v_market.currency not in (''sol'', ''usdc'')'
+  v_function := to_regprocedure(
+    'public.settlement_proof_enqueue(uuid,text,timestamptz,timestamptz,integer,integer,integer,integer)'
   );
+  if v_function is not null then
+    select pg_get_functiondef(v_function) into v_definition;
+    if position('v_market.currency <> ''sol''' in v_definition) = 0 then
+      raise exception 'settlement_proof_enqueue SOL guard not found';
+    end if;
+    execute replace(
+      v_definition,
+      'v_market.currency <> ''sol''',
+      'v_market.currency not in (''sol'', ''usdc'')'
+    );
+  end if;
 
-  select pg_get_functiondef('public.settlement_terminal_gaps(integer)'::regprocedure)
-  into v_definition;
-  if position('m.currency = ''sol''' in v_definition) = 0 then
-    raise exception 'settlement_terminal_gaps SOL filter not found';
+  v_function := to_regprocedure('public.settlement_terminal_gaps(integer)');
+  if v_function is not null then
+    select pg_get_functiondef(v_function) into v_definition;
+    if position('m.currency = ''sol''' in v_definition) = 0 then
+      raise exception 'settlement_terminal_gaps SOL filter not found';
+    end if;
+    execute replace(
+      v_definition,
+      'm.currency = ''sol''',
+      'm.currency in (''sol'', ''usdc'')'
+    );
   end if;
-  execute replace(
-    v_definition,
-    'm.currency = ''sol''',
-    'm.currency in (''sol'', ''usdc'')'
-  );
 
-  select pg_get_functiondef(
-    'public.settlement_reconcile_terminal_jobs(timestamptz,integer,integer,integer,integer,integer,integer)'::regprocedure
-  ) into v_definition;
-  if position('currency = ''sol''' in v_definition) = 0 then
-    raise exception 'settlement_reconcile_terminal_jobs SOL filter not found';
-  end if;
-  execute replace(
-    v_definition,
-    'currency = ''sol''',
-    'currency in (''sol'', ''usdc'')'
+  v_function := to_regprocedure(
+    'public.settlement_reconcile_terminal_jobs(timestamptz,integer,integer,integer,integer,integer,integer)'
   );
+  if v_function is not null then
+    select pg_get_functiondef(v_function) into v_definition;
+    if position('currency = ''sol''' in v_definition) = 0 then
+      raise exception 'settlement_reconcile_terminal_jobs SOL filter not found';
+    end if;
+    execute replace(
+      v_definition,
+      'currency = ''sol''',
+      'currency in (''sol'', ''usdc'')'
+    );
+  end if;
 end;
 $$;
 
