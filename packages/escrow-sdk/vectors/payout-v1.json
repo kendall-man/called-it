@@ -3,10 +3,10 @@
   "ratio_milli": "2000",
   "outcome": "claim_won",
   "positions": [
-    { "id": "a", "owner": "1", "side": "back", "state": "active", "amount": "1000" },
-    { "id": "b", "owner": "2", "side": "back", "state": "active", "amount": "500" },
-    { "id": "c", "owner": "3", "side": "doubt", "state": "active", "amount": "1000" },
-    { "id": "d", "owner": "4", "side": "back", "state": "pending", "amount": "100" }
+    { "id": "a", "owner": "1", "side": "back", "active_amount": "1000", "pending_amount": "0", "refundable_amount": "0" },
+    { "id": "b", "owner": "2", "side": "back", "active_amount": "500", "pending_amount": "0", "refundable_amount": "0" },
+    { "id": "c", "owner": "3", "side": "doubt", "active_amount": "1000", "pending_amount": "0", "refundable_amount": "0" },
+    { "id": "d", "owner": "4", "side": "back", "active_amount": "0", "pending_amount": "100", "refundable_amount": "0" }
   ],
   "expected": {
     "matched_back": "500",

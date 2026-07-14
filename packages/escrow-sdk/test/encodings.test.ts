@@ -32,8 +32,8 @@ describe('MarketDocumentV1 canonical encoding', () => {
   const document = {
     marketUuid: '00112233-4455-6677-8899-aabbccddeeff',
     fixtureId: 91_001n,
-    claimSpec: '{"entity":"France","type":"match_winner"}',
-    displayTerms: 'France will beat Morocco',
+    claimSpecificationHash: h(10),
+    displayTermsHash: h(11),
     asset: 'usdc' as const,
     probabilityPpm: 620_000,
     ratioMilli: 613,
@@ -141,8 +141,8 @@ describe('cross-language market golden vector', () => {
     const document = {
       marketUuid: '00112233-4455-6677-8899-aabbccddeeff',
       fixtureId: 91_001n,
-      claimSpec: '{"entity":"France","type":"match_winner"}',
-      displayTerms: 'France will beat Morocco',
+      claimSpecificationHash: h(10),
+      displayTermsHash: h(11),
       asset: 'usdc' as const,
       probabilityPpm: 620_000,
       ratioMilli: 613,

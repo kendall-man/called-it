@@ -14,8 +14,8 @@ Rust program must reproduce the bytes in `vectors/canonical-v1.json` exactly.
 - Booleans are one byte: `0` or `1`.
 - Public keys and hashes are exactly 32 raw bytes.
 - Market UUIDs are exactly 16 RFC 4122 bytes from canonical `8-4-4-4-12` text.
-- `string16` and `string32` are UTF-8 prefixed by a little-endian `u16` or
-  `u32` byte length. No terminator or padding is present.
+- `string16` is UTF-8 prefixed by a little-endian `u16` byte length. No
+  terminator or padding is present.
 - Every document starts with `string16(domain)` followed by schema byte `1`.
 - Every hash is SHA-256 over the complete canonical document bytes.
 
@@ -27,8 +27,8 @@ Fields after the header, in order:
 
 1. market UUID (`[u8; 16]`)
 2. fixture ID (`u64`)
-3. canonical claim specification (`string32`, maximum 4096 bytes)
-4. display terms (`string32`, maximum 1024 bytes)
+3. canonical claim specification hash (`[u8; 32]`)
+4. display terms hash (`[u8; 32]`)
 5. asset (`u8`: SOL `0`, USDC `1`)
 6. probability PPM (`u32`, `1..=999999`)
 7. ratio milli (`u32`)
@@ -50,6 +50,19 @@ ratio_milli = max(1, floor((numerator + floor(probability_ppm / 2)) /
 
 `ratioMilliFromProbability` is a legacy compatibility helper and is not valid
 for creating an escrow market.
+
+The full canonical claim specification and display text remain off-chain. The
+engine hashes their canonical UTF-8 bytes before market initialization. This
+keeps the instruction fixed-size and lets the program recompute the complete
+market document hash from validated fields.
+
+## Payout unit
+
+The economic input is one aggregate `UserPosition` per wallet and market. Its
+active, pending, and refundable buckets are updated by individual lots. The
+unchanged payout equations apply once to that aggregate position; lots are not
+independent payout rows. Legacy markets retain their historical database-row
+rounding and are never converted into escrow positions.
 
 ## Attestations
 

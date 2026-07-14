@@ -4,13 +4,13 @@ import type { PositionSide, SettlementOutcome } from './domain.js';
 const SCALE = 1_000n;
 const U128_MAX = (1n << 128n) - 1n;
 
-export type EscrowMathPositionState = 'active' | 'pending' | 'invalidated';
 export interface EscrowMathPosition {
   readonly id: string;
   readonly owner: string;
   readonly side: PositionSide;
-  readonly state: EscrowMathPositionState;
-  readonly amount: bigint;
+  readonly activeAmount: bigint;
+  readonly pendingAmount: bigint;
+  readonly refundableAmount: bigint;
 }
 
 export interface EscrowPots {
@@ -83,14 +83,25 @@ export function ratioMilliFromProbabilityPpm(probabilityPpm: number): number {
 
 function validatePositions(positions: readonly EscrowMathPosition[]): bigint {
   const ids = new Set<string>();
+  const owners = new Set<string>();
   let total = 0n;
   for (const position of positions) {
     if (position.id.length === 0 || ids.has(position.id)) throw new Error('position IDs must be nonempty and unique');
-    if (position.owner.length === 0) throw new Error('position owner must be nonempty');
+    if (position.owner.length === 0 || owners.has(position.owner)) {
+      throw new Error('position owners must be nonempty and unique');
+    }
     ids.add(position.id);
-    assertU64(position.amount, `position ${position.id} amount`);
-    if (position.amount === 0n) throw new RangeError(`position ${position.id} amount must be positive`);
-    total = checkedAddU64(total, position.amount, 'total deposits');
+    owners.add(position.owner);
+    assertU64(position.activeAmount, `position ${position.id} active amount`);
+    assertU64(position.pendingAmount, `position ${position.id} pending amount`);
+    assertU64(position.refundableAmount, `position ${position.id} refundable amount`);
+    const positionTotal = checkedAddU64(
+      checkedAddU64(position.activeAmount, position.pendingAmount, 'position amount'),
+      position.refundableAmount,
+      'position amount',
+    );
+    if (positionTotal === 0n) throw new RangeError(`position ${position.id} amount must be positive`);
+    total = checkedAddU64(total, positionTotal, 'total deposits');
   }
   return total;
 }
@@ -105,11 +116,10 @@ export function computePots(
   let backAmount = 0n;
   let doubtAmount = 0n;
   for (const position of positions) {
-    if (position.state !== 'active') continue;
     if (position.side === 'back') {
-      backAmount = checkedAddU64(backAmount, position.amount, 'active back total');
+      backAmount = checkedAddU64(backAmount, position.activeAmount, 'active back total');
     } else {
-      doubtAmount = checkedAddU64(doubtAmount, position.amount, 'active doubt total');
+      doubtAmount = checkedAddU64(doubtAmount, position.activeAmount, 'active doubt total');
     }
   }
   const matchedBack = minBigint(
@@ -130,16 +140,21 @@ export function settlePositions(
 ): EscrowSettlement {
   const totalDeposits = validatePositions(positions);
   const refunds: EscrowRefund[] = [];
-  const active: EscrowMathPosition[] = [];
   for (const position of positions) {
-    if (outcome === 'void' || position.state !== 'active') {
-      refunds.push({ positionId: position.id, owner: position.owner, amount: position.amount });
-    } else {
-      active.push(position);
+    const nonActive = checkedAddU64(
+      position.pendingAmount,
+      position.refundableAmount,
+      'position refundable amount',
+    );
+    const refund = outcome === 'void'
+      ? checkedAddU64(nonActive, position.activeAmount, 'void refund')
+      : nonActive;
+    if (refund > 0n) {
+      refunds.push({ positionId: position.id, owner: position.owner, amount: refund });
     }
   }
 
-  const pots = computePots(active, ratioMilli);
+  const pots = computePots(positions, ratioMilli);
   const payouts = new Map<string, bigint>();
   if (outcome !== 'void') {
     const winningSide: PositionSide = outcome === 'claim_won' ? 'back' : 'doubt';
@@ -149,22 +164,31 @@ export function settlePositions(
     const matchedLosing = backWins ? pots.matchedDoubt : pots.matchedBack;
     let forfeitedPot = 0n;
 
-    for (const position of active) {
+    for (const position of positions) {
       if (position.side === winningSide) continue;
       const forfeit = losingStakes === 0n
         ? 0n
-        : checkedMulU128(position.amount, matchedLosing, 'loser forfeit numerator') / losingStakes;
+        : checkedMulU128(position.activeAmount, matchedLosing, 'loser forfeit numerator') / losingStakes;
       forfeitedPot = checkedAddU64(forfeitedPot, forfeit, 'forfeited pot');
-      const refund = position.amount - forfeit;
-      if (refund > 0n) refunds.push({ positionId: position.id, owner: position.owner, amount: refund });
+      const refund = position.activeAmount - forfeit;
+      if (refund > 0n) {
+        const existing = refunds.find((item) => item.positionId === position.id);
+        if (existing === undefined) {
+          refunds.push({ positionId: position.id, owner: position.owner, amount: refund });
+        } else {
+          const index = refunds.indexOf(existing);
+          refunds[index] = { ...existing, amount: checkedAddU64(existing.amount, refund, 'position refund') };
+        }
+      }
     }
 
-    for (const position of active) {
+    for (const position of positions) {
       if (position.side !== winningSide) continue;
       const winnings = winningStakes === 0n
         ? 0n
-        : checkedMulU128(position.amount, forfeitedPot, 'winner payout numerator') / winningStakes;
-      const payout = checkedAddU64(position.amount, winnings, 'position payout');
+        : checkedMulU128(position.activeAmount, forfeitedPot, 'winner payout numerator') / winningStakes;
+      const payout = checkedAddU64(position.activeAmount, winnings, 'position payout');
+      if (payout === 0n) continue;
       payouts.set(
         position.owner,
         checkedAddU64(payouts.get(position.owner) ?? 0n, payout, 'owner payout'),

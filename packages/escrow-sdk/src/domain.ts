@@ -16,8 +16,8 @@ export type SettlementOutcome = 'claim_won' | 'claim_lost' | 'void';
 export interface MarketDocumentV1 {
   readonly marketUuid: string;
   readonly fixtureId: bigint;
-  readonly claimSpec: string;
-  readonly displayTerms: string;
+  readonly claimSpecificationHash: Uint8Array;
+  readonly displayTermsHash: Uint8Array;
   readonly asset: EscrowAsset;
   readonly probabilityPpm: number;
   readonly ratioMilli: number;
@@ -50,8 +50,8 @@ export function encodeMarketDocumentV1(document: MarketDocumentV1): Uint8Array {
   writer
     .fixed(uuidToBytes(document.marketUuid), 16, 'market UUID')
     .u64(document.fixtureId, 'fixture ID')
-    .string32(document.claimSpec, 'claim specification', 4_096)
-    .string32(document.displayTerms, 'display terms', 1_024)
+    .fixed(document.claimSpecificationHash, 32, 'claim specification hash')
+    .fixed(document.displayTermsHash, 32, 'display terms hash')
     .u8(ASSET_TAG[document.asset], 'asset')
     .u32(assertInteger(document.probabilityPpm, 'probability PPM', 1, 999_999), 'probability PPM')
     .u32(document.ratioMilli, 'ratio milli')

@@ -30,8 +30,9 @@ interface PayoutGoldenVector {
     id: string;
     owner: string;
     side: 'back' | 'doubt';
-    state: 'active' | 'pending' | 'invalidated';
-    amount: string;
+    active_amount: string;
+    pending_amount: string;
+    refundable_amount: string;
   }>;
   expected: {
     matched_back: string;
@@ -69,8 +70,12 @@ describe('checked payout math reference', () => {
 
   it('handles partial matching, pending refunds, and floor dust', () => {
     const positions: EscrowMathPosition[] = payoutGolden.positions.map((position) => ({
-      ...position,
-      amount: BigInt(position.amount),
+      id: position.id,
+      owner: position.owner,
+      side: position.side,
+      activeAmount: BigInt(position.active_amount),
+      pendingAmount: BigInt(position.pending_amount),
+      refundableAmount: BigInt(position.refundable_amount),
     }));
     const result = settlePositions(positions, payoutGolden.outcome, BigInt(payoutGolden.ratio_milli));
     expect(result.pots.matchedBack).toBe(BigInt(payoutGolden.expected.matched_back));
@@ -97,36 +102,46 @@ describe('checked payout math reference', () => {
       const positions: EscrowMathPosition[] = [];
       const enginePositions = [];
       for (let index = 0; index < count; index += 1) {
-        const amount = BigInt(1 + Math.floor(next() * 1_000_000));
-        const stateRoll = next();
-        const state = stateRoll < 0.75 ? 'active' : stateRoll < 0.9 ? 'pending' : 'invalidated';
+        const activeAmount = BigInt(Math.floor(next() * 1_000_000));
+        const pendingAmount = BigInt(Math.floor(next() * 100_000));
+        const refundableAmount = BigInt(Math.floor(next() * 100_000));
         const side = next() < 0.5 ? 'back' : 'doubt';
         const id = `${market}:${index}`;
         const owner = String(index + 1);
-        positions.push({ id, owner, side, state, amount });
-        enginePositions.push({
-          id,
-          market_id: `market-${market}`,
-          user_id: index + 1,
-          side,
-          stake: Number(amount),
-          state: state === 'invalidated' ? 'void' : state,
-          locked_multiplier: 1,
-          locked_probability: probability,
-          locked_odds_message_id: null,
-          locked_odds_ts: null,
+        const nonzeroActive = activeAmount === 0n && pendingAmount === 0n && refundableAmount === 0n
+          ? 1n
+          : activeAmount;
+        positions.push({ id, owner, side, activeAmount: nonzeroActive, pendingAmount, refundableAmount });
+        if (nonzeroActive > 0n) enginePositions.push({
+          id: `${id}:active`, market_id: `market-${market}`, user_id: index + 1,
+          side, stake: Number(nonzeroActive), state: 'active' as const, locked_multiplier: 1,
+          locked_probability: probability, locked_odds_message_id: null, locked_odds_ts: null,
+          created_at: '2026-01-01T00:00:00.000Z',
+        });
+        if (pendingAmount + refundableAmount > 0n) enginePositions.push({
+          id: `${id}:refund`, market_id: `market-${market}`, user_id: index + 1,
+          side, stake: Number(pendingAmount + refundableAmount), state: 'void' as const, locked_multiplier: 1,
+          locked_probability: probability, locked_odds_message_id: null, locked_odds_ts: null,
           created_at: '2026-01-01T00:00:00.000Z',
         });
       }
 
       const sdk = settlePositionsForProbability(positions, outcome, probability);
       const engine = engineSettlementCredits(enginePositions, outcome, probability);
-      expect(sdk.refunds.map((item) => [item.positionId, item.owner, item.amount]))
-        .toEqual(engine.refunds.map((item) => [item.positionId, String(item.userId), item.lamports]));
+      const sdkRefunds = new Map(sdk.refunds.map((item) => [item.owner, item.amount]));
+      const engineRefunds = new Map<string, bigint>();
+      for (const item of engine.refunds) {
+        const owner = String(item.userId);
+        engineRefunds.set(owner, (engineRefunds.get(owner) ?? 0n) + item.lamports);
+      }
+      expect(sdkRefunds).toEqual(engineRefunds);
       expect(sdk.payouts).toEqual(new Map(
         [...engine.payouts].map(([owner, amount]) => [String(owner), amount]),
       ));
-      const deposits = positions.reduce((sum, item) => sum + item.amount, 0n);
+      const deposits = positions.reduce(
+        (sum, item) => sum + item.activeAmount + item.pendingAmount + item.refundableAmount,
+        0n,
+      );
       expect(sdk.totalEntitlement + sdk.dust).toBe(deposits);
       expect(sdk.dust).toBeGreaterThanOrEqual(0n);
     }
@@ -134,14 +149,18 @@ describe('checked payout math reference', () => {
 
   it('rejects negative, zero, and overflow-prone values', () => {
     expect(() => settlePositions([
-      { id: 'bad', owner: '1', side: 'back', state: 'active', amount: -1n },
+      { id: 'bad', owner: '1', side: 'back', activeAmount: -1n, pendingAmount: 0n, refundableAmount: 0n },
     ], 'claim_won', 1_000n)).toThrow(/u64/);
     expect(() => settlePositions([
-      { id: 'zero', owner: '1', side: 'back', state: 'active', amount: 0n },
+      { id: 'zero', owner: '1', side: 'back', activeAmount: 0n, pendingAmount: 0n, refundableAmount: 0n },
     ], 'claim_won', 1_000n)).toThrow(/positive/);
     expect(() => settlePositions([], 'claim_won', 0n)).toThrow(/positive/);
     expect(() => settlePositions([
-      { id: 'too-large', owner: '1', side: 'back', state: 'active', amount: 1n << 64n },
+      { id: 'too-large', owner: '1', side: 'back', activeAmount: 1n << 64n, pendingAmount: 0n, refundableAmount: 0n },
     ], 'claim_won', 1_000n)).toThrow(/u64/);
+    expect(() => settlePositions([
+      { id: 'one', owner: 'same', side: 'back', activeAmount: 1n, pendingAmount: 0n, refundableAmount: 0n },
+      { id: 'two', owner: 'same', side: 'back', activeAmount: 1n, pendingAmount: 0n, refundableAmount: 0n },
+    ], 'claim_won', 1_000n)).toThrow(/owners/);
   });
 });
