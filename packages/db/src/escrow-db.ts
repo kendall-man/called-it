@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { DbError, type PgResult } from './errors.js';
+import { escrowReleaseBlockersDbFromClient } from './escrow-release-blockers-db.js';
 import type {
   AdvanceEscrowChainCursorInput,
   ConsumeEscrowSigningSessionInput,
@@ -57,6 +58,7 @@ export function createEscrowDb(supabaseUrl: string, serviceRoleKey: string): Dur
 export function escrowDbFromClient(value: unknown): DurableEscrowDb {
   const client = requireEscrowDbClient(value);
   return {
+    ...escrowReleaseBlockersDbFromClient(client),
     upsertMarketLink(input) {
       validateMarketLink(input);
       return rpc(client, 'escrow_index_market_link', {

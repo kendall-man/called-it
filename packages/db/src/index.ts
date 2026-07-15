@@ -16,6 +16,26 @@ export {
   type EscrowDbClient,
 } from './escrow-db.js';
 export type {
+  ConfigureEscrowGroupRolloutInput,
+  ConfigureEscrowGroupRolloutResult,
+  EnqueueEscrowAttestationRequestInput,
+  EscrowAttestationEnqueueResult,
+  EscrowAttestationLeaseTransitionInput,
+  EscrowAttestationMutationResult,
+  EscrowAttestationOperationKind,
+  EscrowAttestationRequestRow,
+  EscrowAttestationState,
+  EscrowMarketClosedInput,
+  EscrowGroupRolloutRow,
+  EscrowReleaseBlockersDb,
+  LeaseEscrowAttestationRequestsInput,
+  GetEscrowGroupRolloutInput,
+  GetEscrowGroupRolloutResult,
+  MarkEscrowAttestationEnqueuedInput,
+  RecordEscrowAttestationSignedInput,
+  RetryEscrowAttestationRequestInput,
+} from './escrow-release-blockers-types.js';
+export type {
   AdvanceEscrowChainCursorInput,
   ConsumeEscrowSigningSessionInput,
   CreateEscrowSigningSessionInput,

@@ -28,6 +28,7 @@ import type {
   EscrowSigningSessionResult,
   LeaseEscrowRelayerJobsInput,
 } from './escrow-types.js';
+import type { EscrowReleaseBlockersDb } from './escrow-release-blockers-types.js';
 
 export type { MarketCurrency } from '@calledit/market-engine';
 
@@ -163,7 +164,7 @@ export type GetEscrowMarketLinkResult =
 export interface DurableEscrowDb extends Omit<
   EscrowDb,
   'createSigningSession' | 'enqueueRelayerJob' | 'leaseRelayerJobs'
-> {
+>, EscrowReleaseBlockersDb {
   createSigningSession(input: CreateDurableEscrowSigningSessionInput): Promise<EscrowSigningSessionResult>;
   getSigningSession(input: GetEscrowSigningSessionInput): Promise<GetEscrowSigningSessionResult>;
   getChainCursor(input: GetEscrowChainCursorInput): Promise<GetEscrowChainCursorResult>;
@@ -294,6 +295,8 @@ export interface MarketRow {
    * pre-0002 databases and existing fixtures stay valid; absent means 'rep'.
    */
   currency?: MarketCurrency;
+  /** Immutable accounting route assigned from the exact group rollout at insert. */
+  custody_mode?: 'legacy' | 'escrow';
   price_provenance: PriceProvenance;
   quote_probability: number;
   quote_multiplier: number;
@@ -392,6 +395,8 @@ export interface MarketInsert {
   is_replay: boolean;
   /** Omitted = DB default 'rep'; wager groups stamp 'sol' atomically at mint. */
   currency?: MarketCurrency;
+  /** Accepted for compatibility; migration 0026 overwrites it from rollout truth. */
+  custody_mode?: 'legacy' | 'escrow';
   price_provenance: PriceProvenance;
   quote_probability: number;
   quote_multiplier: number;
