@@ -1,3 +1,4 @@
+import { compiledEscrowProgramIdForNetwork } from '@calledit/escrow-sdk';
 import type {
   PriceProvenance,
   PublicGroupBoardMarket,
@@ -126,13 +127,14 @@ export function getPublicEscrowIdentityConfig(
   const genesisHash = source.NEXT_PUBLIC_ESCROW_GENESIS_HASH;
   const programId = source.NEXT_PUBLIC_ESCROW_PROGRAM_ID;
   const canonicalUsdcMint = source.NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT ?? null;
+  const compiledProgramId = compiledEscrowProgramIdForNetwork(network);
   if (
+    compiledProgramId === null ||
     genesisHash !== ESCROW_GENESIS_BY_NETWORK[network] ||
-    programId === undefined ||
-    !PUBKEY_PATTERN.test(programId) ||
+    programId !== compiledProgramId ||
     (canonicalUsdcMint !== null && !PUBKEY_PATTERN.test(canonicalUsdcMint))
   ) return null;
-  return { network, genesisHash, programId, canonicalUsdcMint };
+  return { network, genesisHash, programId: compiledProgramId, canonicalUsdcMint };
 }
 
 export function escrowReceiptFromRow(

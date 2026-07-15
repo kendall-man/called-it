@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEVNET_ESCROW_PROGRAM_ID } from '@calledit/escrow-sdk';
 import {
   ESCROW_GENESIS_BY_NETWORK,
   assembleEscrowReceipts,
@@ -96,14 +97,38 @@ describe('standalone aggregate escrow public records', () => {
     }), IDENTITY)).toBeNull();
   });
 
-  it('configuration-gates mainnet and requires its exact full genesis hash', () => {
-    const mainnet = getPublicEscrowIdentityConfig({
+  it('accepts the compiled devnet identity and preserves devnet receipts', () => {
+    const identity = getPublicEscrowIdentityConfig({
+      NEXT_PUBLIC_SOLANA_NETWORK: 'devnet',
+      NEXT_PUBLIC_ESCROW_GENESIS_HASH: ESCROW_GENESIS_BY_NETWORK.devnet,
+      NEXT_PUBLIC_ESCROW_PROGRAM_ID: DEVNET_ESCROW_PROGRAM_ID,
+      NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT: USDC_MINT,
+    });
+
+    expect(identity).toEqual({
+      network: 'devnet',
+      genesisHash: ESCROW_GENESIS_BY_NETWORK.devnet,
+      programId: DEVNET_ESCROW_PROGRAM_ID,
+      canonicalUsdcMint: USDC_MINT,
+    });
+    expect(identity && escrowReceiptFromRow(
+      receiptRow({ program_id: DEVNET_ESCROW_PROGRAM_ID }),
+      identity,
+    )).not.toBeNull();
+  });
+
+  it('rejects configured identities that do not match the compiled network identity', () => {
+    expect(getPublicEscrowIdentityConfig({
+      NEXT_PUBLIC_SOLANA_NETWORK: 'devnet',
+      NEXT_PUBLIC_ESCROW_GENESIS_HASH: ESCROW_GENESIS_BY_NETWORK.devnet,
+      NEXT_PUBLIC_ESCROW_PROGRAM_ID: ADDRESS,
+    })).toBeNull();
+    expect(getPublicEscrowIdentityConfig({
       NEXT_PUBLIC_SOLANA_NETWORK: 'mainnet-beta',
       NEXT_PUBLIC_ESCROW_GENESIS_HASH: ESCROW_GENESIS_BY_NETWORK['mainnet-beta'],
       NEXT_PUBLIC_ESCROW_PROGRAM_ID: ADDRESS,
       NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT: USDC_MINT,
-    });
-    expect(mainnet).toMatchObject({ network: 'mainnet-beta' });
+    })).toBeNull();
     expect(getPublicEscrowIdentityConfig({
       NEXT_PUBLIC_SOLANA_NETWORK: 'mainnet-beta',
       NEXT_PUBLIC_ESCROW_GENESIS_HASH: ESCROW_GENESIS_BY_NETWORK.devnet,

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   bytesToHex,
   canonicalJson,
+  DEVNET_ESCROW_PROGRAM_ID,
   encodeSettlementAttestationV1,
   encodeVoidAttestationV1,
   escrowEvidenceSequenceCommitmentV2,
@@ -20,7 +21,7 @@ import {
 } from '@calledit/escrow-sdk';
 import type { MatchEvent, MarketSpec } from '@calledit/market-engine';
 import { base58Decode, base58Encode } from '@calledit/solana';
-import { Keypair } from '@solana/web3.js';
+import { Keypair, PublicKey } from '@solana/web3.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseOracleSigningEnvelope } from './contracts.js';
 import { loadOracleSignerEnv, type OracleSignerEnv } from './env.js';
@@ -30,7 +31,8 @@ import { OracleAttestationVerifier } from './verifier.js';
 
 const GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
 const MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
-const PROGRAM = Keypair.generate().publicKey;
+const PROGRAM = new PublicKey(DEVNET_ESCROW_PROGRAM_ID);
+const UPGRADE_AUTHORITY = Keypair.generate().publicKey;
 const MARKET = Keypair.generate().publicKey;
 const NOW_MS = 1_800_000_000_000;
 const CLAIM: MarketSpec = {
@@ -77,6 +79,7 @@ function environmentSource(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv
     ORACLE_SIGNER_JOURNAL_PATH: '/tmp/test-journal',
     SOLANA_RPC_URL: 'https://rpc.example.test',
     ESCROW_PROGRAM_ID: PROGRAM.toBase58(),
+    ESCROW_UPGRADE_AUTHORITY: UPGRADE_AUTHORITY.toBase58(),
     ESCROW_GENESIS_HASH: GENESIS,
     ESCROW_ORACLE_SET_EPOCH: '9',
     TXLINE_API_BASE: 'https://txline.example.test',
@@ -92,6 +95,7 @@ function environment(signer = Keypair.generate()): OracleSignerEnv {
     PORT: 8080, ORACLE_SIGNER_NETWORK: 'devnet', ORACLE_SIGNER_ALLOW_MAINNET: 'false',
     ORACLE_SIGNER_BEARER_TOKEN: 't'.repeat(32), ORACLE_SIGNER_JOURNAL_PATH: '/tmp/test-journal',
     SOLANA_RPC_URL: 'https://rpc.example.test', ESCROW_PROGRAM_ID: PROGRAM.toBase58(),
+    ESCROW_UPGRADE_AUTHORITY: UPGRADE_AUTHORITY.toBase58(),
     ESCROW_GENESIS_HASH: GENESIS, ESCROW_ORACLE_SET_EPOCH: 9n,
     TXLINE_API_BASE: 'https://txline.example.test', TXLINE_GUEST_JWT: 'guest', TXLINE_API_TOKEN: 'token',
     ORACLE_SIGNER_CLOCK_SKEW_SECONDS: 30, signer,
@@ -178,6 +182,7 @@ function verifier(
   value: SettlementAttestationV1 | VoidAttestationV1 = attestation(),
   events: readonly MatchEvent[] = [EVENT],
   claimSpecificationJson = CLAIM_JSON,
+  retirementSlot: bigint | null = null,
 ) {
   const signer = environment();
   const signers = [signer.signer, Keypair.generate(), Keypair.generate()].map((item) => item.publicKey.toBase58());
@@ -187,7 +192,7 @@ function verifier(
       async loadMarket() {
         return {
           slot: 100n, config: {} as ProtocolConfigAccount,
-          oracleSet: { epoch: 9n, activationSlot: 1n, retirementSlot: null, version: 1, bump: 1, signers, signatureThreshold: 2 } as OracleSetAccount,
+          oracleSet: { epoch: 9n, activationSlot: 1n, retirementSlot, version: 1, bump: 1, signers, signatureThreshold: 2 } as OracleSetAccount,
           market: market(value, claimSpecificationJson),
         };
       },
@@ -288,17 +293,23 @@ describe('independent oracle signer', () => {
     const devnet = loadOracleSignerEnv(environmentSource({ UNRELATED_PLATFORM_VALUE: 'present' }));
     expect(devnet.ORACLE_SIGNER_NETWORK).toBe('devnet');
     expect(devnet.ESCROW_GENESIS_HASH).toBe(GENESIS);
+    expect(devnet.ESCROW_PROGRAM_ID).toBe(DEVNET_ESCROW_PROGRAM_ID);
+    expect(devnet.ESCROW_UPGRADE_AUTHORITY).toBe(UPGRADE_AUTHORITY.toBase58());
   });
 
-  it('loads the exact mainnet genesis when mainnet signing is explicitly enabled', () => {
-    const mainnet = loadOracleSignerEnv(environmentSource({
+  it('fails closed on mainnet while no compiled mainnet program identity is pinned', () => {
+    expect(() => loadOracleSignerEnv(environmentSource({
       ORACLE_SIGNER_NETWORK: 'mainnet-beta',
       ORACLE_SIGNER_ALLOW_MAINNET: 'true',
       ESCROW_GENESIS_HASH: MAINNET_GENESIS,
       ANOTHER_UNRELATED_VALUE: 'present',
-    }));
-    expect(mainnet.ORACLE_SIGNER_NETWORK).toBe('mainnet-beta');
-    expect(mainnet.ESCROW_GENESIS_HASH).toBe(MAINNET_GENESIS);
+    }))).toThrow('oracle signer compiled program identity is unavailable for this network');
+  });
+
+  it('rejects a configured program that differs from the compiled devnet identity', () => {
+    expect(() => loadOracleSignerEnv(environmentSource({
+      ESCROW_PROGRAM_ID: Keypair.generate().publicKey.toBase58(),
+    }))).toThrow('oracle signer program ID does not match compiled identity');
   });
 
   it('rejects crossed devnet and mainnet genesis configuration', () => {
@@ -314,6 +325,15 @@ describe('independent oracle signer', () => {
   it('parses exact canonical bytes and independently verifies the settlement', async () => {
     const parsed = parseOracleSigningEnvelope(envelope());
     await expect(verifier().verify(parsed.request, CLAIM_JSON)).resolves.toBeUndefined();
+  });
+
+  it('continues signing markets pinned to an already-activated retired oracle epoch', async () => {
+    const parsed = parseOracleSigningEnvelope(envelope());
+
+    await expect(verifier(attestation(), [EVENT], CLAIM_JSON, 50n).verify(
+      parsed.request,
+      CLAIM_JSON,
+    )).resolves.toBeUndefined();
   });
 
   it('accepts pre-activation event evidence while the lot is pending', async () => {

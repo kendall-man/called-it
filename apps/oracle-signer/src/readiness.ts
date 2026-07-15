@@ -1,4 +1,5 @@
 import {
+  compiledEscrowProgramIdForNetwork,
   decodeOracleSetAccount,
   deriveOracleSetPda,
 } from '@calledit/escrow-sdk';
@@ -12,9 +13,11 @@ export type OracleReadinessReason =
   | 'genesis_mismatch'
   | 'program_unavailable'
   | 'program_not_executable'
+  | 'program_identity_mismatch'
   | 'program_loader_mismatch'
   | 'program_data_mismatch'
   | 'program_not_upgradeable'
+  | 'program_upgrade_authority_mismatch'
   | 'oracle_set_unavailable'
   | 'oracle_set_owner_mismatch'
   | 'oracle_set_epoch_mismatch'
@@ -67,11 +70,14 @@ function programDataAddress(program: PublicKey, account: OracleReadinessAccount)
   return new PublicKey(account.data.slice(4, 36));
 }
 
-function retainsUpgradeAuthority(account: OracleReadinessAccount): boolean {
-  return account.data.length >= 45 &&
-    Buffer.from(account.data).readUInt32LE(0) === 3 &&
-    account.data[12] === 1 &&
-    !new PublicKey(account.data.slice(13, 45)).equals(PublicKey.default);
+function upgradeAuthority(account: OracleReadinessAccount): PublicKey | null {
+  if (
+    account.data.length < 45 ||
+    Buffer.from(account.data).readUInt32LE(0) !== 3 ||
+    account.data[12] !== 1
+  ) return null;
+  const authority = new PublicKey(account.data.slice(13, 45));
+  return authority.equals(PublicKey.default) ? null : authority;
 }
 
 function unique(values: readonly string[]): boolean {
@@ -82,6 +88,11 @@ async function chainReasons(
   env: OracleSignerEnv,
   chain: OracleReadinessChainReader,
 ): Promise<readonly OracleReadinessReason[]> {
+  const compiledProgramId = compiledEscrowProgramIdForNetwork(env.ORACLE_SIGNER_NETWORK);
+  if (compiledProgramId === null || env.ESCROW_PROGRAM_ID !== compiledProgramId) {
+    return ['program_identity_mismatch'];
+  }
+
   let genesis: string;
   try {
     genesis = await chain.genesisHash();
@@ -120,7 +131,11 @@ async function chainReasons(
     programDataAccount === null || programDataAccount.executable ||
     !programDataAccount.owner.equals(UPGRADEABLE_LOADER)
   ) return ['program_data_mismatch'];
-  if (!retainsUpgradeAuthority(programDataAccount)) return ['program_not_upgradeable'];
+  const observedUpgradeAuthority = upgradeAuthority(programDataAccount);
+  if (observedUpgradeAuthority === null) return ['program_not_upgradeable'];
+  if (!observedUpgradeAuthority.equals(new PublicKey(env.ESCROW_UPGRADE_AUTHORITY))) {
+    return ['program_upgrade_authority_mismatch'];
+  }
 
   let slot: bigint;
   let oracleAccount: OracleReadinessAccount | null;
@@ -150,8 +165,7 @@ async function chainReasons(
     !unique(oracleSet.signers)
   ) return ['oracle_set_epoch_mismatch'];
   if (
-    oracleSet.activationSlot > slot ||
-    (oracleSet.retirementSlot !== null && oracleSet.retirementSlot <= slot)
+    oracleSet.activationSlot > slot
   ) return ['oracle_set_inactive'];
   if (!oracleSet.signers.includes(env.signer.publicKey.toBase58())) {
     return ['oracle_signer_not_member'];

@@ -57,7 +57,8 @@ type EndpointBehavior =
   | 'wrong_genesis'
   | 'wrong_program'
   | 'wrong_market'
-  | 'wrong_evidence';
+  | 'wrong_evidence'
+  | 'not_ready';
 
 function endpointFetch(
   signers: readonly Keypair[],
@@ -70,8 +71,20 @@ function endpointFetch(
     if (init?.method === 'GET') {
       const signer = behavior[index] === 'wrong_identity' ? Keypair.generate() : signers[index];
       if (signer === undefined) throw new Error('missing test signer');
+      if (url.pathname !== '/api/ready') {
+        return new Response(JSON.stringify({ schemaVersion: 1, signerPubkey: signer.publicKey.toBase58() }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (behavior[index] === 'not_ready') {
+        return new Response(JSON.stringify({ status: 'not_ready', reasons: ['rpc_unavailable'] }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       return new Response(JSON.stringify({
-        schemaVersion: 1,
+        status: 'ready',
         signerPubkey: signer.publicKey.toBase58(),
       }), { status: 200, headers: { 'content-type': 'application/json' } });
     }
@@ -151,6 +164,14 @@ describe('escrow oracle attestation providers', () => {
     const provider = httpsProvider(signers, { 1: 'outage' });
     await expect(provider.sign(request())).resolves.toHaveLength(2);
     await expect(provider.availableSigners()).resolves.toEqual([
+      signers[0]!.publicKey.toBase58(), signers[2]!.publicKey.toBase58(),
+    ]);
+  });
+
+  it('excludes an endpoint whose real readiness probe returns 503', async () => {
+    const signers = [Keypair.generate(), Keypair.generate(), Keypair.generate()];
+
+    await expect(httpsProvider(signers, { 1: 'not_ready' }).availableSigners()).resolves.toEqual([
       signers[0]!.publicKey.toBase58(), signers[2]!.publicKey.toBase58(),
     ]);
   });

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { deriveOracleSetPda } from '@calledit/escrow-sdk';
+import { DEVNET_ESCROW_PROGRAM_ID, deriveOracleSetPda } from '@calledit/escrow-sdk';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import type { OracleSignerEnv } from './env.js';
 import { OracleSignatureJournal } from './journal.js';
@@ -27,7 +27,11 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-function env(signer = Keypair.generate(), program = Keypair.generate().publicKey): OracleSignerEnv {
+function env(
+  signer = Keypair.generate(),
+  program = new PublicKey(DEVNET_ESCROW_PROGRAM_ID),
+  upgradeAuthority = Keypair.generate().publicKey,
+): OracleSignerEnv {
   return {
     PORT: 8080,
     ORACLE_SIGNER_NETWORK: 'devnet',
@@ -36,6 +40,7 @@ function env(signer = Keypair.generate(), program = Keypair.generate().publicKey
     ORACLE_SIGNER_JOURNAL_PATH: '/unused/oracle-signatures.jsonl',
     SOLANA_RPC_URL: 'https://api.devnet.solana.com',
     ESCROW_PROGRAM_ID: program.toBase58(),
+    ESCROW_UPGRADE_AUTHORITY: upgradeAuthority.toBase58(),
     ESCROW_GENESIS_HASH: GENESIS,
     ESCROW_ORACLE_SET_EPOCH: 9n,
     TXLINE_API_BASE: 'https://txline.example',
@@ -75,13 +80,15 @@ interface HealthyFixture {
   readonly accounts: Map<string, OracleReadinessAccount>;
   readonly program: PublicKey;
   readonly programData: PublicKey;
+  readonly upgradeAuthority: PublicKey;
   readonly oracleSet: PublicKey;
 }
 
 function healthyFixture(): HealthyFixture {
   const signer = Keypair.generate();
-  const program = Keypair.generate().publicKey;
-  const configuration = env(signer, program);
+  const program = new PublicKey(DEVNET_ESCROW_PROGRAM_ID);
+  const upgradeAuthority = Keypair.generate().publicKey;
+  const configuration = env(signer, program, upgradeAuthority);
   const programData = PublicKey.findProgramAddressSync([program.toBuffer()], LOADER)[0];
   const oracleSet = deriveOracleSetPda(program, configuration.ESCROW_ORACLE_SET_EPOCH).publicKey;
   const programBytes = Buffer.alloc(36);
@@ -90,7 +97,7 @@ function healthyFixture(): HealthyFixture {
   const programDataBytes = Buffer.alloc(45);
   programDataBytes.writeUInt32LE(3, 0);
   programDataBytes[12] = 1;
-  Keypair.generate().publicKey.toBuffer().copy(programDataBytes, 13);
+  upgradeAuthority.toBuffer().copy(programDataBytes, 13);
   const members = [signer.publicKey, Keypair.generate().publicKey, Keypair.generate().publicKey];
   const accounts = new Map<string, OracleReadinessAccount>([
     [program.toBase58(), { data: programBytes, executable: true, owner: LOADER }],
@@ -102,6 +109,7 @@ function healthyFixture(): HealthyFixture {
     accounts,
     program,
     programData,
+    upgradeAuthority,
     oracleSet,
     chain: {
       genesisHash: async () => GENESIS,
@@ -178,6 +186,24 @@ describe('oracle signer readiness', () => {
     expect(await reasons({ ...fixture, chain })).toEqual(['genesis_mismatch']);
   });
 
+  it('binds readiness to the repository-compiled program identity', async () => {
+    const wrongProgram = healthyFixture();
+    expect(await reasons({
+      ...wrongProgram,
+      env: { ...wrongProgram.env, ESCROW_PROGRAM_ID: Keypair.generate().publicKey.toBase58() },
+    })).toEqual(['program_identity_mismatch']);
+
+    const unavailableMainnet = healthyFixture();
+    expect(await reasons({
+      ...unavailableMainnet,
+      env: {
+        ...unavailableMainnet.env,
+        ORACLE_SIGNER_NETWORK: 'mainnet-beta',
+        ORACLE_SIGNER_ALLOW_MAINNET: 'true',
+      },
+    })).toEqual(['program_identity_mismatch']);
+  });
+
   it('requires the configured program to exist and be executable', async () => {
     const missing = healthyFixture();
     missing.accounts.delete(missing.program.toBase58());
@@ -206,7 +232,7 @@ describe('oracle signer readiness', () => {
     expect(await reasons(wrongLink)).toEqual(['program_data_mismatch']);
   });
 
-  it('requires canonical ProgramData ownership and a retained upgrade authority', async () => {
+  it('requires canonical ProgramData ownership and the exact pinned upgrade authority', async () => {
     const wrongOwner = healthyFixture();
     wrongOwner.accounts.set(wrongOwner.programData.toBase58(), {
       ...wrongOwner.accounts.get(wrongOwner.programData.toBase58())!, owner: Keypair.generate().publicKey,
@@ -220,6 +246,14 @@ describe('oracle signer readiness', () => {
       ...immutable.accounts.get(immutable.programData.toBase58())!, data: bytes,
     });
     expect(await reasons(immutable)).toEqual(['program_not_upgradeable']);
+
+    const wrongAuthority = healthyFixture();
+    const wrongBytes = Buffer.from(wrongAuthority.accounts.get(wrongAuthority.programData.toBase58())!.data);
+    Keypair.generate().publicKey.toBuffer().copy(wrongBytes, 13);
+    wrongAuthority.accounts.set(wrongAuthority.programData.toBase58(), {
+      ...wrongAuthority.accounts.get(wrongAuthority.programData.toBase58())!, data: wrongBytes,
+    });
+    expect(await reasons(wrongAuthority)).toEqual(['program_upgrade_authority_mismatch']);
   });
 
   it('requires the configured oracle-set account to be owned by the program', async () => {
@@ -234,7 +268,7 @@ describe('oracle signer readiness', () => {
     expect(await reasons(wrongOwner)).toEqual(['oracle_set_owner_mismatch']);
   });
 
-  it('requires the exact active 2-of-3 oracle epoch', async () => {
+  it('requires the exact activated 2-of-3 oracle epoch and keeps retired epochs ready', async () => {
     const wrongEpoch = healthyFixture();
     const members = [wrongEpoch.env.signer.publicKey, Keypair.generate().publicKey, Keypair.generate().publicKey];
     wrongEpoch.accounts.set(wrongEpoch.oracleSet.toBase58(), {
@@ -243,10 +277,18 @@ describe('oracle signer readiness', () => {
     expect(await reasons(wrongEpoch)).toEqual(['oracle_set_epoch_mismatch']);
 
     const retired = healthyFixture();
+    const retiredMembers = [retired.env.signer.publicKey, Keypair.generate().publicKey, Keypair.generate().publicKey];
     retired.accounts.set(retired.oracleSet.toBase58(), {
-      ...retired.accounts.get(retired.oracleSet.toBase58())!, data: oracleSetData(9n, members, 1n, 100n),
+      ...retired.accounts.get(retired.oracleSet.toBase58())!, data: oracleSetData(9n, retiredMembers, 1n, 100n),
     });
-    expect(await reasons(retired)).toEqual(['oracle_set_inactive']);
+    expect(await reasons(retired)).toEqual([]);
+
+    const pending = healthyFixture();
+    const pendingMembers = [pending.env.signer.publicKey, Keypair.generate().publicKey, Keypair.generate().publicKey];
+    pending.accounts.set(pending.oracleSet.toBase58(), {
+      ...pending.accounts.get(pending.oracleSet.toBase58())!, data: oracleSetData(9n, pendingMembers, 101n),
+    });
+    expect(await reasons(pending)).toEqual(['oracle_set_inactive']);
   });
 
   it('requires this signer to be a member of the configured oracle set', async () => {

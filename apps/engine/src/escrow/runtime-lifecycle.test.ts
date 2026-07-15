@@ -62,6 +62,37 @@ describe('escrow runtime lifecycle', () => {
     await lifecycle.stop();
   });
 
+  it('logs only bounded database operation metadata and never the error message', async () => {
+    const errors: Readonly<Record<string, unknown>>[] = [];
+    const failure = Object.assign(new Error('contains private database detail'), {
+      name: 'DbError',
+      op: 'escrow_index_market_link',
+      code: 'P0001',
+    });
+    const lifecycle = createEscrowRuntimeLifecycle({
+      attestations: { async runOnce() {} },
+      relayer: { async runOnce() {} },
+      indexer: { async runOnce() { throw failure; } },
+      clock: () => '2026-07-15T00:00:00.000Z',
+      intervalMs: 1_000,
+      relayerLimit: 10,
+      attestationLimit: 5,
+      indexerLimit: 20,
+      log: { info() {}, error(_event, fields) { errors.push(fields ?? {}); } },
+    });
+
+    await lifecycle.runOnce();
+
+    expect(errors).toEqual([{
+      worker: 'indexer',
+      reason: 'DbError',
+      operation: 'escrow_index_market_link',
+      errorCode: 'P0001',
+    }]);
+    expect(JSON.stringify(errors)).not.toContain('private database detail');
+    await lifecycle.stop();
+  });
+
   it('starts, runs, and drains restart reconciliation with the primary workers', async () => {
     const calls: string[] = [];
     let reconciliationActive = 0;

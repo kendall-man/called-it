@@ -238,7 +238,7 @@ export function createHttpsEscrowOracleAttestationProvider(options: {
     async availableSigners() {
       const available = await Promise.all(options.endpoints.map(async (endpoint) => {
         try {
-          const response = await fetchImpl(endpoint.url, {
+          const response = await fetchImpl(new URL('/api/ready', endpoint.url), {
             method: 'GET',
             headers: headers(endpoint),
             signal: AbortSignal.timeout(timeoutMs),
@@ -247,7 +247,7 @@ export function createHttpsEscrowOracleAttestationProvider(options: {
           const value: unknown = await response.json();
           if (
             value === null || typeof value !== 'object' ||
-            (value as { schemaVersion?: unknown }).schemaVersion !== 1 ||
+            (value as { status?: unknown }).status !== 'ready' ||
             (value as { signerPubkey?: unknown }).signerPubkey !== endpoint.expectedSigner
           ) return null;
           return endpoint.expectedSigner;

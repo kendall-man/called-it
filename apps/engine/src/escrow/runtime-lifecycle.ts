@@ -18,6 +18,22 @@ export interface EscrowAuxiliaryRuntimeLifecycle {
   unfinished(): number;
 }
 
+function safeWorkerErrorFields(error: unknown): Readonly<Record<string, unknown>> {
+  const fields: Record<string, unknown> = {
+    reason: error instanceof Error ? error.name : 'unknown_exception',
+  };
+  if (error !== null && typeof error === 'object') {
+    const value = error as { readonly op?: unknown; readonly code?: unknown };
+    if (typeof value.op === 'string' && /^[a-z0-9_]{1,80}$/.test(value.op)) {
+      fields.operation = value.op;
+    }
+    if (typeof value.code === 'string' && /^[A-Z0-9_]{1,32}$/.test(value.code)) {
+      fields.errorCode = value.code;
+    }
+  }
+  return fields;
+}
+
 export function createEscrowRuntimeLifecycle(options: {
   readonly attestations: { runOnce(nowIso: string, limit: number): Promise<unknown> };
   readonly relayer: { runOnce(nowIso: string, limit: number): Promise<unknown> };
@@ -43,7 +59,7 @@ export function createEscrowRuntimeLifecycle(options: {
     } catch (error) {
       options.log.error('escrow_worker_cycle_failed', {
         worker: name,
-        reason: error instanceof Error ? error.name : 'unknown_exception',
+        ...safeWorkerErrorFields(error),
       });
     }
   }

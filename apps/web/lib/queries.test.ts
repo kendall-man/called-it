@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEVNET_ESCROW_PROGRAM_ID } from '@calledit/escrow-sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ESCROW_GENESIS_BY_NETWORK } from './escrow-receipts';
 import {
@@ -78,7 +79,7 @@ function privateProjectionFields(select: string): readonly string[] {
 beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_SOLANA_NETWORK', 'devnet');
   vi.stubEnv('NEXT_PUBLIC_ESCROW_GENESIS_HASH', ESCROW_GENESIS_BY_NETWORK.devnet);
-  vi.stubEnv('NEXT_PUBLIC_ESCROW_PROGRAM_ID', ADDRESS);
+  vi.stubEnv('NEXT_PUBLIC_ESCROW_PROGRAM_ID', DEVNET_ESCROW_PROGRAM_ID);
   vi.stubEnv('NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT', USDC_MINT);
 });
 
@@ -425,7 +426,7 @@ function escrowReceiptRow(overrides: Record<string, unknown> = {}): Record<strin
     group_slug: 'called-it-testers',
     web_enabled: true,
     cluster: 'devnet',
-    program_id: ADDRESS,
+    program_id: DEVNET_ESCROW_PROGRAM_ID,
     market_pda: ADDRESS,
     vault_pda: ADDRESS,
     asset: 'sol',
