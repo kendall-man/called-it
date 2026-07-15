@@ -268,10 +268,6 @@ pub fn invalidate_position_lot(
         ),
         EscrowError::InvalidMarketState
     );
-    require!(
-        matches!(ctx.accounts.lot.state, LotState::Pending | LotState::Active),
-        EscrowError::InvalidLotState
-    );
     validate_invalidation_candidate(
         &ctx.accounts.lot,
         ctx.accounts.market.event_epoch,
@@ -631,6 +627,10 @@ fn validate_invalidation_candidate(
     invalidated_event_epoch: u64,
 ) -> Result<()> {
     require!(
+        matches!(lot.state, LotState::Pending | LotState::Active),
+        EscrowError::InvalidLotState
+    );
+    require!(
         lot.activation_timestamp.is_some(),
         EscrowError::InvalidLotState
     );
@@ -921,7 +921,36 @@ mod tests {
     }
 
     #[test]
-    fn pending_activation_and_invalidation_conserve_aggregate_principal() {
+    fn pending_invalidation_conserves_aggregate_principal() {
+        let mut market = market();
+        let mut position = position(PositionSide::Doubt);
+        apply_position_deposit(
+            &mut market,
+            &mut position,
+            PositionSide::Doubt,
+            25,
+            true,
+            true,
+            2,
+        )
+        .unwrap();
+        make_lot_refundable(
+            &mut market,
+            &mut position,
+            PositionSide::Doubt,
+            25,
+            LotState::Pending,
+            3,
+        )
+        .unwrap();
+        assert_eq!(market.active_doubt_total, 0);
+        assert_eq!(market.pending_doubt_total, 0);
+        assert_eq!(position.refundable_amount, 25);
+        assert_eq!(position.total_paid_amount, 25);
+    }
+
+    #[test]
+    fn delayed_active_invalidation_conserves_aggregate_principal() {
         let mut market = market();
         let mut position = position(PositionSide::Doubt);
         apply_position_deposit(
@@ -951,12 +980,26 @@ mod tests {
     }
 
     #[test]
-    fn invalidation_rejects_pre_kickoff_active_lots() {
+    fn invalidation_accepts_pending_and_active_in_play_lots_only() {
         let prematch = lot(LotState::Active, None);
         assert!(validate_invalidation_candidate(&prematch, 5, 5).is_err());
 
+        let pending = lot(LotState::Pending, Some(250));
+        assert!(validate_invalidation_candidate(&pending, 5, 5).is_ok());
+
         let activated_in_play = lot(LotState::Active, Some(250));
         assert!(validate_invalidation_candidate(&activated_in_play, 5, 5).is_ok());
+
+        let already_voided = lot(LotState::Voided, Some(250));
+        assert!(validate_invalidation_candidate(&already_voided, 5, 5).is_err());
+    }
+
+    #[test]
+    fn invalidation_preserves_strict_event_epoch_checks() {
+        let pending = lot(LotState::Pending, Some(250));
+        assert!(validate_invalidation_candidate(&pending, 4, 5).is_err());
+        assert!(validate_invalidation_candidate(&pending, 5, 4).is_err());
+        assert!(validate_invalidation_candidate(&pending, 5, 5).is_ok());
     }
 
     #[test]

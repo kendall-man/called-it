@@ -331,8 +331,9 @@ export class OracleAttestationVerifier {
     if (
       event === undefined || !priceMoving(event) || eventHash(event) !== bytesToHex(attestation.evidenceHash) ||
       lot.market !== marketPda || lot.nonce !== attestation.lotNonce ||
-      lot.observedEventEpoch !== attestation.observedEventEpoch || lot.state !== 'pending' ||
-      lot.placedTimestamp * 1_000n <= BigInt(event.tsMs) ||
+      lot.observedEventEpoch !== attestation.observedEventEpoch ||
+      (lot.state !== 'pending' && lot.state !== 'active') || lot.activationTimestamp === null ||
+      BigInt(event.tsMs) >= lot.activationTimestamp * 1_000n ||
       attestation.invalidatedEventEpoch <= attestation.observedEventEpoch ||
       (attestation.invalidatedEventEpoch !== market.eventEpoch && attestation.invalidatedEventEpoch !== market.eventEpoch + 1n)
     ) throw new Error('position invalidation evidence mismatch');

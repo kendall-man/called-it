@@ -12,6 +12,8 @@ import {
   settlementEvidenceHashV2,
   type MarketAccount,
   type OracleSetAccount,
+  type PositionInvalidationAttestationV1,
+  type PositionLotAccount,
   type ProtocolConfigAccount,
   type SettlementAttestationV1,
   type VoidAttestationV1,
@@ -53,6 +55,17 @@ const EVENT: MatchEvent = {
   },
 };
 const POST_EVENT: MatchEvent = { ...EVENT, phase: 'POST' };
+const LOT = Keypair.generate().publicKey;
+const ACTIVATION_TIMESTAMP = BigInt(Math.floor(NOW_MS / 1_000));
+const PRICE_MOVING_EVENT: MatchEvent = {
+  ...EVENT,
+  kind: 'goal',
+  seq: 21,
+  tsMs: Number((ACTIVATION_TIMESTAMP - 1n) * 1_000n),
+  phase: 'H2',
+  minute: 60,
+  detail: { participant: 1 },
+};
 
 function environmentSource(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
@@ -117,6 +130,30 @@ function voidAttestation(event = POST_EVENT, overrides: Partial<VoidAttestationV
   };
 }
 
+function invalidationAttestation(
+  event = PRICE_MOVING_EVENT,
+  overrides: Partial<PositionInvalidationAttestationV1> = {},
+): PositionInvalidationAttestationV1 {
+  const base = attestation();
+  return {
+    clusterGenesisHash: base.clusterGenesisHash,
+    escrowProgramId: base.escrowProgramId,
+    marketPda: base.marketPda,
+    marketDocumentHash: base.marketDocumentHash,
+    fixtureId: base.fixtureId,
+    oracleSetEpoch: base.oracleSetEpoch,
+    issuedAt: base.issuedAt,
+    expiresAt: base.expiresAt,
+    evidenceHash: normalizedEscrowEvidenceHashV2(event),
+    positionLotPda: LOT.toBytes(),
+    lotNonce: 4n,
+    observedEventEpoch: 0n,
+    invalidatedEventEpoch: 1n,
+    decidingSequence: BigInt(event.seq),
+    ...overrides,
+  };
+}
+
 function market(
   value: SettlementAttestationV1 | VoidAttestationV1,
   claimSpecificationJson = CLAIM_JSON,
@@ -158,6 +195,57 @@ function verifier(
     },
     feed: { async scores() { return events; } },
   });
+}
+
+function invalidationVerifier(
+  lotState: PositionLotAccount['state'],
+  event = PRICE_MOVING_EVENT,
+) {
+  const value = invalidationAttestation(event);
+  const signer = environment();
+  const signers = [signer.signer, Keypair.generate(), Keypair.generate()].map((item) => item.publicKey.toBase58());
+  const lot: PositionLotAccount = {
+    version: 1,
+    bump: 1,
+    market: MARKET.toBase58(),
+    owner: Keypair.generate().publicKey.toBase58(),
+    nonce: value.lotNonce,
+    side: 'back',
+    amount: 10n,
+    placedTimestamp: ACTIVATION_TIMESTAMP - 150n,
+    placedSlot: 1n,
+    observedEventEpoch: value.observedEventEpoch,
+    state: lotState,
+    activationTimestamp: ACTIVATION_TIMESTAMP,
+    invalidationEvidenceHash: null,
+  };
+  return {
+    value,
+    verifier: new OracleAttestationVerifier({
+      env: signer,
+      clock: () => NOW_MS,
+      chain: {
+        async loadMarket() {
+          return {
+            slot: 100n,
+            config: {} as ProtocolConfigAccount,
+            oracleSet: {
+              epoch: 9n,
+              activationSlot: 1n,
+              retirementSlot: null,
+              version: 1,
+              bump: 1,
+              signers,
+              signatureThreshold: 2,
+            } as OracleSetAccount,
+            market: { ...market(attestation()), eventEpoch: value.invalidatedEventEpoch },
+          };
+        },
+        async loadLot() { return lot; },
+      },
+      feed: { async scores() { return [event]; } },
+    }),
+  };
 }
 
 function envelope(value = attestation(), claimSpecificationJson = CLAIM_JSON) {
@@ -226,6 +314,56 @@ describe('independent oracle signer', () => {
   it('parses exact canonical bytes and independently verifies the settlement', async () => {
     const parsed = parseOracleSigningEnvelope(envelope());
     await expect(verifier().verify(parsed.request, CLAIM_JSON)).resolves.toBeUndefined();
+  });
+
+  it('accepts pre-activation event evidence while the lot is pending', async () => {
+    const candidate = invalidationVerifier('pending');
+
+    await expect(candidate.verifier.verify(
+      { kind: 'position_invalidation', attestation: candidate.value },
+      CLAIM_JSON,
+    )).resolves.toBeUndefined();
+  });
+
+  it('accepts delayed pre-activation event evidence after the lot becomes active', async () => {
+    const candidate = invalidationVerifier('active');
+
+    await expect(candidate.verifier.verify(
+      { kind: 'position_invalidation', attestation: candidate.value },
+      CLAIM_JSON,
+    )).resolves.toBeUndefined();
+  });
+
+  it('rejects event evidence exactly at the activation boundary', async () => {
+    const boundaryEvent = { ...PRICE_MOVING_EVENT, tsMs: Number(ACTIVATION_TIMESTAMP * 1_000n) };
+    const candidate = invalidationVerifier('pending', boundaryEvent);
+
+    await expect(candidate.verifier.verify(
+      { kind: 'position_invalidation', attestation: candidate.value },
+      CLAIM_JSON,
+    )).rejects.toThrow('position invalidation evidence mismatch');
+  });
+
+  it('rejects event evidence after the activation boundary', async () => {
+    const postActivationEvent = { ...PRICE_MOVING_EVENT, tsMs: Number((ACTIVATION_TIMESTAMP + 1n) * 1_000n) };
+    const candidate = invalidationVerifier('active', postActivationEvent);
+
+    await expect(candidate.verifier.verify(
+      { kind: 'position_invalidation', attestation: candidate.value },
+      CLAIM_JSON,
+    )).rejects.toThrow('position invalidation evidence mismatch');
+  });
+
+  it('rejects a substituted evidence hash for a pre-activation event', async () => {
+    const candidate = invalidationVerifier('pending');
+    const substituted = invalidationAttestation(PRICE_MOVING_EVENT, {
+      evidenceHash: new Uint8Array(32).fill(0xff),
+    });
+
+    await expect(candidate.verifier.verify(
+      { kind: 'position_invalidation', attestation: substituted },
+      CLAIM_JSON,
+    )).rejects.toThrow('position invalidation evidence mismatch');
   });
 
   it('rejects a substituted outcome even when the envelope is internally canonical', async () => {
