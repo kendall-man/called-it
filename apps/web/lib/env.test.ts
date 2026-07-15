@@ -271,21 +271,16 @@ describe('web environment', () => {
     expect(parsed.NEXT_PUBLIC_WAGER_TREASURY_PUBKEY).toBeUndefined();
   });
 
-  it('accepts a distinct mainnet escrow program with canonical mainnet genesis', () => {
-    const parsed = loadWebEnv(completeEscrowWebEnv({
+  it('rejects mainnet escrow position surfaces until a compiled identity is pinned', () => {
+    expect(() => loadWebEnv(completeEscrowWebEnv({
       NEXT_PUBLIC_SOLANA_NETWORK: 'mainnet-beta',
       NEXT_PUBLIC_ESCROW_PROGRAM_ID: DISTINCT_MAINNET_TEST_PROGRAM_ID,
       NEXT_PUBLIC_ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
       ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
       SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
-    }));
-
-    expect(parsed).toMatchObject({
-      NEXT_PUBLIC_SOLANA_NETWORK: 'mainnet-beta',
-      NEXT_PUBLIC_ESCROW_PROGRAM_ID: DISTINCT_MAINNET_TEST_PROGRAM_ID,
-      NEXT_PUBLIC_ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
-      ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
-    });
+    }))).toThrowError(
+      'Web environment invalid: NEXT_PUBLIC_ESCROW_PROGRAM_ID, NEXT_PUBLIC_WAGER_CUSTODY_MODE',
+    );
   });
 
   it.each([
@@ -294,18 +289,7 @@ describe('web environment', () => {
       NEXT_PUBLIC_ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
       ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
     }],
-    ['mainnet with devnet program', {
-      NEXT_PUBLIC_SOLANA_NETWORK: 'mainnet-beta',
-      NEXT_PUBLIC_ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
-      ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
-      SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
-    }],
-    ['mainnet with devnet genesis', {
-      NEXT_PUBLIC_SOLANA_NETWORK: 'mainnet-beta',
-      NEXT_PUBLIC_ESCROW_PROGRAM_ID: DISTINCT_MAINNET_TEST_PROGRAM_ID,
-      SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
-    }],
-  ])('rejects crossed escrow deployment identity: %s', (_name, overrides) => {
+  ])('rejects crossed devnet escrow deployment identity: %s', (_name, overrides) => {
     expect(() => loadWebEnv(completeEscrowWebEnv(overrides)))
       .toThrowError(/NEXT_PUBLIC_SOLANA_NETWORK/);
   });

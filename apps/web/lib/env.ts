@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DEVNET_ESCROW_PROGRAM_ID } from '@calledit/escrow-sdk';
+import { compiledEscrowProgramIdForNetwork } from '@calledit/escrow-sdk';
 import { tokenFingerprint } from './token-fingerprint';
 
 const ESCROW_GENESIS_HASHES = {
@@ -143,6 +143,19 @@ const WebEnvSchema = z.object({
   }
 
   if (env.NEXT_PUBLIC_WAGER_CUSTODY_MODE === 'escrow') {
+    const compiledProgramId = compiledEscrowProgramIdForNetwork(env.NEXT_PUBLIC_SOLANA_NETWORK);
+    if (compiledProgramId === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['NEXT_PUBLIC_ESCROW_PROGRAM_ID'],
+        message: 'no compiled escrow program identity exists for this network',
+      });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['NEXT_PUBLIC_WAGER_CUSTODY_MODE'],
+        message: 'escrow position surfaces are unavailable for this network',
+      });
+    }
     const escrowVariables = [
       ['NEXT_PUBLIC_ESCROW_PROGRAM_ID', env.NEXT_PUBLIC_ESCROW_PROGRAM_ID],
       ['NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT', env.NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT],
@@ -178,11 +191,11 @@ const WebEnvSchema = z.object({
       env.ESCROW_GENESIS_HASH !== undefined &&
       env.ESCROW_GENESIS_HASH !== expectedGenesisHash
     ) addPairIssue('ESCROW_GENESIS_HASH', 'NEXT_PUBLIC_SOLANA_NETWORK');
-    if (env.NEXT_PUBLIC_ESCROW_PROGRAM_ID !== undefined) {
-      const programIdentityMatchesNetwork = env.NEXT_PUBLIC_SOLANA_NETWORK === 'devnet'
-        ? env.NEXT_PUBLIC_ESCROW_PROGRAM_ID === DEVNET_ESCROW_PROGRAM_ID
-        : env.NEXT_PUBLIC_ESCROW_PROGRAM_ID !== DEVNET_ESCROW_PROGRAM_ID;
-      if (!programIdentityMatchesNetwork) {
+    if (
+      compiledProgramId !== null &&
+      env.NEXT_PUBLIC_ESCROW_PROGRAM_ID !== undefined
+    ) {
+      if (env.NEXT_PUBLIC_ESCROW_PROGRAM_ID !== compiledProgramId) {
         addPairIssue('NEXT_PUBLIC_ESCROW_PROGRAM_ID', 'NEXT_PUBLIC_SOLANA_NETWORK');
       }
     }

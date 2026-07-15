@@ -550,7 +550,7 @@ describe('independent oracle signer', () => {
     const record = vi.fn(async (_key: string, _hash: string, _now?: Date) => undefined);
     const server = createOracleSignerServer({
       bearerToken: 't'.repeat(32), signer, journal: { record },
-      verifier: { verify }, now: () => new Date(NOW_MS),
+      verifier: { verify }, readiness: { check: async () => [] }, now: () => new Date(NOW_MS),
     });
     servers.push(server);
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));

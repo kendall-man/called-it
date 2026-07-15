@@ -124,10 +124,11 @@ describe('loadEnv', () => {
     }))).toThrowError('Engine environment invalid: ESCROW_ALLOWED_GROUP_IDS');
   });
 
-  it('requires the explicit mainnet gate without requiring a legacy treasury', () => {
+  it('rejects mainnet escrow until a separately compiled program identity is pinned', () => {
     const mainnetEscrow = completeEscrowEnv({
       DEPLOYMENT_ENV: 'production',
       BETA_ALLOWED_GROUP_IDS: '-100123',
+      GLM_BASE_URL: 'https://api.z.ai/api/anthropic',
       SOLANA_NETWORK: 'mainnet-beta',
       SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
       WEB_BASE_URL: 'https://web.example.test',
@@ -139,7 +140,7 @@ describe('loadEnv', () => {
       WALLET_MINIAPP_ENABLED: 'true',
       TREASURY_COVERAGE_ENFORCED: 'false',
       WAGER_TREASURY_KEYPAIR_B58: undefined,
-      ESCROW_MAINNET_ENABLED: 'false',
+      ESCROW_MAINNET_ENABLED: 'true',
       ESCROW_MARKET_AUTHORITY_KEYPAIR_B58: undefined,
       ESCROW_MARKET_AUTHORITY_SIGNER_ENDPOINT_JSON: JSON.stringify({
         url: 'https://market-authority.example.test/sign',
@@ -148,21 +149,8 @@ describe('loadEnv', () => {
     });
 
     expect(() => loadEnv(mainnetEscrow)).toThrowError(
-      'Engine environment invalid: ESCROW_MAINNET_ENABLED',
+      'Engine environment invalid: ESCROW_PROGRAM_ID, WAGER_CUSTODY_MODE',
     );
-    expect(loadEnv({
-      ...mainnetEscrow,
-      GLM_BASE_URL: 'https://api.z.ai/api/anthropic',
-      ESCROW_MAINNET_ENABLED: 'true',
-    })).toMatchObject({
-      SOLANA_NETWORK: 'mainnet-beta',
-      WAGER_CUSTODY_MODE: 'escrow',
-      ESCROW_MAINNET_ENABLED: true,
-      ESCROW_PROGRAM_ID: DISTINCT_MAINNET_TEST_PROGRAM_ID,
-      ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
-      TREASURY_COVERAGE_ENFORCED: false,
-      WAGER_TREASURY_KEYPAIR_B58: undefined,
-    });
   });
 
   it('rejects an escrow genesis crossed with the selected network', () => {

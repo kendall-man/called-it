@@ -11,6 +11,7 @@ import {
   type OracleSigningEnvelope,
 } from './contracts.js';
 import type { OracleSignatureJournal } from './journal.js';
+import type { OracleReadinessProbe } from './readiness.js';
 import type { OracleAttestationVerifier } from './verifier.js';
 
 const PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
@@ -61,16 +62,26 @@ export function createOracleSignerServer(options: {
   readonly signer: Keypair;
   readonly verifier: Pick<OracleAttestationVerifier, 'verify'>;
   readonly journal: Pick<OracleSignatureJournal, 'record'>;
+  readonly readiness: OracleReadinessProbe;
   readonly now?: () => Date;
   readonly log?: (event: string, context?: Readonly<Record<string, unknown>>) => void;
 }) {
   const log = options.log ?? (() => undefined);
   return createServer(async (request, response) => {
     if (request.url === '/api/ready' && request.method === 'GET') {
-      reply(response, 200, {
-        status: 'ready',
-        signerPubkey: options.signer.publicKey.toBase58(),
-      });
+      try {
+        const reasons = await options.readiness.check();
+        if (reasons.length > 0) {
+          reply(response, 503, { status: 'not_ready', reasons });
+        } else {
+          reply(response, 200, {
+            status: 'ready',
+            signerPubkey: options.signer.publicKey.toBase58(),
+          });
+        }
+      } catch {
+        reply(response, 503, { status: 'not_ready', reasons: ['readiness_check_failed'] });
+      }
       return;
     }
     if (request.url !== '/sign' || (request.method !== 'GET' && request.method !== 'POST')) {

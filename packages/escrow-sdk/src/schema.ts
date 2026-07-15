@@ -1,6 +1,24 @@
 /** Repository-pinned devnet identity. Mainnet receives a separate identity only at its approval gate. */
 export const DEVNET_ESCROW_PROGRAM_ID = 'HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL';
 
+export type EscrowProgramNetwork = 'devnet' | 'mainnet-beta';
+
+/**
+ * Program identities this repository is actually compiled to run.
+ * Mainnet stays unavailable until its separately compiled identity is reviewed
+ * and pinned here at the explicit mainnet approval gate.
+ */
+export const ESCROW_COMPILED_PROGRAM_ID_BY_NETWORK = {
+  devnet: DEVNET_ESCROW_PROGRAM_ID,
+  'mainnet-beta': null,
+} as const satisfies Readonly<Record<EscrowProgramNetwork, string | null>>;
+
+export function compiledEscrowProgramIdForNetwork(
+  network: EscrowProgramNetwork,
+): string | null {
+  return ESCROW_COMPILED_PROGRAM_ID_BY_NETWORK[network];
+}
+
 export const ESCROW_INSTRUCTION_DISCRIMINATORS = {
   initialize_config: [208, 127, 21, 1, 194, 190, 196, 70],
   rotate_config: [14, 194, 225, 236, 162, 78, 30, 83],

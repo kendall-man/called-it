@@ -125,6 +125,37 @@ export class OracleSignatureJournal {
     await operation;
   }
 
+  async checkPersistence(): Promise<void> {
+    const markerPath = join(this.#decisionDirectory, `.readiness-${process.pid}-${randomUUID()}`);
+    const marker = randomUUID();
+    const audit = await open(this.path, 'r+');
+    try {
+      await audit.sync();
+    } finally {
+      await audit.close();
+    }
+
+    let markerCreated = false;
+    try {
+      const handle = await open(markerPath, 'wx', 0o600);
+      markerCreated = true;
+      try {
+        await handle.writeFile(marker);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      if (await readFile(markerPath, 'utf8') !== marker) {
+        throw new Error('oracle signature journal persistence check failed');
+      }
+    } finally {
+      if (markerCreated) {
+        await unlink(markerPath);
+        await syncDirectory(this.#decisionDirectory);
+      }
+    }
+  }
+
   private remember(entry: JournalEntry): void {
     const prior = this.#entries.get(entry.key);
     if (prior !== undefined && prior !== entry.canonicalSha256Hex) {

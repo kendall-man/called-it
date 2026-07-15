@@ -1,6 +1,7 @@
 import { loadOracleSignerEnv } from './env.js';
 import { OracleSignatureJournal } from './journal.js';
 import { createOracleSignerServer } from './server.js';
+import { createOracleReadinessProbe } from './readiness.js';
 import {
   createOracleChainReader,
   createOracleFeedReader,
@@ -25,6 +26,7 @@ const server = createOracleSignerServer({
   signer: env.signer,
   verifier,
   journal,
+  readiness: createOracleReadinessProbe(env, journal),
   log,
 });
 server.listen(env.PORT, '0.0.0.0', () => {

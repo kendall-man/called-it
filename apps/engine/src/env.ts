@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { isIP } from 'node:net';
+import { compiledEscrowProgramIdForNetwork } from '@calledit/escrow-sdk';
 import { z } from 'zod';
 import { WAGER_RUNTIME_MODES, resolvedWagerRuntimeMode, validateWagerRuntimeEnvironment } from './wager-runtime-env.js';
 import { expectedGenesisHash, rpcUrlLooksLikeDevnet, SOLANA_NETWORKS } from './solana-network.js';
@@ -371,6 +372,16 @@ const EnvSchema = z.object({
   }
 
   if (env.WAGER_CUSTODY_MODE === 'escrow') {
+    const compiledProgramId = compiledEscrowProgramIdForNetwork(env.SOLANA_NETWORK);
+    if (compiledProgramId === null) {
+      addIssue('ESCROW_PROGRAM_ID', 'no compiled escrow program identity exists for this network');
+      addIssue('WAGER_CUSTODY_MODE', 'escrow custody is unavailable for this network');
+    } else if (
+      env.ESCROW_PROGRAM_ID !== undefined &&
+      env.ESCROW_PROGRAM_ID !== compiledProgramId
+    ) {
+      addPairIssue('ESCROW_PROGRAM_ID', 'SOLANA_NETWORK');
+    }
     if (env.STAKE_ACCEPTANCE_ENABLED && env.ESCROW_ALLOWED_GROUP_IDS.length === 0) {
       addIssue('ESCROW_ALLOWED_GROUP_IDS', 'required when escrow intake is enabled');
     }

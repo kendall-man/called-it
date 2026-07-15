@@ -7,7 +7,7 @@
 import { CLAIM_TYPES, checkDebounce, compileClaim, priceSpec, reduceMarket, type MatchEvent } from '@calledit/market-engine';
 import { createEngineDb, createEscrowDb } from '@calledit/db';
 import {
-  DEVNET_ESCROW_PROGRAM_ID,
+  compiledEscrowProgramIdForNetwork,
   deriveMarketPda,
   deriveOracleSetPda,
   deriveProtocolConfigPda,
@@ -716,11 +716,10 @@ export function assertEscrowConfiguredDeploymentIdentity(options: {
   readonly programId: string;
   readonly genesisHash: string;
 }): void {
-  const programIdentityMatchesNetwork = options.network === 'devnet'
-    ? options.programId === DEVNET_ESCROW_PROGRAM_ID
-    : options.programId !== DEVNET_ESCROW_PROGRAM_ID;
+  const compiledProgramId = compiledEscrowProgramIdForNetwork(options.network);
   if (
-    !programIdentityMatchesNetwork ||
+    compiledProgramId === null ||
+    options.programId !== compiledProgramId ||
     options.genesisHash !== expectedGenesisHash(options.network)
   ) throw new EscrowProductionContractError('deployment_identity_mismatch');
 }

@@ -64,9 +64,9 @@ function wave4DeploymentIdentity() {
   const feedOperatorAddress = 'feed-operator';
   return {
     marketDeployment: {
-      cluster: 'mainnet-beta' as const,
-      genesisHash: MAINNET_GENESIS_HASH,
-      programId: DISTINCT_MAINNET_TEST_PROGRAM_ID,
+      cluster: 'devnet' as const,
+      genesisHash: DEVNET_GENESIS_HASH,
+      programId: DEVNET_ESCROW_PROGRAM_ID,
       canonicalUsdcMint: 'mainnet-usdc',
       marketCreationAuthority: marketCreationAuthorityAddress,
       relayerFeePayer: sponsorAddress,
@@ -74,9 +74,9 @@ function wave4DeploymentIdentity() {
       custodyVersion: 1,
     },
     placementDeployment: {
-      cluster: 'mainnet-beta' as const,
-      genesisHash: MAINNET_GENESIS_HASH,
-      programId: DISTINCT_MAINNET_TEST_PROGRAM_ID,
+      cluster: 'devnet' as const,
+      genesisHash: DEVNET_GENESIS_HASH,
+      programId: DEVNET_ESCROW_PROGRAM_ID,
       canonicalUsdcMint: 'mainnet-usdc',
       oracleSetEpoch: 7n,
       custodyVersion: 1,
@@ -87,18 +87,18 @@ function wave4DeploymentIdentity() {
       allowedGroupIds: [-100123],
     },
     recoveryDeployment: {
-      cluster: 'mainnet-beta' as const,
-      genesisHash: MAINNET_GENESIS_HASH,
-      programId: DISTINCT_MAINNET_TEST_PROGRAM_ID,
+      cluster: 'devnet' as const,
+      genesisHash: DEVNET_GENESIS_HASH,
+      programId: DEVNET_ESCROW_PROGRAM_ID,
       canonicalUsdcMint: 'mainnet-usdc',
       relayerFeePayer: sponsorAddress,
       residualRecipient: 'residual-recipient',
       custodyVersion: 1,
     },
     controlDeployment: {
-      cluster: 'mainnet-beta' as const,
-      genesisHash: MAINNET_GENESIS_HASH,
-      programId: DISTINCT_MAINNET_TEST_PROGRAM_ID,
+      cluster: 'devnet' as const,
+      genesisHash: DEVNET_GENESIS_HASH,
+      programId: DEVNET_ESCROW_PROGRAM_ID,
       custodyVersion: 1,
       feedOperatorAuthority: feedOperatorAddress,
     },
@@ -109,16 +109,11 @@ function wave4DeploymentIdentity() {
 }
 
 describe('escrow deployment wiring', () => {
-  it('accepts the pinned devnet identity and a distinct mainnet identity', () => {
+  it('accepts only the pinned devnet compiled identity', () => {
     expect(() => assertEscrowConfiguredDeploymentIdentity({
       network: 'devnet',
       programId: DEVNET_ESCROW_PROGRAM_ID,
       genesisHash: DEVNET_GENESIS_HASH,
-    })).not.toThrow();
-    expect(() => assertEscrowConfiguredDeploymentIdentity({
-      network: 'mainnet-beta',
-      programId: DISTINCT_MAINNET_TEST_PROGRAM_ID,
-      genesisHash: MAINNET_GENESIS_HASH,
     })).not.toThrow();
     expect(() => assertEscrowWave4DeploymentConsistency(wave4DeploymentIdentity())).not.toThrow();
   });
@@ -126,6 +121,7 @@ describe('escrow deployment wiring', () => {
   it.each([
     ['devnet with the mainnet program', 'devnet', DISTINCT_MAINNET_TEST_PROGRAM_ID, DEVNET_GENESIS_HASH],
     ['mainnet with the devnet program', 'mainnet-beta', DEVNET_ESCROW_PROGRAM_ID, MAINNET_GENESIS_HASH],
+    ['mainnet with an arbitrary distinct program', 'mainnet-beta', DISTINCT_MAINNET_TEST_PROGRAM_ID, MAINNET_GENESIS_HASH],
     ['devnet with mainnet genesis', 'devnet', DEVNET_ESCROW_PROGRAM_ID, MAINNET_GENESIS_HASH],
     ['mainnet with devnet genesis', 'mainnet-beta', DISTINCT_MAINNET_TEST_PROGRAM_ID, DEVNET_GENESIS_HASH],
   ] as const)('rejects crossed deployment identity: %s', (_name, network, programId, genesisHash) => {
