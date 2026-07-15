@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { access, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { access, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -145,10 +145,19 @@ async function main(): Promise<void> {
   };
   validator.stdout?.on('data', retain);
   validator.stderr?.on('data', retain);
+  validator.once('close', (code, signal) => {
+    logs.push(`validator closed with code ${String(code)} and signal ${String(signal)}\n`);
+  });
   try {
     await waitForValidator(rpcUrl, validator);
     const exitCode = await runScenario(rpcUrl);
-    if (exitCode !== 0) process.exitCode = exitCode;
+    if (exitCode !== 0) {
+      const validatorLog = await readFile(join(ledger, 'validator.log'), 'utf8').catch(() => 'validator.log unavailable');
+      const validatorLogTail = validatorLog.split('\n').slice(-200).join('\n');
+      process.stderr.write(`local validator scenario failed\n${logs.join('')}\n`);
+      process.stderr.write(`validator.log tail:\n${validatorLogTail}\n`);
+      process.exitCode = exitCode;
+    }
   } catch (error) {
     if (error instanceof Error) {
       process.stderr.write(`${error.message}\n${logs.join('')}\n`);
