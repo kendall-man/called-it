@@ -103,7 +103,7 @@ export function decodeProtocolConfigAccount(data: Uint8Array): ProtocolConfigAcc
     maximumMarketDurationSeconds: reader.u64('maximum market duration'),
     maximumResolutionDelaySeconds: reader.u64('maximum resolution delay'),
   };
-  reader.finish('ProtocolConfig');
+  reader.finishZeroPadded('ProtocolConfig');
   return result;
 }
 
@@ -114,7 +114,7 @@ export function decodeOracleSetAccount(data: Uint8Array): OracleSetAccount {
     signers: reader.publicKeyVector('signers', 3), signatureThreshold: reader.u8('signature threshold'),
     activationSlot: reader.u64('activation slot'), retirementSlot: reader.optionU64('retirement slot'),
   };
-  reader.finish('OracleSet');
+  reader.finishZeroPadded('OracleSet');
   return result;
 }
 
@@ -140,7 +140,7 @@ export function decodeMarketAccount(data: Uint8Array): MarketAccount {
     positionCount: reader.u64('position count'), claimedPositionCount: reader.u64('claimed position count'),
     vault: reader.publicKey('vault'), vaultBump: reader.u8('vault bump'),
   };
-  reader.finish('Market');
+  reader.finishZeroPadded('Market');
   return result;
 }
 
@@ -155,7 +155,7 @@ export function decodeUserPositionAccount(data: Uint8Array): UserPositionAccount
     claimed: reader.bool('claimed'), totalPaidAmount: reader.u64('total paid amount'),
     createdSlot: reader.u64('created slot'), updatedSlot: reader.u64('updated slot'),
   };
-  reader.finish('UserPosition');
+  reader.finishZeroPadded('UserPosition');
   return result;
 }
 
@@ -169,7 +169,7 @@ export function decodePositionLotAccount(data: Uint8Array): PositionLotAccount {
     activationTimestamp: optionalI64(reader, 'activation timestamp'),
     invalidationEvidenceHash: optionalHash(reader, 'invalidation evidence hash'),
   };
-  reader.finish('PositionLot');
+  reader.finishZeroPadded('PositionLot');
   return result;
 }
 

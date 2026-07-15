@@ -162,4 +162,12 @@ export class BorshReader {
       throw new RangeError(`${name} has ${this.#bytes.length - this.#offset} unexpected trailing bytes`);
     }
   }
+
+  finishZeroPadded(name: string): void {
+    const trailing = this.#bytes.subarray(this.#offset);
+    if (trailing.some((byte) => byte !== 0)) {
+      throw new RangeError(`${name} has unexpected non-zero trailing bytes`);
+    }
+    this.#offset = this.#bytes.length;
+  }
 }

@@ -97,6 +97,18 @@ describe('typed Anchor account decoders', () => {
       .u8(1, 'version').u8(1, 'bump').u64(1n, 'epoch').u32(4, 'length'));
     expect(() => decodeOracleSetAccount(badOracle)).toThrow(/maximum length/);
   });
+
+  it('accepts Anchor account allocation padding but rejects non-zero trailing data', () => {
+    const encoded = accountData('ProtocolConfig', new BorshWriter()
+      .u8(1, 'version').u8(255, 'bump').bool(false, 'paused')
+      .publicKey(key(1)).publicKey(key(2)).publicKey(key(3)).publicKey(key(4))
+      .publicKey(key(5)).publicKey(key(6)).publicKey(key(7)).fixed(hash(8), 32, 'genesis')
+      .publicKey(key(9)).publicKey(key(10)).u64(11n, 'max sol').u64(12n, 'max usdc')
+      .u64(13n, 'min sol').u64(14n, 'min usdc').u64(15n, 'duration').u64(16n, 'delay'));
+    expect(decodeProtocolConfigAccount(concat(encoded, new Uint8Array(16))).version).toBe(1);
+    expect(() => decodeProtocolConfigAccount(concat(encoded, Uint8Array.of(1))))
+      .toThrow(/non-zero trailing bytes/);
+  });
 });
 
 describe('typed Anchor event decoders', () => {

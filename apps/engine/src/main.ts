@@ -15,6 +15,7 @@ import { loadEnv } from './env.js';
 import { createLogger } from './log.js';
 import { createDeps, createProductionEscrowRuntime } from './wiring.js';
 import { classifySendFailure, createEngineSendQueue } from './bot/send-failure.js';
+import { classifyEngineStartFailure } from './startup-failure.js';
 import { createPoster } from './bot/poster.js';
 import { createSay } from './bot/copy.js';
 import { EntityCache } from './bot/entities.js';
@@ -407,6 +408,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  createLogger({ app: 'calledit-engine' }).error('engine_start_failed', classifySendFailure(err));
+  createLogger({ app: 'calledit-engine' }).error('engine_start_failed', classifyEngineStartFailure(err));
   process.exit(1);
 });
