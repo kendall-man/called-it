@@ -82,7 +82,11 @@ describe('durable escrow control workflows', () => {
       signers: oracles, threshold: 2,
       forbiddenSignerAddresses: [sponsor.publicKey.toBase58(), feed.publicKey.toBase58()],
     });
-    const signatures = await provider.sign({ kind: 'feed_event', attestation });
+    const signatures = await provider.sign({
+      kind: 'feed_event', attestation,
+      evidenceCodecVersion: 2,
+      claimSpecificationJson: '{"claimType":"match_winner"}',
+    });
     const service = createEscrowControlService({
       db, deployment, readiness: async () => ({ status: 'ready', reasons: [] }), clock: () => NOW,
     });

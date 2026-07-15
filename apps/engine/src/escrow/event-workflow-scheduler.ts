@@ -1,4 +1,5 @@
 import type { MarketEffect, MarketState, MatchEvent, Position } from '@calledit/market-engine';
+import { canonicalJson } from '@calledit/escrow-sdk';
 import type { VoidReason } from '@calledit/escrow-sdk';
 import type { Deps, MarketRow, PositionRow } from '../ports.js';
 import type { EscrowOracleAttestationPolicy } from './attestation-signers.js';
@@ -139,6 +140,7 @@ export function createEscrowEventWorkflowScheduler(options: {
 
   async function persist(
     request: EscrowUnsignedWorkflowRequest,
+    market: MarketRow,
     context: EscrowWorkflowMarketContext,
     event: MatchEvent,
     dueAtMs: number = event.receivedAtMs,
@@ -147,6 +149,7 @@ export function createEscrowEventWorkflowScheduler(options: {
     await options.requests.enqueue({
       marketId: context.binding.marketId,
       documentHashHex: context.binding.marketDocumentHashHex,
+      claimSpecificationJson: canonicalJson(market.spec),
       eventEpoch: context.binding.eventEpoch,
       replay: context.replay,
       oraclePolicy: context.oraclePolicy,
@@ -169,7 +172,7 @@ export function createEscrowEventWorkflowScheduler(options: {
       await persist({
         operation: 'freeze_market', marketPda: context.binding.marketPda,
         expectedEventEpoch: context.binding.eventEpoch, attestation,
-      }, context, event);
+      }, market, context, event);
     }
     const lots = await options.workflow.positionLots(context);
     for (const lot of lots) {
@@ -185,13 +188,14 @@ export function createEscrowEventWorkflowScheduler(options: {
       await persist({
         operation: 'invalidate_position_lot', marketPda: context.binding.marketPda,
         owner: lot.ownerPubkey, lotNonce: lot.lotNonce, positionLotPda: lot.positionLotPda, attestation,
-      }, context, event);
+      }, market, context, event);
     }
     options.deps.log.info('escrow_price_event_scheduled', { marketId: market.id, seq: event.seq });
   }
 
   async function applyEffect(
     effect: MarketEffect,
+    market: MarketRow,
     context: EscrowWorkflowMarketContext,
     event: MatchEvent,
   ): Promise<void> {
@@ -200,12 +204,12 @@ export function createEscrowEventWorkflowScheduler(options: {
       await persist({
         operation: 'freeze_market', marketPda: context.binding.marketPda,
         expectedEventEpoch: context.binding.eventEpoch, attestation,
-      }, context, event);
+      }, market, context, event);
       return;
     }
     if (effect.kind === 'unfreeze' && context.chainState === 'frozen') {
       const attestation = buildEscrowFeedEventAttestation({ ...common(context, event), eventKind: 'unfreeze' });
-      await persist({ operation: 'unfreeze_market', marketPda: context.binding.marketPda, attestation }, context, event);
+      await persist({ operation: 'unfreeze_market', marketPda: context.binding.marketPda, attestation }, market, context, event);
       return;
     }
     if (effect.kind === 'settle') {
@@ -213,27 +217,28 @@ export function createEscrowEventWorkflowScheduler(options: {
         const attestation = buildEscrowVoidAttestation({
           ...common(context, event), reason: 'undecidable', decidingSequence: effect.decidingSeq,
         });
-        await persist({ operation: 'void_market', marketPda: context.binding.marketPda, attestation }, context, event);
+        await persist({ operation: 'void_market', marketPda: context.binding.marketPda, attestation }, market, context, event);
         return;
       }
       const attestation = buildEscrowSettlementAttestation({
         ...common(context, event), outcome: effect.outcome,
         decidingSequence: effect.decidingSeq, evidenceSequences: effect.evidenceSeqs,
       });
-      await persist({ operation: 'settle_market', marketPda: context.binding.marketPda, attestation }, context, event);
+      await persist({ operation: 'settle_market', marketPda: context.binding.marketPda, attestation }, market, context, event);
       return;
     }
     if (effect.kind === 'void') {
       const attestation = buildEscrowVoidAttestation({
         ...common(context, event), reason: voidReason(event), decidingSequence: event.seq,
       });
-      await persist({ operation: 'void_market', marketPda: context.binding.marketPda, attestation }, context, event);
+      await persist({ operation: 'void_market', marketPda: context.binding.marketPda, attestation }, market, context, event);
     }
   }
 
   async function persistNewPending(
     previous: MarketState['pendingSettlement'],
     current: MarketState['pendingSettlement'],
+    market: MarketRow,
     context: EscrowWorkflowMarketContext,
     event: MatchEvent,
   ): Promise<void> {
@@ -249,7 +254,7 @@ export function createEscrowEventWorkflowScheduler(options: {
       });
       await persist(
         { operation: 'void_market', marketPda: context.binding.marketPda, attestation },
-        context, event, current.debounceUntilMs, debounceUntilIso,
+        market, context, event, current.debounceUntilMs, debounceUntilIso,
       );
       return;
     }
@@ -259,7 +264,7 @@ export function createEscrowEventWorkflowScheduler(options: {
     });
     await persist(
       { operation: 'settle_market', marketPda: context.binding.marketPda, attestation },
-      context, event, current.debounceUntilMs, debounceUntilIso,
+      market, context, event, current.debounceUntilMs, debounceUntilIso,
     );
   }
 
@@ -271,8 +276,8 @@ export function createEscrowEventWorkflowScheduler(options: {
     const result = options.deps.engine.reduceMarket(state, event);
     if (result.state === state && result.effects.length === 0) return;
     await protectPriceMovingLots(market, context, event);
-    for (const effect of result.effects) await applyEffect(effect, context, event);
-    await persistNewPending(state.pendingSettlement, result.state.pendingSettlement, context, event);
+    for (const effect of result.effects) await applyEffect(effect, market, context, event);
+    await persistNewPending(state.pendingSettlement, result.state.pendingSettlement, market, context, event);
     eventWatermarks.set(market.id, event.seq);
     if (result.state.status === 'settled' || result.state.status === 'voided') states.delete(market.id);
     else states.set(market.id, result.state);

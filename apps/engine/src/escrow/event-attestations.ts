@@ -1,7 +1,9 @@
-import { createHash } from 'node:crypto';
 import type { MatchEvent, SettlementOutcome } from '@calledit/market-engine';
 import {
+  escrowEvidenceSequenceCommitmentV2,
   hexToBytes,
+  normalizedEscrowEvidenceHashV2,
+  settlementEvidenceHashV2,
   type AttestationCommonV1,
   type FeedEventAttestationV1,
   type PositionInvalidationAttestationV1,
@@ -25,59 +27,15 @@ export interface EscrowAttestationDeploymentBinding {
   readonly programId: string;
 }
 
-function sha256(domain: string, values: readonly (string | Uint8Array)[]): Uint8Array {
-  const hash = createHash('sha256').update(domain).update('\0');
-  for (const value of values) {
-    const bytes = typeof value === 'string' ? Buffer.from(value, 'utf8') : value;
-    const length = Buffer.alloc(4);
-    length.writeUInt32LE(bytes.length);
-    hash.update(length).update(bytes);
-  }
-  return Uint8Array.from(hash.digest());
-}
-
-function normalizedEvent(event: MatchEvent): string {
-  const detail = event.detail;
-  return JSON.stringify([
-    event.kind,
-    event.fixtureId,
-    event.seq,
-    event.tsMs,
-    event.receivedAtMs,
-    event.confirmed,
-    event.phase,
-    event.minute,
-    event.score.p1.goals,
-    event.score.p1.yellowCards,
-    event.score.p1.redCards,
-    event.score.p1.corners,
-    event.score.p2.goals,
-    event.score.p2.yellowCards,
-    event.score.p2.redCards,
-    event.score.p2.corners,
-    event.score.p1Goals90,
-    event.score.p2Goals90,
-    detail?.participant ?? null,
-    detail?.playerNormativeId ?? null,
-    detail?.playerName ?? null,
-    detail?.goalType ?? null,
-    detail?.card ?? null,
-    detail?.reversesSeq ?? null,
-  ]);
-}
-
 export function normalizedEscrowEvidenceHash(event: MatchEvent): Uint8Array {
-  return sha256('calledit.escrow.normalized-feed-event.v1', [normalizedEvent(event)]);
+  return normalizedEscrowEvidenceHashV2(event);
 }
 
 export function escrowEvidenceSequenceCommitment(
   fixtureId: number,
   evidenceSequences: readonly number[],
 ): Uint8Array {
-  return sha256('calledit.escrow.evidence-sequences.v1', [
-    String(fixtureId),
-    JSON.stringify(evidenceSequences),
-  ]);
+  return escrowEvidenceSequenceCommitmentV2(fixtureId, evidenceSequences);
 }
 
 function common(input: {
@@ -151,10 +109,7 @@ export function buildEscrowSettlementAttestation(input: CommonInput & {
     input.evidenceSequences,
   );
   const normalizedEvidenceRoot = normalizedEscrowEvidenceHash(input.event);
-  const evidenceHash = sha256('calledit.escrow.settlement-evidence.v1', [
-    evidenceSequenceCommitment,
-    normalizedEvidenceRoot,
-  ]);
+  const evidenceHash = settlementEvidenceHashV2(evidenceSequenceCommitment, normalizedEvidenceRoot);
   const hasRegulationScore = input.event.score.p1Goals90 !== null && input.event.score.p2Goals90 !== null;
   return {
     ...common({ ...input, evidenceHash }),

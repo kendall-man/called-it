@@ -21,6 +21,8 @@ const PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
 function request(): EscrowAttestationSigningRequest {
   return {
     kind: 'void',
+    evidenceCodecVersion: 2,
+    claimSpecificationJson: '{"claimType":"match_winner"}',
     attestation: {
       clusterGenesisHash: base58Decode(GENESIS_HASH),
       escrowProgramId: base58Decode(PROGRAM_ID),

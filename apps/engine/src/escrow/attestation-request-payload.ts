@@ -34,8 +34,10 @@ const request = z.discriminatedUnion('operation', [
 ]);
 const unsignedSchema = z.object({
   schemaVersion: z.literal(1),
+  evidenceCodecVersion: z.literal(2),
   signingKind: z.enum(['feed_event', 'position_invalidation', 'settlement', 'void']),
   marketId: z.string().uuid(), marketPda: z.string(), documentHashHex: z.string().regex(/^[0-9a-f]{64}$/),
+  claimSpecificationJson: z.string().min(2).max(16_384),
   oracleEpoch: z.string().regex(/^\d+$/), eventEpoch: z.string().regex(/^\d+$/), replay: z.boolean(),
   oraclePolicy: z.object({
     oracleSetEpoch: z.string().regex(/^\d+$/), signers: z.array(z.string()).length(3), threshold: z.literal(2),
@@ -73,6 +75,7 @@ function signingKind(requestValue: EscrowUnsignedWorkflowRequest): EscrowUnsigne
 export function createUnsignedAttestationPayload(input: {
   readonly marketId: string;
   readonly documentHashHex: string;
+  readonly claimSpecificationJson: string;
   readonly eventEpoch: bigint;
   readonly replay: boolean;
   readonly oraclePolicy: EscrowOracleAttestationPolicy;
@@ -88,8 +91,9 @@ export function createUnsignedAttestationPayload(input: {
         }
       : { ...common, attestation: jsonRecord(input.request.attestation) };
   return unsignedSchema.parse({
-    schemaVersion: 1, signingKind: signingKind(input.request), marketId: input.marketId,
+    schemaVersion: 1, evidenceCodecVersion: 2, signingKind: signingKind(input.request), marketId: input.marketId,
     marketPda: input.request.marketPda, documentHashHex: input.documentHashHex.toLowerCase(),
+    claimSpecificationJson: input.claimSpecificationJson,
     oracleEpoch: String(input.oraclePolicy.oracleSetEpoch), eventEpoch: String(input.eventEpoch), replay: input.replay,
     oraclePolicy: {
       oracleSetEpoch: String(input.oraclePolicy.oracleSetEpoch),
@@ -109,10 +113,10 @@ export function attestationPayloadHash(value: EscrowUnsignedAttestationPayload |
 
 export function attestationSigningRequest(payload: EscrowUnsignedAttestationPayload): EscrowAttestationSigningRequest {
   switch (payload.signingKind) {
-    case 'feed_event': return { kind: 'feed_event', attestation: restoreFeedAttestation(payload.request.attestation) };
-    case 'position_invalidation': return { kind: 'position_invalidation', attestation: restoreInvalidationAttestation(payload.request.attestation) };
-    case 'settlement': return { kind: 'settlement', attestation: restoreSettlement(payload.request.attestation) };
-    case 'void': return { kind: 'void', attestation: restoreVoid(payload.request.attestation) };
+    case 'feed_event': return { kind: 'feed_event', attestation: restoreFeedAttestation(payload.request.attestation), claimSpecificationJson: payload.claimSpecificationJson, evidenceCodecVersion: 2 };
+    case 'position_invalidation': return { kind: 'position_invalidation', attestation: restoreInvalidationAttestation(payload.request.attestation), claimSpecificationJson: payload.claimSpecificationJson, evidenceCodecVersion: 2 };
+    case 'settlement': return { kind: 'settlement', attestation: restoreSettlement(payload.request.attestation), claimSpecificationJson: payload.claimSpecificationJson, evidenceCodecVersion: 2 };
+    case 'void': return { kind: 'void', attestation: restoreVoid(payload.request.attestation), claimSpecificationJson: payload.claimSpecificationJson, evidenceCodecVersion: 2 };
   }
 }
 

@@ -21,6 +21,7 @@ const PROGRAM = Keypair.generate().publicKey.toBase58();
 const MARKET = Keypair.generate().publicKey.toBase58();
 const LOT = Keypair.generate().publicKey.toBase58();
 const OWNER = Keypair.generate().publicKey.toBase58();
+const CLAIM_SPECIFICATION_JSON = '{"claimType":"match_winner"}';
 const common = {
   deployment: { genesisHash: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG', programId: PROGRAM },
   market: {
@@ -77,6 +78,7 @@ describe('durable attestation request payload', () => {
   it.each(requests())('round-trips $operation across a signed restart', (request) => {
     const unsigned = createUnsignedAttestationPayload({
       marketId: MARKET_ID, documentHashHex: 'ab'.repeat(32), eventEpoch: 4n,
+      claimSpecificationJson: CLAIM_SPECIFICATION_JSON,
       replay: false, oraclePolicy: policy, request,
     });
     const unsignedHash = attestationPayloadHash(unsigned);
@@ -94,6 +96,7 @@ describe('durable attestation request payload', () => {
     if (request === undefined) throw new TypeError('missing attestation fixture');
     const unsigned = createUnsignedAttestationPayload({
       marketId: MARKET_ID, documentHashHex: 'ab'.repeat(32), eventEpoch: 4n,
+      claimSpecificationJson: CLAIM_SPECIFICATION_JSON,
       replay: false, oraclePolicy: policy, request,
     });
     const signed = createSignedAttestationPayload(attestationPayloadHash(unsigned), [{

@@ -20,10 +20,10 @@ import {
 import { PublicKey, type Signer } from '@solana/web3.js';
 
 export type EscrowAttestationSigningRequest =
-  | { readonly kind: 'feed_event'; readonly attestation: FeedEventAttestationV1 }
-  | { readonly kind: 'position_invalidation'; readonly attestation: PositionInvalidationAttestationV1 }
-  | { readonly kind: 'settlement'; readonly attestation: SettlementAttestationV1 }
-  | { readonly kind: 'void'; readonly attestation: VoidAttestationV1 };
+  | { readonly kind: 'feed_event'; readonly attestation: FeedEventAttestationV1; readonly claimSpecificationJson: string; readonly evidenceCodecVersion: 2 }
+  | { readonly kind: 'position_invalidation'; readonly attestation: PositionInvalidationAttestationV1; readonly claimSpecificationJson: string; readonly evidenceCodecVersion: 2 }
+  | { readonly kind: 'settlement'; readonly attestation: SettlementAttestationV1; readonly claimSpecificationJson: string; readonly evidenceCodecVersion: 2 }
+  | { readonly kind: 'void'; readonly attestation: VoidAttestationV1; readonly claimSpecificationJson: string; readonly evidenceCodecVersion: 2 };
 
 export interface EscrowOracleAttestationProvider {
   sign(
@@ -68,6 +68,9 @@ interface CanonicalSigningEnvelope {
   readonly marketDocumentHashHex: string;
   readonly oracleSetEpoch: string;
   readonly evidenceHashHex: string;
+  readonly claimSpecificationJson: string;
+  readonly evidenceCodecVersion: 2;
+  readonly attestationJson: Readonly<Record<string, unknown>>;
 }
 
 interface SignerResponse extends CanonicalSigningEnvelope {
@@ -100,6 +103,10 @@ function envelope(request: EscrowAttestationSigningRequest): CanonicalSigningEnv
     marketDocumentHashHex: bytesToHex(request.attestation.marketDocumentHash),
     oracleSetEpoch: String(request.attestation.oracleSetEpoch),
     evidenceHashHex: bytesToHex(request.attestation.evidenceHash),
+    claimSpecificationJson: request.claimSpecificationJson,
+    evidenceCodecVersion: request.evidenceCodecVersion,
+    attestationJson: JSON.parse(JSON.stringify(request.attestation, (_key, value) =>
+      typeof value === 'bigint' ? value.toString() : value instanceof Uint8Array ? bytesToHex(value) : value)) as Readonly<Record<string, unknown>>,
   };
 }
 
@@ -129,6 +136,9 @@ function isExactResponse(
     response.marketDocumentHashHex === expected.marketDocumentHashHex &&
     response.oracleSetEpoch === expected.oracleSetEpoch &&
     response.evidenceHashHex === expected.evidenceHashHex &&
+    response.claimSpecificationJson === expected.claimSpecificationJson &&
+    response.evidenceCodecVersion === expected.evidenceCodecVersion &&
+    JSON.stringify(response.attestationJson) === JSON.stringify(expected.attestationJson) &&
     typeof response.signerPubkey === 'string' &&
     validSignatureBase64(response.signatureBase64);
 }

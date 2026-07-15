@@ -96,7 +96,7 @@ importers:
         version: 2.0.3(grammy@1.44.0)
       '@solana/web3.js':
         specifier: 1.98.4
-        version: 1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
+        version: 1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
       grammy:
         specifier: ^1.32.0
         version: 1.44.0
@@ -113,6 +113,37 @@ importers:
       vitest:
         specifier: ^3.0.0
         version: 3.2.6(@types/debug@4.1.13)(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.22.5)(yaml@2.9.0)
+
+  apps/oracle-signer:
+    dependencies:
+      '@calledit/escrow-sdk':
+        specifier: workspace:*
+        version: link:../../packages/escrow-sdk
+      '@calledit/market-engine':
+        specifier: workspace:*
+        version: link:../../packages/market-engine
+      '@calledit/solana':
+        specifier: workspace:*
+        version: link:../../packages/solana
+      '@calledit/txline':
+        specifier: workspace:*
+        version: link:../../packages/txline
+      '@solana/web3.js':
+        specifier: 1.98.4
+        version: 1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: 22.20.0
+        version: 22.20.0
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.6
+        version: 3.2.6(@types/debug@4.1.13)(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.22.5)(yaml@2.9.0)
 
   apps/web:
     dependencies:

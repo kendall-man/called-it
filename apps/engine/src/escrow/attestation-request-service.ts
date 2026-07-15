@@ -65,6 +65,7 @@ export function createEscrowAttestationRequestService(options: {
     async enqueue(input: {
       readonly marketId: string;
       readonly documentHashHex: string;
+      readonly claimSpecificationJson: string;
       readonly eventEpoch: bigint;
       readonly replay: boolean;
       readonly oraclePolicy: EscrowOracleAttestationPolicy;

@@ -22,6 +22,7 @@ const LATER = '2026-07-15T12:01:30.000Z';
 const MARKET_ID = '123e4567-e89b-12d3-a456-426614174000';
 const PROGRAM = Keypair.generate().publicKey.toBase58();
 const MARKET = Keypair.generate().publicKey.toBase58();
+const CLAIM_SPECIFICATION_JSON = '{"claimType":"match_winner"}';
 const policySigners = [Keypair.generate(), Keypair.generate(), Keypair.generate()];
 const policy = {
   oracleSetEpoch: 9n,
@@ -50,6 +51,7 @@ function unsigned() {
   });
   return createUnsignedAttestationPayload({
     marketId: MARKET_ID, documentHashHex: 'ab'.repeat(32), eventEpoch: 4n,
+    claimSpecificationJson: CLAIM_SPECIFICATION_JSON,
     replay: false, oraclePolicy: policy,
     request: { operation: 'settle_market', marketPda: MARKET, attestation },
   });
@@ -141,6 +143,7 @@ async function seededDb(debounceUntilIso: string | null = LATER) {
   if (request.operation !== 'settle_market') throw new TypeError('invalid settlement fixture');
   const result = await service.enqueue({
     marketId: MARKET_ID, documentHashHex: 'ab'.repeat(32), eventEpoch: 4n,
+    claimSpecificationJson: CLAIM_SPECIFICATION_JSON,
     replay: false, oraclePolicy: policy,
     request: {
       operation: 'settle_market', marketPda: request.marketPda,

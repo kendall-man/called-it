@@ -1,4 +1,5 @@
 import type { MarketRow } from '../ports.js';
+import { canonicalJson } from '@calledit/escrow-sdk';
 import type { InitializeEscrowMarketResult } from './market-initializer.js';
 import type { ImmutableMarketDocumentInput } from './market-document.js';
 
@@ -21,13 +22,6 @@ export class EscrowMarketProvisioningError extends Error {
   constructor(readonly code: 'market_not_allowed' | 'source_unavailable' | 'invalid_timeline') {
     super(`escrow market provisioning rejected: ${code}`);
   }
-}
-
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  const object = value as Readonly<Record<string, unknown>>;
-  return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`).join(',')}}`;
 }
 
 function secondsFromMs(value: number): bigint | null {
@@ -94,7 +88,7 @@ export function createEscrowMarketProvisioner(options: {
         resolutionDeadlineTimestamp <= positionCutoffTimestamp
       ) throw new EscrowMarketProvisioningError('invalid_timeline');
 
-      const quoteDocument = stableJson({
+      const quoteDocument = canonicalJson({
         oddsMessageId: market.odds_message_id,
         oddsTimestampMs: market.odds_ts,
         probability: market.quote_probability,
@@ -104,7 +98,7 @@ export function createEscrowMarketProvisioner(options: {
         document: {
           marketId: market.id,
           fixtureId: BigInt(market.fixture_id),
-          claimSpecification: stableJson(market.spec),
+          claimSpecification: canonicalJson(market.spec),
           displayTerms: claim.quoted_text,
           asset: market.currency,
           probability: market.quote_probability,
