@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "prebuild": "pnpm --filter @calledit/market-engine build && pnpm --filter @calledit/escrow-sdk build",
     "build": "next build",
     "dev": "next dev",
     "start": "next start",
