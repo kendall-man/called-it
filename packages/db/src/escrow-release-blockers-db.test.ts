@@ -10,6 +10,7 @@ const HASH = 'ab'.repeat(32);
 const SIGNED_HASH = 'cd'.repeat(32);
 const NOW = '2026-07-15T12:00:00.000Z';
 const LATER = '2026-07-15T12:01:00.000Z';
+const TELEGRAM_GROUP_ID = -1_000_000_926_001;
 
 type RpcCall = Readonly<{ fn: string; args: Readonly<Record<string, unknown>> }>;
 
@@ -58,7 +59,7 @@ describe('0026 escrow typed facade', () => {
       data: {
         ok: true,
         created: true,
-        group_id: 926001,
+        group_id: TELEGRAM_GROUP_ID,
         custody_mode: 'escrow',
         cluster: 'devnet',
         genesis_hash: 'genesis-address',
@@ -71,7 +72,7 @@ describe('0026 escrow typed facade', () => {
     });
 
     await expect(db.configureGroupRollout({
-      groupId: 926001,
+      groupId: TELEGRAM_GROUP_ID,
       custodyMode: 'escrow',
       cluster: 'devnet',
       genesisHash: 'genesis-address',
@@ -82,7 +83,7 @@ describe('0026 escrow typed facade', () => {
     })).resolves.toEqual({
       ok: true,
       created: true,
-      groupId: 926001,
+      groupId: TELEGRAM_GROUP_ID,
       custodyMode: 'escrow',
       cluster: 'devnet',
       genesisHash: 'genesis-address',
@@ -94,7 +95,7 @@ describe('0026 escrow typed facade', () => {
     expect(client.calls[0]).toEqual({
       fn: 'escrow_configure_group_rollout',
       args: {
-        p_group_id: 926001,
+        p_group_id: TELEGRAM_GROUP_ID,
         p_custody_mode: 'escrow',
         p_cluster: 'devnet',
         p_genesis_hash: 'genesis-address',
@@ -109,7 +110,7 @@ describe('0026 escrow typed facade', () => {
       data: {
         ok: true,
         found: true,
-        group_id: 926001,
+        group_id: TELEGRAM_GROUP_ID,
         custody_mode: 'escrow',
         cluster: 'devnet',
         genesis_hash: 'genesis-address',
@@ -120,17 +121,40 @@ describe('0026 escrow typed facade', () => {
       },
       error: null,
     };
-    await expect(db.getGroupRollout({ groupId: 926001 })).resolves.toMatchObject({
+    await expect(db.getGroupRollout({ groupId: TELEGRAM_GROUP_ID })).resolves.toMatchObject({
       ok: true,
       found: true,
-      groupId: 926001,
+      groupId: TELEGRAM_GROUP_ID,
       custodyMode: 'escrow',
       genesisHash: 'genesis-address',
     });
     expect(client.calls[1]).toEqual({
       fn: 'escrow_get_group_rollout',
-      args: { p_group_id: 926001 },
+      args: { p_group_id: TELEGRAM_GROUP_ID },
     });
+  });
+
+  it('rejects zero and unsafe rollout group IDs before calling the RPC', async () => {
+    const { client, db } = makeDb({ data: null, error: null });
+    const rollout = {
+      custodyMode: 'legacy' as const,
+      cluster: null,
+      genesisHash: null,
+      programId: null,
+      custodyVersion: null,
+      enabledBy: null,
+      nowIso: NOW,
+    };
+
+    expect(() => db.configureGroupRollout({ groupId: 0, ...rollout }))
+      .toThrow('invalid groupId');
+    expect(() => db.configureGroupRollout({
+      groupId: Number.MIN_SAFE_INTEGER - 1,
+      ...rollout,
+    })).toThrow('invalid groupId');
+    expect(() => db.getGroupRollout({ groupId: Number.MAX_SAFE_INTEGER + 1 }))
+      .toThrow('invalid groupId');
+    expect(client.calls).toHaveLength(0);
   });
 
   it('records the fully-bound finalized MarketClosed projection', async () => {

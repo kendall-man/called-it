@@ -1,7 +1,7 @@
 insert into public.groups (id, title, slug, web_enabled)
 values
-  (926501, 'Escrow 0026 upgrade', 'escrow-0026-upgrade', true),
-  (926502, 'Escrow legacy upgrade', 'escrow-legacy-upgrade', false);
+  (-1000000926501, 'Escrow 0026 upgrade', 'escrow-0026-upgrade', true),
+  (-1000000926502, 'Escrow legacy upgrade', 'escrow-legacy-upgrade', false);
 
 insert into public.users (id, display_name, username)
 values (926501, 'PRIVATE_UPGRADE_USER', 'private_upgrade_user');
@@ -10,7 +10,7 @@ insert into public.escrow_group_rollouts (
   group_id, custody_mode, cluster, genesis_hash, program_id, custody_version,
   enabled_by, updated_at
 ) values (
-  926501, 'escrow', 'devnet', 'GenesisUpgrade926', 'ProgramUpgrade926', 3,
+  -1000000926501, 'escrow', 'devnet', 'GenesisUpgrade926', 'ProgramUpgrade926', 3,
   926501, '2026-07-15T08:00:00Z'
 );
 
@@ -25,15 +25,15 @@ insert into public.claims (
   id, group_id, claimer_user_id, tg_message_id, quoted_text, status
 ) values
   (
-    '92650000-0000-4000-8000-000000000001', 926501, 926501, 1,
+    '92650000-0000-4000-8000-000000000001', -1000000926501, 926501, 1,
     'PRIVATE UPGRADE CLAIM', 'confirmed'
   ),
   (
-    '92650000-0000-4000-8000-000000000002', 926501, 926501, 2,
+    '92650000-0000-4000-8000-000000000002', -1000000926501, 926501, 2,
     'PRIVATE UPGRADE QUEUE CLAIM', 'confirmed'
   ),
   (
-    '92650000-0000-4000-8000-000000000003', 926502, 926501, 3,
+    '92650000-0000-4000-8000-000000000003', -1000000926502, 926501, 3,
     'PRIVATE UPGRADE LEGACY CLAIM', 'confirmed'
   );
 
@@ -44,7 +44,7 @@ insert into public.markets (
   (
     '92650000-0000-4000-8000-000000000101',
     '92650000-0000-4000-8000-000000000001',
-    926501,
+    -1000000926501,
     926501,
     '{"claimType":"match_winner","fixtureId":926501,"entityRef":{"kind":"team","participant":1,"name":"Upgrade FC"},"comparator":"eq","threshold":1,"period":"FT","trustTier":"chain_proven"}'::jsonb,
     'settled', false, 'market', 0.5, 2, 'sol', 'escrow'
@@ -52,7 +52,7 @@ insert into public.markets (
   (
     '92650000-0000-4000-8000-000000000102',
     '92650000-0000-4000-8000-000000000002',
-    926501,
+    -1000000926501,
     926502,
     '{"claimType":"btts","fixtureId":926502,"entityRef":{"kind":"team","participant":1,"name":"Queue Upgrade FC"},"comparator":"eq","threshold":1,"period":"FT_90","trustTier":"chain_proven"}'::jsonb,
     'open', false, 'market', 0.5, 2, 'usdc', 'escrow'
@@ -60,7 +60,7 @@ insert into public.markets (
   (
     '92650000-0000-4000-8000-000000000103',
     '92650000-0000-4000-8000-000000000003',
-    926502,
+    -1000000926502,
     926503,
     '{"claimType":"btts","fixtureId":926503,"entityRef":{"kind":"team","participant":1,"name":"Legacy Upgrade FC"},"comparator":"eq","threshold":1,"period":"FT_90","trustTier":"chain_proven"}'::jsonb,
     'open', false, 'market', 0.5, 2, 'sol', 'legacy'

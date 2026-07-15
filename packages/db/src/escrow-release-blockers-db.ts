@@ -197,7 +197,7 @@ function parseGroupRolloutRow(
     ))
   ) return malformed(operation, 'rollout_binding');
   return {
-    groupId: integer(operation, valueRow.group_id, 'group_id'),
+    groupId: nonzeroInteger(operation, valueRow.group_id, 'group_id'),
     custodyMode,
     cluster,
     genesisHash,
@@ -340,7 +340,7 @@ function validateMarketClosed(input: EscrowMarketClosedInput): void {
 }
 
 function validateConfigureGroupRollout(input: ConfigureEscrowGroupRolloutInput): void {
-  safeInteger(input.groupId, 'groupId', true);
+  nonzeroSafeInteger(input.groupId, 'groupId');
   if (input.enabledBy !== null) safeInteger(input.enabledBy, 'enabledBy', true);
   timestampInput(input.nowIso, 'nowIso');
   if (input.custodyMode === 'legacy') {
@@ -359,7 +359,7 @@ function validateConfigureGroupRollout(input: ConfigureEscrowGroupRolloutInput):
 }
 
 function validateGetGroupRollout(input: GetEscrowGroupRolloutInput): void {
-  safeInteger(input.groupId, 'groupId', true);
+  nonzeroSafeInteger(input.groupId, 'groupId');
 }
 
 function validateEnqueue(input: EnqueueEscrowAttestationRequestInput): void {
@@ -524,6 +524,11 @@ function integer(operation: string, value: unknown, field: string): number {
   return malformed(operation, field);
 }
 
+function nonzeroInteger(operation: string, value: unknown, field: string): number {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value !== 0) return value;
+  return malformed(operation, field);
+}
+
 function nullableInteger(operation: string, value: unknown, field: string): number | null {
   if (value === null) return null;
   return integer(operation, value, field);
@@ -623,6 +628,10 @@ function decimal(value: bigint, field: string): string {
 
 function safeInteger(value: number, field: string, positive = false): void {
   if (!Number.isSafeInteger(value) || value < 0 || (positive && value === 0)) invalid(field);
+}
+
+function nonzeroSafeInteger(value: number, field: string): void {
+  if (!Number.isSafeInteger(value) || value === 0) invalid(field);
 }
 
 function nonempty(value: string, field: string): void {

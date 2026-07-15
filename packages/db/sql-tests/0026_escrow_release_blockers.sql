@@ -10,9 +10,9 @@ select jsonb_build_object(
 
 insert into public.groups (id, title, slug, web_enabled)
 values
-  (926001, 'Escrow 0026 test', 'escrow-0026-test', true),
-  (926010, 'Escrow rollout enabled', 'escrow-rollout-enabled', false),
-  (926011, 'Escrow rollout disabled', 'escrow-rollout-disabled', false);
+  (-1000000926001, 'Escrow 0026 test', 'escrow-0026-test', true),
+  (-1000000926010, 'Escrow rollout enabled', 'escrow-rollout-enabled', false),
+  (-1000000926011, 'Escrow rollout disabled', 'escrow-rollout-disabled', false);
 
 insert into public.users (id, display_name, username)
 values (926101, 'PRIVATE_0026_USER', 'private_0026_user');
@@ -21,7 +21,7 @@ insert into public.escrow_group_rollouts (
   group_id, custody_mode, cluster, genesis_hash, program_id, custody_version,
   enabled_by, updated_at
 ) values (
-  926001, 'escrow', 'devnet', 'Genesis926', 'Program926', 2, 926101,
+  -1000000926001, 'escrow', 'devnet', 'Genesis926', 'Program926', 2, 926101,
   '2026-07-15T09:00:00Z'
 );
 
@@ -32,16 +32,18 @@ insert into public.fixtures (
   (926202, 1, 'Queue FC', 'Oracle FC', '2026-07-16T10:00:00Z', 'NS'),
   (926210, 1, 'Legacy Before FC', 'Rollout FC', '2026-07-17T10:00:00Z', 'NS'),
   (926211, 1, 'Enabled After FC', 'Rollout FC', '2026-07-18T10:00:00Z', 'NS'),
-  (926212, 1, 'Disabled FC', 'Rollout FC', '2026-07-19T10:00:00Z', 'NS');
+  (926212, 1, 'Disabled FC', 'Rollout FC', '2026-07-19T10:00:00Z', 'NS'),
+  (926213, 1, 'Stopped Intake FC', 'Existing Escrow FC', '2026-07-20T10:00:00Z', 'NS');
 
 insert into public.claims (
   id, group_id, claimer_user_id, tg_message_id, quoted_text, status
 ) values
-  ('92600000-0000-4000-8000-000000000001', 926001, 926101, 1, 'PRIVATE CLOSE CLAIM', 'confirmed'),
-  ('92600000-0000-4000-8000-000000000002', 926001, 926101, 2, 'PRIVATE QUEUE CLAIM', 'confirmed'),
-  ('92600000-0000-4000-8000-000000000009', 926010, 926101, 9, 'PRIVATE LEGACY BEFORE CLAIM', 'confirmed'),
-  ('92600000-0000-4000-8000-000000000010', 926010, 926101, 10, 'PRIVATE ENABLED AFTER CLAIM', 'confirmed'),
-  ('92600000-0000-4000-8000-000000000011', 926011, 926101, 11, 'PRIVATE DISABLED CLAIM', 'confirmed');
+  ('92600000-0000-4000-8000-000000000001', -1000000926001, 926101, 1, 'PRIVATE CLOSE CLAIM', 'confirmed'),
+  ('92600000-0000-4000-8000-000000000002', -1000000926001, 926101, 2, 'PRIVATE QUEUE CLAIM', 'confirmed'),
+  ('92600000-0000-4000-8000-000000000009', -1000000926010, 926101, 9, 'PRIVATE LEGACY BEFORE CLAIM', 'confirmed'),
+  ('92600000-0000-4000-8000-000000000010', -1000000926010, 926101, 10, 'PRIVATE ENABLED AFTER CLAIM', 'confirmed'),
+  ('92600000-0000-4000-8000-000000000011', -1000000926011, 926101, 11, 'PRIVATE DISABLED CLAIM', 'confirmed'),
+  ('92600000-0000-4000-8000-000000000012', -1000000926001, 926101, 12, 'PRIVATE STOPPED INTAKE CLAIM', 'confirmed');
 
 -- A caller cannot opt into escrow without rollout truth. This row predates
 -- activation and must remain legacy after the group is enabled.
@@ -50,17 +52,17 @@ insert into public.markets (
   price_provenance, quote_probability, quote_multiplier, currency, custody_mode
 ) values (
   '92600000-0000-4000-8000-000000000109',
-  '92600000-0000-4000-8000-000000000009', 926010, 926210,
+  '92600000-0000-4000-8000-000000000009', -1000000926010, 926210,
   '{"claimType":"btts","fixtureId":926210,"entityRef":{"kind":"team","participant":1,"name":"Legacy Before FC"},"comparator":"eq","threshold":1,"period":"FT_90","trustTier":"chain_proven"}'::jsonb,
   'open', false, 'market', 0.5, 2, 'sol', 'escrow'
 );
 
 select public.escrow_configure_group_rollout(
-  926010, 'escrow', 'devnet', 'Genesis926', 'Program926', 2, 926101,
+  -1000000926010, 'escrow', 'devnet', 'Genesis926', 'Program926', 2, 926101,
   '2026-07-15T09:01:00Z'
 );
 select public.escrow_configure_group_rollout(
-  926011, 'legacy', null, null, null, null, 926101,
+  -1000000926011, 'legacy', null, null, null, null, 926101,
   '2026-07-15T09:01:00Z'
 );
 
@@ -70,13 +72,13 @@ insert into public.markets (
 ) values
   (
     '92600000-0000-4000-8000-000000000110',
-    '92600000-0000-4000-8000-000000000010', 926010, 926211,
+    '92600000-0000-4000-8000-000000000010', -1000000926010, 926211,
     '{"claimType":"btts","fixtureId":926211,"entityRef":{"kind":"team","participant":1,"name":"Enabled After FC"},"comparator":"eq","threshold":1,"period":"FT_90","trustTier":"chain_proven"}'::jsonb,
     'open', false, 'market', 0.5, 2, 'sol', 'legacy'
   ),
   (
     '92600000-0000-4000-8000-000000000111',
-    '92600000-0000-4000-8000-000000000011', 926011, 926212,
+    '92600000-0000-4000-8000-000000000011', -1000000926011, 926212,
     '{"claimType":"btts","fixtureId":926212,"entityRef":{"kind":"team","participant":1,"name":"Disabled FC"},"comparator":"eq","threshold":1,"period":"FT_90","trustTier":"chain_proven"}'::jsonb,
     'open', false, 'market', 0.5, 2, 'sol', 'escrow'
   );
@@ -94,12 +96,25 @@ begin
   if (select custody_mode from public.markets where id = '92600000-0000-4000-8000-000000000111') <> 'legacy' then
     raise exception 'disabled rollout did not stamp legacy custody';
   end if;
-  v_rollout := public.escrow_get_group_rollout(926010);
+  v_rollout := public.escrow_get_group_rollout(-1000000926010);
   if v_rollout ->> 'found' <> 'true'
      or v_rollout ->> 'genesis_hash' <> 'Genesis926'
      or v_rollout ->> 'custody_version' <> '2' then
     raise exception 'configured rollout readback mismatch';
   end if;
+
+  begin
+    perform public.escrow_get_group_rollout(0);
+    raise exception 'zero Telegram group id was accepted';
+  exception when others then
+    if sqlerrm <> 'escrow_group_rollout_input_invalid' then raise; end if;
+  end;
+  begin
+    perform public.escrow_get_group_rollout('9223372036854775808'::bigint);
+    raise exception 'out-of-range Telegram group id was accepted';
+  exception when numeric_value_out_of_range then
+    null;
+  end;
 
   begin
     perform public.escrow_relayer_enqueue(
@@ -122,7 +137,7 @@ insert into public.markets (
   (
     '92600000-0000-4000-8000-000000000101',
     '92600000-0000-4000-8000-000000000001',
-    926001,
+    -1000000926001,
     926201,
     '{"claimType":"match_winner","fixtureId":926201,"entityRef":{"kind":"team","participant":1,"name":"Close FC"},"comparator":"eq","threshold":1,"period":"FT","trustTier":"chain_proven"}'::jsonb,
     'settled', false, 'market', 0.4, 2.5, 'sol', 'escrow'
@@ -130,7 +145,7 @@ insert into public.markets (
   (
     '92600000-0000-4000-8000-000000000102',
     '92600000-0000-4000-8000-000000000002',
-    926001,
+    -1000000926001,
     926202,
     '{"claimType":"btts","fixtureId":926202,"entityRef":{"kind":"team","participant":1,"name":"Queue FC"},"comparator":"eq","threshold":1,"period":"FT_90","trustTier":"chain_proven"}'::jsonb,
     'open', false, 'market', 0.5, 2, 'usdc', 'escrow'
@@ -175,21 +190,82 @@ insert into public.escrow_settlement_events (
   'finalized', true, now(), now()
 );
 
+-- Stopping rollout disables only new intake. Existing immutable links must
+-- remain live for settlement, claims, account recovery, and pause recovery.
+select public.escrow_configure_group_rollout(
+  -1000000926001, 'legacy', null, null, null, null, 926101,
+  '2026-07-15T10:02:30Z'
+);
+
+insert into public.markets (
+  id, claim_id, group_id, fixture_id, spec, status, is_replay,
+  price_provenance, quote_probability, quote_multiplier, currency, custody_mode
+) values (
+  '92600000-0000-4000-8000-000000000112',
+  '92600000-0000-4000-8000-000000000012', -1000000926001, 926213,
+  '{"claimType":"btts","fixtureId":926213,"entityRef":{"kind":"team","participant":1,"name":"Stopped Intake FC"},"comparator":"eq","threshold":1,"period":"FT_90","trustTier":"chain_proven"}'::jsonb,
+  'open', false, 'market', 0.5, 2, 'sol', 'escrow'
+);
+
 do $$
+declare
+  v_result jsonb;
 begin
+  if (select custody_mode from public.markets
+      where id = '92600000-0000-4000-8000-000000000112') <> 'legacy' then
+    raise exception 'stopped rollout did not block new escrow intake';
+  end if;
+
+  v_result := public.escrow_relayer_enqueue(
+    'settlement_submission', 'linked-after-stop-settlement-926', 'devnet',
+    'Program926', 'escrow', 2, '92600000-0000-4000-8000-000000000102', null,
+    '{"request":"settle"}'::jsonb, '2026-07-15T10:02:31Z', 3, 60000,
+    '2026-07-15T10:02:31Z'
+  );
+  if v_result ->> 'created' <> 'true' then
+    raise exception 'linked settlement job blocked after rollout disable';
+  end if;
+
+  v_result := public.escrow_relayer_enqueue(
+    'auto_claim', 'linked-after-stop-claim-926', 'devnet', 'Program926',
+    'escrow', 2, '92600000-0000-4000-8000-000000000102', null,
+    '{"request":"claim"}'::jsonb, '2026-07-15T10:02:32Z', 3, 60000,
+    '2026-07-15T10:02:32Z'
+  );
+  if v_result ->> 'created' <> 'true' then
+    raise exception 'linked claim job blocked after rollout disable';
+  end if;
+
+  v_result := public.escrow_relayer_enqueue(
+    'account_close', 'linked-after-stop-recovery-926', 'devnet', 'Program926',
+    'escrow', 2, '92600000-0000-4000-8000-000000000102', null,
+    '{"request":"recover"}'::jsonb, '2026-07-15T10:02:33Z', 3, 60000,
+    '2026-07-15T10:02:33Z'
+  );
+  if v_result ->> 'created' <> 'true' then
+    raise exception 'linked recovery job blocked after rollout disable';
+  end if;
+
+  v_result := public.escrow_relayer_enqueue(
+    'unfreeze', 'linked-after-stop-unfreeze-926', 'devnet', 'Program926',
+    'escrow', 2, '92600000-0000-4000-8000-000000000102', null,
+    '{"request":"unfreeze"}'::jsonb, '2026-07-15T10:02:34Z', 3, 60000,
+    '2026-07-15T10:02:34Z'
+  );
+  if v_result ->> 'created' <> 'true' then
+    raise exception 'linked pause recovery job blocked after rollout disable';
+  end if;
+
   begin
-    update public.escrow_group_rollouts
-    set genesis_hash = 'WrongGenesis926'
-    where group_id = 926001;
     perform public.escrow_relayer_enqueue(
-      'freeze', 'wrong-linked-genesis-926', 'devnet', 'Program926', 'escrow', 2,
-      '92600000-0000-4000-8000-000000000102', null,
-      '{"request":"freeze"}'::jsonb, '2026-07-15T10:02:30Z', 3, 60000,
-      '2026-07-15T10:02:30Z'
+      'freeze', 'wrong-linked-program-926', 'devnet', 'WrongProgram926',
+      'escrow', 2, '92600000-0000-4000-8000-000000000102', null,
+      '{"request":"freeze"}'::jsonb, '2026-07-15T10:02:35Z', 3, 60000,
+      '2026-07-15T10:02:35Z'
     );
-    raise exception 'wrong rollout genesis was accepted';
+    raise exception 'wrong linked deployment was accepted';
   exception when others then
-    if sqlerrm <> 'escrow_relayer_group_rollout_mismatch' then raise; end if;
+    if sqlerrm <> 'escrow_relayer_market_link_mismatch' then raise; end if;
   end;
 end;
 $$;

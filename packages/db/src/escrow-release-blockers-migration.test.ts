@@ -76,8 +76,9 @@ describe('0026 escrow release blocker contract', () => {
     expect(sql).toContain('create function public.escrow_configure_group_rollout');
     expect(sql).toContain('create function public.escrow_get_group_rollout');
     expect(sql).toContain('create or replace function public.escrow_validate_relayer_job_custody');
-    expect(sql).toContain('v_rollout.genesis_hash is distinct from v_link.genesis_hash');
+    expect(sql).toContain('if p_group_id = 0');
     expect(sql).toContain("v_rollout.genesis_hash is distinct from new.payload ->> 'genesisHash'");
+    expect(sql).not.toContain('v_rollout.genesis_hash is distinct from v_link.genesis_hash');
     expect(sql).not.toMatch(/update\s+public\.markets\s+set\s+custody_mode/i);
   });
 
@@ -96,6 +97,10 @@ describe('0026 escrow release blocker contract', () => {
     expect(sql).toContain('existing legacy market was auto-migrated');
     expect(sql).toContain('enabled rollout did not stamp escrow custody');
     expect(sql).toContain('disabled rollout did not stamp legacy custody');
-    expect(sql).toContain('wrong rollout genesis was accepted');
+    expect(sql).toContain('wrong initialization genesis was accepted');
+    expect(sql).toContain('linked settlement job blocked after rollout disable');
+    expect(sql).toContain('linked claim job blocked after rollout disable');
+    expect(sql).toContain('linked recovery job blocked after rollout disable');
+    expect(sql).toContain('linked pause recovery job blocked after rollout disable');
   });
 });

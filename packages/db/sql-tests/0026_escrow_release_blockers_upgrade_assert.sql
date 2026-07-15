@@ -4,6 +4,9 @@ do $$
 declare
   v_result jsonb;
 begin
+  if public.escrow_get_group_rollout(-1000000926501) ->> 'found' <> 'true' then
+    raise exception '0026 upgrade rejected negative Telegram group id';
+  end if;
   if (select custody_mode from public.markets
       where id = '92650000-0000-4000-8000-000000000103') <> 'legacy' then
     raise exception '0026 upgrade auto-migrated existing legacy market';

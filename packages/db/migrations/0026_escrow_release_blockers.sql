@@ -56,7 +56,7 @@ declare
   v_result public.escrow_group_rollouts%rowtype;
   v_created boolean;
 begin
-  if p_group_id <= 0 or p_now is null
+  if p_group_id = 0 or p_now is null
      or p_custody_mode not in ('legacy', 'escrow') then
     raise exception 'escrow_group_rollout_input_invalid';
   end if;
@@ -140,7 +140,7 @@ as $$
 declare
   v_rollout public.escrow_group_rollouts%rowtype;
 begin
-  if p_group_id <= 0 then
+  if p_group_id = 0 then
     raise exception 'escrow_group_rollout_input_invalid';
   end if;
   select * into v_rollout
@@ -164,9 +164,9 @@ begin
 end;
 $$;
 
--- Replace the 0024 guard forward-only. Initialization jobs bind genesis from
--- their immutable payload; linked jobs bind the complete rollout identity to
--- the immutable market link, including the genesis omitted by 0024.
+-- Replace the 0024 guard forward-only. Rollout controls only new market
+-- assignment and pre-link initialization. Once a market has an immutable
+-- link, mutable rollout state must not block settlement, claims, or recovery.
 create or replace function public.escrow_validate_relayer_job_custody()
 returns trigger
 language plpgsql
@@ -190,10 +190,6 @@ begin
   if v_mode is distinct from 'escrow' then
     raise exception 'escrow_relayer_market_mode_mismatch';
   end if;
-  select * into v_rollout
-  from public.escrow_group_rollouts
-  where group_id = v_group_id;
-
   select * into v_link
   from public.escrow_market_links
   where market_id = new.market_id;
@@ -201,6 +197,9 @@ begin
     if new.kind <> 'market_initialization' then
       raise exception 'escrow_relayer_market_link_missing';
     end if;
+    select * into v_rollout
+    from public.escrow_group_rollouts
+    where group_id = v_group_id;
     if v_rollout.group_id is null
        or v_rollout.custody_mode <> 'escrow'
        or v_rollout.cluster is distinct from new.cluster
@@ -219,14 +218,6 @@ begin
      or v_link.cluster <> new.cluster
      or v_link.program_id <> new.program_id then
     raise exception 'escrow_relayer_market_link_mismatch';
-  end if;
-  if v_rollout.group_id is null
-     or v_rollout.custody_mode <> 'escrow'
-     or v_rollout.cluster is distinct from v_link.cluster
-     or v_rollout.genesis_hash is distinct from v_link.genesis_hash
-     or v_rollout.program_id is distinct from v_link.program_id
-     or v_rollout.custody_version is distinct from v_link.custody_version then
-    raise exception 'escrow_relayer_group_rollout_mismatch';
   end if;
   return new;
 end;
