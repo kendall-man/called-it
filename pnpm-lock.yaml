@@ -9,6 +9,11 @@ overrides:
   uuid: 11.1.1
   viem>ws: 8.21.0
 
+patchedDependencies:
+  bigint-buffer@1.1.5:
+    hash: 82227578406d31b0caff02d54b89e7d767cca29e88f4987f628d8537bf2f3940
+    path: patches/bigint-buffer@1.1.5.patch
+
 importers:
 
   .:
@@ -8039,7 +8044,7 @@ snapshots:
     dependencies:
       '@solana/buffer-layout': 4.0.1
       '@solana/web3.js': 1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
-      bigint-buffer: 1.1.5
+      bigint-buffer: 1.1.5(patch_hash=82227578406d31b0caff02d54b89e7d767cca29e88f4987f628d8537bf2f3940)
       bignumber.js: 9.3.1
     transitivePeerDependencies:
       - bufferutil
@@ -10638,7 +10643,7 @@ snapshots:
 
   big.js@6.2.2: {}
 
-  bigint-buffer@1.1.5:
+  bigint-buffer@1.1.5(patch_hash=82227578406d31b0caff02d54b89e7d767cca29e88f4987f628d8537bf2f3940):
     dependencies:
       bindings: 1.5.0
 

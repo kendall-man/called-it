@@ -9,7 +9,8 @@ const IMPORTER_SECTIONS = [
   ['devDependencies', 'devDependencies'],
   ['optionalDependencies', 'optionalDependencies'],
 ];
-const LOCKFILE_KEYS = new Set(['lockfileVersion', 'settings', 'importers', 'packages', 'snapshots']);
+const REQUIRED_LOCKFILE_KEYS = new Set(['lockfileVersion', 'settings', 'importers', 'packages', 'snapshots']);
+const OPTIONAL_LOCKFILE_KEYS = new Set(['overrides', 'patchedDependencies']);
 
 export async function verifyLockIntegrity({ root = process.cwd() } = {}) {
   const absoluteRoot = resolve(root);
@@ -20,6 +21,9 @@ export async function verifyLockIntegrity({ root = process.cwd() } = {}) {
   ]);
   const lockfile = parseLockfile(lockfileText);
   validateLockfileShape(lockfile);
+  const rootManifest = manifests.find((manifest) => manifest.importer === '.')?.document;
+  validateOverrides(lockfile.overrides, rootManifest);
+  await validatePatchedDependencies(lockfile.patchedDependencies, rootManifest, absoluteRoot);
   validateImporters(lockfile.importers, manifests, absoluteRoot);
   const registryPackageCount = validatePackageIntegrities(lockfile.packages);
 
@@ -44,7 +48,11 @@ function parseLockfile(source) {
 }
 
 function validateLockfileShape(lockfile) {
-  if (!hasExactKeys(lockfile, LOCKFILE_KEYS)) {
+  const keys = Object.keys(lockfile);
+  if (
+    ![...REQUIRED_LOCKFILE_KEYS].every((key) => keys.includes(key)) ||
+    keys.some((key) => !REQUIRED_LOCKFILE_KEYS.has(key) && !OPTIONAL_LOCKFILE_KEYS.has(key))
+  ) {
     throw new LockIntegrityError('pnpm-lock.yaml has unknown or missing top-level fields');
   }
   if (lockfile.lockfileVersion !== '9.0') {
@@ -57,6 +65,66 @@ function validateLockfileShape(lockfile) {
   if (!isRecord(lockfile.importers) || !isRecord(lockfile.packages) || !isRecord(lockfile.snapshots)) {
     throw new LockIntegrityError('pnpm-lock.yaml importers, packages, and snapshots must be objects');
   }
+}
+
+function validateOverrides(lockOverrides, rootManifest) {
+  if (!isRecord(rootManifest)) throw new LockIntegrityError('root package manifest is missing');
+  const manifestPnpm = rootManifest.pnpm ?? {};
+  if (!isRecord(manifestPnpm)) throw new LockIntegrityError('root pnpm configuration must be an object');
+  const manifestOverrides = manifestPnpm.overrides ?? {};
+  const locked = lockOverrides ?? {};
+  if (!isRecord(manifestOverrides) || !isRecord(locked)) {
+    throw new LockIntegrityError('pnpm overrides must be dependency maps');
+  }
+  if (!hasExactKeys(locked, new Set(Object.keys(manifestOverrides)))) {
+    throw new LockIntegrityError('lock overrides do not match package.json');
+  }
+  for (const [name, version] of Object.entries(manifestOverrides)) {
+    if (!isNonEmptyString(version) || locked[name] !== version) {
+      throw new LockIntegrityError(`lock override ${name} does not match package.json`);
+    }
+  }
+}
+
+async function validatePatchedDependencies(lockPatches, rootManifest, root) {
+  if (!isRecord(rootManifest)) throw new LockIntegrityError('root package manifest is missing');
+  const manifestPnpm = rootManifest.pnpm ?? {};
+  if (!isRecord(manifestPnpm)) throw new LockIntegrityError('root pnpm configuration must be an object');
+  const manifestPatches = manifestPnpm.patchedDependencies ?? {};
+  const locked = lockPatches ?? {};
+  if (!isRecord(manifestPatches) || !isRecord(locked)) {
+    throw new LockIntegrityError('pnpm patched dependencies must be maps');
+  }
+  if (!hasExactKeys(locked, new Set(Object.keys(manifestPatches)))) {
+    throw new LockIntegrityError('lock patches do not match package.json');
+  }
+  for (const [selector, patchPath] of Object.entries(manifestPatches)) {
+    const lockPatch = locked[selector];
+    if (
+      !isSafeRelativePath(patchPath) ||
+      !isRecord(lockPatch) ||
+      !hasExactKeys(lockPatch, new Set(['hash', 'path'])) ||
+      lockPatch.path !== patchPath ||
+      typeof lockPatch.hash !== 'string' ||
+      !/^[a-f0-9]{64}$/u.test(lockPatch.hash)
+    ) {
+      throw new LockIntegrityError(`lock patch ${selector} does not match package.json`);
+    }
+    const source = await readFile(join(root, patchPath));
+    const digest = createHash('sha256').update(source).digest('hex');
+    if (digest !== lockPatch.hash) {
+      throw new LockIntegrityError(`lock patch ${selector} hash does not match its patch file`);
+    }
+  }
+}
+
+function isSafeRelativePath(value) {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    !value.startsWith('/') &&
+    !/(?:^|\/)\.\.(?:\/|$)/u.test(value)
+  );
 }
 
 async function discoverWorkspaceManifests(root) {

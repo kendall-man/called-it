@@ -203,6 +203,7 @@ test('security workflow runs frozen install, both policy gates, and a SHA-pinned
   // Then
   assert.match(workflow, /pnpm@10\.33\.0 install --frozen-lockfile/);
   assert.match(workflow, /node scripts\/security\/lock-integrity\.mjs/);
+  assert.match(workflow, /node scripts\/security\/bulk-audit\.mjs/);
   assert.match(workflow, /node scripts\/security\/dependency-policy\.mjs --audit/);
   assert.match(
     workflow,
