@@ -3,7 +3,11 @@ import { Keypair } from '@solana/web3.js';
 import { describe, expect, it } from 'vitest';
 import type { Deps, MarketRow } from '../ports.js';
 import type { EscrowAttestationRequestService } from './attestation-request-service.js';
-import { createEscrowEventWorkflowScheduler, type EscrowEventWorkflowPort } from './event-workflow-scheduler.js';
+import {
+  createEscrowEventWorkflowScheduler,
+  createEscrowSettlementEntitlementScheduler,
+  type EscrowEventWorkflowPort,
+} from './event-workflow-scheduler.js';
 
 const MARKET_PDA = Keypair.generate().publicKey.toBase58();
 const OWNER = Keypair.generate().publicKey.toBase58();
@@ -203,5 +207,70 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
     expect(fixture.persisted.find((value) => value.request.operation === 'void_market')?.request).toMatchObject({
       operation: 'void_market', attestation: { reason: 'cancelled', decidingSequence: 30n },
     });
+  });
+});
+
+describe('escrow settlement entitlement scheduler', () => {
+  it('durably enqueues every unprocessed owner and safely retries a partial fan-out', async () => {
+    const ownerA = Keypair.generate().publicKey.toBase58();
+    const ownerB = Keypair.generate().publicKey.toBase58();
+    const processedOwner = Keypair.generate().publicKey.toBase58();
+    const enqueued: string[] = [];
+    let failOwnerB = true;
+    const scheduler = createEscrowSettlementEntitlementScheduler({
+      positions: {
+        async positions() {
+          return [
+            { ownerPubkey: ownerA, settlementProcessed: false },
+            { ownerPubkey: ownerB, settlementProcessed: false },
+            { ownerPubkey: processedOwner, settlementProcessed: true },
+          ];
+        },
+      },
+      recovery: {
+        async enqueue(request) {
+          if (request.operation !== 'calculate_position_entitlement') throw new Error('unexpected operation');
+          if (request.owner === ownerB && failOwnerB) {
+            failOwnerB = false;
+            throw new Error('durable storage unavailable');
+          }
+          enqueued.push(request.owner);
+          return { kind: 'enqueued', created: true, jobId: `job-${enqueued.length}` };
+        },
+      },
+    });
+    const input = { marketId: MARKET_ID, marketPda: MARKET_PDA, positionCount: 3n };
+
+    await expect(scheduler.afterSettlementFinalized(input)).rejects.toThrow('durable storage unavailable');
+    await expect(scheduler.afterSettlementFinalized(input)).resolves.toBeUndefined();
+
+    expect(enqueued).toEqual([ownerA, ownerA, ownerB]);
+    expect(enqueued).not.toContain(processedOwner);
+  });
+
+  it('does not enqueue from an incomplete or duplicate owner projection', async () => {
+    const enqueueCalls: unknown[] = [];
+    const owner = Keypair.generate().publicKey.toBase58();
+    const scheduler = createEscrowSettlementEntitlementScheduler({
+      positions: {
+        async positions() {
+          return [
+            { ownerPubkey: owner, settlementProcessed: false },
+            { ownerPubkey: owner, settlementProcessed: false },
+          ];
+        },
+      },
+      recovery: {
+        async enqueue(request) {
+          enqueueCalls.push(request);
+          return { kind: 'enqueued', created: true, jobId: 'job-a' };
+        },
+      },
+    });
+
+    await expect(scheduler.afterSettlementFinalized({
+      marketId: MARKET_ID, marketPda: MARKET_PDA, positionCount: 2n,
+    })).rejects.toThrow('escrow settlement position projection mismatch');
+    expect(enqueueCalls).toEqual([]);
   });
 });

@@ -248,17 +248,30 @@ describe('durable escrow recovery workflows', () => {
   });
 
   it('confirms the exact finalized settlement effect and rejects a contradictory terminal state', async () => {
-    const fixture = setup('sol', 'settled');
+    const fixture = setup('sol', 'settling', {
+      settlementOutcome: 'claim_won',
+      settlementEvidenceHash: Uint8Array.from({ length: 32 }, () => 9),
+    });
     await fixture.service.enqueue({
       operation: 'settle_market', marketPda: fixture.link.marketPda,
       attestation: fixture.attestation, signatures: fixture.signatures,
     });
     const input = fixture.jobs[0];
     if (input === undefined) throw new Error('expected recovery job');
-    const verifier = createEscrowRecoveryFinalityVerifier({ chain: fixture.chain, programId: PROGRAM_ID });
+    const scheduled: unknown[] = [];
+    const verifier = createEscrowRecoveryFinalityVerifier({
+      chain: fixture.chain,
+      programId: PROGRAM_ID,
+      entitlements: {
+        async afterSettlementFinalized(input) { scheduled.push(input); },
+      },
+    });
 
     await expect(verifier.confirm(leasedJob(input), { signature: 'sig-a', slot: 42n }))
       .resolves.toBe('confirmed');
+    expect(scheduled).toEqual([{
+      marketId: MARKET_ID, marketPda: fixture.link.marketPda, positionCount: 1n,
+    }]);
     const mismatchedVerifier = createEscrowRecoveryFinalityVerifier({
       programId: PROGRAM_ID,
       chain: {
@@ -266,12 +279,40 @@ describe('durable escrow recovery workflows', () => {
         async market(address) {
           const value = await fixture.chain.market(address);
           return value === null ? null : {
-            ...value, value: { ...value.value, settlementOutcome: 'claim_lost' },
+            ...value, value: {
+              ...value.value,
+              state: 'settled',
+              settlementProcessedPositionCount: value.value.positionCount,
+              settlementOutcome: 'claim_lost',
+            },
           };
         },
       },
     });
     await expect(mismatchedVerifier.confirm(leasedJob(input), { signature: 'sig-a', slot: 42n }))
       .resolves.toBe('mismatch');
+  });
+
+  it('keeps finalized settlement retryable until entitlement jobs are durably enqueued', async () => {
+    const fixture = setup('sol', 'settling', {
+      settlementOutcome: 'claim_won',
+      settlementEvidenceHash: Uint8Array.from({ length: 32 }, () => 9),
+    });
+    await fixture.service.enqueue({
+      operation: 'settle_market', marketPda: fixture.link.marketPda,
+      attestation: fixture.attestation, signatures: fixture.signatures,
+    });
+    const input = fixture.jobs[0];
+    if (input === undefined) throw new Error('expected recovery job');
+    const verifier = createEscrowRecoveryFinalityVerifier({
+      chain: fixture.chain,
+      programId: PROGRAM_ID,
+      entitlements: {
+        async afterSettlementFinalized() { throw new Error('durable storage unavailable'); },
+      },
+    });
+
+    await expect(verifier.confirm(leasedJob(input), { signature: 'sig-a', slot: 42n }))
+      .rejects.toThrow('durable storage unavailable');
   });
 });

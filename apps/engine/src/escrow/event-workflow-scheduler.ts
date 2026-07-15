@@ -4,6 +4,7 @@ import type { Deps, MarketRow, PositionRow } from '../ports.js';
 import type { EscrowOracleAttestationPolicy } from './attestation-signers.js';
 import type { EscrowUnsignedWorkflowRequest } from './attestation-request-payload.js';
 import type { EscrowAttestationRequestService } from './attestation-request-service.js';
+import type { createEscrowRecoveryService } from './recovery-workflows.js';
 import {
   buildEscrowFeedEventAttestation,
   buildEscrowPositionInvalidationAttestation,
@@ -33,6 +34,52 @@ export interface EscrowWorkflowPositionLot {
 export interface EscrowEventWorkflowPort {
   loadMarket(market: MarketRow): Promise<EscrowWorkflowMarketContext | null>;
   positionLots(context: EscrowWorkflowMarketContext): Promise<readonly EscrowWorkflowPositionLot[]>;
+}
+
+export interface EscrowSettlementPosition {
+  readonly ownerPubkey: string;
+  readonly settlementProcessed: boolean;
+}
+
+export interface EscrowSettlementPositionPort {
+  positions(input: {
+    readonly marketId: string;
+    readonly marketPda: string;
+  }): Promise<readonly EscrowSettlementPosition[]>;
+}
+
+export interface EscrowSettlementEntitlementScheduler {
+  afterSettlementFinalized(input: {
+    readonly marketId: string;
+    readonly marketPda: string;
+    readonly positionCount: bigint;
+  }): Promise<void>;
+}
+
+export function createEscrowSettlementEntitlementScheduler(options: {
+  readonly positions: EscrowSettlementPositionPort;
+  readonly recovery: Pick<ReturnType<typeof createEscrowRecoveryService>, 'enqueue'>;
+}): EscrowSettlementEntitlementScheduler {
+  return {
+    async afterSettlementFinalized(input) {
+      const positions = await options.positions.positions(input);
+      const owners = new Set(positions.map((position) => position.ownerPubkey));
+      if (owners.size !== positions.length || BigInt(positions.length) !== input.positionCount) {
+        throw new TypeError('escrow settlement position projection mismatch');
+      }
+      for (const position of positions) {
+        if (position.settlementProcessed) continue;
+        const result = await options.recovery.enqueue({
+          operation: 'calculate_position_entitlement',
+          marketPda: input.marketPda,
+          owner: position.ownerPubkey,
+        });
+        if (result.kind === 'blocked') {
+          throw new TypeError('escrow entitlement recovery enqueue blocked');
+        }
+      }
+    },
+  };
 }
 
 function position(row: PositionRow): Position {

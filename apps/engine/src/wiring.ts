@@ -118,6 +118,8 @@ import {
 import { createEscrowAttestationRequestService } from './escrow/attestation-request-service.js';
 import { createEscrowAttestationRequestWorker } from './escrow/attestation-request-worker.js';
 import { createEscrowGroupRolloutService } from './escrow/group-rollout.js';
+import { createEscrowSettlementEntitlementScheduler } from './escrow/event-workflow-scheduler.js';
+import { createProductionEscrowSettlementPositionPort } from './escrow/event-workflow-runtime.js';
 
 // ── Dependency construction ───────────────────────────────────────────────
 
@@ -462,8 +464,17 @@ export function createEscrowWave4Runtime(options: {
   const recoveryBuilder = createEscrowRecoveryTransactionBuilder({
     db, chain: recoveryChain, sponsor: options.sponsor, deployment: options.recoveryDeployment,
   });
+  const entitlements = createEscrowSettlementEntitlementScheduler({
+    recovery,
+    positions: createProductionEscrowSettlementPositionPort({
+      supabaseUrl: options.supabaseUrl,
+      serviceRoleKey: options.serviceRoleKey,
+      accounts,
+      programId: options.recoveryDeployment.programId,
+    }),
+  });
   const finality = createEscrowRecoveryFinalityVerifier({
-    chain: recoveryChain, programId: options.recoveryDeployment.programId,
+    chain: recoveryChain, programId: options.recoveryDeployment.programId, entitlements,
   });
   const marketExpectation = {
     cluster: options.marketDeployment.cluster,

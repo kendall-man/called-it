@@ -1,6 +1,16 @@
-import { bytesToHex, deriveMarketPda, deriveOracleSetPda, derivePositionLotPda } from '@calledit/escrow-sdk';
+import {
+  bytesToHex,
+  deriveMarketPda,
+  deriveOracleSetPda,
+  derivePositionLotPda,
+  deriveUserPositionPda,
+} from '@calledit/escrow-sdk';
 import type { MarketRow } from '../ports.js';
-import type { EscrowEventWorkflowPort, EscrowWorkflowMarketContext } from './event-workflow-scheduler.js';
+import type {
+  EscrowEventWorkflowPort,
+  EscrowSettlementPositionPort,
+  EscrowWorkflowMarketContext,
+} from './event-workflow-scheduler.js';
 import type { EscrowPlacementMarketLinkResult } from './placement-types.js';
 import type { SolanaEscrowAccountReader } from './solana-accounts.js';
 
@@ -154,6 +164,62 @@ export function createProductionEscrowEventWorkflowPort(options: {
         });
       }
       return result;
+    },
+  };
+}
+
+export function createProductionEscrowSettlementPositionPort(options: {
+  readonly supabaseUrl: string;
+  readonly serviceRoleKey: string;
+  readonly accounts: Pick<SolanaEscrowAccountReader, 'position'>;
+  readonly programId: string;
+  readonly fetch?: FetchPort;
+}): EscrowSettlementPositionPort {
+  const request = options.fetch ?? fetch;
+  const headers = {
+    apikey: options.serviceRoleKey,
+    authorization: `Bearer ${options.serviceRoleKey}`,
+    accept: 'application/json',
+  };
+  const pageSize = 1_000;
+
+  return {
+    async positions(input) {
+      const result: { ownerPubkey: string; settlementProcessed: boolean }[] = [];
+      for (let offset = 0; ; offset += pageSize) {
+        const url = new URL('/rest/v1/escrow_position_accounts', options.supabaseUrl);
+        url.searchParams.set('select', 'owner_pubkey,position_pda');
+        url.searchParams.set('market_id', `eq.${input.marketId}`);
+        url.searchParams.set('commitment', 'eq.finalized');
+        url.searchParams.set('canonical', 'eq.true');
+        url.searchParams.set('order', 'owner_pubkey.asc');
+        url.searchParams.set('limit', String(pageSize));
+        url.searchParams.set('offset', String(offset));
+        const response = await request(url, { headers });
+        if (!response.ok) throw new TypeError('escrow position projection unavailable');
+        const page = rows(await response.json());
+        for (const row of page) {
+          if (typeof row.owner_pubkey !== 'string' || typeof row.position_pda !== 'string') {
+            throw new TypeError('invalid escrow position projection');
+          }
+          const positionPda = deriveUserPositionPda(
+            options.programId,
+            input.marketPda,
+            row.owner_pubkey,
+          ).address;
+          const account = await options.accounts.position(positionPda);
+          if (
+            row.position_pda !== positionPda || account === null ||
+            account.ownerProgramId !== options.programId || account.address !== positionPda ||
+            account.value.market !== input.marketPda || account.value.owner !== row.owner_pubkey
+          ) throw new TypeError('escrow position chain identity mismatch');
+          result.push({
+            ownerPubkey: account.value.owner,
+            settlementProcessed: account.value.settlementProcessed,
+          });
+        }
+        if (page.length < pageSize) return result;
+      }
     },
   };
 }

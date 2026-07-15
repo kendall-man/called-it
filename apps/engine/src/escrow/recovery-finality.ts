@@ -5,6 +5,7 @@ import type {
   DurableEscrowRelayerJobRow,
   EscrowRelayerFinalityVerifier,
 } from './relayer-worker.js';
+import type { EscrowSettlementEntitlementScheduler } from './event-workflow-scheduler.js';
 
 function terminalMismatch(state: string): 'pending' | 'mismatch' {
   return state === 'closed' || state === 'voided' || state === 'settled' ? 'mismatch' : 'pending';
@@ -13,6 +14,7 @@ function terminalMismatch(state: string): 'pending' | 'mismatch' {
 export function createEscrowRecoveryFinalityVerifier(options: {
   readonly chain: EscrowRecoveryChain;
   readonly programId: string;
+  readonly entitlements?: EscrowSettlementEntitlementScheduler;
 }): EscrowRelayerFinalityVerifier {
   return {
     async confirm(job: DurableEscrowRelayerJobRow) {
@@ -27,7 +29,16 @@ export function createEscrowRecoveryFinalityVerifier(options: {
           market.value.settlementOutcome === attestation.outcome &&
           market.value.settlementEvidenceHash !== null &&
           bytesToHex(market.value.settlementEvidenceHash) === bytesToHex(attestation.evidenceHash)
-        ) return 'confirmed';
+        ) {
+          if (market.value.state === 'settling') {
+            await options.entitlements?.afterSettlementFinalized({
+              marketId: payload.marketId,
+              marketPda: payload.marketPda,
+              positionCount: market.value.positionCount,
+            });
+          }
+          return 'confirmed';
+        }
         return terminalMismatch(market.value.state);
       }
       if (payload.operation === 'void_market' || payload.operation === 'timeout_void') {
