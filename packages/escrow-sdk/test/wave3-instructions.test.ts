@@ -27,6 +27,7 @@ import {
   type EscrowInstructionKind,
 } from '../src/schema.js';
 import {
+  buildAttestationVerificationInstructions,
   buildSettlementAttestationVerificationInstructions,
   buildVoidAttestationVerificationInstructions,
 } from '../src/transactions.js';
@@ -184,6 +185,46 @@ describe('Wave 3 attestation signature inputs', () => {
       .toEqual(encodeSettlementAttestationV1(settlementAttestation));
     expect(ed25519Message(voidInstruction))
       .toEqual(encodeVoidAttestationV1(voidAttestation));
+  });
+
+  it('shares canonical bytes across multiple signatures in one Ed25519 instruction', () => {
+    const signatures = [
+      { publicKey: key(40).toBytes(), signature: new Uint8Array(64).fill(41) },
+      { publicKey: key(42).toBytes(), signature: new Uint8Array(64).fill(43) },
+    ] as const;
+    const instructions = buildSettlementAttestationVerificationInstructions(
+      settlementAttestation,
+      signatures,
+    );
+    expect(instructions).toHaveLength(1);
+    const instruction = instructions[0];
+    if (instruction === undefined) throw new TypeError('signature verification instruction missing');
+    expect(instruction.data[0]).toBe(2);
+    expect(ed25519Message(instruction)).toEqual(encodeSettlementAttestationV1(settlementAttestation));
+
+    const view = new DataView(
+      instruction.data.buffer,
+      instruction.data.byteOffset,
+      instruction.data.byteLength,
+    );
+    expect(view.getUint16(24, true)).toBe(view.getUint16(10, true));
+    expect(view.getUint16(26, true)).toBe(view.getUint16(12, true));
+    expect(view.getUint16(28, true)).toBe(0xffff);
+  });
+
+  it('rejects empty, duplicate, or oversized signature sets', () => {
+    const message = encodeSettlementAttestationV1(settlementAttestation);
+    expect(() => buildSettlementAttestationVerificationInstructions(settlementAttestation, []))
+      .toThrow(/between one and three/);
+    expect(() => buildSettlementAttestationVerificationInstructions(
+      settlementAttestation,
+      Array.from({ length: 4 }, (_, index) => ({
+        publicKey: key(50 + index).toBytes(),
+        signature: new Uint8Array(64).fill(60 + index),
+      })),
+    )).toThrow(/between one and three/);
+    expect(() => buildAttestationVerificationInstructions(message, [signatures[0], signatures[0]]))
+      .toThrow(/distinct/);
   });
 
   it('rejects substituted program and market bindings and changes signed field bytes', () => {

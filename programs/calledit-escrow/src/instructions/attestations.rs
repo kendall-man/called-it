@@ -12,7 +12,8 @@ use crate::{
     state::OracleSet,
 };
 
-const ED25519_HEADER_BYTES: usize = 16;
+const ED25519_HEADER_BYTES: usize = 2;
+const ED25519_SIGNATURE_OFFSETS_BYTES: usize = 14;
 const ED25519_SIGNATURE_BYTES: usize = 64;
 const ED25519_PUBLIC_KEY_BYTES: usize = 32;
 const SELF_INSTRUCTION_INDEX: u16 = u16::MAX;
@@ -80,19 +81,20 @@ fn verify_threshold_signatures_for_set(
         if instruction.program_id != ed25519_program::ID {
             continue;
         }
-        let public_key = parse_verified_ed25519_instruction(&instruction.data, message)?;
-        let Some(signer_index) = oracle_set
-            .signers
-            .iter()
-            .position(|signer| signer.to_bytes() == public_key)
-        else {
-            continue;
-        };
-        if !matched[signer_index] {
-            matched[signer_index] = true;
-            matched_count = matched_count
-                .checked_add(1)
-                .ok_or(EscrowError::ArithmeticOverflow)?;
+        for public_key in parse_verified_ed25519_instruction(&instruction.data, message)? {
+            let Some(signer_index) = oracle_set
+                .signers
+                .iter()
+                .position(|signer| signer.to_bytes() == public_key)
+            else {
+                continue;
+            };
+            if !matched[signer_index] {
+                matched[signer_index] = true;
+                matched_count = matched_count
+                    .checked_add(1)
+                    .ok_or(EscrowError::ArithmeticOverflow)?;
+            }
         }
     }
 
@@ -103,37 +105,63 @@ fn verify_threshold_signatures_for_set(
     Ok(())
 }
 
-fn parse_verified_ed25519_instruction(data: &[u8], expected_message: &[u8]) -> Result<[u8; 32]> {
+fn parse_verified_ed25519_instruction(
+    data: &[u8],
+    expected_message: &[u8],
+) -> Result<Vec<[u8; 32]>> {
+    let signature_count = usize::from(*data.first().ok_or(EscrowError::InvalidEd25519Instruction)?);
+    let offsets_end = ED25519_HEADER_BYTES
+        .checked_add(
+            signature_count
+                .checked_mul(ED25519_SIGNATURE_OFFSETS_BYTES)
+                .ok_or(EscrowError::InvalidEd25519Instruction)?,
+        )
+        .ok_or(EscrowError::InvalidEd25519Instruction)?;
     require!(
-        data.len() >= ED25519_HEADER_BYTES && data[0] == 1 && data[1] == 0,
+        signature_count > 0
+            && signature_count <= ORACLE_SIGNER_COUNT_V1
+            && data.len() >= offsets_end
+            && data[1] == 0,
         EscrowError::InvalidEd25519Instruction
     );
 
-    let signature_offset = usize::from(read_u16(data, 2)?);
-    let signature_instruction_index = read_u16(data, 4)?;
-    let public_key_offset = usize::from(read_u16(data, 6)?);
-    let public_key_instruction_index = read_u16(data, 8)?;
-    let message_offset = usize::from(read_u16(data, 10)?);
-    let message_size = usize::from(read_u16(data, 12)?);
-    let message_instruction_index = read_u16(data, 14)?;
+    let mut public_keys = Vec::with_capacity(signature_count);
+    for signature_index in 0..signature_count {
+        let descriptor = ED25519_HEADER_BYTES
+            .checked_add(
+                signature_index
+                    .checked_mul(ED25519_SIGNATURE_OFFSETS_BYTES)
+                    .ok_or(EscrowError::InvalidEd25519Instruction)?,
+            )
+            .ok_or(EscrowError::InvalidEd25519Instruction)?;
+        let signature_offset = usize::from(read_u16(data, descriptor)?);
+        let signature_instruction_index = read_u16(data, descriptor + 2)?;
+        let public_key_offset = usize::from(read_u16(data, descriptor + 4)?);
+        let public_key_instruction_index = read_u16(data, descriptor + 6)?;
+        let message_offset = usize::from(read_u16(data, descriptor + 8)?);
+        let message_size = usize::from(read_u16(data, descriptor + 10)?);
+        let message_instruction_index = read_u16(data, descriptor + 12)?;
 
-    require!(
-        signature_instruction_index == SELF_INSTRUCTION_INDEX
-            && public_key_instruction_index == SELF_INSTRUCTION_INDEX
-            && message_instruction_index == SELF_INSTRUCTION_INDEX,
-        EscrowError::InvalidEd25519Instruction
-    );
-    checked_slice(data, signature_offset, ED25519_SIGNATURE_BYTES)?;
-    let public_key = checked_slice(data, public_key_offset, ED25519_PUBLIC_KEY_BYTES)?;
-    let message = checked_slice(data, message_offset, message_size)?;
-    require!(
-        message == expected_message,
-        EscrowError::InvalidAttestationDomain
-    );
-
-    public_key
-        .try_into()
-        .map_err(|_| error!(EscrowError::InvalidEd25519Instruction))
+        require!(
+            signature_instruction_index == SELF_INSTRUCTION_INDEX
+                && public_key_instruction_index == SELF_INSTRUCTION_INDEX
+                && message_instruction_index == SELF_INSTRUCTION_INDEX,
+            EscrowError::InvalidEd25519Instruction
+        );
+        checked_slice(data, signature_offset, ED25519_SIGNATURE_BYTES)?;
+        let public_key = checked_slice(data, public_key_offset, ED25519_PUBLIC_KEY_BYTES)?;
+        let message = checked_slice(data, message_offset, message_size)?;
+        require!(
+            message == expected_message,
+            EscrowError::InvalidAttestationDomain
+        );
+        public_keys.push(
+            public_key
+                .try_into()
+                .map_err(|_| error!(EscrowError::InvalidEd25519Instruction))?,
+        );
+    }
+    Ok(public_keys)
 }
 
 fn read_u16(data: &[u8], offset: usize) -> Result<u16> {
@@ -158,24 +186,32 @@ mod tests {
         construct_instructions_data, store_current_index, BorrowedInstruction,
     };
 
-    fn ed25519_data(public_key: [u8; 32], message: &[u8]) -> Vec<u8> {
-        let public_key_offset = ED25519_HEADER_BYTES;
-        let signature_offset = public_key_offset + ED25519_PUBLIC_KEY_BYTES;
-        let message_offset = signature_offset + ED25519_SIGNATURE_BYTES;
-        let mut data = vec![1, 0];
-        for value in [
-            signature_offset as u16,
-            SELF_INSTRUCTION_INDEX,
-            public_key_offset as u16,
-            SELF_INSTRUCTION_INDEX,
-            message_offset as u16,
-            message.len() as u16,
-            SELF_INSTRUCTION_INDEX,
-        ] {
-            data.extend_from_slice(&value.to_le_bytes());
+    fn ed25519_data(public_keys: &[[u8; 32]], message: &[u8]) -> Vec<u8> {
+        let payload_offset =
+            ED25519_HEADER_BYTES + public_keys.len() * ED25519_SIGNATURE_OFFSETS_BYTES;
+        let message_offset = payload_offset
+            + public_keys.len() * (ED25519_PUBLIC_KEY_BYTES + ED25519_SIGNATURE_BYTES);
+        let mut data = vec![public_keys.len() as u8, 0];
+        for (index, _) in public_keys.iter().enumerate() {
+            let public_key_offset =
+                payload_offset + index * (ED25519_PUBLIC_KEY_BYTES + ED25519_SIGNATURE_BYTES);
+            let signature_offset = public_key_offset + ED25519_PUBLIC_KEY_BYTES;
+            for value in [
+                signature_offset as u16,
+                SELF_INSTRUCTION_INDEX,
+                public_key_offset as u16,
+                SELF_INSTRUCTION_INDEX,
+                message_offset as u16,
+                message.len() as u16,
+                SELF_INSTRUCTION_INDEX,
+            ] {
+                data.extend_from_slice(&value.to_le_bytes());
+            }
         }
-        data.extend_from_slice(&public_key);
-        data.extend_from_slice(&[9; ED25519_SIGNATURE_BYTES]);
+        for public_key in public_keys {
+            data.extend_from_slice(public_key);
+            data.extend_from_slice(&[9; ED25519_SIGNATURE_BYTES]);
+        }
         data.extend_from_slice(message);
         data
     }
@@ -220,14 +256,14 @@ mod tests {
     }
 
     #[test]
-    fn parses_only_self_contained_single_signature_instructions() {
+    fn parses_only_self_contained_signatures_over_one_exact_message() {
         let message = b"calledit-message";
         let public_key = [7u8; 32];
-        let data = ed25519_data(public_key, message);
+        let data = ed25519_data(&[public_key], message);
 
         assert_eq!(
             parse_verified_ed25519_instruction(&data, message).unwrap(),
-            public_key
+            vec![public_key]
         );
         assert!(parse_verified_ed25519_instruction(&data, b"other").is_err());
 
@@ -235,9 +271,22 @@ mod tests {
         cross_instruction[4..6].copy_from_slice(&0u16.to_le_bytes());
         assert!(parse_verified_ed25519_instruction(&cross_instruction, message).is_err());
 
-        let mut multiple_signatures = data;
-        multiple_signatures[0] = 2;
-        assert!(parse_verified_ed25519_instruction(&multiple_signatures, message).is_err());
+        let combined = ed25519_data(&[public_key, [8; 32]], message);
+        assert_eq!(
+            parse_verified_ed25519_instruction(&combined, message).unwrap(),
+            vec![public_key, [8; 32]]
+        );
+
+        let mut mixed_message = combined;
+        let second_message_offset_field =
+            ED25519_HEADER_BYTES + ED25519_SIGNATURE_OFFSETS_BYTES + 8;
+        mixed_message[second_message_offset_field..second_message_offset_field + 2]
+            .copy_from_slice(&(ED25519_HEADER_BYTES as u16).to_le_bytes());
+        assert!(parse_verified_ed25519_instruction(&mixed_message, message).is_err());
+
+        let mut malformed_count = data;
+        malformed_count[0] = 4;
+        assert!(parse_verified_ed25519_instruction(&malformed_count, message).is_err());
     }
 
     #[test]
@@ -246,8 +295,8 @@ mod tests {
         let signers = [[1; 32], [2; 32], [3; 32]];
         let oracle_set = oracle_set(signers);
         let unique = [
-            ed25519_data(signers[0], message),
-            ed25519_data(signers[1], message),
+            ed25519_data(&[signers[0]], message),
+            ed25519_data(&[signers[1]], message),
         ];
         with_instruction_sysvar(&unique, |sysvar| {
             assert!(
@@ -257,8 +306,8 @@ mod tests {
         });
 
         let duplicate = [
-            ed25519_data(signers[0], message),
-            ed25519_data(signers[0], message),
+            ed25519_data(&[signers[0]], message),
+            ed25519_data(&[signers[0]], message),
         ];
         with_instruction_sysvar(&duplicate, |sysvar| {
             assert!(
@@ -274,8 +323,8 @@ mod tests {
         let signers = [[1; 32], [2; 32], [3; 32]];
         let oracle_set = oracle_set(signers);
         let wrong_message = [
-            ed25519_data(signers[0], b"wrong-domain"),
-            ed25519_data(signers[1], b"wrong-domain"),
+            ed25519_data(&[signers[0]], b"wrong-domain"),
+            ed25519_data(&[signers[1]], b"wrong-domain"),
         ];
         with_instruction_sysvar(&wrong_message, |sysvar| {
             assert!(
@@ -285,8 +334,8 @@ mod tests {
         });
 
         let outsider = [
-            ed25519_data([8; 32], message),
-            ed25519_data(signers[0], message),
+            ed25519_data(&[[8; 32]], message),
+            ed25519_data(&[signers[0]], message),
         ];
         with_instruction_sysvar(&outsider, |sysvar| {
             assert!(
@@ -296,8 +345,8 @@ mod tests {
         });
 
         let valid = [
-            ed25519_data(signers[0], message),
-            ed25519_data(signers[1], message),
+            ed25519_data(&[signers[0], signers[1]], message),
+            ed25519_data(&[signers[2]], message),
         ];
         with_instruction_sysvar(&valid, |sysvar| {
             assert!(

@@ -2,8 +2,8 @@ import {
   Ed25519Program,
   PublicKey,
   TransactionMessage,
+  TransactionInstruction,
   VersionedTransaction,
-  type TransactionInstruction,
 } from '@solana/web3.js';
 import {
   encodeSettlementAttestationV1,
@@ -173,19 +173,55 @@ export function buildAttestationVerificationInstructions(
   signatures: readonly AttestationSignature[],
 ): readonly TransactionInstruction[] {
   if (message.length === 0) throw new RangeError('attestation message must not be empty');
+  if (signatures.length === 0 || signatures.length > 3) {
+    throw new RangeError('attestation must contain between one and three signatures');
+  }
+  if (message.length > 0xffff) throw new RangeError('attestation message exceeds Ed25519 offset limits');
   const seen = new Set<string>();
-  return signatures.map(({ publicKey: signer, signature }) => {
+  for (const { publicKey: signer, signature } of signatures) {
     if (signer.length !== 32) throw new RangeError('attestation signer public key must be exactly 32 bytes');
     if (signature.length !== 64) throw new RangeError('attestation signature must be exactly 64 bytes');
     const key = Buffer.from(signer).toString('hex');
     if (seen.has(key)) throw new TypeError('attestation signer public keys must be distinct');
     seen.add(key);
-    return Ed25519Program.createInstructionWithPublicKey({
-      publicKey: signer,
-      message,
-      signature,
-    });
+  }
+
+  const descriptorBytes = 14;
+  const headerBytes = 2 + signatures.length * descriptorBytes;
+  const signerPayloadBytes = 32 + 64;
+  const messageOffset = headerBytes + signatures.length * signerPayloadBytes;
+  const totalBytes = messageOffset + message.length;
+  if (totalBytes > 0xffff) throw new RangeError('attestation verification instruction exceeds Ed25519 offset limits');
+
+  const data = Buffer.alloc(totalBytes);
+  data.writeUInt8(signatures.length, 0);
+  data.writeUInt8(0, 1);
+  signatures.forEach(({ publicKey: signer, signature }, index) => {
+    const descriptorOffset = 2 + index * descriptorBytes;
+    const publicKeyOffset = headerBytes + index * signerPayloadBytes;
+    const signatureOffset = publicKeyOffset + 32;
+    const selfInstructionIndex = 0xffff;
+    for (const [offset, value] of [
+      [descriptorOffset, signatureOffset],
+      [descriptorOffset + 2, selfInstructionIndex],
+      [descriptorOffset + 4, publicKeyOffset],
+      [descriptorOffset + 6, selfInstructionIndex],
+      [descriptorOffset + 8, messageOffset],
+      [descriptorOffset + 10, message.length],
+      [descriptorOffset + 12, selfInstructionIndex],
+    ] as const) {
+      data.writeUInt16LE(value, offset);
+    }
+    data.set(signer, publicKeyOffset);
+    data.set(signature, signatureOffset);
   });
+  data.set(message, messageOffset);
+
+  return [new TransactionInstruction({
+    keys: [],
+    programId: Ed25519Program.programId,
+    data,
+  })];
 }
 
 export function buildSettlementAttestationVerificationInstructions(
