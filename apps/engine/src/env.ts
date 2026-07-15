@@ -370,6 +370,9 @@ const EnvSchema = z.object({
   }
 
   if (env.WAGER_CUSTODY_MODE === 'escrow') {
+    if (env.STAKE_ACCEPTANCE_ENABLED && env.ESCROW_ALLOWED_GROUP_IDS.length === 0) {
+      addIssue('ESCROW_ALLOWED_GROUP_IDS', 'required when escrow intake is enabled');
+    }
     const required = [
       ['ESCROW_PROGRAM_ID', env.ESCROW_PROGRAM_ID],
       ['ESCROW_GENESIS_HASH', env.ESCROW_GENESIS_HASH],

@@ -94,12 +94,25 @@ describe('loadEnv', () => {
   });
 
   it('keeps escrow recovery bootable with no intake groups after rollout rollback', () => {
-    const parsed = loadEnv(completeEscrowEnv({ ESCROW_ALLOWED_GROUP_IDS: '' }));
+    const parsed = loadEnv(completeEscrowEnv({
+      ESCROW_ALLOWED_GROUP_IDS: '',
+      STAKE_ACCEPTANCE_ENABLED: 'false',
+    }));
 
     expect(parsed).toMatchObject({
       WAGER_CUSTODY_MODE: 'escrow',
       ESCROW_ALLOWED_GROUP_IDS: [],
+      STAKE_ACCEPTANCE_ENABLED: false,
     });
+  });
+
+  it('requires an escrow group allowlist when position intake is enabled', () => {
+    expect(() => loadEnv(completeEscrowEnv({
+      ESCROW_ALLOWED_GROUP_IDS: '',
+      WAGER_RUNTIME_MODE: 'funded',
+      WAGER_MODE_ENABLED: 'true',
+      STAKE_ACCEPTANCE_ENABLED: 'true',
+    }))).toThrowError('Engine environment invalid: ESCROW_ALLOWED_GROUP_IDS');
   });
 
   it('requires the explicit mainnet gate without requiring a legacy treasury', () => {
