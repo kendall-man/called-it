@@ -32,6 +32,7 @@ import { bigintLe, decodeBase58, equalJson } from './util.js';
 const TRANSACTION_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 
 export const DEVNET_E2E_ROLE_ENV = Object.freeze({
+  configAuthority: 'ESCROW_E2E_CONFIG_AUTHORITY_KEYPAIR_PATH',
   marketCreationAuthority: 'ESCROW_E2E_MARKET_CREATION_AUTHORITY_KEYPAIR_PATH',
   feedOperatorAuthority: 'ESCROW_E2E_FEED_OPERATOR_AUTHORITY_KEYPAIR_PATH',
   pauseAuthority: 'ESCROW_E2E_PAUSE_AUTHORITY_KEYPAIR_PATH',
@@ -51,6 +52,7 @@ export class DevnetEvidenceRunnerError extends Error {
 }
 
 export interface DevnetRoleCredentials {
+  readonly configAuthority: Keypair;
   readonly marketCreationAuthority: Keypair;
   readonly feedOperatorAuthority: Keypair;
   readonly pauseAuthority: Keypair;
@@ -151,6 +153,7 @@ export function validateDevnetRoleCredentials(
   credentials: DevnetRoleCredentials,
 ): readonly string[] {
   const expected = [
+    ['config authority', publicKey(credentials.configAuthority), manifest.config.configAuthority],
     ['market-creation authority', publicKey(credentials.marketCreationAuthority), manifest.config.marketCreationAuthority],
     ['feed-operator authority', publicKey(credentials.feedOperatorAuthority), manifest.config.feedOperatorAuthority],
     ['pause authority', publicKey(credentials.pauseAuthority), manifest.config.pauseAuthority],
@@ -210,6 +213,7 @@ export async function loadDevnetRoleCredentials(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<DevnetRoleCredentials> {
   const values = await Promise.all([
+    readKeypairFromEnvironment(environment, DEVNET_E2E_ROLE_ENV.configAuthority, 'config authority'),
     readKeypairFromEnvironment(environment, DEVNET_E2E_ROLE_ENV.marketCreationAuthority, 'market-creation authority'),
     readKeypairFromEnvironment(environment, DEVNET_E2E_ROLE_ENV.feedOperatorAuthority, 'feed-operator authority'),
     readKeypairFromEnvironment(environment, DEVNET_E2E_ROLE_ENV.pauseAuthority, 'pause authority'),
@@ -222,14 +226,15 @@ export async function loadDevnetRoleCredentials(
   ]);
   const credentials = {} as DevnetRoleCredentials;
   Object.defineProperties(credentials, {
-    marketCreationAuthority: { value: values[0]!, enumerable: false },
-    feedOperatorAuthority: { value: values[1]!, enumerable: false },
-    pauseAuthority: { value: values[2]!, enumerable: false },
-    relayerFeePayer: { value: values[3]!, enumerable: false },
-    oracleSigners: { value: Object.freeze([values[4]!, values[5]!] as const), enumerable: false },
-    solUser: { value: values[6]!, enumerable: false },
-    usdcUser: { value: values[7]!, enumerable: false },
-    directClaimUser: { value: values[8]!, enumerable: false },
+    configAuthority: { value: values[0]!, enumerable: false },
+    marketCreationAuthority: { value: values[1]!, enumerable: false },
+    feedOperatorAuthority: { value: values[2]!, enumerable: false },
+    pauseAuthority: { value: values[3]!, enumerable: false },
+    relayerFeePayer: { value: values[4]!, enumerable: false },
+    oracleSigners: { value: Object.freeze([values[5]!, values[6]!] as const), enumerable: false },
+    solUser: { value: values[7]!, enumerable: false },
+    usdcUser: { value: values[8]!, enumerable: false },
+    directClaimUser: { value: values[9]!, enumerable: false },
   });
   return Object.freeze(credentials);
 }

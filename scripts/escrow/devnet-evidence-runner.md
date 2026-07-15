@@ -18,6 +18,7 @@ in output.
 
 ```bash
 export ESCROW_E2E_RPC_URL='https://devnet-rpc.example'
+export ESCROW_E2E_CONFIG_AUTHORITY_KEYPAIR_PATH='/secure/config.json'
 export ESCROW_E2E_MARKET_CREATION_AUTHORITY_KEYPAIR_PATH='/secure/market.json'
 export ESCROW_E2E_FEED_OPERATOR_AUTHORITY_KEYPAIR_PATH='/secure/feed.json'
 export ESCROW_E2E_PAUSE_AUTHORITY_KEYPAIR_PATH='/secure/pause.json'

@@ -27,6 +27,7 @@ import { bigintLe, decodeBase58, encodeBase58, sha256 } from './util.js';
 
 function credentials(): DevnetRoleCredentials {
   return {
+    configAuthority: Keypair.generate(),
     marketCreationAuthority: Keypair.generate(),
     feedOperatorAuthority: Keypair.generate(),
     pauseAuthority: Keypair.generate(),
@@ -139,7 +140,7 @@ function releaseFixture(roles: DevnetRoleCredentials, network: ReleaseManifest['
     config: {
       custodyVersion: 1,
       paused: false,
-      configAuthority: key(),
+      configAuthority: roles.configAuthority.publicKey.toBase58(),
       pauseAuthority: roles.pauseAuthority.publicKey.toBase58(),
       marketCreationAuthority: roles.marketCreationAuthority.publicKey.toBase58(),
       feedOperatorAuthority: roles.feedOperatorAuthority.publicKey.toBase58(),
@@ -358,6 +359,7 @@ test('loads role keypairs only from secure env-supplied files without exposing s
   const directory = await mkdtemp(join(tmpdir(), 'calledit-devnet-runner-'));
   const source = credentials();
   const entries: readonly [keyof typeof DEVNET_E2E_ROLE_ENV, Keypair][] = [
+    ['configAuthority', source.configAuthority],
     ['marketCreationAuthority', source.marketCreationAuthority],
     ['feedOperatorAuthority', source.feedOperatorAuthority],
     ['pauseAuthority', source.pauseAuthority],
