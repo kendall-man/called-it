@@ -11,7 +11,7 @@ mainnet accounts.
 
 ## Frozen devnet profile
 
-- Cluster genesis: `EtWTRABZaYq6iMfeYKouRu166VU2xqa1`
+- Cluster genesis: `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG`
 - Program: `HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL`
 - Canonical USDC: `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`
 - Token program: classic SPL Token (`Tokenkeg...`), never Token-2022

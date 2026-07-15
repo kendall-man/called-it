@@ -30,7 +30,7 @@ import {
 import type { OracleSetAccount, ProtocolConfigAccount, RpcAccount } from './types.js';
 import { decodeBase58, stableJson } from './util.js';
 
-export const DEVNET_GENESIS_HASH = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1';
+export const DEVNET_GENESIS_HASH = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
 export const DEVNET_CANONICAL_USDC_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
 export const PINNED_ESCROW_PROGRAM_ID = ESCROW_PROGRAM_ID;
 export const ORACLE_SET_EPOCH = 1n;

@@ -37,7 +37,7 @@ import {
 } from './direct-claim';
 
 const MARKET_ID = '4dcb8872-2f1e-4bc5-9b43-1a2b3c4d5e6f';
-const GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1';
+const GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
 
 describe('direct owner claim', () => {
   it.each(['sol', 'usdc'] as const)(

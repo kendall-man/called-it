@@ -96,9 +96,10 @@ function decodedState(deployment: DevnetPublicDeployment): {
 }
 
 test('refuses every cluster except the exact Solana devnet genesis hash', () => {
+  assert.equal(DEVNET_GENESIS_HASH, 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG');
   assert.doesNotThrow(() => assertExactDevnetGenesis(DEVNET_GENESIS_HASH));
   assert.throws(
-    () => assertExactDevnetGenesis('5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'),
+    () => assertExactDevnetGenesis('5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d'),
     /exact Solana devnet genesis hash/,
   );
   assert.throws(() => assertExactDevnetGenesis('devnet'), /refusing all actions/);

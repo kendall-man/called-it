@@ -23,9 +23,9 @@ export const UPGRADEABLE_LOADER = 'BPFLoaderUpgradeab1e11111111111111111111111';
 export const CLASSIC_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 
 const NETWORK_GENESIS: Readonly<Partial<Record<ReleaseManifest['network'], string>>> = {
-  devnet: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
-  testnet: '4uhcVJyU9pJkvQyS88uRDiswHXSCkY3z',
-  'mainnet-beta': '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
+  devnet: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
+  testnet: '4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY',
+  'mainnet-beta': '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d',
 };
 const CANONICAL_USDC: Readonly<Partial<Record<ReleaseManifest['network'], string>>> = {
   devnet: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
