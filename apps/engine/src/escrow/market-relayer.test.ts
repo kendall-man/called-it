@@ -15,6 +15,10 @@ import {
   EscrowMarketRelayerError,
   type EscrowMarketRelayerChain,
 } from './market-relayer.js';
+import {
+  createLocalEscrowMarketAuthoritySigner,
+  type EscrowMarketAuthoritySigningRequest,
+} from './market-authority-signer.js';
 
 const MARKET_ID = '123e4567-e89b-12d3-a456-426614174000';
 const GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
@@ -70,8 +74,24 @@ function setup() {
     inspectInitialization: async () => observation,
     latestBlockhash: async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 900n }),
   };
+  const authorityRequests: EscrowMarketAuthoritySigningRequest[] = [];
+  const localAuthority = createLocalEscrowMarketAuthoritySigner({
+    deployment: {
+      network: 'devnet', genesisHash: GENESIS, programId: payload.programId,
+      protocolConfigPda: configPda, oracleSetPda, oracleSetEpoch: 9n,
+    },
+    expectedAuthority: authority.publicKey.toBase58(), signer: authority,
+    forbiddenSignerAddresses: [sponsor.publicKey.toBase58()],
+  });
+  const authorityProvider = {
+    ...localAuthority,
+    async sign(request: EscrowMarketAuthoritySigningRequest) {
+      authorityRequests.push(request);
+      return localAuthority.sign(request);
+    },
+  };
   const builder = createMarketInitializationTransactionBuilder({
-    chain, sponsor, marketCreationAuthority: authority,
+    chain, sponsor, marketCreationAuthority: authorityProvider,
     expected: {
       cluster: 'devnet', genesisHash: GENESIS, programId: payload.programId,
       protocolConfigPda: configPda, oracleSetPda, oracleSetEpoch: 9n,
@@ -87,7 +107,7 @@ function setup() {
     marketCreationAuthority: payload.marketCreationAuthority,
     relayerFeePayer: payload.relayerFeePayer,
   };
-  return { builder, job, payload, observation, sponsor, authority, expected };
+  return { builder, job, payload, observation, sponsor, authority, authorityRequests, expected, chain };
 }
 
 describe('market initialization relayer', () => {
@@ -105,6 +125,29 @@ describe('market initialization relayer', () => {
     expect(transaction.signatures.every((signature) => signature.some((byte) => byte !== 0))).toBe(true);
     expect(bytesToHex(transaction.message.staticAccountKeys[0]?.toBytes() ?? new Uint8Array()))
       .toBe(bytesToHex(fixture.sponsor.publicKey.toBytes()));
+    expect(fixture.authorityRequests).toHaveLength(1);
+    expect(fixture.authorityRequests[0]).toMatchObject({
+      network: 'devnet', genesisHash: GENESIS, programId: fixture.payload.programId,
+      marketId: MARKET_ID, marketPda: fixture.payload.marketPda,
+      vaultPda: fixture.payload.vaultPda, documentHashHex: fixture.payload.documentHashHex,
+      marketCreationAuthority: fixture.authority.publicKey.toBase58(),
+      transactionMessageHashHex: result.transactionMessageHashHex,
+    });
+  });
+
+  it('rejects a substituted authority signature before persistence', async () => {
+    const fixture = setup();
+    const builder = createMarketInitializationTransactionBuilder({
+      chain: fixture.chain, sponsor: fixture.sponsor,
+      marketCreationAuthority: {
+        authorityAddress: fixture.authority.publicKey.toBase58(),
+        async availableSigner() { return fixture.authority.publicKey.toBase58(); },
+        async sign() { return new Uint8Array(64); },
+      },
+      expected: fixture.expected,
+    });
+
+    await expect(builder.build(fixture.job)).rejects.toMatchObject({ code: 'authority_signature_invalid' });
   });
 
   it.each(['genesisHash', 'programId', 'protocolConfigPda', 'oracleSetPda'] as const)(

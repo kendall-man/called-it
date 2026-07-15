@@ -43,6 +43,7 @@ const market: MarketRow = {
   card_tg_message_id: 100,
   created_at: '2026-07-11T10:03:15.000Z',
   currency: 'sol',
+  custody_mode: 'legacy',
 };
 
 const position: PositionRow = {

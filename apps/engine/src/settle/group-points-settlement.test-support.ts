@@ -51,6 +51,7 @@ function marketRow(overrides: Partial<MarketRow> = {}): MarketRow {
     card_tg_message_id: null,
     created_at: new Date(NOW - 60_000).toISOString(),
     currency: 'sol',
+    custody_mode: 'legacy',
     ...overrides,
   };
 }

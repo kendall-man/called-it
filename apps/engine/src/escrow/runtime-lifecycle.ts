@@ -11,11 +11,13 @@ export interface EscrowRuntimeLifecycle {
 }
 
 export function createEscrowRuntimeLifecycle(options: {
+  readonly attestations: { runOnce(nowIso: string, limit: number): Promise<unknown> };
   readonly relayer: { runOnce(nowIso: string, limit: number): Promise<unknown> };
   readonly indexer: { runOnce(limit: number): Promise<unknown> };
   readonly clock: () => string;
   readonly intervalMs: number;
   readonly relayerLimit: number;
+  readonly attestationLimit: number;
   readonly indexerLimit: number;
   readonly log: EscrowRuntimeLifecycleLog;
 }): EscrowRuntimeLifecycle {
@@ -26,7 +28,7 @@ export function createEscrowRuntimeLifecycle(options: {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let active: Promise<void> | null = null;
 
-  async function runWorker(name: 'relayer' | 'indexer', task: () => Promise<unknown>): Promise<void> {
+  async function runWorker(name: 'attestations' | 'relayer' | 'indexer', task: () => Promise<unknown>): Promise<void> {
     try {
       await task();
     } catch (error) {
@@ -38,6 +40,7 @@ export function createEscrowRuntimeLifecycle(options: {
   }
 
   async function cycle(): Promise<void> {
+    await runWorker('attestations', () => options.attestations.runOnce(options.clock(), options.attestationLimit));
     await runWorker('relayer', () => options.relayer.runOnce(options.clock(), options.relayerLimit));
     await runWorker('indexer', () => options.indexer.runOnce(options.indexerLimit));
   }

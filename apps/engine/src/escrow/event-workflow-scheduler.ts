@@ -1,14 +1,9 @@
-import type {
-  MarketEffect,
-  MarketState,
-  MatchEvent,
-  Position,
-} from '@calledit/market-engine';
+import type { MarketEffect, MarketState, MatchEvent, Position } from '@calledit/market-engine';
 import type { VoidReason } from '@calledit/escrow-sdk';
 import type { Deps, MarketRow, PositionRow } from '../ports.js';
-import type { EscrowOracleAttestationProvider } from './attestation-signers.js';
 import type { EscrowOracleAttestationPolicy } from './attestation-signers.js';
-import type { EscrowControlRequest } from './control-workflows.js';
+import type { EscrowUnsignedWorkflowRequest } from './attestation-request-payload.js';
+import type { EscrowAttestationRequestService } from './attestation-request-service.js';
 import {
   buildEscrowFeedEventAttestation,
   buildEscrowPositionInvalidationAttestation,
@@ -17,7 +12,6 @@ import {
   type EscrowAttestationDeploymentBinding,
   type EscrowAttestationMarketBinding,
 } from './event-attestations.js';
-import type { EscrowRecoveryRequest } from './recovery-workflows.js';
 
 export interface EscrowWorkflowMarketContext {
   readonly binding: EscrowAttestationMarketBinding;
@@ -39,30 +33,17 @@ export interface EscrowWorkflowPositionLot {
 export interface EscrowEventWorkflowPort {
   loadMarket(market: MarketRow): Promise<EscrowWorkflowMarketContext | null>;
   positionLots(context: EscrowWorkflowMarketContext): Promise<readonly EscrowWorkflowPositionLot[]>;
-  enqueueControl(request: EscrowControlRequest): Promise<void>;
-  enqueueRecovery(request: EscrowRecoveryRequest): Promise<void>;
 }
-
-type UnsignedControlRequest = EscrowControlRequest extends infer Request
-  ? Request extends EscrowControlRequest ? Omit<Request, 'signatures'> : never
-  : never;
 
 function position(row: PositionRow): Position {
   return {
-    id: row.id,
-    userId: String(row.user_id),
-    side: row.side,
-    stake: row.stake,
-    lockedMultiplier: row.locked_multiplier,
-    placedAtMs: row.placed_at_ms,
-    state: row.state,
+    id: row.id, userId: String(row.user_id), side: row.side, stake: row.stake,
+    lockedMultiplier: row.locked_multiplier, placedAtMs: row.placed_at_ms, state: row.state,
   };
 }
 
 function isPriceMoving(event: MatchEvent): boolean {
-  return event.confirmed && (
-    event.kind === 'goal' || (event.kind === 'card' && event.detail?.card === 'red')
-  );
+  return event.confirmed && (event.kind === 'goal' || (event.kind === 'card' && event.detail?.card === 'red'));
 }
 
 function voidReason(event: MatchEvent): VoidReason {
@@ -72,18 +53,24 @@ function voidReason(event: MatchEvent): VoidReason {
   return 'undecidable';
 }
 
+function iso(milliseconds: number): string {
+  if (!Number.isSafeInteger(milliseconds)) throw new TypeError('invalid escrow workflow timestamp');
+  return new Date(milliseconds).toISOString();
+}
+
 export function createEscrowEventWorkflowScheduler(options: {
-  readonly deps: Pick<Deps, 'db' | 'engine' | 'log'>;
-  readonly allowedGroupIds: readonly number[];
+  readonly deps: {
+    readonly db: Pick<Deps['db'], 'openMarketsForFixture' | 'positionsForMarket'>;
+    readonly engine: Pick<Deps['engine'], 'reduceMarket'>;
+    readonly log: Pick<Deps['log'], 'info' | 'error'>;
+  };
   readonly deployment: EscrowAttestationDeploymentBinding;
-  readonly oracle: EscrowOracleAttestationProvider;
+  readonly requests: Pick<EscrowAttestationRequestService, 'enqueue'>;
   readonly workflow: EscrowEventWorkflowPort;
-  readonly clock: () => bigint;
   readonly attestationTtlSeconds?: bigint;
 }) {
   const states = new Map<string, MarketState>();
-  const lastEvents = new Map<string, MatchEvent>();
-  const allowedGroups = new Set(options.allowedGroupIds);
+  const eventWatermarks = new Map<string, number>();
   const ttlSeconds = options.attestationTtlSeconds ?? 300n;
 
   async function hydrate(market: MarketRow): Promise<MarketState> {
@@ -91,32 +78,35 @@ export function createEscrowEventWorkflowScheduler(options: {
     const cached = states.get(market.id);
     if (cached !== undefined) return { ...cached, positions };
     return {
-      marketId: market.id,
-      spec: market.spec,
-      status: market.status,
-      positions,
-      pendingSettlement: null,
-      createdAtMs: Date.parse(market.created_at),
+      marketId: market.id, spec: market.spec, status: market.status, positions,
+      pendingSettlement: null, createdAtMs: Date.parse(market.created_at),
     };
   }
 
   function common(context: EscrowWorkflowMarketContext, event: MatchEvent) {
     return {
-      deployment: options.deployment,
-      market: context.binding,
-      event,
-      issuedAt: options.clock(),
-      ttlSeconds,
+      deployment: options.deployment, market: context.binding, event,
+      issuedAt: BigInt(Math.floor(event.receivedAtMs / 1_000)), ttlSeconds,
     };
   }
 
-  async function signedControl(
-    request: UnsignedControlRequest,
-    signingRequest: Parameters<EscrowOracleAttestationProvider['sign']>[0],
-    policy: EscrowOracleAttestationPolicy,
+  async function persist(
+    request: EscrowUnsignedWorkflowRequest,
+    context: EscrowWorkflowMarketContext,
+    event: MatchEvent,
+    dueAtMs: number = event.receivedAtMs,
+    debounceUntilIso: string | null = null,
   ): Promise<void> {
-    const signatures = await options.oracle.sign(signingRequest, policy);
-    await options.workflow.enqueueControl({ ...request, signatures } as EscrowControlRequest);
+    await options.requests.enqueue({
+      marketId: context.binding.marketId,
+      documentHashHex: context.binding.marketDocumentHashHex,
+      eventEpoch: context.binding.eventEpoch,
+      replay: context.replay,
+      oraclePolicy: context.oraclePolicy,
+      request,
+      dueAtIso: iso(dueAtMs),
+      debounceUntilIso,
+    });
   }
 
   async function protectPriceMovingLots(
@@ -126,16 +116,13 @@ export function createEscrowEventWorkflowScheduler(options: {
   ): Promise<void> {
     if (!isPriceMoving(event)) return;
     const invalidatedEventEpoch = context.chainState === 'open'
-      ? context.binding.eventEpoch + 1n
-      : context.binding.eventEpoch;
+      ? context.binding.eventEpoch + 1n : context.binding.eventEpoch;
     if (context.chainState === 'open') {
-      const attestation = buildEscrowFeedEventAttestation({
-        ...common(context, event), eventKind: 'freeze',
-      });
-      await signedControl({
+      const attestation = buildEscrowFeedEventAttestation({ ...common(context, event), eventKind: 'freeze' });
+      await persist({
         operation: 'freeze_market', marketPda: context.binding.marketPda,
         expectedEventEpoch: context.binding.eventEpoch, attestation,
-      }, { kind: 'feed_event', attestation }, context.oraclePolicy);
+      }, context, event);
     }
     const lots = await options.workflow.positionLots(context);
     for (const lot of lots) {
@@ -148,15 +135,12 @@ export function createEscrowEventWorkflowScheduler(options: {
         positionLotPda: lot.positionLotPda, observedEventEpoch: lot.observedEventEpoch,
         invalidatedEventEpoch,
       });
-      await signedControl({
+      await persist({
         operation: 'invalidate_position_lot', marketPda: context.binding.marketPda,
-        owner: lot.ownerPubkey, lotNonce: lot.lotNonce,
-        positionLotPda: lot.positionLotPda, attestation,
-      }, { kind: 'position_invalidation', attestation }, context.oraclePolicy);
+        owner: lot.ownerPubkey, lotNonce: lot.lotNonce, positionLotPda: lot.positionLotPda, attestation,
+      }, context, event);
     }
-    options.deps.log.info('escrow_price_event_scheduled', {
-      marketId: market.id, seq: event.seq,
-    });
+    options.deps.log.info('escrow_price_event_scheduled', { marketId: market.id, seq: event.seq });
   }
 
   async function applyEffect(
@@ -165,22 +149,16 @@ export function createEscrowEventWorkflowScheduler(options: {
     event: MatchEvent,
   ): Promise<void> {
     if (effect.kind === 'freeze' && context.chainState === 'open' && !isPriceMoving(event)) {
-      const attestation = buildEscrowFeedEventAttestation({
-        ...common(context, event), eventKind: 'freeze',
-      });
-      await signedControl({
+      const attestation = buildEscrowFeedEventAttestation({ ...common(context, event), eventKind: 'freeze' });
+      await persist({
         operation: 'freeze_market', marketPda: context.binding.marketPda,
         expectedEventEpoch: context.binding.eventEpoch, attestation,
-      }, { kind: 'feed_event', attestation }, context.oraclePolicy);
+      }, context, event);
       return;
     }
     if (effect.kind === 'unfreeze' && context.chainState === 'frozen') {
-      const attestation = buildEscrowFeedEventAttestation({
-        ...common(context, event), eventKind: 'unfreeze',
-      });
-      await signedControl({
-        operation: 'unfreeze_market', marketPda: context.binding.marketPda, attestation,
-      }, { kind: 'feed_event', attestation }, context.oraclePolicy);
+      const attestation = buildEscrowFeedEventAttestation({ ...common(context, event), eventKind: 'unfreeze' });
+      await persist({ operation: 'unfreeze_market', marketPda: context.binding.marketPda, attestation }, context, event);
       return;
     }
     if (effect.kind === 'settle') {
@@ -188,55 +166,77 @@ export function createEscrowEventWorkflowScheduler(options: {
         const attestation = buildEscrowVoidAttestation({
           ...common(context, event), reason: 'undecidable', decidingSequence: effect.decidingSeq,
         });
-        const signatures = await options.oracle.sign({ kind: 'void', attestation }, context.oraclePolicy);
-        await options.workflow.enqueueRecovery({
-          operation: 'void_market', marketPda: context.binding.marketPda, attestation, signatures,
-        });
+        await persist({ operation: 'void_market', marketPda: context.binding.marketPda, attestation }, context, event);
         return;
       }
       const attestation = buildEscrowSettlementAttestation({
         ...common(context, event), outcome: effect.outcome,
         decidingSequence: effect.decidingSeq, evidenceSequences: effect.evidenceSeqs,
       });
-      const signatures = await options.oracle.sign({ kind: 'settlement', attestation }, context.oraclePolicy);
-      await options.workflow.enqueueRecovery({
-        operation: 'settle_market', marketPda: context.binding.marketPda, attestation, signatures,
-      });
+      await persist({ operation: 'settle_market', marketPda: context.binding.marketPda, attestation }, context, event);
       return;
     }
     if (effect.kind === 'void') {
       const attestation = buildEscrowVoidAttestation({
         ...common(context, event), reason: voidReason(event), decidingSequence: event.seq,
       });
-      const signatures = await options.oracle.sign({ kind: 'void', attestation }, context.oraclePolicy);
-      await options.workflow.enqueueRecovery({
-        operation: 'void_market', marketPda: context.binding.marketPda, attestation, signatures,
-      });
+      await persist({ operation: 'void_market', marketPda: context.binding.marketPda, attestation }, context, event);
     }
   }
 
+  async function persistNewPending(
+    previous: MarketState['pendingSettlement'],
+    current: MarketState['pendingSettlement'],
+    context: EscrowWorkflowMarketContext,
+    event: MatchEvent,
+  ): Promise<void> {
+    if (
+      current === null ||
+      (previous !== null && previous.decidingSeq === current.decidingSeq &&
+        previous.debounceUntilMs === current.debounceUntilMs)
+    ) return;
+    const debounceUntilIso = iso(current.debounceUntilMs);
+    if (current.outcome === 'void') {
+      const attestation = buildEscrowVoidAttestation({
+        ...common(context, event), reason: 'undecidable', decidingSequence: current.decidingSeq,
+      });
+      await persist(
+        { operation: 'void_market', marketPda: context.binding.marketPda, attestation },
+        context, event, current.debounceUntilMs, debounceUntilIso,
+      );
+      return;
+    }
+    const attestation = buildEscrowSettlementAttestation({
+      ...common(context, event), outcome: current.outcome,
+      decidingSequence: current.decidingSeq, evidenceSequences: current.evidenceSeqs,
+    });
+    await persist(
+      { operation: 'settle_market', marketPda: context.binding.marketPda, attestation },
+      context, event, current.debounceUntilMs, debounceUntilIso,
+    );
+  }
+
   async function reduce(market: MarketRow, event: MatchEvent): Promise<void> {
+    if (event.seq <= (eventWatermarks.get(market.id) ?? -1)) return;
     const context = await options.workflow.loadMarket(market);
     if (context === null || context.replay !== market.is_replay) return;
     const state = await hydrate(market);
     const result = options.deps.engine.reduceMarket(state, event);
+    if (result.state === state && result.effects.length === 0) return;
     await protectPriceMovingLots(market, context, event);
     for (const effect of result.effects) await applyEffect(effect, context, event);
-    lastEvents.set(market.id, event);
-    if (result.state.status === 'settled' || result.state.status === 'voided') {
-      states.delete(market.id);
-      lastEvents.delete(market.id);
-    } else {
-      states.set(market.id, result.state);
-    }
+    await persistNewPending(state.pendingSettlement, result.state.pendingSettlement, context, event);
+    eventWatermarks.set(market.id, event.seq);
+    if (result.state.status === 'settled' || result.state.status === 'voided') states.delete(market.id);
+    else states.set(market.id, result.state);
   }
 
   async function matchingMarkets(event: MatchEvent, groupId?: number, replayStartedAtMs?: number) {
     return (await options.deps.db.openMarketsForFixture(event.fixtureId)).filter((market) =>
-      allowedGroups.has(market.group_id) &&
-      (groupId === undefined
+      market.custody_mode === 'escrow' && (groupId === undefined
         ? !market.is_replay
-        : market.is_replay && market.group_id === groupId && Date.parse(market.created_at) >= (replayStartedAtMs ?? Number.NEGATIVE_INFINITY))
+        : market.is_replay && market.group_id === groupId &&
+          Date.parse(market.created_at) >= (replayStartedAtMs ?? Number.NEGATIVE_INFINITY))
     );
   }
 
@@ -246,7 +246,6 @@ export function createEscrowEventWorkflowScheduler(options: {
         await reduce(market, event);
       } catch (error) {
         states.delete(market.id);
-        lastEvents.delete(market.id);
         options.deps.log.error('escrow_event_workflow_failed', { marketId: market.id, seq: event.seq });
         if (groupId !== undefined) throw error;
       }
@@ -257,24 +256,7 @@ export function createEscrowEventWorkflowScheduler(options: {
     onEvent: (event: MatchEvent) => run(event),
     onReplayEvent: (groupId: number, event: MatchEvent, replayStartedAtMs?: number) =>
       run(event, groupId, replayStartedAtMs),
-    async tick(nowMs: number) {
-      for (const [marketId, state] of [...states]) {
-        if (state.pendingSettlement === null) continue;
-        const event = lastEvents.get(marketId);
-        const market = await options.deps.db.getMarket(marketId);
-        if (event === undefined || market === null) continue;
-        const context = await options.workflow.loadMarket(market);
-        if (context === null) continue;
-        const result = options.deps.engine.checkDebounce(state, nowMs);
-        for (const effect of result.effects) await applyEffect(effect, context, event);
-        if (result.state.status === 'settled' || result.state.status === 'voided') {
-          states.delete(marketId);
-          lastEvents.delete(marketId);
-        } else {
-          states.set(marketId, result.state);
-        }
-      }
-    },
+    async tick(_nowMs: number) {},
   };
 }
 

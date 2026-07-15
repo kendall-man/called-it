@@ -64,6 +64,7 @@ export function stakeMarket(overrides: Partial<MarketRow> = {}): MarketRow {
     card_tg_message_id: null,
     created_at: new Date(NOW).toISOString(),
     currency: 'sol',
+    custody_mode: 'legacy',
     ...overrides,
   };
 }

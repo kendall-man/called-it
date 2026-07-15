@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { GroupPointsService, GroupPointsSummary } from '../points/service.js';
-import { createEscrowFinalizedPointsProjection } from './points-projection.js';
+import {
+  createEscrowFinalizedPointsProjection,
+  createEscrowPrivatePointsParticipants,
+} from './points-projection.js';
 
 const MARKET_ID = '123e4567-e89b-12d3-a456-426614174000';
 const appliedSummary: GroupPointsSummary = {
@@ -60,6 +63,25 @@ describe('finalized escrow Points projection', () => {
       .resolves.toEqual({ kind: 'replay_skipped' });
     expect(fixture.pointMutations()).toBe(0);
     expect(fixture.privateReads()).toBe(1);
+  });
+
+  it('uses immutable custody after a group is removed from the intake rollout', async () => {
+    const points = setup(false);
+    const participants = createEscrowPrivatePointsParticipants({
+      markets: {
+        async getMarket() {
+          return { custody_mode: 'escrow', is_replay: false };
+        },
+      },
+    });
+    const projection = createEscrowFinalizedPointsProjection({
+      privateParticipants: participants,
+      points: points.points,
+    });
+
+    await expect(projection.afterEconomicProjection(economicEvent))
+      .resolves.toMatchObject({ kind: 'applied', summary: { duplicate: false } });
+    expect(points.pointMutations()).toBe(1);
   });
 
   it('preserves legacy parity by delegating escrow awards to the same Points service', async () => {

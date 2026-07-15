@@ -6,7 +6,8 @@ import type { ImmutableMarketDocumentInput } from './market-document.js';
 const NOW = 1_700_000_000n;
 const MARKET = {
   id: '123e4567-e89b-12d3-a456-426614174000', claim_id: 'claim', group_id: -100,
-  fixture_id: 7, currency: 'sol', is_replay: false, odds_ts: Number((NOW - 30n) * 1_000n),
+  fixture_id: 7, currency: 'sol', custody_mode: 'escrow', is_replay: false,
+  odds_ts: Number((NOW - 30n) * 1_000n),
   odds_message_id: 'odds', quote_probability: 0.4, quote_multiplier: 2.5,
   price_provenance: 'market', spec: { z: 2, a: 1 },
 } as unknown as MarketRow;
@@ -58,6 +59,8 @@ describe('escrow market provisioner', () => {
   });
 
   it('fails closed outside the rollout or after the live cutoff', async () => {
+    const legacy = fixture({ ...MARKET, custody_mode: 'legacy' });
+    await expect(legacy.service.ensure(legacy.market)).rejects.toMatchObject({ code: 'market_not_allowed' });
     await expect(fixture({ ...MARKET, group_id: -200 }).service.ensure({ ...MARKET, group_id: -200 }))
       .rejects.toBeInstanceOf(EscrowMarketProvisioningError);
     const late = fixture({ ...MARKET, odds_ts: Number((NOW + 20_000n) * 1_000n) });

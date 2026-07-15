@@ -30,6 +30,7 @@ const MARKET: MarketRow = {
   card_tg_message_id: 6_003_002,
   created_at: '2026-07-12T12:00:00.000Z',
   currency: 'rep',
+  custody_mode: 'legacy',
 };
 
 describe('void abandoned market logging', () => {

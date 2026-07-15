@@ -35,7 +35,7 @@ import {
   loadWallet,
   submitValidateStat,
 } from '@calledit/solana';
-import type { AgentPort, Deps, EngineDb, EventSourceLike, OddsFetchResult, ProofSubmitter, TxPort } from './ports.js';
+import type { AgentPort, Deps, EngineDb, EventSourceLike, MarketRow, OddsFetchResult, ProofSubmitter, TxPort } from './ports.js';
 import type { WagerModule, WagerPoster } from './wager/module.js';
 import type { Env } from './env.js';
 import type { Logger } from './log.js';
@@ -110,8 +110,25 @@ import {
   createEscrowControlFinalityVerifier,
   createEscrowControlTransactionBuilder,
 } from './escrow/control-relayer.js';
+import {
+  createHttpsEscrowMarketAuthoritySigner,
+  createLocalEscrowMarketAuthoritySigner,
+  type EscrowMarketAuthoritySignerProvider,
+} from './escrow/market-authority-signer.js';
+import { createEscrowAttestationRequestService } from './escrow/attestation-request-service.js';
+import { createEscrowAttestationRequestWorker } from './escrow/attestation-request-worker.js';
+import { createEscrowGroupRolloutService } from './escrow/group-rollout.js';
 
 // ── Dependency construction ───────────────────────────────────────────────
+
+function requireMarketCustody(value: unknown): MarketRow {
+  if (
+    value === null || typeof value !== 'object' ||
+    ((value as { custody_mode?: unknown }).custody_mode !== 'legacy' &&
+      (value as { custody_mode?: unknown }).custody_mode !== 'escrow')
+  ) throw new TypeError('market custody mode unavailable');
+  return value as MarketRow;
+}
 
 export async function createDeps(
   env: Env,
@@ -120,7 +137,21 @@ export async function createDeps(
   wagerPoster?: WagerPoster,
 ): Promise<Deps> {
   const now = () => Date.now();
-  const db: EngineDb = createEngineDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const rawDb = createEngineDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const db: EngineDb = {
+    ...rawDb,
+    async insertMarket(input) { return requireMarketCustody(await rawDb.insertMarket(input)); },
+    async getMarket(id) {
+      const market = await rawDb.getMarket(id);
+      return market === null ? null : requireMarketCustody(market);
+    },
+    async openMarketsForFixture(fixtureId) {
+      return (await rawDb.openMarketsForFixture(fixtureId)).map(requireMarketCustody);
+    },
+    async openMarketsForGroup(groupId) {
+      return (await rawDb.openMarketsForGroup(groupId)).map(requireMarketCustody);
+    },
+  };
 
   // Grounded tool executors for the parse step — results come from OUR DB,
   // so the model cannot invent entity ids (PRD: LLM proposes, code disposes).
@@ -326,8 +357,9 @@ export function createEscrowWave4Runtime(options: {
   readonly serviceRoleKey: string;
   readonly rpcUrl: string;
   readonly sponsor: Signer;
-  readonly marketCreationAuthority: Signer;
+  readonly marketCreationAuthority: EscrowMarketAuthoritySignerProvider;
   readonly feedOperator: Signer;
+  readonly oracleAttestations: EscrowOracleAttestationProvider;
   readonly marketDeployment: EscrowMarketDeployment;
   readonly placementDeployment: EscrowPlacementDeployment;
   readonly recoveryDeployment: EscrowRecoveryDeployment;
@@ -344,6 +376,8 @@ export function createEscrowWave4Runtime(options: {
   readonly worker: {
     readonly intervalMs: number;
     readonly relayerLimit: number;
+    readonly attestationLimit: number;
+    readonly attestationLeaseMs: number;
     readonly indexerLimit: number;
     readonly log: EscrowRuntimeLifecycleLog;
   };
@@ -360,7 +394,7 @@ export function createEscrowWave4Runtime(options: {
     options.placementDeployment.canonicalUsdcMint !== options.recoveryDeployment.canonicalUsdcMint ||
     options.marketDeployment.relayerFeePayer !== options.sponsor.publicKey.toBase58() ||
     options.recoveryDeployment.relayerFeePayer !== options.sponsor.publicKey.toBase58() ||
-    options.marketDeployment.marketCreationAuthority !== options.marketCreationAuthority.publicKey.toBase58()
+    options.marketDeployment.marketCreationAuthority !== options.marketCreationAuthority.authorityAddress
     || options.controlDeployment.feedOperatorAuthority !== options.feedOperator.publicKey.toBase58()
     || options.feedOperator.publicKey.equals(options.sponsor.publicKey)
   ) throw new TypeError('escrow Wave 4 deployment identity mismatch');
@@ -386,6 +420,37 @@ export function createEscrowWave4Runtime(options: {
   const control = createEscrowControlService({
     db, deployment: options.controlDeployment,
     readiness: options.recoveryReadiness, clock: () => options.clock().iso,
+  });
+  const attestationRequests = createEscrowAttestationRequestService({
+    db,
+    deployment: {
+      cluster: options.recoveryDeployment.cluster,
+      genesisHash: options.recoveryDeployment.genesisHash,
+      programId: options.recoveryDeployment.programId,
+      custodyVersion: options.recoveryDeployment.custodyVersion,
+    },
+    maxAttempts: 12,
+    leaseMs: options.worker.attestationLeaseMs,
+    clock: () => options.clock().iso,
+  });
+  const attestationWorker = createEscrowAttestationRequestWorker({
+    db,
+    oracle: options.oracleAttestations,
+    control,
+    recovery,
+    workerId: `${options.workerId}:attestations`,
+    retryAt: options.retryAt,
+    nextCheckAt: options.retryAt,
+  });
+  const groupRollouts = createEscrowGroupRolloutService({
+    db,
+    deployment: {
+      cluster: options.marketDeployment.cluster,
+      genesisHash: options.marketDeployment.genesisHash,
+      programId: options.marketDeployment.programId,
+      custodyVersion: options.marketDeployment.custodyVersion,
+    },
+    clock: () => options.clock().iso,
   });
   const controlBuilder = createEscrowControlTransactionBuilder({
     db, chain: recoveryChain, sponsor: options.sponsor,
@@ -507,17 +572,19 @@ export function createEscrowWave4Runtime(options: {
     },
   });
   const lifecycle = createEscrowRuntimeLifecycle({
+    attestations: attestationWorker,
     relayer,
     indexer,
     clock: () => options.clock().iso,
     intervalMs: options.worker.intervalMs,
     relayerLimit: options.worker.relayerLimit,
+    attestationLimit: options.worker.attestationLimit,
     indexerLimit: options.worker.indexerLimit,
     log: options.worker.log,
   });
   return {
     db, rpc, accounts, initialization, placement, control, recovery, recoveryBuilder,
-    relayer, indexer, reconciler, lifecycle,
+    groupRollouts, attestationRequests, attestationWorker, relayer, indexer, reconciler, lifecycle,
   };
 }
 
@@ -578,9 +645,34 @@ export async function createProductionEscrowRuntime(options: {
   if (programId !== ESCROW_PROGRAM_ID) {
     throw new EscrowProductionContractError('deployment_identity_mismatch');
   }
-  if (sponsor.publicKey.toBase58() !== marketCreationAuthority) {
-    throw new EscrowProductionContractError('market_authority_signer_unavailable');
-  }
+  const marketAuthorityDeployment = {
+    network: env.SOLANA_NETWORK,
+    genesisHash,
+    programId,
+    protocolConfigPda: deriveProtocolConfigPda(programId).address,
+    oracleSetPda,
+    oracleSetEpoch,
+  } as const;
+  const forbiddenMarketAuthoritySigners = [
+    sponsor.publicKey.toBase58(), feedOperator.publicKey.toBase58(), configAuthority,
+    ...env.ESCROW_ORACLE_SIGNERS,
+  ];
+  const marketCreationAuthoritySigner = env.ESCROW_MARKET_AUTHORITY_SIGNER_ENDPOINT_JSON === undefined
+    ? createLocalEscrowMarketAuthoritySigner({
+        deployment: marketAuthorityDeployment,
+        expectedAuthority: marketCreationAuthority,
+        signer: loadWallet(requiredEscrowValue(env.ESCROW_MARKET_AUTHORITY_KEYPAIR_B58)),
+        forbiddenSignerAddresses: forbiddenMarketAuthoritySigners,
+      })
+    : createHttpsEscrowMarketAuthoritySigner({
+        deployment: marketAuthorityDeployment,
+        expectedAuthority: marketCreationAuthority,
+        endpoint: env.ESCROW_MARKET_AUTHORITY_SIGNER_ENDPOINT_JSON,
+        forbiddenSignerAddresses: forbiddenMarketAuthoritySigners,
+        forbiddenEndpointOrigins: env.ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON.map(
+          (endpoint) => new URL(endpoint.url).origin,
+        ),
+      });
 
   const bootstrapRpc = createEscrowSolanaRpc(env.SOLANA_RPC_URL);
   const bootstrapAccounts = new SolanaEscrowAccountReader(bootstrapRpc.connection);
@@ -664,6 +756,9 @@ export async function createProductionEscrowRuntime(options: {
       },
     },
     {
+      availableSigner: (signal) => marketCreationAuthoritySigner.availableSigner(signal),
+    },
+    {
       availableSigners: () => oracleAttestations.availableSigners(),
     },
     {
@@ -727,8 +822,9 @@ export async function createProductionEscrowRuntime(options: {
     serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
     rpcUrl: env.SOLANA_RPC_URL,
     sponsor,
-    marketCreationAuthority: sponsor,
+    marketCreationAuthority: marketCreationAuthoritySigner,
     feedOperator,
+    oracleAttestations,
     marketDeployment,
     placementDeployment,
     recoveryDeployment,
@@ -743,6 +839,8 @@ export async function createProductionEscrowRuntime(options: {
     worker: {
       intervalMs: Math.max(250, env.QUEUE_RETRY_BASE_MS),
       relayerLimit: 25,
+      attestationLimit: 25,
+      attestationLeaseMs: env.QUEUE_LEASE_MS,
       indexerLimit: 100,
       log: options.log,
     },
@@ -754,10 +852,12 @@ export async function createProductionEscrowRuntime(options: {
     network: env.SOLANA_NETWORK,
     sessionTtlSeconds: 300,
   });
+  await runtime.groupRollouts.ensureEscrowGroups(env.ESCROW_ALLOWED_GROUP_IDS);
   return {
     ...runtime,
     telegram,
     oracleAttestations,
+    marketCreationAuthoritySigner,
     marketPolicy: {
       oracleSetEpoch,
       maximumMarketDurationSeconds: config.value.maximumMarketDurationSeconds,

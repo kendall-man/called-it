@@ -1,10 +1,9 @@
-import { checkDebounce, reduceMarket, type MatchEvent } from '@calledit/market-engine';
+import { reduceMarket, type MatchEvent } from '@calledit/market-engine';
 import { Keypair } from '@solana/web3.js';
 import { describe, expect, it } from 'vitest';
 import type { Deps, MarketRow } from '../ports.js';
+import type { EscrowAttestationRequestService } from './attestation-request-service.js';
 import { createEscrowEventWorkflowScheduler, type EscrowEventWorkflowPort } from './event-workflow-scheduler.js';
-import type { EscrowControlRequest } from './control-workflows.js';
-import type { EscrowRecoveryRequest } from './recovery-workflows.js';
 
 const MARKET_PDA = Keypair.generate().publicKey.toBase58();
 const OWNER = Keypair.generate().publicKey.toBase58();
@@ -26,10 +25,10 @@ function event(overrides: Partial<MatchEvent> = {}): MatchEvent {
   };
 }
 
-function market(replay = false): MarketRow {
+function market(replay = false, custodyMode: 'legacy' | 'escrow' = 'escrow'): MarketRow {
   return {
     id: MARKET_ID, claim_id: '223e4567-e89b-12d3-a456-426614174000', group_id: GROUP_ID,
-    fixture_id: 77, status: 'open', is_replay: replay, currency: 'sol',
+    fixture_id: 77, status: 'open', is_replay: replay, currency: 'sol', custody_mode: custodyMode,
     spec: {
       claimType: 'match_winner', fixtureId: 77,
       entityRef: { kind: 'team', participant: 1, name: 'Home' },
@@ -41,11 +40,15 @@ function market(replay = false): MarketRow {
   };
 }
 
-function setup(replay = false) {
-  const control: EscrowControlRequest[] = [];
-  const recovery: EscrowRecoveryRequest[] = [];
-  const signingKinds: string[] = [];
-  const currentMarket = market(replay);
+type PersistInput = Parameters<EscrowAttestationRequestService['enqueue']>[0];
+
+function setup(
+  replay = false,
+  persisted: PersistInput[] = [],
+  custodyMode: 'legacy' | 'escrow' = 'escrow',
+  failOnceAt?: number,
+) {
+  const currentMarket = market(replay, custodyMode);
   const workflow: EscrowEventWorkflowPort = {
     async loadMarket() {
       return {
@@ -68,53 +71,62 @@ function setup(replay = false) {
         state: 'pending',
       }];
     },
-    async enqueueControl(value) { control.push(value); },
-    async enqueueRecovery(value) { recovery.push(value); },
   };
   const deps = {
     db: {
       async openMarketsForFixture() { return [currentMarket]; },
       async positionsForMarket() { return []; },
-      async getMarket() { return currentMarket; },
     },
-    engine: { reduceMarket, checkDebounce },
+    engine: { reduceMarket },
     log: { info() {}, error() {} },
-  } as unknown as Pick<Deps, 'db' | 'engine' | 'log'>;
-  const signers = [Keypair.generate(), Keypair.generate()];
+  };
+  const seen = new Set<string>();
+  let enqueueCalls = 0;
+  const requests = {
+    async enqueue(input: PersistInput) {
+      enqueueCalls += 1;
+      if (enqueueCalls === failOnceAt) throw new Error('durable storage unavailable');
+      const key = JSON.stringify(input, (_name, value) => typeof value === 'bigint' ? String(value) : value);
+      const created = !seen.has(key);
+      seen.add(key);
+      if (created) persisted.push(input);
+      return { kind: 'persisted' as const, created, requestKey: 'ab'.repeat(32) };
+    },
+  };
   const scheduler = createEscrowEventWorkflowScheduler({
-    deps, allowedGroupIds: [GROUP_ID],
+    deps,
     deployment: {
       genesisHash: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
       programId: 'HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL',
     },
-    oracle: {
-      async availableSigners() { return signers.map((value) => value.publicKey.toBase58()); },
-      async sign(value) {
-        signingKinds.push(value.kind);
-        return signers.map((signer) => ({ publicKey: signer.publicKey.toBytes(), signature: new Uint8Array(64) }));
-      },
-    },
-    workflow, clock: () => 1_700_000_000n,
+    requests, workflow,
   });
-  return { scheduler, control, recovery, signingKinds };
+  return { scheduler, persisted };
 }
 
-describe('escrow TxLINE event workflow scheduler', () => {
-  it('signs and queues freeze plus exact anti-snipe invalidation for a live price event', async () => {
+describe('escrow TxLINE durable event workflow scheduler', () => {
+  it('persists freeze and exact anti-snipe invalidation before any signing', async () => {
     const fixture = setup();
     await fixture.scheduler.onEvent(event());
 
-    expect(fixture.control.map((value) => value.operation)).toEqual([
+    expect(fixture.persisted.map((value) => value.request.operation)).toEqual([
       'freeze_market', 'invalidate_position_lot',
     ]);
-    expect(fixture.control[1]).toMatchObject({
+    expect(fixture.persisted[1]?.request).toMatchObject({
       owner: OWNER, lotNonce: 2n, positionLotPda: LOT_PDA,
       attestation: { observedEventEpoch: 3n, invalidatedEventEpoch: 4n },
     });
-    expect(fixture.signingKinds).toEqual(['feed_event', 'position_invalidation']);
   });
 
-  it('turns a terminal reducer candidate into a signed durable settlement on tick', async () => {
+  it('admits only DB-stamped escrow custody, not legacy rows in the same enabled group', async () => {
+    const fixture = setup(false, [], 'legacy');
+
+    await fixture.scheduler.onEvent(event());
+
+    expect(fixture.persisted).toEqual([]);
+  });
+
+  it('continues settlement for a linked escrow market after its group leaves the intake allowlist', async () => {
     const fixture = setup();
     await fixture.scheduler.onEvent(event({
       kind: 'phase_change', seq: 20, phase: 'F', minute: 90,
@@ -125,37 +137,71 @@ describe('escrow TxLINE event workflow scheduler', () => {
         p1Goals90: 2, p2Goals90: 1,
       },
     }));
-    await fixture.scheduler.tick(200_000 + 90_001);
 
-    expect(fixture.recovery).toHaveLength(1);
-    expect(fixture.recovery[0]).toMatchObject({
-      operation: 'settle_market', marketPda: MARKET_PDA,
-      attestation: { outcome: 'claim_won', decidingSequence: 20n },
-    });
-    expect(fixture.signingKinds).toContain('settlement');
+    expect(fixture.persisted).toContainEqual(expect.objectContaining({
+      marketId: MARKET_ID,
+      request: expect.objectContaining({ operation: 'settle_market', marketPda: MARKET_PDA }),
+    }));
   });
 
-  it('routes replay terminal events through the same signed path', async () => {
-    const fixture = setup(true);
+  it('retries the same event after a partial persistence failure and stores missing intents', async () => {
+    const fixture = setup(false, [], 'escrow', 2);
+    const priceMove = event();
+
+    await fixture.scheduler.onEvent(priceMove);
+    expect(fixture.persisted.map((value) => value.request.operation)).toEqual(['freeze_market']);
+
+    await fixture.scheduler.onEvent(priceMove);
+    expect(fixture.persisted.map((value) => value.request.operation)).toEqual([
+      'freeze_market', 'invalidate_position_lot',
+    ]);
+  });
+
+  it('persists a terminal candidate with its debounce deadline before restart', async () => {
+    const persisted: PersistInput[] = [];
     const terminal = event({
       kind: 'phase_change', seq: 20, phase: 'F', minute: 90,
       receivedAtMs: 200_000, tsMs: 199_000,
+      score: {
+        p1: { goals: 2, yellowCards: 0, redCards: 0, corners: 0 },
+        p2: { goals: 1, yellowCards: 0, redCards: 0, corners: 0 },
+        p1Goals90: 2, p2Goals90: 1,
+      },
     });
-    await fixture.scheduler.onReplayEvent(GROUP_ID, terminal, 0);
-    await fixture.scheduler.tick(300_001);
+    await setup(false, persisted).scheduler.onEvent(terminal);
 
-    expect(fixture.recovery[0]?.operation).toBe('settle_market');
+    const settlement = persisted.find((value) => value.request.operation === 'settle_market');
+    expect(settlement).toMatchObject({
+      dueAtIso: new Date(290_000).toISOString(),
+      debounceUntilIso: new Date(290_000).toISOString(),
+      request: { operation: 'settle_market', attestation: { decidingSequence: 20n } },
+    });
+    await setup(false, persisted).scheduler.tick(300_000);
+    expect(persisted.filter((value) => value.request.operation === 'settle_market')).toHaveLength(1);
   });
 
-  it('maps cancellation to a threshold-signed void and never a legacy write', async () => {
-    const fixture = setup();
-    await fixture.scheduler.onEvent(event({
-      kind: 'phase_change', seq: 30, phase: 'CAN', confirmed: true,
-    }));
+  it('routes replay terminal events through the same durable Points-disabled path', async () => {
+    const fixture = setup(true);
+    await fixture.scheduler.onReplayEvent(GROUP_ID, event({
+      kind: 'phase_change', seq: 20, phase: 'F', minute: 90,
+      receivedAtMs: 200_000, tsMs: 199_000,
+    }), 0);
 
-    expect(fixture.recovery[0]).toMatchObject({
+    expect(fixture.persisted.find((value) => value.request.operation === 'settle_market')).toMatchObject({
+      replay: true, request: { operation: 'settle_market' },
+    });
+  });
+
+  it('maps cancellation to durable void and ignores duplicate or reordered events', async () => {
+    const fixture = setup();
+    const cancellation = event({ kind: 'phase_change', seq: 30, phase: 'CAN', confirmed: true });
+    await fixture.scheduler.onEvent(cancellation);
+    await fixture.scheduler.onEvent(cancellation);
+    await fixture.scheduler.onEvent(event({ seq: 29 }));
+
+    expect(fixture.persisted.filter((value) => value.request.operation === 'void_market')).toHaveLength(1);
+    expect(fixture.persisted.find((value) => value.request.operation === 'void_market')?.request).toMatchObject({
       operation: 'void_market', attestation: { reason: 'cancelled', decidingSequence: 30n },
     });
-    expect(fixture.signingKinds).toContain('void');
   });
 });

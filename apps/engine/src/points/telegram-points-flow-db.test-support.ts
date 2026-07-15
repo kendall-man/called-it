@@ -220,8 +220,8 @@ export class TelegramFlowDb implements EngineDb {
     const row = this.claims.get(id); if (row) this.claims.set(id, { ...row, ...patch });
   }
   async expireOverdueClaims(): Promise<ClaimRow[]> { return []; }
-  async insertMarket(input: Omit<MarketRow, 'id' | 'card_tg_message_id' | 'created_at'>): Promise<MarketRow> {
-    const id = this.uuid(2, this.marketSequence++); const row = { ...input, id, card_tg_message_id: null, created_at: new Date(this.now()).toISOString() };
+  async insertMarket(input: Omit<MarketRow, 'id' | 'card_tg_message_id' | 'created_at' | 'custody_mode'>): Promise<MarketRow> {
+    const id = this.uuid(2, this.marketSequence++); const row = { ...input, id, custody_mode: 'legacy' as const, card_tg_message_id: null, created_at: new Date(this.now()).toISOString() };
     this.markets.set(id, row); this.positions.set(id, []); return row;
   }
   async getMarket(id: string): Promise<MarketRow | null> { return this.markets.get(id) ?? null; }

@@ -3,6 +3,7 @@ import type {
   EscrowClaimEventInput,
   EscrowCluster,
   EscrowDb,
+  EscrowMarketClosedInput,
   EscrowPositionEventInput,
   EscrowSettlementEventInput,
 } from '@calledit/db';
@@ -43,6 +44,7 @@ export type EscrowFinalizedProjection =
       readonly kind: 'market_closed';
       readonly marketId: string;
       readonly marketPda: string;
+      readonly documentHashHex: string;
       readonly asset: EscrowAsset;
       readonly dustAmountAtomic: bigint;
     }
@@ -114,19 +116,11 @@ export interface EscrowFinalizedIndexDb extends Pick<
     readonly genesisHash: string;
     readonly programId: string;
   }): Promise<EscrowFinalizedChainCursorResult>;
-  recordMarketClosed?(input: {
-    readonly signature: string;
-    readonly instructionIndex: number;
-    readonly marketId: string;
-    readonly programId: string;
-    readonly marketPda: string;
-    readonly asset: EscrowAsset;
-    readonly dustAmountAtomic: bigint;
-    readonly slot: bigint;
-    readonly blockTimeIso: string | null;
-    readonly commitment: 'finalized';
-    readonly observedAtIso: string;
-  }): Promise<{ readonly ok: true; readonly duplicate: boolean; readonly finalized: boolean }>;
+  recordMarketClosed(input: EscrowMarketClosedInput): Promise<{
+    readonly ok: true;
+    readonly duplicate: boolean;
+    readonly finalized: boolean;
+  }>;
 }
 
 async function project(
@@ -185,11 +179,13 @@ async function project(
       return (await db.recordClaimEvent({ ...value, ...common })).duplicate;
     }
     case 'market_closed': {
-      if (db.recordMarketClosed === undefined) {
-        throw new EscrowFinalizedIndexerError('projection_unavailable');
-      }
       const { kind: _, ...value } = projection;
-      return (await db.recordMarketClosed({ ...value, ...common })).duplicate;
+      return (await db.recordMarketClosed({
+        ...value,
+        ...common,
+        cluster: expected.cluster,
+        genesisHash: expected.genesisHash,
+      })).duplicate;
     }
     case 'market_state':
       return false;

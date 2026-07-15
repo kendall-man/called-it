@@ -1,4 +1,5 @@
 import type { GroupPointsService, GroupPointsSummary } from '../points/service.js';
+import type { MarketRow } from '../ports.js';
 
 export interface EscrowPrivatePointsParticipants {
   prepare(marketId: string): Promise<{
@@ -14,6 +15,21 @@ export interface EscrowFinalizedPointsProjection {
     readonly signature: string;
     readonly instructionIndex: number;
   }): Promise<{ readonly kind: 'replay_skipped' } | { readonly kind: 'applied'; readonly summary: GroupPointsSummary }>;
+}
+
+export function createEscrowPrivatePointsParticipants(options: {
+  readonly markets: {
+    getMarket(marketId: string): Promise<Pick<MarketRow, 'custody_mode' | 'is_replay'> | null>;
+  };
+}): EscrowPrivatePointsParticipants {
+  return {
+    async prepare(marketId) {
+      const market = await options.markets.getMarket(marketId);
+      if (market === null) throw new Error('escrow points market unavailable');
+      if (market.custody_mode !== 'escrow') throw new Error('escrow points market custody mismatch');
+      return { custodyMode: 'escrow', replay: market.is_replay };
+    },
+  };
 }
 
 export function createEscrowFinalizedPointsProjection(options: {

@@ -13,6 +13,8 @@ export type EscrowTransactionSignatureErrorCode =
   | 'transaction_message_mismatch'
   | 'sponsor_signature_missing'
   | 'sponsor_signature_invalid'
+  | 'authority_signature_missing'
+  | 'authority_signature_invalid'
   | 'user_signature_missing'
   | 'user_signature_invalid';
 
@@ -127,6 +129,38 @@ export function sponsorTransactionWithAuthority(
   ) throw new EscrowTransactionSignatureError('sponsor_signature_invalid');
   const signature = transaction.signatures[sponsorIndex];
   if (signature === undefined) throw new EscrowTransactionSignatureError('sponsor_signature_missing');
+  return {
+    rawTransactionBase64: Buffer.from(transaction.serialize()).toString('base64'),
+    messageHashHex: messageHash(transaction),
+    expectedSignature: base58Encode(signature),
+    recentBlockhash: transaction.message.recentBlockhash,
+  };
+}
+
+export function attachAuthoritySignature(
+  transaction: VersionedTransaction,
+  sponsor: PublicKey,
+  authority: PublicKey,
+  authoritySignature: Uint8Array,
+): PreparedSponsoredTransaction {
+  const sponsorIndex = signerIndex(transaction, sponsor);
+  const authorityIndex = signerIndex(transaction, authority);
+  if (
+    sponsor.equals(authority) || sponsorIndex !== 0 || authorityIndex !== 1 ||
+    transaction.message.header.numRequiredSignatures !== 2 || authoritySignature.length !== 64 ||
+    !verifySignature(transaction, sponsorIndex, sponsor) ||
+    signatureIsPresent(transaction.signatures[authorityIndex] ?? new Uint8Array())
+  ) throw new EscrowTransactionSignatureError('invalid_signer_layout');
+  transaction.signatures[authorityIndex] = authoritySignature;
+  if (!verifySignature(transaction, authorityIndex, authority)) {
+    throw new EscrowTransactionSignatureError('authority_signature_invalid');
+  }
+  const signature = transaction.signatures[sponsorIndex];
+  if (signature === undefined) throw new EscrowTransactionSignatureError('sponsor_signature_missing');
+  const attached = transaction.signatures[authorityIndex];
+  if (attached === undefined || !signatureIsPresent(attached)) {
+    throw new EscrowTransactionSignatureError('authority_signature_missing');
+  }
   return {
     rawTransactionBase64: Buffer.from(transaction.serialize()).toString('base64'),
     messageHashHex: messageHash(transaction),

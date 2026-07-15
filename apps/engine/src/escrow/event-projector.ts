@@ -188,6 +188,7 @@ export class SolanaEscrowEventProjector implements EscrowEventProjector {
         if (market.asset !== event.asset) throw new EscrowEventProjectionError('event_mismatch');
         return {
           kind: 'market_closed', marketId: market.marketId, marketPda: event.market,
+          documentHashHex: market.documentHashHex,
           asset: event.asset, dustAmountAtomic: event.dustAmount,
         };
       }

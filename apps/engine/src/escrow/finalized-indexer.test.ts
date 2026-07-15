@@ -7,6 +7,10 @@ import {
   type EscrowFinalizedIndexDb,
   type EscrowFinalizedTransaction,
 } from './finalized-indexer.js';
+import {
+  createEscrowFinalizedPointsProjection,
+  createEscrowPrivatePointsParticipants,
+} from './points-projection.js';
 
 const MARKET_ID = '123e4567-e89b-12d3-a456-426614174000';
 const PROGRAM_ID = 'BPFLoaderUpgradeab1e11111111111111111111111';
@@ -66,6 +70,7 @@ function setup(
       async recordPositionEvent(input) { writes.push(`position:${input.signature}:${input.instructionIndex}`); return result(writes.at(-1) ?? ''); },
       async recordSettlementEvent(input) { writes.push(`settlement:${input.signature}:${input.instructionIndex}`); return result(writes.at(-1) ?? ''); },
       async recordClaimEvent(input) { writes.push(`claim:${input.signature}:${input.instructionIndex}`); return result(writes.at(-1) ?? ''); },
+      async recordMarketClosed(input) { writes.push(`close:${input.signature}:${input.instructionIndex}:${input.documentHashHex}`); return result(writes.at(-1) ?? ''); },
       async advanceChainCursor(input) {
         cursors.push(input);
         persistedCursor = { slot: input.slot, signature: input.signature };
@@ -142,24 +147,25 @@ describe('finalized escrow indexer', () => {
     expect(fixture.cursors).toHaveLength(0);
   });
 
-  it('does not advance past MarketClosed when migration 0024 has no close facade', async () => {
+  it('records exact MarketClosed identity before advancing the finalized cursor', async () => {
     const closed: EscrowFinalizedTransaction = {
       ...transaction(),
       events: [{
         instructionIndex: 0,
         projection: {
           kind: 'market_closed', marketId: MARKET_ID, marketPda: 'market-a',
-          asset: 'sol', dustAmountAtomic: 2n,
+          documentHashHex: 'ab'.repeat(32), asset: 'sol', dustAmountAtomic: 2n,
         },
       }],
     };
     const fixture = setup([closed]);
 
-    await expect(fixture.indexer.runOnce(100)).rejects.toMatchObject({ code: 'projection_unavailable' });
-    expect(fixture.cursors).toHaveLength(0);
+    await expect(fixture.indexer.runOnce(100)).resolves.toMatchObject({ events: 1 });
+    expect(fixture.writes).toEqual([`close:signature-a:0:${'ab'.repeat(32)}`]);
+    expect(fixture.cursors).toHaveLength(1);
   });
 
-  it('hands finalized settlement to Points before advancing the cursor', async () => {
+  it('projects receipt and Points before advancing a removed-group escrow settlement cursor', async () => {
     const settled: EscrowFinalizedTransaction = {
       ...transaction(),
       events: [{
@@ -172,24 +178,39 @@ describe('finalized escrow indexer', () => {
     };
     const fixture = setup([settled]);
     const order: string[] = [];
+    let pointMutations = 0;
     const indexer = createFinalizedEscrowIndexer({
       db: fixture.db,
       source: { scan: async () => [settled] },
       expected: { cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID },
       clock: () => NOW,
-      points: {
-        async afterEconomicProjection() {
-          order.push('points');
-          return { kind: 'replay_skipped' };
+      points: createEscrowFinalizedPointsProjection({
+        privateParticipants: createEscrowPrivatePointsParticipants({
+          markets: {
+            async getMarket() {
+              return { custody_mode: 'escrow', is_replay: false };
+            },
+          },
+        }),
+        points: {
+          async apply(marketId) {
+            order.push('points');
+            pointMutations += 1;
+            return {
+              eligible: true, duplicate: false, marketId, groupId: -1001,
+              scoredCount: 1, winnerCount: 1, winners: [], misses: [], leaderboard: [],
+            };
+          },
         },
-      },
-      async afterTransaction() { order.push('private_projection'); },
+      }),
+      async afterTransaction() { order.push('receipt'); },
     });
 
     await indexer.runOnce(100);
 
     expect(fixture.writes).toEqual(['settlement:signature-a:0']);
-    expect(order).toEqual(['private_projection', 'points']);
+    expect(order).toEqual(['receipt', 'points']);
+    expect(pointMutations).toBe(1);
     expect(fixture.cursors).toHaveLength(1);
   });
 

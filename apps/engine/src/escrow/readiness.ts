@@ -23,6 +23,7 @@ export interface EscrowAuthorityExpectation {
 }
 
 export interface EscrowDeploymentObservation {
+  readonly marketCreationAuthoritySigner: string | null;
   readonly rpc: {
     readonly available: boolean;
     readonly network: EscrowNetwork;
@@ -65,6 +66,7 @@ export const ESCROW_READINESS_REASONS = [
   'config_authority_mismatch',
   'pause_authority_mismatch',
   'market_creation_authority_mismatch',
+  'market_creation_authority_signer_unavailable',
   'upgrade_authority_mismatch',
   'program_paused',
   'usdc_mint_mismatch',
@@ -164,6 +166,10 @@ export function evaluateEscrowDeployment(
   ) {
     reasons.push('market_creation_authority_mismatch');
   }
+  if (
+    mode === 'intake' &&
+    observed.marketCreationAuthoritySigner !== expected.authorities.marketCreationAuthority
+  ) reasons.push('market_creation_authority_signer_unavailable');
   if (observed.program.authorities.upgradeAuthority !== expected.authorities.upgradeAuthority) {
     reasons.push('upgrade_authority_mismatch');
   }

@@ -31,6 +31,7 @@ function market(overrides: Partial<MarketRow> = {}): MarketRow {
     card_tg_message_id: null,
     created_at: '2026-07-13T10:00:00.000Z',
     currency: 'sol',
+    custody_mode: 'legacy',
     ...overrides,
   };
 }

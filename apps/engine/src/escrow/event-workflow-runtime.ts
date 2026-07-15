@@ -1,19 +1,13 @@
 import { bytesToHex, deriveMarketPda, deriveOracleSetPda, derivePositionLotPda } from '@calledit/escrow-sdk';
 import type { MarketRow } from '../ports.js';
-import type { EscrowControlRequest } from './control-workflows.js';
 import type { EscrowEventWorkflowPort, EscrowWorkflowMarketContext } from './event-workflow-scheduler.js';
 import type { EscrowPlacementMarketLinkResult } from './placement-types.js';
-import type { EscrowRecoveryRequest } from './recovery-workflows.js';
 import type { SolanaEscrowAccountReader } from './solana-accounts.js';
 
 type FetchPort = (
   input: string | URL,
   init?: RequestInit,
 ) => Promise<Pick<Response, 'ok' | 'json'>>;
-
-interface QueueResult {
-  readonly kind: 'blocked' | 'enqueued';
-}
 
 function rows(value: unknown): readonly Readonly<Record<string, unknown>>[] {
   if (!Array.isArray(value) || value.some((item) => item === null || typeof item !== 'object' || Array.isArray(item))) {
@@ -60,8 +54,6 @@ export function createProductionEscrowEventWorkflowPort(options: {
     readonly programId: string;
     readonly custodyVersion: number;
   };
-  readonly control: { enqueue(request: EscrowControlRequest): Promise<QueueResult> };
-  readonly recovery: { enqueue(request: EscrowRecoveryRequest): Promise<QueueResult> };
   readonly fetch?: FetchPort;
 }): EscrowEventWorkflowPort {
   const request = options.fetch ?? fetch;
@@ -162,14 +154,6 @@ export function createProductionEscrowEventWorkflowPort(options: {
         });
       }
       return result;
-    },
-    async enqueueControl(value) {
-      const result = await options.control.enqueue(value);
-      if (result.kind !== 'enqueued') throw new TypeError('escrow control readiness blocked');
-    },
-    async enqueueRecovery(value) {
-      const result = await options.recovery.enqueue(value);
-      if (result.kind !== 'enqueued') throw new TypeError('escrow recovery readiness blocked');
     },
   };
 }

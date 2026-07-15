@@ -171,6 +171,8 @@ export interface MarketRow {
   card_tg_message_id: number | null;
   created_at: string;
   currency?: MarketCurrency;
+  /** Immutable accounting route stamped when migration 0024 creates the market. */
+  custody_mode: 'legacy' | 'escrow';
 }
 
 export interface PositionRow {

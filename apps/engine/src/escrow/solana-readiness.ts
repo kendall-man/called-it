@@ -22,6 +22,10 @@ export interface EscrowOracleAvailabilitySource {
   availableSigners(signal: AbortSignal): Promise<readonly string[]>;
 }
 
+export interface EscrowMarketAuthorityAvailabilitySource {
+  availableSigner(signal: AbortSignal): Promise<string | null>;
+}
+
 export interface EscrowUpgradeAuthoritySource {
   read(programId: string, signal: AbortSignal): Promise<string | null>;
 }
@@ -45,19 +49,24 @@ export class SolanaEscrowReadinessProbe implements EscrowReadinessProbe {
     private readonly accounts: SolanaEscrowAccountReader,
     private readonly expected: EscrowDeploymentExpectation,
     private readonly indexer: EscrowIndexerHealthSource,
+    private readonly marketAuthorityAvailability: EscrowMarketAuthorityAvailabilitySource,
     private readonly oracleAvailability: EscrowOracleAvailabilitySource,
     private readonly upgradeAuthority: EscrowUpgradeAuthoritySource,
   ) {}
 
   async inspect(signal: AbortSignal): Promise<EscrowDeploymentObservation> {
     signal.throwIfAborted();
-    const [genesisHash, programInfo, config, mint, oracleSet, indexer, availableSigners, upgradeAuthority] = await Promise.all([
+    const [
+      genesisHash, programInfo, config, mint, oracleSet, indexer,
+      marketCreationAuthoritySigner, availableSigners, upgradeAuthority,
+    ] = await Promise.all([
       this.connection.getGenesisHash(),
       this.connection.getAccountInfo(new PublicKey(this.expected.programId), 'finalized'),
       this.accounts.config(deriveProtocolConfigPda(this.expected.programId).address),
       this.accounts.raw(this.expected.canonicalUsdcMint),
       this.accounts.oracleSet(this.expected.oracleSetPda),
       this.indexer.inspect(signal),
+      this.marketAuthorityAvailability.availableSigner(signal),
       this.oracleAvailability.availableSigners(signal),
       this.upgradeAuthority.read(this.expected.programId, signal),
     ]);
@@ -66,6 +75,7 @@ export class SolanaEscrowReadinessProbe implements EscrowReadinessProbe {
       throw new TypeError('escrow readiness account unavailable');
     }
     return {
+      marketCreationAuthoritySigner,
       rpc: { available: true, network: escrowNetworkForGenesisHash(genesisHash), genesisHash },
       program: {
         id: this.expected.programId,

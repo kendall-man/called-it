@@ -26,6 +26,7 @@ const EXPECTED: EscrowDeploymentExpectation = {
 };
 
 const OBSERVED: EscrowDeploymentObservation = {
+  marketCreationAuthoritySigner: 'market-authority',
   rpc: { available: true, network: 'devnet', genesisHash: 'devnet-genesis' },
   program: {
     id: 'CalledItProgram111111111111111111111111111',
@@ -65,6 +66,7 @@ describe('escrow deployment readiness', () => {
   it('keeps paused and oracle-rotated deployments available for recovery', () => {
     const rotatedAndPaused: EscrowDeploymentObservation = {
       ...OBSERVED,
+      marketCreationAuthoritySigner: null,
       program: { ...OBSERVED.program, paused: true },
       oracleSet: {
         ...OBSERVED.oracleSet,
@@ -124,6 +126,11 @@ describe('escrow deployment readiness', () => {
         },
       },
       'market_creation_authority_mismatch',
+    ],
+    [
+      'market creation authority signer',
+      { marketCreationAuthoritySigner: null },
+      'market_creation_authority_signer_unavailable',
     ],
     [
       'upgrade authority',

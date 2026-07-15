@@ -60,6 +60,7 @@ export const MARKET: MarketRow = {
   odds_ts: NOW - 1000,
   card_tg_message_id: null,
   currency: 'sol',
+  custody_mode: 'legacy',
   created_at: new Date(NOW).toISOString(),
 };
 

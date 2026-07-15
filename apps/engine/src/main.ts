@@ -49,7 +49,10 @@ import {
 } from './api/shutdown.js';
 import { createAllowlistedBackgroundDeps } from './background/allowlisted-db.js';
 import { createCustodyIsolatedBackgroundDeps } from './background/escrow-custody.js';
-import { createEscrowFinalizedPointsProjection } from './escrow/points-projection.js';
+import {
+  createEscrowFinalizedPointsProjection,
+  createEscrowPrivatePointsParticipants,
+} from './escrow/points-projection.js';
 import { createSupabaseEscrowPrivateBridge } from './escrow/private-bridge.js';
 import { createEscrowMarketProvisioner } from './escrow/market-provisioning.js';
 import { registerEscrowMarketProvisioner } from './pipeline/escrow-market-provisioning.js';
@@ -122,6 +125,8 @@ async function main(): Promise<void> {
       })
     : null;
 
+  // `legacy` is the pre-enable mode. Once escrow liabilities exist, keep this
+  // runtime enabled and roll intake back per group so recovery remains live.
   const escrowRuntime = env.WAGER_CUSTODY_MODE === 'escrow'
     ? await (async () => {
         if (escrowPrivateBridge === null) throw new TypeError('escrow private bridge unavailable');
@@ -129,16 +134,7 @@ async function main(): Promise<void> {
           env,
           log,
           pointsProjection: createEscrowFinalizedPointsProjection({
-            privateParticipants: {
-              async prepare(marketId) {
-                const market = await deps.db.getMarket(marketId);
-                if (market === null) throw new Error('escrow points market unavailable');
-                if (!env.ESCROW_ALLOWED_GROUP_IDS.includes(market.group_id)) {
-                  throw new Error('escrow points market outside rollout');
-                }
-                return { custodyMode: 'escrow', replay: market.is_replay };
-              },
-            },
+            privateParticipants: createEscrowPrivatePointsParticipants({ markets: deps.db }),
             points,
           }),
           identities: escrowPrivateBridge,
@@ -207,12 +203,11 @@ async function main(): Promise<void> {
 
   const escrowScheduler = escrowRuntime === null ? null : createEscrowEventWorkflowScheduler({
     deps,
-    allowedGroupIds: env.ESCROW_ALLOWED_GROUP_IDS,
     deployment: {
       genesisHash: env.ESCROW_GENESIS_HASH!,
       programId: env.ESCROW_PROGRAM_ID!,
     },
-    oracle: escrowRuntime.oracleAttestations,
+    requests: escrowRuntime.attestationRequests,
     workflow: createProductionEscrowEventWorkflowPort({
       supabaseUrl: env.SUPABASE_URL,
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
@@ -224,10 +219,7 @@ async function main(): Promise<void> {
         programId: env.ESCROW_PROGRAM_ID!,
         custodyVersion: 1,
       },
-      control: escrowRuntime.control,
-      recovery: escrowRuntime.recovery,
     }),
-    clock: () => BigInt(Math.floor(deps.now() / 1_000)),
   });
   const settler = escrowScheduler === null
     ? new Settler(backgroundDeps, poster, say, points, null)

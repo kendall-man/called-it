@@ -95,6 +95,29 @@ const EscrowOracleLocalKeypairsSchema = z.string().default('').transform((value,
   }
   return result.data;
 });
+const EscrowMarketAuthorityEndpointSchema = z.string().default('').transform((value, ctx) => {
+  if (value.trim() === '') return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must be valid JSON' });
+    return z.NEVER;
+  }
+  const result = z.object({
+    url: z.string().url(), bearerToken: z.string().min(1).optional(),
+  }).strict().safeParse(parsed);
+  if (!result.success) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must contain one signer endpoint' });
+    return z.NEVER;
+  }
+  const url = new URL(result.data.url);
+  if (url.protocol !== 'https:' || url.username !== '' || url.password !== '') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must use an authenticated HTTPS endpoint' });
+    return z.NEVER;
+  }
+  return result.data;
+});
 
 function isPubliclyRoutableHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
@@ -182,6 +205,8 @@ const EnvSchema = z.object({
   ESCROW_CONFIG_AUTHORITY: OptionalBase58AddressSchema,
   ESCROW_PAUSE_AUTHORITY: OptionalBase58AddressSchema,
   ESCROW_MARKET_CREATION_AUTHORITY: OptionalBase58AddressSchema,
+  ESCROW_MARKET_AUTHORITY_KEYPAIR_B58: OptionalConfiguredStringSchema,
+  ESCROW_MARKET_AUTHORITY_SIGNER_ENDPOINT_JSON: EscrowMarketAuthorityEndpointSchema,
   ESCROW_UPGRADE_AUTHORITY: OptionalBase58AddressSchema,
   ESCROW_RESIDUAL_RECIPIENT: OptionalBase58AddressSchema,
   /** Fee payer only. It must never be accepted as a user position signer. */
@@ -365,9 +390,6 @@ const EnvSchema = z.object({
     for (const [name, value] of required) {
       if (value === undefined) addIssue(name, 'required in escrow custody mode');
     }
-    if (env.ESCROW_ALLOWED_GROUP_IDS.length === 0) {
-      addIssue('ESCROW_ALLOWED_GROUP_IDS', 'escrow requires an allowlisted group');
-    }
     const uniqueSigners = new Set(env.ESCROW_ORACLE_SIGNERS);
     if (uniqueSigners.size !== env.ESCROW_ORACLE_SIGNERS.length) {
       addIssue('ESCROW_ORACLE_SIGNERS', 'must contain unique signers');
@@ -382,6 +404,39 @@ const EnvSchema = z.object({
     }
     if (env.SOLANA_NETWORK === 'mainnet-beta' && hasLocalKeys) {
       addIssue('ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON', 'local oracle keys are forbidden on mainnet');
+    }
+    const hasMarketAuthorityEndpoint = env.ESCROW_MARKET_AUTHORITY_SIGNER_ENDPOINT_JSON !== undefined;
+    const hasMarketAuthorityKey = env.ESCROW_MARKET_AUTHORITY_KEYPAIR_B58 !== undefined;
+    if (hasMarketAuthorityEndpoint === hasMarketAuthorityKey) {
+      addPairIssue('ESCROW_MARKET_AUTHORITY_KEYPAIR_B58', 'ESCROW_MARKET_AUTHORITY_SIGNER_ENDPOINT_JSON');
+    }
+    if (env.SOLANA_NETWORK === 'mainnet-beta' && hasMarketAuthorityKey) {
+      addIssue('ESCROW_MARKET_AUTHORITY_KEYPAIR_B58', 'local market authority keys are forbidden on mainnet');
+    }
+    if (env.ESCROW_MARKET_AUTHORITY_KEYPAIR_B58 !== undefined) {
+      const forbiddenKeys = [
+        env.ESCROW_RELAYER_KEYPAIR_B58, env.ESCROW_FEED_OPERATOR_KEYPAIR_B58,
+        ...env.ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON,
+      ];
+      if (forbiddenKeys.includes(env.ESCROW_MARKET_AUTHORITY_KEYPAIR_B58)) {
+        addIssue('ESCROW_MARKET_AUTHORITY_KEYPAIR_B58', 'must use distinct key material');
+      }
+    }
+    if (env.ESCROW_MARKET_AUTHORITY_SIGNER_ENDPOINT_JSON !== undefined) {
+      const marketEndpoint = env.ESCROW_MARKET_AUTHORITY_SIGNER_ENDPOINT_JSON;
+      const marketOrigin = new URL(marketEndpoint.url).origin;
+      if (env.SOLANA_NETWORK === 'mainnet-beta' && marketEndpoint.bearerToken === undefined) {
+        addIssue('ESCROW_MARKET_AUTHORITY_SIGNER_ENDPOINT_JSON', 'mainnet signer endpoint must be authenticated');
+      }
+      if (
+        marketEndpoint.bearerToken !== undefined &&
+        [env.ESCROW_RELAYER_KEYPAIR_B58, env.ESCROW_FEED_OPERATOR_KEYPAIR_B58,
+          ...env.ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON].includes(marketEndpoint.bearerToken)
+      ) addIssue('ESCROW_MARKET_AUTHORITY_SIGNER_ENDPOINT_JSON', 'must use distinct credentials');
+      if (env.ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON.some((endpoint) =>
+        new URL(endpoint.url).origin === marketOrigin ||
+        (marketEndpoint.bearerToken !== undefined && endpoint.bearerToken === marketEndpoint.bearerToken)
+      )) addIssue('ESCROW_MARKET_AUTHORITY_SIGNER_ENDPOINT_JSON', 'must not reuse oracle credentials');
     }
     if (
       env.ESCROW_CONFIG_AUTHORITY !== undefined &&

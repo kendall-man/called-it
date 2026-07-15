@@ -20,7 +20,8 @@ import type {
   DurableEscrowRelayerJobRow,
 } from './relayer-worker.js';
 import type { EscrowMarketInitializationChain } from './market-initializer.js';
-import { sponsorTransaction } from './transaction-signatures.js';
+import type { EscrowMarketAuthoritySignerProvider } from './market-authority-signer.js';
+import { attachAuthoritySignature, sponsorTransaction } from './transaction-signatures.js';
 
 export interface EscrowMarketInitializationObservation {
   readonly genesisHash: string;
@@ -155,7 +156,7 @@ function verifyObservation(payload: MarketInitializationPayload, observed: Escro
 export function createMarketInitializationTransactionBuilder(options: {
   readonly chain: EscrowMarketRelayerChain;
   readonly sponsor: Signer;
-  readonly marketCreationAuthority: Signer;
+  readonly marketCreationAuthority: EscrowMarketAuthoritySignerProvider;
   readonly expected: EscrowMarketRelayerExpectation;
 }): EscrowRelayerTransactionBuilder {
   return {
@@ -163,7 +164,7 @@ export function createMarketInitializationTransactionBuilder(options: {
       const payload = parsePayload(job);
       if (!matchesExpected(payload, options.expected) || job.programId !== payload.programId ||
         !options.sponsor.publicKey.equals(new PublicKey(payload.relayerFeePayer)) ||
-        !options.marketCreationAuthority.publicKey.equals(new PublicKey(payload.marketCreationAuthority))) {
+        options.marketCreationAuthority.authorityAddress !== payload.marketCreationAuthority) {
         throw new EscrowMarketRelayerError('identity_mismatch');
       }
       const marketDocument = document(payload);
@@ -176,7 +177,7 @@ export function createMarketInitializationTransactionBuilder(options: {
       const blockhash = await options.chain.latestBlockhash();
       const instruction = materializeInstruction({
         kind: 'initialize_market', payer: options.sponsor.publicKey,
-        marketCreationAuthority: options.marketCreationAuthority.publicKey,
+        marketCreationAuthority: new PublicKey(options.marketCreationAuthority.authorityAddress),
         canonicalUsdcMint: payload.canonicalUsdcMint,
         expectedClusterGenesisHash: hexToBytes(payload.clusterGenesisHashHex),
         document: marketDocument,
@@ -186,13 +187,24 @@ export function createMarketInitializationTransactionBuilder(options: {
         feePayer: options.sponsor.publicKey, recentBlockhash: blockhash.blockhash, instructions: [instruction],
       });
       const sponsored = sponsorTransaction(transaction, options.sponsor);
-      if (!options.marketCreationAuthority.publicKey.equals(options.sponsor.publicKey)) {
-        transaction.sign([options.marketCreationAuthority]);
-      }
-      return {
-        rawTransactionBase64: Buffer.from(transaction.serialize()).toString('base64'),
-        expectedSignature: sponsored.expectedSignature,
+      const authoritySignature = await options.marketCreationAuthority.sign({
+        network: payload.cluster, genesisHash: payload.genesisHash, programId: payload.programId,
+        protocolConfigPda: payload.protocolConfigPda, oracleSetPda: payload.oracleSetPda,
+        oracleSetEpoch: BigInt(payload.oracleSetEpoch), marketId: payload.marketUuid,
+        marketPda: payload.marketPda, vaultPda: payload.vaultPda,
+        documentHashHex: payload.documentHashHex,
+        marketCreationAuthority: payload.marketCreationAuthority,
+        transactionMessageBase64: Buffer.from(transaction.message.serialize()).toString('base64'),
         transactionMessageHashHex: sponsored.messageHashHex,
+      });
+      const authorized = attachAuthoritySignature(
+        transaction, options.sponsor.publicKey,
+        new PublicKey(options.marketCreationAuthority.authorityAddress), authoritySignature,
+      );
+      return {
+        rawTransactionBase64: authorized.rawTransactionBase64,
+        expectedSignature: authorized.expectedSignature,
+        transactionMessageHashHex: authorized.messageHashHex,
         lastValidBlockHeight: blockhash.lastValidBlockHeight,
       };
     },

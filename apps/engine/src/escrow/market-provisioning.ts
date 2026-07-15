@@ -55,7 +55,10 @@ export function createEscrowMarketProvisioner(options: {
   const groups = new Set(options.allowedGroupIds);
   return {
     async ensure(market) {
-      if (!groups.has(market.group_id) || (market.currency !== 'sol' && market.currency !== 'usdc')) {
+      if (
+        market.custody_mode !== 'escrow' || !groups.has(market.group_id) ||
+        (market.currency !== 'sol' && market.currency !== 'usdc')
+      ) {
         throw new EscrowMarketProvisioningError('market_not_allowed');
       }
       const [claim, fixture] = await Promise.all([

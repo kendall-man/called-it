@@ -61,7 +61,7 @@ describe('Wave 3 escrow event projection', () => {
 
     await expect(fixture.value.project(event, context)).resolves.toEqual({
       kind: 'market_closed', marketId: MARKET_ID, marketPda: MARKET_PDA,
-      asset: 'usdc', dustAmountAtomic: 2n,
+      documentHashHex: 'ab'.repeat(32), asset: 'usdc', dustAmountAtomic: 2n,
     });
     expect(fixture.accountReads()).toBe(0);
   });
