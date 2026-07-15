@@ -134,4 +134,6 @@ pub enum EscrowError {
     OutstandingPositions,
     #[msg("This account is already terminal or closed")]
     TerminalState,
+    #[msg("The terminal phase must be F, FET, or FPE")]
+    InvalidTerminalPhase,
 }

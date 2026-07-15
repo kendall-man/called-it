@@ -36,6 +36,7 @@ pub struct SettleMarket<'info> {
 
 pub fn settle_market(ctx: Context<SettleMarket>, args: SettleMarketArgs) -> Result<()> {
     let clock = Clock::get()?;
+    validate_terminal_phase(&args.terminal_phase)?;
     validate_settlement_start(&ctx.accounts.market, args.outcome, args.evidence_hash)?;
     validate_market_oracle(&ctx.accounts.oracle_set, &ctx.accounts.market, clock.slot)?;
 
@@ -81,6 +82,14 @@ pub fn settle_market(ctx: Context<SettleMarket>, args: SettleMarketArgs) -> Resu
         }),
         InitialSettlementEvent::Settled => emit_settled(market, None),
     }
+    Ok(())
+}
+
+fn validate_terminal_phase(terminal_phase: &str) -> Result<()> {
+    require!(
+        matches!(terminal_phase, "F" | "FET" | "FPE"),
+        EscrowError::InvalidTerminalPhase
+    );
     Ok(())
 }
 
@@ -527,6 +536,23 @@ mod tests {
             total_paid_amount: active + pending + refundable,
             created_slot: 1,
             updated_slot: 1,
+        }
+    }
+
+    #[test]
+    fn canonical_terminal_phases_are_accepted() {
+        for phase in ["F", "FET", "FPE"] {
+            assert!(validate_terminal_phase(phase).is_ok(), "rejected {phase}");
+        }
+    }
+
+    #[test]
+    fn noncanonical_terminal_phases_are_rejected() {
+        for phase in ["", "FT", "FINAL", "f", "FET ", " FPE"] {
+            assert!(
+                validate_terminal_phase(phase).is_err(),
+                "accepted {phase:?}"
+            );
         }
     }
 

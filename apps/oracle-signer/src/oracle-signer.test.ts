@@ -37,6 +37,11 @@ const CLAIM: MarketSpec = {
   comparator: 'gte', threshold: 1, period: 'FT_90', trustTier: 'oracle_resolved',
 };
 const CLAIM_JSON = canonicalJson(CLAIM);
+const THRESHOLD_CLAIM: MarketSpec = {
+  ...CLAIM,
+  claimType: 'team_scores_n',
+};
+const THRESHOLD_CLAIM_JSON = canonicalJson(THRESHOLD_CLAIM);
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 const EVENT: MatchEvent = {
   kind: 'phase_change', fixtureId: 77, seq: 20, tsMs: NOW_MS - 20_000, receivedAtMs: NOW_MS - 19_000,
@@ -112,10 +117,13 @@ function voidAttestation(event = POST_EVENT, overrides: Partial<VoidAttestationV
   };
 }
 
-function market(value: SettlementAttestationV1 | VoidAttestationV1): MarketAccount {
+function market(
+  value: SettlementAttestationV1 | VoidAttestationV1,
+  claimSpecificationJson = CLAIM_JSON,
+): MarketAccount {
   return {
     version: 1, bump: 1, marketUuid: '123e4567-e89b-12d3-a456-426614174000', fixtureId: 77n,
-    claimSpecificationHash: Uint8Array.from(createHash('sha256').update(CLAIM_JSON).digest()),
+    claimSpecificationHash: Uint8Array.from(createHash('sha256').update(claimSpecificationJson).digest()),
     displayTermsHash: new Uint8Array(32), oddsMessageHash: new Uint8Array(32),
     marketDocumentHash: value.marketDocumentHash, quoteTimestamp: 1n, probabilityPpm: 500_000,
     ratioMilli: 2_000, asset: 'sol', tokenMint: null, feeBps: 0, state: 'open', replay: true,
@@ -132,6 +140,7 @@ function market(value: SettlementAttestationV1 | VoidAttestationV1): MarketAccou
 function verifier(
   value: SettlementAttestationV1 | VoidAttestationV1 = attestation(),
   events: readonly MatchEvent[] = [EVENT],
+  claimSpecificationJson = CLAIM_JSON,
 ) {
   const signer = environment();
   const signers = [signer.signer, Keypair.generate(), Keypair.generate()].map((item) => item.publicKey.toBase58());
@@ -142,7 +151,7 @@ function verifier(
         return {
           slot: 100n, config: {} as ProtocolConfigAccount,
           oracleSet: { epoch: 9n, activationSlot: 1n, retirementSlot: null, version: 1, bump: 1, signers, signatureThreshold: 2 } as OracleSetAccount,
-          market: market(value),
+          market: market(value, claimSpecificationJson),
         };
       },
       async loadLot() { throw new Error('unused'); },
@@ -151,7 +160,7 @@ function verifier(
   });
 }
 
-function envelope(value = attestation()) {
+function envelope(value = attestation(), claimSpecificationJson = CLAIM_JSON) {
   const canonical = encodeSettlementAttestationV1(value);
   return {
     schemaVersion: 1, kind: 'settlement', canonicalBytesBase64: Buffer.from(canonical).toString('base64'),
@@ -159,7 +168,7 @@ function envelope(value = attestation()) {
     clusterGenesisHashHex: bytesToHex(value.clusterGenesisHash), programIdHex: bytesToHex(value.escrowProgramId),
     marketPdaHex: bytesToHex(value.marketPda), marketDocumentHashHex: bytesToHex(value.marketDocumentHash),
     oracleSetEpoch: String(value.oracleSetEpoch), evidenceHashHex: bytesToHex(value.evidenceHash),
-    claimSpecificationJson: CLAIM_JSON, evidenceCodecVersion: 2,
+    claimSpecificationJson, evidenceCodecVersion: 2,
     attestationJson: JSON.parse(JSON.stringify(value, (_key, item) =>
       typeof item === 'bigint' ? item.toString() : item instanceof Uint8Array ? bytesToHex(item) : item)),
   };
@@ -225,6 +234,36 @@ describe('independent oracle signer', () => {
     await expect(verifier(substituted).verify(parsed.request, CLAIM_JSON)).rejects.toThrow('settlement attestation mismatch');
   });
 
+  it('rejects a threshold outcome while the latest fixture phase is non-terminal', async () => {
+    const liveGoal: MatchEvent = {
+      ...EVENT,
+      kind: 'goal',
+      phase: 'H2',
+      minute: 60,
+      score: {
+        ...EVENT.score,
+        p1Goals90: null,
+        p2Goals90: null,
+      },
+      detail: { participant: 1 },
+    };
+    const commitment = escrowEvidenceSequenceCommitmentV2(77, [liveGoal.seq]);
+    const root = normalizedEscrowEvidenceHashV2(liveGoal);
+    const liveSettlement = attestation({
+      evidenceHash: settlementEvidenceHashV2(commitment, root),
+      terminalPhase: liveGoal.phase,
+      regulationScore: null,
+      fullMatchScore: { home: 2, away: 1 },
+      evidenceSequenceCommitment: commitment,
+      normalizedEvidenceRoot: root,
+    });
+    const parsed = parseOracleSigningEnvelope(envelope(liveSettlement, THRESHOLD_CLAIM_JSON));
+
+    await expect(verifier(liveSettlement, [liveGoal], THRESHOLD_CLAIM_JSON)
+      .verify(parsed.request, THRESHOLD_CLAIM_JSON))
+      .rejects.toThrow('settlement fixture phase is not terminal');
+  });
+
   it('maps a postponed match void to undecidable', async () => {
     const valid = voidAttestation();
     const parsed = parseOracleSigningEnvelope(voidEnvelope(valid));
@@ -234,6 +273,22 @@ describe('independent oracle signer', () => {
     const wrong = parseOracleSigningEnvelope(voidEnvelope(wrongReason));
     await expect(verifier(wrongReason, [POST_EVENT]).verify(wrong.request, CLAIM_JSON))
       .rejects.toThrow('void reason mismatch');
+  });
+
+  it.each([
+    { name: 'cancellation', event: { ...EVENT, phase: 'CAN' as const }, reason: 'cancelled' as const },
+    {
+      name: 'coverage warning',
+      event: { ...EVENT, kind: 'coverage_warning' as const, phase: 'COV_LOST' as const },
+      reason: 'coverage_loss' as const,
+    },
+  ])('rejects stale historical $name evidence for a current void', async ({ event, reason }) => {
+    const current: MatchEvent = { ...EVENT, seq: event.seq + 1, tsMs: event.tsMs + 1_000 };
+    const staleVoid = voidAttestation(event, { reason });
+    const parsed = parseOracleSigningEnvelope(voidEnvelope(staleVoid));
+
+    await expect(verifier(staleVoid, [event, current]).verify(parsed.request, CLAIM_JSON))
+      .rejects.toThrow('void was reversed by later evidence');
   });
 
   it('rejects an envelope whose flat bindings do not match its canonical attestation', () => {

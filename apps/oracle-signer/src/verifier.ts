@@ -343,6 +343,10 @@ export class OracleAttestationVerifier {
     spec: MarketSpec,
     events: readonly MatchEvent[],
   ): void {
+    const latest = events.at(-1)!;
+    if (!TERMINAL_PHASES.includes(latest.phase)) {
+      throw new Error('settlement fixture phase is not terminal');
+    }
     const decidingSequence = safeNumber(attestation.decidingSequence, 'deciding sequence');
     const deciding = events.find((event) => event.seq === decidingSequence);
     const root = events.find((event) => eventHash(event) === bytesToHex(attestation.normalizedEvidenceRoot));
@@ -363,7 +367,6 @@ export class OracleAttestationVerifier {
       !scoreEqual(attestation.fullMatchScore, score(root))
     ) throw new Error('settlement attestation mismatch');
 
-    const latest = events.at(-1)!;
     const latestOutcome = claimedOutcome(spec, latest, standingGoals(events, latest.seq));
     if (latestOutcome !== attestation.outcome) throw new Error('settlement was reversed by later evidence');
   }
@@ -380,5 +383,11 @@ export class OracleAttestationVerifier {
     }
     const outcome = claimedOutcome(spec, event, standingGoals(events, sequence));
     if (voidReason(event, outcome) !== attestation.reason) throw new Error('void reason mismatch');
+
+    const latest = events.at(-1)!;
+    const latestOutcome = claimedOutcome(spec, latest, standingGoals(events, latest.seq));
+    if (voidReason(latest, latestOutcome) !== attestation.reason) {
+      throw new Error('void was reversed by later evidence');
+    }
   }
 }
