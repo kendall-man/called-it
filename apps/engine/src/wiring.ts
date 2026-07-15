@@ -85,13 +85,17 @@ import {
   type EscrowRuntimeLifecycleLog,
 } from './escrow/runtime-lifecycle.js';
 import type {
+  EscrowFinalizedScanWatermark,
   EscrowFinalizedTransactionProjection,
 } from './escrow/finalized-indexer.js';
 import {
   checkEscrowReadiness,
   type EscrowDeploymentExpectation,
 } from './escrow/readiness.js';
-import { SolanaEscrowReadinessProbe } from './escrow/solana-readiness.js';
+import {
+  createEscrowFinalizedIndexerHealthSource,
+  SolanaEscrowReadinessProbe,
+} from './escrow/solana-readiness.js';
 import {
   createEscrowTelegramPort,
   type EscrowPrivateWalletIdentityProvider,
@@ -732,7 +736,6 @@ export async function createProductionEscrowRuntime(options: {
         })
   );
 
-  const cursorDb = createEscrowDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
   const expectation: EscrowDeploymentExpectation = {
     network: env.SOLANA_NETWORK,
     genesisHash,
@@ -751,21 +754,27 @@ export async function createProductionEscrowRuntime(options: {
       upgradeAuthority: configuredUpgradeAuthority,
     },
   };
+  let runtimeIndexer: {
+    scanWatermark(): EscrowFinalizedScanWatermark | null;
+  } | null = null;
+  const indexerHealth = createEscrowFinalizedIndexerHealthSource({
+    watermark: {
+      scanWatermark: () => runtimeIndexer?.scanWatermark() ?? null,
+    },
+    async finalizedSlot(signal) {
+      signal.throwIfAborted();
+      const slot = await bootstrapRpc.connection.getSlot('finalized');
+      signal.throwIfAborted();
+      return BigInt(slot);
+    },
+    now: Date.now,
+    maxScanAgeMs: env.READINESS_WORKER_MAX_AGE_MS,
+  });
   const readinessProbe = new SolanaEscrowReadinessProbe(
     bootstrapRpc.connection,
     bootstrapAccounts,
     expectation,
-    {
-      async inspect() {
-        const [cursor, slot] = await Promise.all([
-          cursorDb.getChainCursor({ cluster: env.SOLANA_NETWORK, genesisHash, programId }),
-          bootstrapRpc.connection.getSlot('finalized'),
-        ]);
-        return cursor.ok
-          ? { available: true, lagSlots: BigInt(slot) - cursor.finalizedSlot }
-          : { available: false, lagSlots: 0n };
-      },
-    },
+    indexerHealth,
     {
       availableSigner: (signal) => marketCreationAuthoritySigner.availableSigner(signal),
     },
@@ -776,10 +785,13 @@ export async function createProductionEscrowRuntime(options: {
       read: (value) => upgradeAuthority(bootstrapRpc.connection, value),
     },
   );
-  const readiness = (mode: 'intake' | 'recovery') => checkEscrowReadiness({
+  const readiness = (
+    mode: 'intake' | 'recovery',
+    signal: AbortSignal = new AbortController().signal,
+  ) => checkEscrowReadiness({
     expected: expectation,
     probe: readinessProbe,
-    signal: new AbortController().signal,
+    signal,
     mode,
   });
   const clock = () => {
@@ -856,6 +868,7 @@ export async function createProductionEscrowRuntime(options: {
       log: options.log,
     },
   });
+  runtimeIndexer = runtime.indexer;
   const telegram = createEscrowTelegramPort({
     placement: runtime.placement,
     identities: options.identities,
@@ -869,6 +882,7 @@ export async function createProductionEscrowRuntime(options: {
     telegram,
     oracleAttestations,
     marketCreationAuthoritySigner,
+    readiness,
     marketPolicy: {
       oracleSetEpoch,
       maximumMarketDurationSeconds: config.value.maximumMarketDurationSeconds,

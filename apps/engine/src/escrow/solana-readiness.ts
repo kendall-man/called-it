@@ -6,6 +6,7 @@ import type {
   EscrowNetwork,
   EscrowReadinessProbe,
 } from './readiness.js';
+import type { EscrowFinalizedScanWatermark } from './finalized-indexer.js';
 import type { SolanaEscrowAccountReader } from './solana-accounts.js';
 
 const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
@@ -16,6 +17,39 @@ export interface EscrowIndexerHealthSource {
     readonly available: boolean;
     readonly lagSlots: bigint;
   }>;
+}
+
+export function createEscrowFinalizedIndexerHealthSource(options: {
+  readonly watermark: {
+    scanWatermark(): EscrowFinalizedScanWatermark | null;
+  };
+  readonly finalizedSlot: (signal: AbortSignal) => Promise<bigint>;
+  readonly now: () => number;
+  readonly maxScanAgeMs: number;
+}): EscrowIndexerHealthSource {
+  if (!Number.isSafeInteger(options.maxScanAgeMs) || options.maxScanAgeMs < 1) {
+    throw new TypeError('escrow finalized scan max age must be a positive integer');
+  }
+  return {
+    async inspect(signal) {
+      signal.throwIfAborted();
+      const watermark = options.watermark.scanWatermark();
+      if (watermark === null || watermark.slot < 0n) {
+        return { available: false, lagSlots: 0n };
+      }
+      const scannedAtMs = Date.parse(watermark.scannedAtIso);
+      const ageMs = options.now() - scannedAtMs;
+      if (!Number.isFinite(scannedAtMs) || ageMs < 0 || ageMs > options.maxScanAgeMs) {
+        return { available: false, lagSlots: 0n };
+      }
+      const finalizedSlot = await options.finalizedSlot(signal);
+      signal.throwIfAborted();
+      return {
+        available: true,
+        lagSlots: finalizedSlot - watermark.slot,
+      };
+    },
+  };
 }
 
 export interface EscrowOracleAvailabilitySource {

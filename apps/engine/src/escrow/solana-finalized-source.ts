@@ -106,10 +106,14 @@ export class SolanaFinalizedEscrowEventSource implements EscrowFinalizedEventSou
     private readonly maximumBacklog = 10_000,
   ) {}
 
-  async scan(cursor: EscrowFinalizedCursor, limit: number): Promise<readonly EscrowFinalizedTransaction[]> {
+  async scan(cursor: EscrowFinalizedCursor, limit: number): Promise<{
+    readonly transactions: readonly EscrowFinalizedTransaction[];
+    readonly scannedThroughSlot: bigint;
+  }> {
     if (await this.connection.getGenesisHash() !== this.expected.genesisHash) {
       throw new EscrowFinalizedSourceError('network_mismatch');
     }
+    const finalizedScanSlot = BigInt(await this.connection.getSlot('finalized'));
     const signatures = await signaturesSince(
       this.connection,
       new PublicKey(this.expected.programId),
@@ -149,6 +153,11 @@ export class SolanaFinalizedEscrowEventSource implements EscrowFinalizedEventSou
         events,
       });
     }
-    return transactions;
+    return {
+      transactions,
+      scannedThroughSlot: signatures.length > limit
+        ? transactions.at(-1)?.slot ?? cursor.slot
+        : finalizedScanSlot,
+    };
   }
 }

@@ -44,6 +44,7 @@ function transaction(): EscrowFinalizedTransaction {
 function setup(
   items: readonly EscrowFinalizedTransaction[],
   initialCursor: EscrowFinalizedCursor = { slot: 0n, signature: null },
+  scannedThroughSlot = items.at(-1)?.slot ?? initialCursor.slot,
 ) {
   const identities = new Set<string>();
   const writes: string[] = [];
@@ -79,14 +80,24 @@ function setup(
     };
   const indexer = createFinalizedEscrowIndexer({
     db,
-    source: { scan: async (cursor) => { scans.push(cursor); return items; } },
+    source: {
+      scan: async (cursor) => {
+        scans.push(cursor);
+        return { transactions: items, scannedThroughSlot };
+      },
+    },
     expected: { cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID },
     clock: () => NOW,
     points: { async afterEconomicProjection(input) { pointCalls.push(input.marketId); return { kind: 'replay_skipped' }; } },
   });
   return { db, indexer, writes, cursors, scans, pointCalls, restart: () => createFinalizedEscrowIndexer({
     db,
-    source: { scan: async (cursor) => { scans.push(cursor); return items; } },
+    source: {
+      scan: async (cursor) => {
+        scans.push(cursor);
+        return { transactions: items, scannedThroughSlot };
+      },
+    },
     expected: { cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID },
     clock: () => NOW,
     points: { async afterEconomicProjection(input) { pointCalls.push(input.marketId); return { kind: 'replay_skipped' }; } },
@@ -94,6 +105,23 @@ function setup(
 }
 
 describe('finalized escrow indexer', () => {
+  it('advances the finalized scan watermark when no program event occurred', async () => {
+    const fixture = setup([], { slot: 42n, signature: 'signature-a' }, 900n);
+
+    await expect(fixture.indexer.runOnce(100)).resolves.toEqual({
+      cursor: { slot: 42n, signature: 'signature-a' },
+      transactions: 0,
+      events: 0,
+      duplicates: 0,
+    });
+
+    expect(fixture.cursors).toHaveLength(0);
+    expect(fixture.indexer.scanWatermark()).toEqual({
+      slot: 900n,
+      scannedAtIso: NOW,
+    });
+  });
+
   it('projects finalized events and advances the durable cursor afterward', async () => {
     // Given a finalized transaction with two economic events
     const fixture = setup([transaction()], { slot: 12n, signature: 'signature-before' });
@@ -181,7 +209,7 @@ describe('finalized escrow indexer', () => {
     let pointMutations = 0;
     const indexer = createFinalizedEscrowIndexer({
       db: fixture.db,
-      source: { scan: async () => [settled] },
+      source: { scan: async () => ({ transactions: [settled], scannedThroughSlot: settled.slot }) },
       expected: { cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID },
       clock: () => NOW,
       points: createEscrowFinalizedPointsProjection({
@@ -219,7 +247,7 @@ describe('finalized escrow indexer', () => {
     const fixture = setup([item]);
     const indexer = createFinalizedEscrowIndexer({
       db: fixture.db,
-      source: { scan: async () => [item] },
+      source: { scan: async () => ({ transactions: [item], scannedThroughSlot: item.slot }) },
       expected: { cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID },
       clock: () => NOW,
       points: { async afterEconomicProjection() { return { kind: 'replay_skipped' }; } },
@@ -228,5 +256,6 @@ describe('finalized escrow indexer', () => {
 
     await expect(indexer.runOnce(100)).rejects.toThrow('presentation unavailable');
     expect(fixture.cursors).toHaveLength(0);
+    expect(indexer.scanWatermark()).toBeNull();
   });
 });

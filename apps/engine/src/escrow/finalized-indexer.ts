@@ -73,7 +73,15 @@ export interface EscrowFinalizedTransaction {
 }
 
 export interface EscrowFinalizedEventSource {
-  scan(cursor: EscrowFinalizedCursor, limit: number): Promise<readonly EscrowFinalizedTransaction[]>;
+  scan(cursor: EscrowFinalizedCursor, limit: number): Promise<{
+    readonly transactions: readonly EscrowFinalizedTransaction[];
+    readonly scannedThroughSlot: bigint;
+  }>;
+}
+
+export interface EscrowFinalizedScanWatermark {
+  readonly slot: bigint;
+  readonly scannedAtIso: string;
 }
 
 export interface EscrowFinalizedTransactionProjection {
@@ -212,7 +220,9 @@ export function createFinalizedEscrowIndexer(options: {
     readonly events: number;
     readonly duplicates: number;
   }>;
+  scanWatermark(): EscrowFinalizedScanWatermark | null;
 } {
+  let scanWatermark: EscrowFinalizedScanWatermark | null = null;
   return {
     async runOnce(limit) {
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
@@ -231,7 +241,8 @@ export function createFinalizedEscrowIndexer(options: {
       if (cursor.slot < 0n || (cursor.slot > 0n && cursor.signature === null)) {
         throw new EscrowFinalizedIndexerError('cursor_unavailable');
       }
-      const transactions = await options.source.scan(cursor, limit);
+      const scan = await options.source.scan(cursor, limit);
+      const { transactions } = scan;
       let pageSlot = cursor.slot;
       for (const transaction of transactions) {
         if (
@@ -240,6 +251,9 @@ export function createFinalizedEscrowIndexer(options: {
         ) throw new EscrowFinalizedIndexerError('chain_identity_mismatch');
         if (transaction.slot < pageSlot) throw new EscrowFinalizedIndexerError('cursor_regression');
         pageSlot = transaction.slot;
+      }
+      if (scan.scannedThroughSlot < pageSlot) {
+        throw new EscrowFinalizedIndexerError('cursor_regression');
       }
       let nextCursor = cursor;
       let eventCount = 0;
@@ -297,7 +311,14 @@ export function createFinalizedEscrowIndexer(options: {
         });
         nextCursor = { slot: transaction.slot, signature: transaction.signature };
       }
+      scanWatermark = {
+        slot: scan.scannedThroughSlot,
+        scannedAtIso: options.clock(),
+      };
       return { cursor: nextCursor, transactions: transactions.length, events: eventCount, duplicates };
+    },
+    scanWatermark() {
+      return scanWatermark;
     },
   };
 }

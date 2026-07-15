@@ -34,6 +34,10 @@ export interface WorkerReadinessPort {
   snapshot(signal: AbortSignal): Promise<WorkerReadinessSnapshot>;
 }
 
+export interface EscrowRuntimeReadinessPort {
+  check(signal: AbortSignal): Promise<boolean>;
+}
+
 export interface QueueReadinessSnapshot extends WorkerReadinessSnapshot {
   readonly enabled: boolean;
   readonly backlog: number;
@@ -48,6 +52,7 @@ export interface EngineReadinessPorts {
   readonly database: DatabaseReadinessPort;
   readonly feed: FeedReadinessPort;
   readonly wager: WagerReadinessPort;
+  readonly escrow?: EscrowRuntimeReadinessPort;
   readonly telegram: WorkerReadinessPort;
   readonly proof: QueueReadinessPort;
   readonly settlement: QueueReadinessPort;
@@ -137,6 +142,20 @@ export function createEngineReadinessChecks(
       return { kind: 'ready' };
     },
   } satisfies ReadinessCheckPort;
+  const escrowPort = ports.escrow;
+  const escrow = escrowPort === undefined ? [] : [{
+    name: 'escrow',
+    unavailableReason: ENGINE_READINESS_REASONS.escrowRuntimeUnavailable,
+    timeoutReason: ENGINE_READINESS_REASONS.escrowRuntimeTimeout,
+    async check(signal: AbortSignal) {
+      return await escrowPort.check(signal)
+        ? { kind: 'ready' }
+        : {
+            kind: 'not_ready',
+            reason: ENGINE_READINESS_REASONS.escrowRuntimeUnavailable,
+          };
+    },
+  } satisfies ReadinessCheckPort];
   const telegram = {
     name: 'telegram',
     unavailableReason: ENGINE_READINESS_REASONS.telegramWorkerUnavailable,
@@ -224,5 +243,5 @@ export function createEngineReadinessChecks(
       return { kind: 'ready' };
     },
   } satisfies ReadinessCheckPort;
-  return [database, feed, wager, telegram, proof, settlement];
+  return [database, feed, wager, ...escrow, telegram, proof, settlement];
 }

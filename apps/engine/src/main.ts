@@ -280,8 +280,16 @@ async function main(): Promise<void> {
     feed: { snapshot: (signal) => settlementReconciler.feedSnapshot(signal) },
     settlement: { snapshot: (signal) => settlementReconciler.snapshot(signal) },
   });
+  const escrowReadiness = escrowRuntime === null ? {} : {
+    escrow: {
+      async check(signal: AbortSignal) {
+        return (await escrowRuntime.readiness('intake', signal)).status === 'ready';
+      },
+    },
+  };
   const readinessPorts: EngineReadinessPorts = {
     ...betaReadiness,
+    ...escrowReadiness,
     telegram: {
       async snapshot() {
         if (webhookIngress) {
