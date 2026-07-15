@@ -8,6 +8,7 @@ import {
   placementRelayPayload,
   verifyPlacementRelayTransaction,
 } from './placement-relay.js';
+import type { EscrowReadinessReport } from './readiness.js';
 
 export type EscrowRelaySignatureState =
   | { readonly kind: 'absent' }
@@ -105,6 +106,7 @@ export function createEscrowRelayerWorker(options: {
   readonly chain: EscrowRelayChain;
   readonly workerId: string;
   readonly retryAt: (nowIso: string) => string;
+  readonly positionPlacementReadiness: () => Promise<EscrowReadinessReport>;
   readonly builders?: Partial<Record<DurableEscrowRelayerJobRow['kind'], EscrowRelayerTransactionBuilder>>;
   readonly finalityVerifiers?: Partial<Record<DurableEscrowRelayerJobRow['kind'], EscrowRelayerFinalityVerifier>>;
 }): { runOnce(nowIso: string, limit: number): Promise<readonly EscrowRelayerRunResult[]> } {
@@ -117,6 +119,11 @@ export function createEscrowRelayerWorker(options: {
       confirmationUnknown: true,
       nowIso,
     }));
+  }
+
+  async function placementBroadcastReady(job: DurableEscrowRelayerJobRow): Promise<boolean> {
+    if (job.kind !== 'position_placement') return true;
+    return (await options.positionPlacementReadiness()).status === 'ready';
   }
 
   async function dead(job: DurableEscrowRelayerJobRow, errorCode: string, nowIso: string): Promise<EscrowRelayerRunResult> {
@@ -166,6 +173,10 @@ export function createEscrowRelayerWorker(options: {
           if (!(error instanceof Error)) throw error;
           return dead(job, 'user_signature_invalid_or_expired', nowIso);
         }
+      }
+      if (!await placementBroadcastReady(job)) {
+        await retryUnknown(job, 'deployment_not_ready', nowIso);
+        return { kind: 'retrying', jobId: job.id, signature };
       }
       try {
         const observed = await options.chain.broadcast(raw);
@@ -237,6 +248,10 @@ export function createEscrowRelayerWorker(options: {
       ...prepared,
       nowIso,
     }));
+    if (!await placementBroadcastReady(job)) {
+      await retryUnknown(job, 'deployment_not_ready', nowIso);
+      return { kind: 'retrying', jobId: job.id, signature: prepared.expectedSignature };
+    }
     try {
       const observed = await options.chain.broadcast(prepared.rawTransactionBase64);
       if (observed !== prepared.expectedSignature) return dead(job, 'signature_mismatch', nowIso);

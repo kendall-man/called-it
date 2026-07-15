@@ -111,6 +111,7 @@ function setup(
     },
   };
   let clock = { unix: NOW_UNIX, iso: NOW_ISO };
+  let intakeReady = true;
   const serviceOptions = {
     db,
     sponsor,
@@ -135,7 +136,9 @@ function setup(
       genesisHash: async () => observedGenesisHash,
       isBlockhashValid: async (blockhash: string) => blockhash === BLOCKHASH,
     },
-    readiness: async () => ({ status: 'ready' as const, reasons: [] as const }),
+    readiness: async () => intakeReady
+      ? { status: 'ready' as const, reasons: [] as const }
+      : { status: 'not_ready' as const, reasons: ['program_paused'] as const },
     clock: () => clock,
     tokenBytes: () => Uint8Array.from({ length: 32 }, (_, index) => index + 1),
   };
@@ -149,6 +152,7 @@ function setup(
     consumed,
     jobs,
     restartService: () => createEscrowPlacementService(serviceOptions),
+    blockIntake: () => { intakeReady = false; },
     advanceClock: () => { clock = { unix: NOW_UNIX + 301n, iso: '2023-11-14T22:18:21.000Z' }; },
   };
 }
@@ -236,6 +240,24 @@ describe('escrow placement signing sessions', () => {
     });
     expect(fixture.jobs[0]?.kind).toBe('position_placement');
     expect(new Set(fixture.jobs.map((job) => job.idempotencyKey)).size).toBe(1);
+  });
+
+  it('rechecks intake readiness before consuming a user-signed position', async () => {
+    const fixture = setup('sol');
+    const created = await fixture.service.create({
+      ...identity(fixture.owner), marketId: MARKET_ID, side: 'back', amountAtomic: 25n, ttlSeconds: 300,
+    });
+    if (created.kind !== 'created') throw new Error('expected created session');
+    const transaction = VersionedTransaction.deserialize(Buffer.from(created.rawTransactionBase64, 'base64'));
+    transaction.sign([fixture.owner]);
+    fixture.blockIntake();
+
+    await expect(fixture.service.accept({
+      ...identity(fixture.owner), marketId: MARKET_ID, token: created.token,
+      rawTransactionBase64: Buffer.from(transaction.serialize()).toString('base64'),
+    })).rejects.toMatchObject({ code: 'market_unavailable' });
+    expect(fixture.consumed).toHaveLength(0);
+    expect(fixture.jobs).toHaveLength(0);
   });
 
   it('rejects stale sessions, tampered messages, and custody substitution', async () => {

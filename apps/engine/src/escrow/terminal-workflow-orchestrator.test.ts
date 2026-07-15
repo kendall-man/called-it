@@ -232,6 +232,34 @@ describe('escrow terminal workflow orchestrator', () => {
     expect(fixture.requests).toEqual([{ operation: 'close_market', marketPda: MARKET_PDA }]);
   });
 
+  it('closes a large position in descending transaction-safe batches across finalized ticks', async () => {
+    const owner = Keypair.generate().publicKey.toBase58();
+    const fixture = setup({
+      market: {
+        state: 'settled', positionCount: 1n, claimedPositionCount: 1n,
+        settlementProcessedPositionCount: 1n,
+      },
+      positions: [{ owner, account: { claimed: true, nextLotNonce: 10n } }],
+    });
+    for (let nonce = 0n; nonce < 10n; nonce += 1n) {
+      fixture.lots.add(derivePositionLotPda(PROGRAM_ID, MARKET_PDA, owner, nonce).address);
+    }
+
+    await expect(progress(fixture)).resolves.toMatchObject({ state: 'scheduled' });
+    expect(fixture.requests).toEqual([{
+      operation: 'close_position_lots', marketPda: MARKET_PDA, owner,
+      lotNonces: [9n, 8n, 7n, 6n, 5n, 4n, 3n, 2n],
+    }]);
+
+    fixture.requests.length = 0;
+    fixture.setPosition(owner, { claimed: true, nextLotNonce: 2n });
+    await expect(progress(fixture)).resolves.toMatchObject({ state: 'scheduled' });
+    expect(fixture.requests).toEqual([{
+      operation: 'close_position_lots', marketPda: MARKET_PDA, owner,
+      lotNonces: [1n, 0n],
+    }]);
+  });
+
   it('auto-claims a void refund without requiring settlement entitlement', async () => {
     const owner = Keypair.generate().publicKey.toBase58();
     const fixture = setup({

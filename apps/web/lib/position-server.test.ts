@@ -44,25 +44,89 @@ describe('escrow position server boundary', () => {
     expect(JSON.stringify(result.body)).not.toContain('provider');
   });
 
-  it('issues a short recovery JWT for a consumed session after signing expiry', async () => {
+  it('does not extend custom auth beyond the immutable signing-session expiry', async () => {
+    const fixture = positionServerFixture();
+    const expiresAt = fixture.dependencies.now().getTime() + 10_001;
+    const session: PositionSigningSession = {
+      ...fixture.session,
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+    const signAuthJwt = vi.fn(async (_userId: number, jwtExpiresAt: number) => {
+      expect(jwtExpiresAt).toBe(expiresAt);
+      return 'short-lived-custom-auth-jwt';
+    });
+
+    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN }, {
+      ...fixture.dependencies,
+      store: withSession(fixture.store, session),
+      signAuthJwt,
+    });
+
+    expect(result).toEqual({
+      status: 201,
+      body: {
+        jwt: 'short-lived-custom-auth-jwt',
+        expiresAt: session.expiresAt,
+        network: 'devnet',
+      },
+    });
+    expect(signAuthJwt).toHaveBeenCalledWith(42, expiresAt);
+  });
+
+  it('rejects consumed signing URL replay without minting fresh auth', async () => {
     const fixture = positionServerFixture();
     const consumedSession: PositionSigningSession = {
       ...fixture.session,
       state: 'consumed',
-      expiresAt: '2029-12-31T23:59:00.000Z',
       transactionSignature: '1'.repeat(64),
     };
+    const signAuthJwt = vi.fn().mockResolvedValue('must-not-be-minted');
     const result = await createPositionAuthSession({ token: FIXTURE_TOKEN }, {
       ...fixture.dependencies,
       store: withSession(fixture.store, consumedSession),
-      async signAuthJwt(_userId, expiresAt) {
-        expect(expiresAt).toBe(fixture.dependencies.now().getTime() + 5 * 60_000);
-        return 'signed-recovery-custom-auth-jwt';
-      },
+      signAuthJwt,
     });
 
-    expect(result.status).toBe(201);
-    expect(result.body).toMatchObject({ jwt: 'signed-recovery-custom-auth-jwt' });
+    expect(result).toEqual({ status: 409, body: { error: 'session_consumed' } });
+    expect(signAuthJwt).not.toHaveBeenCalled();
+  });
+
+  it('rejects cancelled signing URLs without minting fresh auth', async () => {
+    const fixture = positionServerFixture();
+    const signAuthJwt = vi.fn().mockResolvedValue('must-not-be-minted');
+    const store: PositionStore = {
+      ...fixture.store,
+      async readSession() {
+        return { kind: 'rejected', code: 'session_consumed' };
+      },
+    };
+
+    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN }, {
+      ...fixture.dependencies,
+      store,
+      signAuthJwt,
+    });
+
+    expect(result).toEqual({ status: 409, body: { error: 'session_consumed' } });
+    expect(signAuthJwt).not.toHaveBeenCalled();
+  });
+
+  it('rejects expired pending signing URLs without minting fresh auth', async () => {
+    const fixture = positionServerFixture();
+    const expiredSession: PositionSigningSession = {
+      ...fixture.session,
+      expiresAt: new Date(fixture.dependencies.now().getTime() - 1).toISOString(),
+    };
+    const signAuthJwt = vi.fn().mockResolvedValue('must-not-be-minted');
+
+    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN }, {
+      ...fixture.dependencies,
+      store: withSession(fixture.store, expiredSession),
+      signAuthJwt,
+    });
+
+    expect(result).toEqual({ status: 410, body: { error: 'session_expired' } });
+    expect(signAuthJwt).not.toHaveBeenCalled();
   });
 
   it('prepares only after identity, sponsor signature, and exact message verification', async () => {
@@ -223,7 +287,7 @@ describe('escrow position server boundary', () => {
     expect(result).toEqual({ status: 503, body: { error: 'unknown_confirmation' } });
   });
 
-  it('returns canonical indexed status and private wallet positions after Privy verification', async () => {
+  it('preserves authenticated status polling for a consumed session until expiry', async () => {
     const fixture = positionServerFixture();
     const consumedSession: PositionSigningSession = {
       ...fixture.session,
@@ -265,6 +329,7 @@ describe('escrow position server boundary', () => {
       pubkey: fixture.identity.pubkey,
     }, 'privy-access-token-for-tests', dependencies);
 
+    expect(status.status).toBe(200);
     expect(status.body).toMatchObject({ stage: 'finalized', commitment: 'finalized' });
     expect(account.body).toMatchObject({ positions: [{ claimState: 'open' }] });
   });

@@ -86,17 +86,12 @@ export async function createPositionAuthSession(
     now,
   );
   if (lookup.kind === 'rejected') return lookupRefusal(lookup);
+  if (lookup.session.state !== 'pending') return refusal(409, 'session_consumed');
   const expiresAt = Date.parse(lookup.session.expiresAt);
   if (!Number.isFinite(expiresAt)) return refusal(410, 'session_expired');
-  if (
-    lookup.session.state === 'pending' &&
-    expiresAt - now.getTime() < MIN_SESSION_LIFETIME_MS
-  ) {
+  if (expiresAt - now.getTime() < MIN_SESSION_LIFETIME_MS) {
     return refusal(410, 'session_expired');
   }
-  const jwtExpiresAt = lookup.session.state === 'consumed'
-    ? Math.max(expiresAt, now.getTime() + 5 * 60_000)
-    : expiresAt;
   const sign = dependencies.signAuthJwt ?? ((userId, expiry) => signWalletAuthJwt({
     appId: config.appId,
     issuer: config.issuer,
@@ -104,12 +99,12 @@ export async function createPositionAuthSession(
     network: config.network,
     privateKeyBase64: config.privateKeyBase64,
   }, { userId, expiresAt: expiry }));
-  const jwt = await sign(lookup.session.userId, jwtExpiresAt);
+  const jwt = await sign(lookup.session.userId, expiresAt);
   return {
     status: 201,
     body: {
       jwt,
-      expiresAt: new Date(jwtExpiresAt).toISOString(),
+      expiresAt: new Date(expiresAt).toISOString(),
       network: config.network,
     },
   };

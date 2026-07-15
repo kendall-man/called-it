@@ -86,9 +86,11 @@ function setup(
   job: DurableEscrowRelayerJobRow,
   chainOverrides: Partial<EscrowRelayChain> = {},
   finalityVerifiers?: Parameters<typeof createEscrowRelayerWorker>[0]['finalityVerifiers'],
+  placementReady = true,
 ) {
   const calls: string[] = [];
   const broadcasts: string[] = [];
+  let readinessChecks = 0;
   const payloadSignature = job.payload.expectedSignature;
   if (typeof payloadSignature !== 'string') throw new Error('expected placement signature');
   const db: EscrowRelayerWorkerDatabase = {
@@ -109,8 +111,14 @@ function setup(
   };
   const worker = createEscrowRelayerWorker({
     db, chain, workerId: 'worker-a', retryAt: () => LATER, finalityVerifiers,
+    positionPlacementReadiness: async () => {
+      readinessChecks += 1;
+      return placementReady
+        ? { status: 'ready', reasons: [] }
+        : { status: 'not_ready', reasons: ['program_paused'] };
+    },
   });
-  return { worker, calls, broadcasts };
+  return { worker, calls, broadcasts, readinessChecks: () => readinessChecks };
 }
 
 describe('sponsored escrow relayer recovery', () => {
@@ -124,8 +132,23 @@ describe('sponsored escrow relayer recovery', () => {
 
     // Then bytes are persisted before the exact transaction is submitted
     expect(result).toEqual([{ kind: 'submitted', jobId: expect.any(String), signature: payload.expectedSignature }]);
+    expect(fixture.readinessChecks()).toBe(1);
     expect(fixture.calls).toEqual(['lease', 'record_signed', 'submitted']);
     expect(fixture.broadcasts).toEqual([payload.rawTransactionBase64]);
+  });
+
+  it('retains signed bytes without first broadcast while placement readiness is blocked', async () => {
+    const payload = signedPlacementPayload();
+    const fixture = setup(leasedJob(payload, null), {}, undefined, false);
+
+    const result = await fixture.worker.runOnce(NOW, 1);
+
+    expect(result).toEqual([{
+      kind: 'retrying', jobId: expect.any(String), signature: payload.expectedSignature,
+    }]);
+    expect(fixture.readinessChecks()).toBe(1);
+    expect(fixture.broadcasts).toHaveLength(0);
+    expect(fixture.calls).toEqual(['lease', 'record_signed', 'retry:true']);
   });
 
   it('rebroadcasts identical persisted bytes after restart', async () => {
@@ -137,7 +160,24 @@ describe('sponsored escrow relayer recovery', () => {
     await fixture.worker.runOnce(NOW, 1);
 
     // Then no transaction is rebuilt and unknown confirmation remains retryable
+    expect(fixture.readinessChecks()).toBe(1);
     expect(fixture.broadcasts).toEqual([payload.rawTransactionBase64]);
+    expect(fixture.calls).toEqual(['lease', 'retry:true']);
+  });
+
+  it('does not rebroadcast an absent persisted placement while readiness is blocked', async () => {
+    const payload = signedPlacementPayload();
+    const fixture = setup(
+      leasedJob(payload, payload.rawTransactionBase64), {}, undefined, false,
+    );
+
+    const result = await fixture.worker.runOnce(NOW, 1);
+
+    expect(result).toEqual([{
+      kind: 'retrying', jobId: expect.any(String), signature: payload.expectedSignature,
+    }]);
+    expect(fixture.readinessChecks()).toBe(1);
+    expect(fixture.broadcasts).toHaveLength(0);
     expect(fixture.calls).toEqual(['lease', 'retry:true']);
   });
 
@@ -182,6 +222,43 @@ describe('sponsored escrow relayer recovery', () => {
     });
 
     await expect(fixture.worker.runOnce(NOW, 1)).resolves.toMatchObject([{ kind: 'retrying' }]);
+    expect(fixture.calls).toEqual(['lease', 'retry:true']);
+  });
+
+  it('still completes finalized placements while readiness is blocked', async () => {
+    const payload = signedPlacementPayload();
+    const fixture = setup(leasedJob(payload, payload.rawTransactionBase64), {
+      signatureState: async () => ({ kind: 'finalized', slot: 42n }),
+    }, undefined, false);
+
+    await expect(fixture.worker.runOnce(NOW, 1)).resolves.toEqual([{
+      kind: 'complete', jobId: expect.any(String), signature: payload.expectedSignature,
+    }]);
+    expect(fixture.readinessChecks()).toBe(0);
+    expect(fixture.calls).toEqual(['lease', 'complete']);
+  });
+
+  it('still dead-letters failed placements while readiness is blocked', async () => {
+    const payload = signedPlacementPayload();
+    const fixture = setup(leasedJob(payload, payload.rawTransactionBase64), {
+      signatureState: async () => ({ kind: 'failed', errorCode: 'instruction_failed' }),
+    }, undefined, false);
+
+    await expect(fixture.worker.runOnce(NOW, 1)).resolves.toEqual([{
+      kind: 'terminal', jobId: expect.any(String), errorCode: 'instruction_failed',
+    }]);
+    expect(fixture.readinessChecks()).toBe(0);
+    expect(fixture.calls).toEqual(['lease', 'dead:instruction_failed']);
+  });
+
+  it('keeps claim and refund rebroadcasts independent of placement readiness', async () => {
+    const payload = signedPlacementPayload();
+    const placementJob = leasedJob(payload, payload.rawTransactionBase64);
+    const fixture = setup({ ...placementJob, kind: 'auto_claim' }, {}, undefined, false);
+
+    await expect(fixture.worker.runOnce(NOW, 1)).resolves.toMatchObject([{ kind: 'retrying' }]);
+    expect(fixture.readinessChecks()).toBe(0);
+    expect(fixture.broadcasts).toEqual([payload.rawTransactionBase64]);
     expect(fixture.calls).toEqual(['lease', 'retry:true']);
   });
 });

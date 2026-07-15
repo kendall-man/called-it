@@ -161,6 +161,38 @@ describe('durable escrow recovery workflows', () => {
     expect('insertLedger' in fixture.db).toBe(false);
   });
 
+  it('dedupes retries of one lot-close batch while enqueueing the next batch for the same owner', async () => {
+    const fixture = setup('sol', 'settled', {}, { claimed: true, nextLotNonce: 10n });
+    const firstBatch = {
+      operation: 'close_position_lots' as const,
+      marketPda: fixture.link.marketPda,
+      owner: fixture.owner.publicKey.toBase58(),
+      lotNonces: [9n, 8n, 7n, 6n, 5n, 4n, 3n, 2n],
+    };
+    const secondBatch = { ...firstBatch, lotNonces: [1n, 0n] };
+
+    await expect(fixture.service.enqueue(firstBatch))
+      .resolves.toMatchObject({ kind: 'enqueued', created: true });
+    await expect(fixture.service.enqueue(firstBatch))
+      .resolves.toMatchObject({ kind: 'enqueued', created: false });
+    await expect(fixture.service.enqueue(secondBatch))
+      .resolves.toMatchObject({ kind: 'enqueued', created: true });
+
+    const keys = fixture.jobs.map((job) => job.idempotencyKey);
+    expect(keys[0]).toBe(keys[1]);
+    expect(keys[2]).not.toBe(keys[0]);
+    expect(keys.every((key) => key.length < 256)).toBe(true);
+
+    const input = fixture.jobs[0];
+    if (input === undefined) throw new Error('expected recovery job');
+    const builder = createEscrowRecoveryTransactionBuilder({
+      db: fixture.db, chain: fixture.chain, sponsor: fixture.sponsor,
+      deployment: fixture.deployment,
+    });
+    const built = await builder.build(leasedJob(input));
+    expect(Buffer.from(built.rawTransactionBase64, 'base64').length).toBeLessThanOrEqual(1_232);
+  });
+
   it('materializes the compact canonical threshold settlement within the transaction packet limit', async () => {
     const fixture = setup('sol');
     await fixture.service.enqueue({

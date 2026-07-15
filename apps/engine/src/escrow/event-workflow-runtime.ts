@@ -27,8 +27,11 @@ function rows(value: unknown): readonly Readonly<Record<string, unknown>>[] {
 }
 
 function unsigned(value: unknown): bigint {
-  if (typeof value !== 'string' || !/^\d+$/.test(value)) throw new TypeError('invalid escrow lot integer');
-  return BigInt(value);
+  if (typeof value === 'string' && /^\d+$/.test(value)) return BigInt(value);
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
+    return BigInt(value);
+  }
+  throw new TypeError('invalid escrow lot integer');
 }
 
 function requireLink(
@@ -67,6 +70,7 @@ export function createProductionEscrowEventWorkflowPort(options: {
   readonly fetch?: FetchPort;
 }): EscrowEventWorkflowPort {
   const request = options.fetch ?? fetch;
+  const pageSize = 1_000;
   const headers = {
     apikey: options.serviceRoleKey,
     authorization: `Bearer ${options.serviceRoleKey}`,
@@ -124,46 +128,52 @@ export function createProductionEscrowEventWorkflowPort(options: {
   return {
     loadMarket: marketContext,
     async positionLots(context) {
-      const url = new URL('/rest/v1/escrow_position_lots', options.supabaseUrl);
-      url.searchParams.set('select', 'owner_pubkey,lot_nonce,event_epoch,state');
-      url.searchParams.set('market_id', `eq.${context.binding.marketId}`);
-      url.searchParams.set('commitment', 'eq.finalized');
-      url.searchParams.set('canonical', 'eq.true');
-      url.searchParams.set('state', 'in.(pending,active)');
-      const response = await request(url, { headers });
-      if (!response.ok) throw new TypeError('escrow lot projection unavailable');
       const result = [];
-      for (const row of rows(await response.json())) {
-        if (
-          typeof row.owner_pubkey !== 'string' ||
-          (row.state !== 'pending' && row.state !== 'active')
-        ) throw new TypeError('invalid escrow lot projection');
-        const nonce = unsigned(row.lot_nonce);
-        const eventEpoch = unsigned(row.event_epoch);
-        const lotPda = derivePositionLotPda(
-          options.deployment.programId,
-          context.binding.marketPda,
-          row.owner_pubkey,
-          nonce,
-        ).address;
-        const account = await options.accounts.lot(lotPda);
-        if (
-          account === null || account.ownerProgramId !== options.deployment.programId ||
-          account.address !== lotPda || account.value.market !== context.binding.marketPda ||
-          account.value.owner !== row.owner_pubkey || account.value.nonce !== nonce ||
-          account.value.observedEventEpoch !== eventEpoch || account.value.state !== row.state
-        ) throw new TypeError('escrow lot chain identity mismatch');
-        result.push({
-          ownerPubkey: account.value.owner,
-          lotNonce: account.value.nonce,
-          positionLotPda: lotPda,
-          placedTimestamp: account.value.placedTimestamp,
-          observedEventEpoch: account.value.observedEventEpoch,
-          activationTimestamp: account.value.activationTimestamp,
-          state: account.value.state,
-        });
+      for (let offset = 0; ; offset += pageSize) {
+        const url = new URL('/rest/v1/escrow_position_lots', options.supabaseUrl);
+        url.searchParams.set('select', 'owner_pubkey,lot_nonce,event_epoch,state');
+        url.searchParams.set('market_id', `eq.${context.binding.marketId}`);
+        url.searchParams.set('commitment', 'eq.finalized');
+        url.searchParams.set('canonical', 'eq.true');
+        url.searchParams.set('state', 'in.(pending,active)');
+        url.searchParams.set('order', 'owner_pubkey.asc,lot_nonce.asc');
+        url.searchParams.set('limit', String(pageSize));
+        url.searchParams.set('offset', String(offset));
+        const response = await request(url, { headers });
+        if (!response.ok) throw new TypeError('escrow lot projection unavailable');
+        const page = rows(await response.json());
+        for (const row of page) {
+          if (
+            typeof row.owner_pubkey !== 'string' ||
+            (row.state !== 'pending' && row.state !== 'active')
+          ) throw new TypeError('invalid escrow lot projection');
+          const nonce = unsigned(row.lot_nonce);
+          const eventEpoch = unsigned(row.event_epoch);
+          const lotPda = derivePositionLotPda(
+            options.deployment.programId,
+            context.binding.marketPda,
+            row.owner_pubkey,
+            nonce,
+          ).address;
+          const account = await options.accounts.lot(lotPda);
+          if (
+            account === null || account.ownerProgramId !== options.deployment.programId ||
+            account.address !== lotPda || account.value.market !== context.binding.marketPda ||
+            account.value.owner !== row.owner_pubkey || account.value.nonce !== nonce ||
+            account.value.observedEventEpoch !== eventEpoch || account.value.state !== row.state
+          ) throw new TypeError('escrow lot chain identity mismatch');
+          result.push({
+            ownerPubkey: account.value.owner,
+            lotNonce: account.value.nonce,
+            positionLotPda: lotPda,
+            placedTimestamp: account.value.placedTimestamp,
+            observedEventEpoch: account.value.observedEventEpoch,
+            activationTimestamp: account.value.activationTimestamp,
+            state: account.value.state,
+          });
+        }
+        if (page.length < pageSize) return result;
       }
-      return result;
     },
   };
 }

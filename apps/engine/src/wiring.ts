@@ -557,6 +557,7 @@ export function createEscrowWave4Runtime(options: {
   };
   const relayer = createEscrowRelayerWorker({
     db, chain: rpc, workerId: options.workerId, retryAt: options.retryAt,
+    positionPlacementReadiness: options.intakeReadiness,
     builders, finalityVerifiers,
   });
   const projector = new SolanaEscrowEventProjector(accounts, db, {

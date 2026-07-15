@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { EscrowDb } from '@calledit/db';
 import {
   bytesToHex,
@@ -15,6 +16,8 @@ export type EscrowRecoveryJobKind =
   | 'timeout_monitoring'
   | 'auto_claim'
   | 'account_close';
+
+export const MAX_CLOSE_POSITION_LOTS_PER_TRANSACTION = 8;
 
 export type EscrowRecoveryRequest =
   | { readonly operation: 'settle_market'; readonly marketPda: string; readonly attestation: SettlementAttestationV1; readonly signatures: readonly AttestationSignature[] }
@@ -127,16 +130,30 @@ function payload(request: EscrowRecoveryRequest, link: ReturnType<typeof require
     };
   }
   if (request.operation === 'close_position_lots') {
-    if (request.lotNonces.length === 0) throw new EscrowRecoveryError('invalid_request');
+    if (
+      request.lotNonces.length === 0 ||
+      request.lotNonces.length > MAX_CLOSE_POSITION_LOTS_PER_TRANSACTION ||
+      request.lotNonces.some((nonce, index) => (
+        nonce < 0n || (index > 0 && request.lotNonces[index - 1] !== nonce + 1n)
+      ))
+    ) throw new EscrowRecoveryError('invalid_request');
     return { ...common, owner: request.owner, lotNonces: request.lotNonces.map(String) };
   }
   return 'owner' in request ? { ...common, owner: request.owner } : common;
 }
 
 function idempotencyKey(request: EscrowRecoveryRequest, link: ReturnType<typeof requireLink>): string {
-  const discriminator = request.operation === 'settle_market' || request.operation === 'void_market'
-    ? bytesToHex(request.attestation.evidenceHash)
-    : 'owner' in request ? request.owner : link.marketPda;
+  let discriminator: string;
+  if (request.operation === 'settle_market' || request.operation === 'void_market') {
+    discriminator = bytesToHex(request.attestation.evidenceHash);
+  } else if (request.operation === 'close_position_lots') {
+    const batchHash = createHash('sha256')
+      .update(request.lotNonces.map(String).join(','))
+      .digest('hex');
+    discriminator = `${request.owner}:${batchHash}`;
+  } else {
+    discriminator = 'owner' in request ? request.owner : link.marketPda;
+  }
   return `escrow:v1:${jobKind(request.operation)}:${request.operation}:${link.marketPda}:${discriminator}`;
 }
 

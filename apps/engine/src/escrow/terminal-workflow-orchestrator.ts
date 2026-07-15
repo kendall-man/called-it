@@ -6,9 +6,10 @@ import {
 } from '@calledit/escrow-sdk';
 import type { DecodedEscrowAccount } from './solana-accounts.js';
 import type { EscrowRecoveryChain } from './recovery-relayer.js';
-import type {
-  EscrowRecoveryRequest,
-  createEscrowRecoveryService,
+import {
+  MAX_CLOSE_POSITION_LOTS_PER_TRANSACTION,
+  type EscrowRecoveryRequest,
+  type createEscrowRecoveryService,
 } from './recovery-workflows.js';
 
 export interface EscrowTerminalPositionIdentity {
@@ -110,7 +111,10 @@ async function loadPositions(options: {
 
 function outstandingLotNonces(nextLotNonce: bigint): readonly bigint[] {
   const result: bigint[] = [];
-  for (let nonce = nextLotNonce; nonce > 0n;) {
+  for (
+    let nonce = nextLotNonce;
+    nonce > 0n && result.length < MAX_CLOSE_POSITION_LOTS_PER_TRANSACTION;
+  ) {
     nonce -= 1n;
     result.push(nonce);
   }

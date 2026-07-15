@@ -19,10 +19,11 @@ function rows(value: unknown): readonly Readonly<Record<string, unknown>>[] {
 }
 
 function unsigned(value: unknown): bigint {
-  if (typeof value !== 'string' || !/^\d+$/.test(value)) {
-    throw new TypeError('invalid pending escrow lot projection');
+  if (typeof value === 'string' && /^\d+$/.test(value)) return BigInt(value);
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
+    return BigInt(value);
   }
-  return BigInt(value);
+  throw new TypeError('invalid pending escrow lot projection');
 }
 
 export function createProductionEscrowPositionActivationScheduler(options: {

@@ -135,7 +135,7 @@ export function createEscrowPositionActivationService(options: {
       }
       const readiness = await options.readiness();
       if (readiness.status === 'not_ready') return { kind: 'blocked', reasons: readiness.reasons };
-      const [genesisHash, linkValue, marketValue, positionValue, lotValue] = await Promise.all([
+      const [genesisHash, linkValue, marketValue] = await Promise.all([
         options.chain.genesisHash(),
         options.db.getMarketLink({
           cluster: options.deployment.cluster,
@@ -144,16 +144,13 @@ export function createEscrowPositionActivationService(options: {
           marketPda: input.marketPda,
         }),
         options.chain.market(input.marketPda),
-        options.chain.position(positionPda),
-        options.chain.lot(lotPda),
       ]);
       if (genesisHash !== options.deployment.genesisHash) {
         throw new EscrowPositionActivationError('deployment_mismatch');
       }
       const link = requireLink(linkValue, input, options.deployment);
+      if (marketValue === null) throw new EscrowPositionActivationError('market_unavailable');
       const market = exactAccount(marketValue, input.marketPda, options.deployment, 'market_identity_mismatch');
-      const position = exactAccount(positionValue, positionPda, options.deployment, 'position_identity_mismatch');
-      const lot = exactAccount(lotValue, lotPda, options.deployment, 'lot_identity_mismatch');
       if (
         market.value.marketUuid !== link.marketId ||
         bytesToHex(market.value.marketDocumentHash) !== link.documentHashHex.toLowerCase() ||
@@ -161,12 +158,18 @@ export function createEscrowPositionActivationService(options: {
         market.value.tokenMint !== link.mintPubkey || market.value.vault !== link.vaultPda ||
         BigInt(market.value.ratioMilli) !== link.ratioMilli || market.value.state !== link.chainState
       ) throw new EscrowPositionActivationError('market_identity_mismatch');
-      if (market.value.eventEpoch !== input.expectedEventEpoch || link.eventEpoch !== input.expectedEventEpoch) {
-        throw new EscrowPositionActivationError('stale_epoch');
-      }
       if (market.value.state !== 'open' && market.value.state !== 'frozen') {
         throw new EscrowPositionActivationError('market_unavailable');
       }
+      if (market.value.eventEpoch !== input.expectedEventEpoch || link.eventEpoch !== input.expectedEventEpoch) {
+        throw new EscrowPositionActivationError('stale_epoch');
+      }
+      const [positionValue, lotValue] = await Promise.all([
+        options.chain.position(positionPda),
+        options.chain.lot(lotPda),
+      ]);
+      const position = exactAccount(positionValue, positionPda, options.deployment, 'position_identity_mismatch');
+      const lot = exactAccount(lotValue, lotPda, options.deployment, 'lot_identity_mismatch');
       if (
         position.value.market !== input.marketPda || position.value.owner !== input.owner ||
         position.value.claimed || position.value.nextLotNonce <= input.lotNonce

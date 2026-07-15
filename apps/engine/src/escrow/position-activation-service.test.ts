@@ -24,6 +24,10 @@ function setup(overrides: {
   readonly position?: Partial<UserPositionAccount>;
   readonly lot?: Partial<PositionLotAccount>;
   readonly genesisHash?: string;
+  readonly linkChainState?: 'open' | 'frozen' | 'settled' | 'voided' | 'closed';
+  readonly marketPresent?: boolean;
+  readonly positionPresent?: boolean;
+  readonly lotPresent?: boolean;
 } = {}) {
   const programId = Keypair.generate().publicKey.toBase58();
   const owner = Keypair.generate().publicKey.toBase58();
@@ -71,7 +75,7 @@ function setup(overrides: {
         vaultPda: market.vault, asset: market.asset, mintPubkey: null,
         documentHashHex: 'ab'.repeat(32), oracleEpoch: market.oracleSetEpoch,
         eventEpoch: market.eventEpoch, ratioMilli: BigInt(market.ratioMilli),
-        chainState: 'open', commitment: 'finalized', projectionStale: false,
+        chainState: overrides.linkChainState ?? 'open', commitment: 'finalized', projectionStale: false,
       };
     },
     async enqueueRelayerJob(input) {
@@ -82,11 +86,20 @@ function setup(overrides: {
     },
   };
   const wrap = <T>(address: string, value: T) => ({ address, ownerProgramId: programId, lamports: 1n, value });
+  const reads = { position: 0, lot: 0 };
   const chain: EscrowPositionActivationChain = {
     async genesisHash() { return overrides.genesisHash ?? GENESIS_HASH; },
-    async market(address) { return address === marketPda ? wrap(marketPda, market) : null; },
-    async position(address) { return address === positionPda ? wrap(positionPda, position) : null; },
-    async lot(address) { return address === lotPda ? wrap(lotPda, lot) : null; },
+    async market(address) {
+      return overrides.marketPresent !== false && address === marketPda ? wrap(marketPda, market) : null;
+    },
+    async position(address) {
+      reads.position += 1;
+      return overrides.positionPresent !== false && address === positionPda ? wrap(positionPda, position) : null;
+    },
+    async lot(address) {
+      reads.lot += 1;
+      return overrides.lotPresent !== false && address === lotPda ? wrap(lotPda, lot) : null;
+    },
   };
   const service = createEscrowPositionActivationService({
     db, chain,
@@ -94,7 +107,7 @@ function setup(overrides: {
     readiness: async () => ({ status: 'ready', reasons: [] }),
     clock: () => NOW_ISO,
   });
-  return { service, jobs, programId, owner, marketPda, positionPda, lotPda };
+  return { service, jobs, reads, programId, owner, marketPda, positionPda, lotPda };
 }
 
 describe('escrow position activation scheduling', () => {
@@ -133,6 +146,49 @@ describe('escrow position activation scheduling', () => {
     await expect(fixture.service.schedule({
       marketPda: fixture.marketPda, owner: fixture.owner, lotNonce: 4n, expectedEventEpoch: 7n,
     })).rejects.toMatchObject({ code });
+    expect(fixture.jobs).toHaveLength(0);
+  });
+
+  it.each(['settled', 'voided', 'closed'] as const)(
+    'skips absent position and lot accounts once the market is %s',
+    async (state) => {
+      const fixture = setup({
+        market: { state },
+        linkChainState: state,
+        positionPresent: false,
+        lotPresent: false,
+      });
+
+      await expect(fixture.service.schedule({
+        marketPda: fixture.marketPda, owner: fixture.owner, lotNonce: 4n, expectedEventEpoch: 7n,
+      })).rejects.toMatchObject({ code: 'market_unavailable' });
+      expect(fixture.reads).toEqual({ position: 0, lot: 0 });
+      expect(fixture.jobs).toHaveLength(0);
+    },
+  );
+
+  it('skips a closed market after its on-chain account has been removed', async () => {
+    const fixture = setup({
+      linkChainState: 'closed',
+      marketPresent: false,
+      positionPresent: false,
+      lotPresent: false,
+    });
+
+    await expect(fixture.service.schedule({
+      marketPda: fixture.marketPda, owner: fixture.owner, lotNonce: 4n, expectedEventEpoch: 7n,
+    })).rejects.toMatchObject({ code: 'market_unavailable' });
+    expect(fixture.reads).toEqual({ position: 0, lot: 0 });
+    expect(fixture.jobs).toHaveLength(0);
+  });
+
+  it('fails closed when an open market is missing its pending lot account', async () => {
+    const fixture = setup({ lotPresent: false });
+
+    await expect(fixture.service.schedule({
+      marketPda: fixture.marketPda, owner: fixture.owner, lotNonce: 4n, expectedEventEpoch: 7n,
+    })).rejects.toMatchObject({ code: 'lot_identity_mismatch' });
+    expect(fixture.reads).toEqual({ position: 1, lot: 1 });
     expect(fixture.jobs).toHaveLength(0);
   });
 });

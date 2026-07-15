@@ -11,8 +11,8 @@ describe('production escrow position activation scheduler', () => {
     const scheduled: unknown[] = [];
     const pages = [
       [
-        { owner_pubkey: 'owner-a', lot_nonce: '0', event_epoch: '3' },
-        { owner_pubkey: 'owner-b', lot_nonce: '4', event_epoch: '3' },
+        { owner_pubkey: 'owner-a', lot_nonce: 0, event_epoch: 3 },
+        { owner_pubkey: 'owner-b', lot_nonce: 4, event_epoch: 3 },
       ],
       [],
     ];
@@ -91,5 +91,20 @@ describe('production escrow position activation scheduler', () => {
     await expect(blocked.schedulePending({ marketId: 'market', marketPda: 'pda' })).rejects.toThrow(
       'escrow position activation blocked',
     );
+  });
+
+  it.each([
+    ['unsafe', Number.MAX_SAFE_INTEGER + 1],
+    ['fractional', 1.5],
+    ['negative', -1],
+  ])('rejects %s numeric lot projection values', async (_kind, lotNonce) => {
+    const scheduler = createProductionEscrowPositionActivationScheduler({
+      supabaseUrl: 'https://project.supabase.co', serviceRoleKey: 'service-role',
+      activation: { schedule: async () => ({ kind: 'already_active' as const }) },
+      fetch: async () => response([{ owner_pubkey: 'owner', lot_nonce: lotNonce, event_epoch: 2 }]),
+    });
+
+    await expect(scheduler.schedulePending({ marketId: 'market', marketPda: 'pda' }))
+      .rejects.toThrow('invalid pending escrow lot projection');
   });
 });

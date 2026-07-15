@@ -87,6 +87,10 @@ export function createPlacementCallbackAcceptor(
       feePayer: authorization.relayerFeePayer,
       owner: input.ownerPubkey,
     });
+    const readiness = await dependencies.readiness();
+    if (readiness.status === 'not_ready') {
+      throw new EscrowPlacementError('market_unavailable');
+    }
     const consumed = await db.consumeSigningSession({
       tokenHashHex,
       userId: input.telegramUserId,
