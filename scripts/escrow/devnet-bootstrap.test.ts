@@ -15,6 +15,7 @@ import {
   type DevnetPublicDeployment,
   verifyDecodedProtocolState,
 } from './devnet-bootstrap.js';
+import { parseDevnetBootstrapArgs } from './devnet-bootstrap-cli.js';
 
 const key = (): string => Keypair.generate().publicKey.toBase58();
 
@@ -144,4 +145,31 @@ test('public manifest and env fragment redact secret inputs and never enable esc
   assert.doesNotMatch(artifacts.env, /^WAGER_CUSTODY_MODE=/m);
   assert.doesNotMatch(artifacts.env, /ESCROW_RELAYER_KEYPAIR_B58|SOLANA_RPC_URL/);
   assert.doesNotMatch(artifacts.manifest, /rpcUrl|keypairPath|secretKey/);
+});
+
+test('accepts the pnpm argument separator used by the documented bootstrap command', () => {
+  const args = [
+    '--program-keypair', '/keys/program.json',
+    '--program-so', '/artifacts/program.so',
+    '--upgrade-authority-keypair', '/keys/upgrade.json',
+    '--transaction-payer-keypair', '/keys/payer.json',
+    '--config-authority-keypair', '/keys/config.json',
+    '--pause-authority-keypair', '/keys/pause.json',
+    '--market-creation-authority-keypair', '/keys/market.json',
+    '--feed-operator-authority-keypair', '/keys/feed.json',
+    '--relayer-fee-payer-keypair', '/keys/relayer.json',
+    '--residual-recipient-keypair', '/keys/residual.json',
+    '--oracle-1-keypair', '/keys/oracle-1.json',
+    '--oracle-2-keypair', '/keys/oracle-2.json',
+    '--oracle-3-keypair', '/keys/oracle-3.json',
+    '--oracle-activation-slot', '123456789',
+    '--manifest-out', '/artifacts/manifest.json',
+    '--env-out', '/artifacts/devnet.env',
+  ];
+  const environment = { SOLANA_DEVNET_RPC_URL: 'https://api.devnet.solana.com' };
+
+  assert.deepEqual(
+    parseDevnetBootstrapArgs(['--', ...args], environment),
+    parseDevnetBootstrapArgs(args, environment),
+  );
 });

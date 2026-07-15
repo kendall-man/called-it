@@ -53,10 +53,11 @@ function parseU64(value: string, label: string): bigint {
 }
 
 export function parseDevnetBootstrapArgs(argv: readonly string[], env: NodeJS.ProcessEnv): DevnetBootstrapOptions {
+  const normalizedArgv = argv[0] === '--' ? argv.slice(1) : argv;
   const values = new Map<string, string>();
   let execute = false;
-  for (let index = 0; index < argv.length; index += 1) {
-    const option = argv[index]!;
+  for (let index = 0; index < normalizedArgv.length; index += 1) {
+    const option = normalizedArgv[index]!;
     if (option === '--execute') {
       if (execute) throw new DevnetBootstrapError('duplicate option --execute');
       execute = true;
@@ -64,7 +65,7 @@ export function parseDevnetBootstrapArgs(argv: readonly string[], env: NodeJS.Pr
     }
     if (!VALUE_OPTIONS.has(option)) throw new DevnetBootstrapError(`unknown option ${option}`);
     if (values.has(option)) throw new DevnetBootstrapError(`duplicate option ${option}`);
-    const value = argv[index + 1];
+    const value = normalizedArgv[index + 1];
     if (value === undefined || value.startsWith('--')) throw new DevnetBootstrapError(`missing value for ${option}`);
     values.set(option, value);
     index += 1;
