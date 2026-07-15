@@ -20,7 +20,7 @@ const common = z.object({
 const score = z.object({ home: z.number().int().nonnegative(), away: z.number().int().nonnegative() });
 const settlement = common.extend({
   outcome: z.enum(['claim_won', 'claim_lost']), decidingSequence: z.string().regex(/^\d+$/),
-  terminalPhase: z.string().min(1), regulationScore: score.nullable(), fullMatchScore: score.nullable(),
+  terminalPhase: z.enum(['F', 'FET', 'FPE']), regulationScore: score.nullable(), fullMatchScore: score.nullable(),
   evidenceSequenceCommitment: z.string().regex(/^[0-9a-fA-F]{64}$/),
   normalizedEvidenceRoot: z.string().regex(/^[0-9a-fA-F]{64}$/),
 });

@@ -121,7 +121,7 @@ function setup(
     marketPda: base58Decode(marketPda), marketDocumentHash: documentHash, fixtureId: 77n,
     oracleSetEpoch: 7n, issuedAt: 10n, expiresAt: 20n,
     evidenceHash: Uint8Array.from({ length: 32 }, () => 9), outcome: 'claim_won',
-    decidingSequence: 88n, terminalPhase: 'ended', regulationScore: { home: 1, away: 0 },
+    decidingSequence: 88n, terminalPhase: 'F', regulationScore: { home: 1, away: 0 },
     fullMatchScore: { home: 1, away: 0 },
     evidenceSequenceCommitment: Uint8Array.from({ length: 32 }, () => 4),
     normalizedEvidenceRoot: Uint8Array.from({ length: 32 }, () => 5),

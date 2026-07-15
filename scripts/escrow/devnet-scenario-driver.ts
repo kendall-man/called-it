@@ -412,7 +412,7 @@ async function settleMarket(input: {
     evidenceHash,
     outcome: 'claim_won',
     decidingSequence: 1n,
-    terminalPhase: 'finished',
+    terminalPhase: 'F',
     regulationScore: { home: 1, away: 0 },
     fullMatchScore: { home: 1, away: 0 },
     evidenceSequenceCommitment: sha256('calledit.devnet-e2e.sequence.v1', input.market.document.marketUuid),

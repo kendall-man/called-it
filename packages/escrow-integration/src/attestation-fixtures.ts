@@ -62,7 +62,7 @@ export async function settlementAttestation(
     ...await common(context, market, `${market.document.marketUuid}:settlement`),
     outcome: 'claim_won',
     decidingSequence: 900n,
-    terminalPhase: 'FT',
+    terminalPhase: 'F',
     regulationScore: { home: 2, away: 1 },
     fullMatchScore: { home: 2, away: 1 },
     evidenceSequenceCommitment: evidenceHash(`${market.document.marketUuid}:sequence`),
