@@ -1,20 +1,45 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const CASE_COUNT = 512;
+export const MIN_CASE_COUNT = 4_096;
+export const DEFAULT_CASE_COUNT = 4_096;
+export const DEFAULT_SEED = 'calledit-payout-differential-v2-2026-07-15';
 const SCALE = 1_000n;
-let state = 0xc011ed17;
 
-function nextU32() {
-  state ^= state << 13;
-  state ^= state >>> 17;
-  state ^= state << 5;
-  return state >>> 0;
+function fail(message) {
+  throw new Error(`payout differential generator: ${message}`);
 }
 
-function amount(limit) {
-  return BigInt(nextU32() % limit);
+function sha256(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function caseSeed(seed, caseIndex) {
+  return sha256(`${seed}\0${caseIndex}`);
+}
+
+function randomFor(seedHex) {
+  const bytes = Buffer.from(seedHex, 'hex');
+  let a = bytes.readUInt32LE(0);
+  let b = bytes.readUInt32LE(4);
+  let c = bytes.readUInt32LE(8);
+  let d = bytes.readUInt32LE(12);
+  return () => {
+    const result = (((a + b) | 0) + d) | 0;
+    d = (d + 1) | 0;
+    a = b ^ (b >>> 9);
+    b = (c + (c << 3)) | 0;
+    c = ((c << 21) | (c >>> 11)) + result | 0;
+    return result >>> 0;
+  };
+}
+
+function amount(nextU32, limit) {
+  if (limit <= 0n) fail('amount limit must be positive');
+  const random64 = (BigInt(nextU32()) << 32n) | BigInt(nextU32());
+  return random64 % limit;
 }
 
 function sum(values) {
@@ -65,7 +90,7 @@ function settle(positions, outcome, ratioMilli) {
     return { userKey, refund: baseRefund + active - forfeit, payout: 0n };
   });
   const credited = sum(credits.map(({ refund, payout }) => refund + payout));
-  if (credited > totalDeposits) throw new Error('generated entitlements exceed deposits');
+  if (credited > totalDeposits) fail('generated entitlements exceed deposits');
   return {
     back: activeBack,
     doubt: activeDoubt,
@@ -81,28 +106,40 @@ function decimal(value) {
   return value.toString(10);
 }
 
-const outcomes = ['claim_won', 'claim_lost', 'void'];
-const cases = [];
-for (let caseIndex = 0; caseIndex < CASE_COUNT; caseIndex += 1) {
-  const ratioMilli = BigInt(1 + (nextU32() % 500_000));
-  const outcome = outcomes[caseIndex % outcomes.length];
-  const count = 1 + (nextU32() % 12);
+function sideFor(mode, index, nextU32) {
+  if (mode === 0) return 'back';
+  if (mode === 1) return 'doubt';
+  if (mode === 2) return index % 2 === 0 ? 'back' : 'doubt';
+  return nextU32() % 2 === 0 ? 'back' : 'doubt';
+}
+
+function generateCase(seed, caseIndex) {
+  const derivedSeed = caseSeed(seed, caseIndex);
+  const nextU32 = randomFor(derivedSeed);
+  const outcomes = ['claim_won', 'claim_lost', 'void'];
+  const amountLimits = [17n, 1_000_001n, 1_000_000_001n, 1_000_000_000_001n];
+  const amountLimit = amountLimits[nextU32() % amountLimits.length];
+  const ratioMilli = 1n + amount(nextU32, 1_000_000n);
+  const outcome = outcomes[(nextU32() + caseIndex) % outcomes.length];
+  const count = 1 + (nextU32() % 24);
+  const sideMode = nextU32() % 8;
   const positions = [];
   for (let index = 0; index < count; index += 1) {
-    let active = amount(1_000_001);
-    const pending = amount(100_001);
-    const refundable = amount(100_001);
+    let active = amount(nextU32, amountLimit);
+    const pending = amount(nextU32, amountLimit);
+    const refundable = amount(nextU32, amountLimit);
     if (active + pending + refundable === 0n) active = 1n;
     positions.push({
       userKey: index + 1,
-      side: nextU32() % 2 === 0 ? 'back' : 'doubt',
+      side: sideFor(sideMode, index, nextU32),
       active,
       pending,
       refundable,
     });
   }
   const result = settle(positions, outcome, ratioMilli);
-  cases.push({
+  return {
+    case_seed: derivedSeed,
     ratio_milli: decimal(ratioMilli),
     outcome,
     positions: positions.map(({ userKey, side, active, pending, refundable }) => ({
@@ -125,10 +162,50 @@ for (let caseIndex = 0; caseIndex < CASE_COUNT; caseIndex += 1) {
       })),
       dust: decimal(result.dust),
     },
-  });
+  };
 }
 
-const here = dirname(fileURLToPath(import.meta.url));
-const output = resolve(here, '../vectors/payout-differential-v1.json');
-mkdirSync(dirname(output), { recursive: true });
-writeFileSync(output, `${JSON.stringify({ schema_version: 1, seed: '0xc011ed17', cases })}\n`);
+export function generateCorpus({ seed = DEFAULT_SEED, caseCount = DEFAULT_CASE_COUNT } = {}) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(seed)) fail('seed must be a stable public identifier');
+  if (!Number.isSafeInteger(caseCount) || caseCount < MIN_CASE_COUNT) {
+    fail(`case count must be a safe integer of at least ${MIN_CASE_COUNT}`);
+  }
+  const cases = Array.from({ length: caseCount }, (_, caseIndex) => generateCase(seed, caseIndex));
+  if (new Set(cases.map((entry) => entry.case_seed)).size !== caseCount) fail('derived case seeds are not unique');
+  return { schema_version: 2, seed, case_count: caseCount, cases };
+}
+
+function parseArgs(args) {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const options = {
+    seed: DEFAULT_SEED,
+    caseCount: DEFAULT_CASE_COUNT,
+    output: resolve(here, '../vectors/payout-differential-v1.json'),
+  };
+  for (let index = 0; index < args.length; index += 2) {
+    const key = args[index];
+    const value = args[index + 1];
+    if (value === undefined) fail(`${key ?? 'option'} requires a value`);
+    if (key === '--seed') options.seed = value;
+    else if (key === '--case-count') options.caseCount = Number(value);
+    else if (key === '--out') options.output = resolve(value);
+    else fail('unknown option');
+  }
+  return options;
+}
+
+export function writeCorpus(options = {}) {
+  const corpus = generateCorpus(options);
+  const here = dirname(fileURLToPath(import.meta.url));
+  const output = resolve(options.output ?? resolve(here, '../vectors/payout-differential-v1.json'));
+  mkdirSync(dirname(output), { recursive: true });
+  writeFileSync(output, `${JSON.stringify(corpus)}\n`, { flag: 'w' });
+  return { output, seed: corpus.seed, caseCount: corpus.case_count };
+}
+
+const entry = process.argv[1];
+if (entry !== undefined && import.meta.url === pathToFileURL(resolve(entry)).href) {
+  const options = parseArgs(process.argv.slice(2));
+  const result = writeCorpus({ seed: options.seed, caseCount: options.caseCount, output: options.output });
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+}

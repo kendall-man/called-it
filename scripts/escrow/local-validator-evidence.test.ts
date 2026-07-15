@@ -7,12 +7,14 @@ import test from 'node:test';
 
 import {
   createLocalValidatorEvidence,
+  parseLocalValidatorEvidence,
   releaseIdentity,
   verifyEvidenceSignature,
   type LocalValidatorEvidenceReceipt,
 } from './evidence.js';
 import { createLocalValidatorEvidenceEnvelope } from './local-validator-evidence.js';
 import { parseReleaseManifest } from './manifest.js';
+import { createPayoutDifferentialEvidenceReceipt } from './payout-differential-evidence.js';
 import { encodeBase58, sha256, stableJson } from './util.js';
 
 const RELEASE_CHECKS = [
@@ -45,11 +47,27 @@ function testSigner(): TestSigner {
 
 async function sampleReceipt(): Promise<LocalValidatorEvidenceReceipt> {
   const raw: unknown = JSON.parse(await readFile(new URL('./fixtures/release-manifest.example.json', import.meta.url), 'utf8'));
+  const corpusBytes = await readFile(new URL('../../programs/calledit-escrow/vectors/payout-differential-v1.json', import.meta.url));
+  const corpus = JSON.parse(corpusBytes.toString('utf8')) as { seed: string; case_count: number };
+  const language = (name: 'rust' | 'typescript') => ({
+    schemaVersion: 1,
+    language: name,
+    seed: corpus.seed,
+    caseCount: corpus.case_count,
+    corpusSha256: sha256(corpusBytes),
+    resultSha256: '7'.repeat(64),
+  });
   return createLocalValidatorEvidence({
     releaseManifest: parseReleaseManifest(raw),
     verificationChecks: RELEASE_CHECKS,
     suiteSha256: '5'.repeat(64),
     controlsSha256: '6'.repeat(64),
+    payoutDifferential: createPayoutDifferentialEvidenceReceipt({
+      sourceCommit: 'a'.repeat(40),
+      corpusBytes,
+      rustResult: language('rust'),
+      typescriptResult: language('typescript'),
+    }),
     startedAt: '2026-07-15T10:00:00.000Z',
     completedAt: '2026-07-15T10:01:00.000Z',
   });
@@ -178,4 +196,15 @@ test('detects tampering with signed local-validator output', async () => {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('local-validator evidence requires payout differential receipt', async () => {
+  const output = await sampleReceipt();
+  const missing = Object.fromEntries(
+    Object.entries(output).filter(([field]) => field !== 'payoutDifferential'),
+  );
+  assert.throws(
+    () => parseLocalValidatorEvidence(missing),
+    /payout differential evidence receipt must be an object/,
+  );
 });

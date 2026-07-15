@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { isIP } from 'node:net';
 import { z } from 'zod';
 import { WAGER_RUNTIME_MODES, resolvedWagerRuntimeMode, validateWagerRuntimeEnvironment } from './wager-runtime-env.js';
-import { rpcUrlLooksLikeDevnet, SOLANA_NETWORKS } from './solana-network.js';
+import { expectedGenesisHash, rpcUrlLooksLikeDevnet, SOLANA_NETWORKS } from './solana-network.js';
 
 export { WAGER_RUNTIME_MODES, type WagerRuntimeMode } from './wager-runtime-env.js';
 export { SOLANA_NETWORKS, type SolanaNetwork } from './solana-network.js';
@@ -394,6 +394,10 @@ const EnvSchema = z.object({
     for (const [name, value] of required) {
       if (value === undefined) addIssue(name, 'required in escrow custody mode');
     }
+    if (
+      env.ESCROW_GENESIS_HASH !== undefined &&
+      env.ESCROW_GENESIS_HASH !== expectedGenesisHash(env.SOLANA_NETWORK)
+    ) addPairIssue('ESCROW_GENESIS_HASH', 'SOLANA_NETWORK');
     const uniqueSigners = new Set(env.ESCROW_ORACLE_SIGNERS);
     if (uniqueSigners.size !== env.ESCROW_ORACLE_SIGNERS.length) {
       addIssue('ESCROW_ORACLE_SIGNERS', 'must contain unique signers');

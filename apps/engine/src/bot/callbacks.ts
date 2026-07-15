@@ -406,7 +406,7 @@ async function handleEscrowStake(
   try {
     await ctx.api.sendMessage(input.telegramUserId, prompt, {
       reply_markup: {
-        inline_keyboard: [[{ text: 'Review and sign', url }]],
+        inline_keyboard: [[{ text: 'Review and sign', web_app: { url } }]],
       },
     });
   } catch (error) {

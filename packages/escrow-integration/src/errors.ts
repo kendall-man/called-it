@@ -1,5 +1,16 @@
 export class HarnessConfigurationError extends Error {
-  override readonly name = 'HarnessConfigurationError';
+  override readonly name: string = 'HarnessConfigurationError';
+}
+
+export class TransactionFailedError extends HarnessConfigurationError {
+  override readonly name = 'TransactionFailedError';
+
+  constructor(
+    readonly signature: string,
+    readonly transactionError: unknown,
+  ) {
+    super(`transaction ${signature} failed: ${JSON.stringify(transactionError)}`);
+  }
 }
 
 export class ExpectedTransactionFailureMissingError extends Error {

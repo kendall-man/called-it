@@ -109,7 +109,7 @@ export function createSupabaseEscrowPrivateBridge(options: {
 
   async function currentIdentity(telegramUserId: number): Promise<PrivateWalletIdentity | null> {
     if (!Number.isSafeInteger(telegramUserId) || telegramUserId <= 0) return null;
-    const url = endpoint('/rest/v1/wager_wallet_links');
+    const url = endpoint('/rest/v1/escrow_wallet_links');
     url.searchParams.set(
       'select',
       'user_id,pubkey,wallet_provider,provider_user_id,provider_wallet_id,solana_network',

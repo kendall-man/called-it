@@ -12,6 +12,7 @@ import {
 } from './evidence.js';
 import type { ArtifactPaths } from './manifest.js';
 import { buildProvenance } from './manifest.js';
+import { runPayoutDifferentialEvidence } from './payout-differential-evidence.js';
 import { captureReleaseManifest, JsonRpcReader, verifyRelease } from './release.js';
 import { EscrowControlError, EXIT } from './types.js';
 import { asPublicKey, encodeBase58, sha256, sha256File, sha256Tree, stableJson } from './util.js';
@@ -164,16 +165,18 @@ export async function runLocalValidatorEvidence(input: {
     const detail = lastCaptureError instanceof Error ? `: ${lastCaptureError.message}` : '';
     throw new EscrowControlError(EXIT.gate, `local-validator release identity could not be captured${detail}`);
   }
-  const completedAt = new Date().toISOString();
-  const [suiteSha256, controlsSha256] = await Promise.all([
+  const [suiteSha256, controlsSha256, payoutDifferential] = await Promise.all([
     sha256Tree(input.integrationSuitePath),
     sha256Tree(input.controlsPath),
+    runPayoutDifferentialEvidence({ sourceCommit: input.sourceCommit }),
   ]);
+  const completedAt = new Date().toISOString();
   const output = createLocalValidatorEvidence({
     releaseManifest: captured,
     verificationChecks,
     suiteSha256,
     controlsSha256,
+    payoutDifferential,
     startedAt,
     completedAt,
     verifiedAt: completedAt,

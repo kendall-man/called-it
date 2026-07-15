@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import { DEVNET_ESCROW_PROGRAM_ID } from '@calledit/escrow-sdk';
 import type { LogFields } from './log.js';
-import { createTxlineWarningLogger, dependencyFailureReason } from './wiring.js';
+import {
+  assertEscrowConfiguredDeploymentIdentity,
+  assertEscrowWave4DeploymentConsistency,
+  createTxlineWarningLogger,
+  dependencyFailureReason,
+} from './wiring.js';
+
+const DEVNET_GENESIS_HASH = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
+const MAINNET_GENESIS_HASH = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
+const DISTINCT_MAINNET_TEST_PROGRAM_ID = 'BPFLoaderUpgradeab1e11111111111111111111111';
 
 type ExpectedTxlineWarningReason =
   | 'feed_failure'
@@ -47,6 +57,92 @@ function captureTxlineWarnings(): {
   });
   return { events, warn };
 }
+
+function wave4DeploymentIdentity() {
+  const sponsorAddress = 'sponsor';
+  const marketCreationAuthorityAddress = 'market-authority';
+  const feedOperatorAddress = 'feed-operator';
+  return {
+    marketDeployment: {
+      cluster: 'mainnet-beta' as const,
+      genesisHash: MAINNET_GENESIS_HASH,
+      programId: DISTINCT_MAINNET_TEST_PROGRAM_ID,
+      canonicalUsdcMint: 'mainnet-usdc',
+      marketCreationAuthority: marketCreationAuthorityAddress,
+      relayerFeePayer: sponsorAddress,
+      oracleSetEpoch: 7n,
+      custodyVersion: 1,
+    },
+    placementDeployment: {
+      cluster: 'mainnet-beta' as const,
+      genesisHash: MAINNET_GENESIS_HASH,
+      programId: DISTINCT_MAINNET_TEST_PROGRAM_ID,
+      canonicalUsdcMint: 'mainnet-usdc',
+      oracleSetEpoch: 7n,
+      custodyVersion: 1,
+      minimumSolPosition: 1n,
+      maximumSolPosition: 2n,
+      minimumUsdcPosition: 1n,
+      maximumUsdcPosition: 2n,
+      allowedGroupIds: [-100123],
+    },
+    recoveryDeployment: {
+      cluster: 'mainnet-beta' as const,
+      genesisHash: MAINNET_GENESIS_HASH,
+      programId: DISTINCT_MAINNET_TEST_PROGRAM_ID,
+      canonicalUsdcMint: 'mainnet-usdc',
+      relayerFeePayer: sponsorAddress,
+      residualRecipient: 'residual-recipient',
+      custodyVersion: 1,
+    },
+    controlDeployment: {
+      cluster: 'mainnet-beta' as const,
+      genesisHash: MAINNET_GENESIS_HASH,
+      programId: DISTINCT_MAINNET_TEST_PROGRAM_ID,
+      custodyVersion: 1,
+      feedOperatorAuthority: feedOperatorAddress,
+    },
+    sponsorAddress,
+    marketCreationAuthorityAddress,
+    feedOperatorAddress,
+  };
+}
+
+describe('escrow deployment wiring', () => {
+  it('accepts the pinned devnet identity and a distinct mainnet identity', () => {
+    expect(() => assertEscrowConfiguredDeploymentIdentity({
+      network: 'devnet',
+      programId: DEVNET_ESCROW_PROGRAM_ID,
+      genesisHash: DEVNET_GENESIS_HASH,
+    })).not.toThrow();
+    expect(() => assertEscrowConfiguredDeploymentIdentity({
+      network: 'mainnet-beta',
+      programId: DISTINCT_MAINNET_TEST_PROGRAM_ID,
+      genesisHash: MAINNET_GENESIS_HASH,
+    })).not.toThrow();
+    expect(() => assertEscrowWave4DeploymentConsistency(wave4DeploymentIdentity())).not.toThrow();
+  });
+
+  it.each([
+    ['devnet with the mainnet program', 'devnet', DISTINCT_MAINNET_TEST_PROGRAM_ID, DEVNET_GENESIS_HASH],
+    ['mainnet with the devnet program', 'mainnet-beta', DEVNET_ESCROW_PROGRAM_ID, MAINNET_GENESIS_HASH],
+    ['devnet with mainnet genesis', 'devnet', DEVNET_ESCROW_PROGRAM_ID, MAINNET_GENESIS_HASH],
+    ['mainnet with devnet genesis', 'mainnet-beta', DISTINCT_MAINNET_TEST_PROGRAM_ID, DEVNET_GENESIS_HASH],
+  ] as const)('rejects crossed deployment identity: %s', (_name, network, programId, genesisHash) => {
+    expect(() => assertEscrowConfiguredDeploymentIdentity({ network, programId, genesisHash }))
+      .toThrowError('escrow production runtime unavailable: deployment_identity_mismatch');
+  });
+
+  it.each(['programId', 'genesisHash', 'canonicalUsdcMint'] as const)(
+    'rejects a crossed Wave 4 placement %s',
+    (field) => {
+      const identity = wave4DeploymentIdentity();
+      identity.placementDeployment[field] = `crossed-${field}`;
+      expect(() => assertEscrowWave4DeploymentConsistency(identity))
+        .toThrowError('escrow Wave 4 deployment identity mismatch');
+    },
+  );
+});
 
 describe('wiring dependency error narrowing', () => {
   it('returns a bounded reason without exposing Error text', () => {

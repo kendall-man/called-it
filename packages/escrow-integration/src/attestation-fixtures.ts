@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
 import {
   buildAttestationVerificationInstructions,
+  encodeFeedEventAttestationV1,
   encodePositionInvalidationAttestationV1,
   encodeSettlementAttestationV1,
   encodeVoidAttestationV1,
   type AttestationCommonV1,
+  type FeedEventAttestationV1,
   type PositionInvalidationAttestationV1,
   type SettlementAttestationV1,
   type VoidAttestationV1,
@@ -57,10 +59,11 @@ export function thresholdInstructionsForSigners(
 export async function settlementAttestation(
   context: BootstrapContext,
   market: OpenedMarket,
+  outcome: 'claim_won' | 'claim_lost' = 'claim_won',
 ): Promise<{ readonly value: SettlementAttestationV1; readonly message: Uint8Array }> {
   const value: SettlementAttestationV1 = {
     ...await common(context, market, `${market.document.marketUuid}:settlement`),
-    outcome: 'claim_won',
+    outcome,
     decidingSequence: 900n,
     terminalPhase: 'F',
     regulationScore: { home: 2, away: 1 },
@@ -69,6 +72,22 @@ export async function settlementAttestation(
     normalizedEvidenceRoot: evidenceHash(`${market.document.marketUuid}:root`),
   };
   return { value, message: encodeSettlementAttestationV1(value) };
+}
+
+export async function unfreezeAttestation(
+  context: BootstrapContext,
+  market: OpenedMarket,
+  eventEpoch: bigint,
+): Promise<{ readonly value: FeedEventAttestationV1; readonly message: Uint8Array }> {
+  const now = await chainTimestamp(connection(context.rpcUrl));
+  const value: FeedEventAttestationV1 = {
+    ...await common(context, market, `${market.document.marketUuid}:unfreeze:${eventEpoch}`),
+    eventKind: 'unfreeze',
+    eventEpoch,
+    decidingSequence: 903n,
+    observedAt: now - 2n,
+  };
+  return { value, message: encodeFeedEventAttestationV1(value) };
 }
 
 export async function voidAttestation(

@@ -19,6 +19,7 @@
     "build": "turbo run build",
     "build:concierge": "pnpm --filter callie eve:build",
     "escrow:devnet": "tsx scripts/escrow/devnet-bootstrap-cli.ts",
+    "escrow:recovery": "node apps/escrow-recovery/dist/main.js",
     "dev": "turbo run dev",
     "test": "turbo run test",
     "test:e2e": "tsx scripts/run-browser-tests.ts",

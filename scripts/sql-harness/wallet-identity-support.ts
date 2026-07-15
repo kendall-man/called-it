@@ -115,7 +115,11 @@ export async function assertWalletFunctionPrivileges(client: Client, url: string
      from pg_proc p
      join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public'
-       and (p.proname like 'wager_%wallet%' or p.proname like 'wager_%stake_intent%')`,
+       and (
+         p.proname like 'wager_%wallet%'
+         or p.proname like 'wager_%stake_intent%'
+         or p.proname like 'escrow_%wallet%'
+       )`,
   );
   assert.deepEqual(result.rows[0], { service: true, anon: false, authenticated: false, public: false });
   for (const role of ['anon', 'authenticated'] as const) {

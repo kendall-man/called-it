@@ -16,6 +16,7 @@ import { verifyIdlPolicy } from './idl-policy.js';
 import { approvalBundleDigest, verifyMainnetEvidence, type MainnetGateContext } from './mainnet-gate.js';
 import { buildProvenance, parseReleaseManifest } from './manifest.js';
 import { formatOpsStatus } from './ops-status.js';
+import { createPayoutDifferentialEvidenceReceipt } from './payout-differential-evidence.js';
 import {
   CLASSIC_TOKEN_PROGRAM,
   UPGRADEABLE_LOADER,
@@ -29,6 +30,25 @@ const fixture = (name: string) => new URL(`./fixtures/${name}`, import.meta.url)
 
 async function fixtureJson(name: string): Promise<unknown> {
   return JSON.parse(await readFile(fixture(name), 'utf8')) as unknown;
+}
+
+async function payoutDifferentialFixture(sourceCommit: string) {
+  const corpusBytes = await readFile(new URL('../../programs/calledit-escrow/vectors/payout-differential-v1.json', import.meta.url));
+  const corpus = JSON.parse(corpusBytes.toString('utf8')) as { seed: string; case_count: number };
+  const language = (name: 'rust' | 'typescript') => ({
+    schemaVersion: 1,
+    language: name,
+    seed: corpus.seed,
+    caseCount: corpus.case_count,
+    corpusSha256: sha256(corpusBytes),
+    resultSha256: '7'.repeat(64),
+  });
+  return createPayoutDifferentialEvidenceReceipt({
+    sourceCommit,
+    corpusBytes,
+    rustResult: language('rust'),
+    typescriptResult: language('typescript'),
+  });
 }
 
 function key(byte: number): string {
@@ -379,7 +399,11 @@ async function writeArtifact(
   return { path: name, sha256: sha256(bytes) };
 }
 
-async function evidenceBundleFixture(options: { readonly staleLocal?: boolean } = {}): Promise<EvidenceBundleFixture> {
+async function evidenceBundleFixture(options: {
+  readonly staleLocal?: boolean;
+  readonly payoutSourceCommit?: string;
+  readonly omitPayoutDifferential?: boolean;
+} = {}): Promise<EvidenceBundleFixture> {
   const directory = await mkdtemp(join(tmpdir(), 'escrow-mainnet-evidence-'));
   const source = join(directory, 'source');
   const suite = join(directory, 'suite');
@@ -417,6 +441,7 @@ async function evidenceBundleFixture(options: { readonly staleLocal?: boolean } 
     verificationChecks: localVerification.checks,
     suiteSha256: await sha256Tree(suite),
     controlsSha256: await sha256Tree(controls),
+    payoutDifferential: await payoutDifferentialFixture(options.payoutSourceCommit ?? build.sourceCommit),
     startedAt: localStart,
     completedAt: localComplete,
     verifiedAt: localComplete,
@@ -526,10 +551,13 @@ async function evidenceBundleFixture(options: { readonly staleLocal?: boolean } 
   ));
 
   const releaseManifestRef = await writeArtifact(directory, 'mainnet-release.json', mainnet.manifest);
+  const localOutput = options.omitPayoutDifferential
+    ? Object.fromEntries(Object.entries(localReceipt).filter(([field]) => field !== 'payoutDifferential'))
+    : localReceipt;
   const localRef = await writeArtifact(
     directory,
     'local-validator.json',
-    machineEvidenceEnvelope(operations, releaseIdentity(local.manifest), localReceipt),
+    machineEvidenceEnvelope(operations, releaseIdentity(local.manifest), localOutput),
   );
   const devnetEvidenceRef = await writeArtifact(directory, 'devnet-evidence.json', devnetReceipt);
   const devnetProgramRef = await writeArtifact(directory, 'devnet.so', sbf);
@@ -792,6 +820,28 @@ test('mainnet gate verifies a live release and artifact-bound local/devnet evide
     assert.equal(result.soakEnd, '2026-07-15T06:00:00Z');
   } finally {
     await rm(fixtureData.directory, { recursive: true, force: true });
+  }
+});
+
+test('mainnet gate requires current release-bound payout differential evidence', async () => {
+  const missing = await evidenceBundleFixture({ omitPayoutDifferential: true });
+  try {
+    await assert.rejects(
+      verifyMainnetEvidence(missing.evidence, missing.context),
+      /payout differential evidence receipt must be an object/,
+    );
+  } finally {
+    await rm(missing.directory, { recursive: true, force: true });
+  }
+
+  const wrongCommit = await evidenceBundleFixture({ payoutSourceCommit: 'c'.repeat(40) });
+  try {
+    await assert.rejects(
+      verifyMainnetEvidence(wrongCommit.evidence, wrongCommit.context),
+      /payout differential evidence source commit differs from mainnet/,
+    );
+  } finally {
+    await rm(wrongCommit.directory, { recursive: true, force: true });
   }
 });
 

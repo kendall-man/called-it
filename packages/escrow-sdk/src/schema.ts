@@ -1,4 +1,5 @@
-export const ESCROW_PROGRAM_ID = 'HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL';
+/** Repository-pinned devnet identity. Mainnet receives a separate identity only at its approval gate. */
+export const DEVNET_ESCROW_PROGRAM_ID = 'HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL';
 
 export const ESCROW_INSTRUCTION_DISCRIMINATORS = {
   initialize_config: [208, 127, 21, 1, 194, 190, 196, 70],

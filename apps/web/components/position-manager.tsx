@@ -39,6 +39,7 @@ import {
   submitSignedPosition,
 } from '@/lib/position-client';
 import {
+  ESCROW_PUBLIC_ACTIVITY_NOTICE,
   positionFailure,
   positionStatusCopy,
   type PositionFailurePresentation,
@@ -53,6 +54,7 @@ export type PositionManagerProps = {
   readonly network: 'devnet' | 'mainnet-beta';
   readonly programId: string;
   readonly rpcUrl: string;
+  readonly telegramInitData: string;
   readonly token: string;
 };
 
@@ -103,7 +105,7 @@ export function PositionManager(props: PositionManagerProps) {
 
   useEffect(() => {
     let cancelled = false;
-    void requestPositionAuthSession(props.token).then((result) => {
+    void requestPositionAuthSession(props.token, props.telegramInitData).then((result) => {
       if (cancelled) return;
       jwt.current = result.jwt;
       setSession({ jwt: result.jwt, expiresAt: result.expiresAt });
@@ -111,7 +113,7 @@ export function PositionManager(props: PositionManagerProps) {
       if (!cancelled) fail(clientErrorCode(cause));
     });
     return () => { cancelled = true; };
-  }, [fail, props.token]);
+  }, [fail, props.telegramInitData, props.token]);
 
   useEffect(() => {
     if (privyError !== null) fail('sponsor_unavailable');
@@ -409,6 +411,9 @@ export function PositionManager(props: PositionManagerProps) {
         <div className="border-t border-line pt-4">
           <p className="text-sm leading-6 text-fog">
             Funds move from your Privy wallet into this call&apos;s on-chain vault only after you approve. The sponsor pays the Solana network fee.
+          </p>
+          <p className="mt-3 text-xs leading-5 text-fog">
+            {ESCROW_PUBLIC_ACTIVITY_NOTICE}
           </p>
           <div className="mt-4">
             <WalletButton

@@ -105,7 +105,7 @@ async function stopProcessGroup(child: ChildProcess): Promise<void> {
 async function runScenario(rpcUrl: string): Promise<number> {
   const vitest = resolve(process.cwd(), 'node_modules/.bin/vitest');
   const child = spawn(vitest, [
-    'run', '--testTimeout=300000', 'test/local-validator.integration.test.ts',
+    'run', '--testTimeout=600000', 'test/local-validator.integration.test.ts',
   ], {
     cwd: process.cwd(),
     env: { ...process.env, ESCROW_LOCAL_RPC_URL: rpcUrl, ESCROW_PROGRAM_ID: PROGRAM_ID },

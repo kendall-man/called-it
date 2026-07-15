@@ -13,7 +13,8 @@ use calledit_escrow::{
     },
 };
 use proptest::prelude::*;
-use solana_program::rent::Rent;
+use solana_program::{hash::hash, rent::Rent};
+use std::{collections::HashSet, fmt::Write};
 
 fn vector_u64(value: &serde_json::Value, field: &str) -> u64 {
     value[field]
@@ -21,6 +22,18 @@ fn vector_u64(value: &serde_json::Value, field: &str) -> u64 {
         .unwrap_or_else(|| panic!("{field} must be a decimal string"))
         .parse()
         .unwrap_or_else(|_| panic!("{field} must fit u64"))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    hash(bytes)
+        .to_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn differential_case_seed(seed: &str, case_index: usize) -> String {
+    sha256_hex(format!("{seed}\0{case_index}").as_bytes())
 }
 
 #[test]
@@ -168,13 +181,27 @@ fn payout_matches_the_shared_cross_language_golden_vector() {
 
 #[test]
 fn rust_matches_the_shared_typescript_differential_corpus() {
-    let corpus: serde_json::Value =
-        serde_json::from_str(include_str!("../vectors/payout-differential-v1.json")).unwrap();
-    assert_eq!(corpus["schema_version"], 1);
+    let corpus_bytes = include_bytes!("../vectors/payout-differential-v1.json");
+    let corpus: serde_json::Value = serde_json::from_slice(corpus_bytes).unwrap();
+    assert_eq!(corpus["schema_version"], 2);
+    let seed = corpus["seed"].as_str().unwrap();
     let cases = corpus["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 512);
+    assert_eq!(corpus["case_count"].as_u64().unwrap(), cases.len() as u64);
+    assert!(cases.len() >= 4_096);
+    let mut seen_case_seeds = HashSet::with_capacity(cases.len());
+    let mut canonical_results = String::new();
 
     for (case_index, case) in cases.iter().enumerate() {
+        let actual_case_seed = case["case_seed"].as_str().unwrap();
+        assert_eq!(
+            actual_case_seed,
+            differential_case_seed(seed, case_index),
+            "case {case_index} seed"
+        );
+        assert!(
+            seen_case_seeds.insert(actual_case_seed),
+            "duplicate case seed"
+        );
         let outcome = match case["outcome"].as_str().unwrap() {
             "claim_won" => SettlementOutcome::ClaimWon,
             "claim_lost" => SettlementOutcome::ClaimLost,
@@ -248,6 +275,27 @@ fn rust_matches_the_shared_typescript_differential_corpus() {
             vector_u64(expected, "dust"),
             "case {case_index}"
         );
+        write!(
+            canonical_results,
+            "{}|{}|{}|{}|{}|{}|{}|",
+            case_index,
+            actual.pots.back,
+            actual.pots.doubt,
+            actual.pots.matched_back,
+            actual.pots.matched_doubt,
+            actual.forfeited_pot,
+            actual.dust,
+        )
+        .unwrap();
+        for credit in &actual.credits {
+            write!(
+                canonical_results,
+                "{}:{}:{},",
+                credit.user_key, credit.refund, credit.payout
+            )
+            .unwrap();
+        }
+        canonical_results.push('\n');
         let deposited = positions
             .iter()
             .try_fold(0u64, |total, position| {
@@ -255,6 +303,21 @@ fn rust_matches_the_shared_typescript_differential_corpus() {
             })
             .unwrap();
         assert_eq!(actual.total_credited().unwrap() + actual.dust, deposited);
+    }
+
+    let corpus_sha256 = sha256_hex(corpus_bytes);
+    let result_sha256 = sha256_hex(canonical_results.as_bytes());
+    println!("PAYOUT_DIFFERENTIAL_RUST_RESULT_SHA256={result_sha256}");
+    if let Ok(path) = std::env::var("PAYOUT_DIFFERENTIAL_RUST_RESULT_PATH") {
+        let report = serde_json::json!({
+            "schemaVersion": 1,
+            "language": "rust",
+            "seed": seed,
+            "caseCount": cases.len(),
+            "corpusSha256": corpus_sha256,
+            "resultSha256": result_sha256,
+        });
+        std::fs::write(path, format!("{report}\n")).unwrap();
     }
 }
 

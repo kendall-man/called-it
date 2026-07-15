@@ -7,10 +7,10 @@
 import { CLAIM_TYPES, checkDebounce, compileClaim, priceSpec, reduceMarket, type MatchEvent } from '@calledit/market-engine';
 import { createEngineDb, createEscrowDb } from '@calledit/db';
 import {
+  DEVNET_ESCROW_PROGRAM_ID,
   deriveMarketPda,
   deriveOracleSetPda,
   deriveProtocolConfigPda,
-  ESCROW_PROGRAM_ID,
 } from '@calledit/escrow-sdk';
 import {
   classifyMessage,
@@ -137,6 +137,7 @@ import {
   createProductionEscrowReconciliationLinkPort,
 } from './escrow/periodic-reconciliation-runtime.js';
 import type { EscrowPeriodicReconciliationLog } from './escrow/periodic-reconciliation-runner.js';
+import { expectedGenesisHash } from './solana-network.js';
 
 // ── Dependency construction ───────────────────────────────────────────────
 
@@ -371,6 +372,40 @@ export async function createDeps(
   };
 }
 
+type EscrowWave4DeploymentConsistency = {
+  readonly marketDeployment: EscrowMarketDeployment;
+  readonly placementDeployment: EscrowPlacementDeployment;
+  readonly recoveryDeployment: EscrowRecoveryDeployment;
+  readonly controlDeployment: EscrowControlDeployment;
+  readonly sponsorAddress: string;
+  readonly marketCreationAuthorityAddress: string;
+  readonly feedOperatorAddress: string;
+};
+
+export function assertEscrowWave4DeploymentConsistency(
+  options: EscrowWave4DeploymentConsistency,
+): void {
+  const { marketDeployment, placementDeployment, recoveryDeployment, controlDeployment } = options;
+  if (
+    marketDeployment.programId !== placementDeployment.programId ||
+    placementDeployment.programId !== recoveryDeployment.programId ||
+    recoveryDeployment.programId !== controlDeployment.programId ||
+    marketDeployment.cluster !== placementDeployment.cluster ||
+    placementDeployment.cluster !== recoveryDeployment.cluster ||
+    recoveryDeployment.cluster !== controlDeployment.cluster ||
+    marketDeployment.genesisHash !== placementDeployment.genesisHash ||
+    placementDeployment.genesisHash !== recoveryDeployment.genesisHash ||
+    recoveryDeployment.genesisHash !== controlDeployment.genesisHash ||
+    marketDeployment.canonicalUsdcMint !== placementDeployment.canonicalUsdcMint ||
+    placementDeployment.canonicalUsdcMint !== recoveryDeployment.canonicalUsdcMint ||
+    marketDeployment.relayerFeePayer !== options.sponsorAddress ||
+    recoveryDeployment.relayerFeePayer !== options.sponsorAddress ||
+    marketDeployment.marketCreationAuthority !== options.marketCreationAuthorityAddress ||
+    controlDeployment.feedOperatorAuthority !== options.feedOperatorAddress ||
+    options.feedOperatorAddress === options.sponsorAddress
+  ) throw new TypeError('escrow Wave 4 deployment identity mismatch');
+}
+
 export function createEscrowWave4Runtime(options: {
   readonly supabaseUrl: string;
   readonly serviceRoleKey: string;
@@ -401,22 +436,15 @@ export function createEscrowWave4Runtime(options: {
     readonly log: EscrowRuntimeLifecycleLog & EscrowPeriodicReconciliationLog;
   };
 }) {
-  if (
-    options.marketDeployment.programId !== ESCROW_PROGRAM_ID ||
-    options.placementDeployment.programId !== ESCROW_PROGRAM_ID ||
-    options.recoveryDeployment.programId !== ESCROW_PROGRAM_ID ||
-    options.marketDeployment.programId !== options.placementDeployment.programId ||
-    options.placementDeployment.programId !== options.recoveryDeployment.programId ||
-    options.marketDeployment.genesisHash !== options.placementDeployment.genesisHash ||
-    options.placementDeployment.genesisHash !== options.recoveryDeployment.genesisHash ||
-    options.marketDeployment.canonicalUsdcMint !== options.placementDeployment.canonicalUsdcMint ||
-    options.placementDeployment.canonicalUsdcMint !== options.recoveryDeployment.canonicalUsdcMint ||
-    options.marketDeployment.relayerFeePayer !== options.sponsor.publicKey.toBase58() ||
-    options.recoveryDeployment.relayerFeePayer !== options.sponsor.publicKey.toBase58() ||
-    options.marketDeployment.marketCreationAuthority !== options.marketCreationAuthority.authorityAddress
-    || options.controlDeployment.feedOperatorAuthority !== options.feedOperator.publicKey.toBase58()
-    || options.feedOperator.publicKey.equals(options.sponsor.publicKey)
-  ) throw new TypeError('escrow Wave 4 deployment identity mismatch');
+  assertEscrowWave4DeploymentConsistency({
+    marketDeployment: options.marketDeployment,
+    placementDeployment: options.placementDeployment,
+    recoveryDeployment: options.recoveryDeployment,
+    controlDeployment: options.controlDeployment,
+    sponsorAddress: options.sponsor.publicKey.toBase58(),
+    marketCreationAuthorityAddress: options.marketCreationAuthority.authorityAddress,
+    feedOperatorAddress: options.feedOperator.publicKey.toBase58(),
+  });
   const db = createEscrowDb(options.supabaseUrl, options.serviceRoleKey);
   const rpc = createEscrowSolanaRpc(options.rpcUrl);
   const accounts = new SolanaEscrowAccountReader(rpc.connection);
@@ -683,6 +711,20 @@ export class EscrowProductionContractError extends Error {
   }
 }
 
+export function assertEscrowConfiguredDeploymentIdentity(options: {
+  readonly network: Env['SOLANA_NETWORK'];
+  readonly programId: string;
+  readonly genesisHash: string;
+}): void {
+  const programIdentityMatchesNetwork = options.network === 'devnet'
+    ? options.programId === DEVNET_ESCROW_PROGRAM_ID
+    : options.programId !== DEVNET_ESCROW_PROGRAM_ID;
+  if (
+    !programIdentityMatchesNetwork ||
+    options.genesisHash !== expectedGenesisHash(options.network)
+  ) throw new EscrowProductionContractError('deployment_identity_mismatch');
+}
+
 function requiredEscrowValue<T>(value: T | undefined): T {
   if (value === undefined) throw new EscrowProductionContractError('configuration_incomplete');
   return value;
@@ -728,11 +770,9 @@ export async function createProductionEscrowRuntime(options: {
   const marketCreationAuthority = requiredEscrowValue(env.ESCROW_MARKET_CREATION_AUTHORITY);
   const configuredUpgradeAuthority = requiredEscrowValue(env.ESCROW_UPGRADE_AUTHORITY);
   const residualRecipient = requiredEscrowValue(env.ESCROW_RESIDUAL_RECIPIENT);
+  assertEscrowConfiguredDeploymentIdentity({ network: env.SOLANA_NETWORK, programId, genesisHash });
   const sponsor = loadWallet(requiredEscrowValue(env.ESCROW_RELAYER_KEYPAIR_B58));
   const feedOperator = loadWallet(requiredEscrowValue(env.ESCROW_FEED_OPERATOR_KEYPAIR_B58));
-  if (programId !== ESCROW_PROGRAM_ID) {
-    throw new EscrowProductionContractError('deployment_identity_mismatch');
-  }
   const marketAuthorityDeployment = {
     network: env.SOLANA_NETWORK,
     genesisHash,

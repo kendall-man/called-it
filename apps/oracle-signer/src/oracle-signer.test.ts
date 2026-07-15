@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, verify as verifySignature } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -372,6 +372,37 @@ describe('independent oracle signer', () => {
     await expect(verifier(substituted).verify(parsed.request, CLAIM_JSON)).rejects.toThrow('settlement attestation mismatch');
   });
 
+  it('rejects a stale terminal root and scores after a same-outcome correction', async () => {
+    const corrected: MatchEvent = {
+      ...EVENT,
+      seq: EVENT.seq + 1,
+      tsMs: EVENT.tsMs + 1_000,
+      receivedAtMs: EVENT.receivedAtMs + 1_000,
+      score: {
+        ...EVENT.score,
+        p1: { ...EVENT.score.p1, goals: 3 },
+        p1Goals90: 3,
+      },
+    };
+    const stale = attestation();
+    const staleRequest = parseOracleSigningEnvelope(envelope(stale));
+
+    await expect(verifier(stale, [EVENT, corrected]).verify(staleRequest.request, CLAIM_JSON))
+      .rejects.toThrow('settlement terminal evidence is not latest');
+
+    const correctedRoot = normalizedEscrowEvidenceHashV2(corrected);
+    const current = attestation({
+      evidenceHash: settlementEvidenceHashV2(stale.evidenceSequenceCommitment, correctedRoot),
+      terminalPhase: corrected.phase,
+      regulationScore: { home: 3, away: 1 },
+      fullMatchScore: { home: 3, away: 1 },
+      normalizedEvidenceRoot: correctedRoot,
+    });
+    const currentRequest = parseOracleSigningEnvelope(envelope(current));
+    await expect(verifier(current, [EVENT, corrected]).verify(currentRequest.request, CLAIM_JSON))
+      .resolves.toBeUndefined();
+  });
+
   it('rejects a threshold outcome while the latest fixture phase is non-terminal', async () => {
     const liveGoal: MatchEvent = {
       ...EVENT,
@@ -469,6 +500,45 @@ describe('independent oracle signer', () => {
     await expect(restarted.record('terminal:market:9', winner, new Date(NOW_MS))).resolves.toBeUndefined();
     await expect(restarted.record('terminal:market:9', loser, new Date(NOW_MS)))
       .rejects.toThrow('equivocation');
+  });
+
+  it('atomically rejects conflicting records from independent journal instances', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'calledit-oracle-journal-multiprocess-'));
+    temporaryDirectories.push(directory);
+    const path = join(directory, 'journal.jsonl');
+    const firstInstance = await OracleSignatureJournal.open(path);
+    const secondInstance = await OracleSignatureJournal.open(path);
+    const hashes = ['aa'.repeat(32), 'bb'.repeat(32)] as const;
+    const results = await Promise.allSettled([
+      firstInstance.record('terminal:market:9', hashes[0], new Date(NOW_MS)),
+      secondInstance.record('terminal:market:9', hashes[1], new Date(NOW_MS)),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    const winnerIndex = results.findIndex((result) => result.status === 'fulfilled');
+    const winner = hashes[winnerIndex]!;
+    const loser = hashes[winnerIndex === 0 ? 1 : 0];
+    const restarted = await OracleSignatureJournal.open(path);
+    await expect(restarted.record('terminal:market:9', winner, new Date(NOW_MS))).resolves.toBeUndefined();
+    await expect(restarted.record('terminal:market:9', loser, new Date(NOW_MS)))
+      .rejects.toThrow('equivocation');
+  });
+
+  it('recovers an atomic decision after an interrupted JSONL audit append', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'calledit-oracle-journal-recovery-'));
+    temporaryDirectories.push(directory);
+    const path = join(directory, 'journal.jsonl');
+    const journal = await OracleSignatureJournal.open(path);
+    const winner = 'aa'.repeat(32);
+    await journal.record('terminal:market:9', winner, new Date(NOW_MS));
+
+    await writeFile(path, '{"key":"interrupted');
+    const restarted = await OracleSignatureJournal.open(path);
+    await expect(restarted.record('terminal:market:9', winner, new Date(NOW_MS))).resolves.toBeUndefined();
+    await expect(restarted.record('terminal:market:9', 'bb'.repeat(32), new Date(NOW_MS)))
+      .rejects.toThrow('equivocation');
+    expect(await readFile(path, 'utf8')).toContain(winner);
   });
 
   it('requires bearer auth and returns a verified detached signature', async () => {

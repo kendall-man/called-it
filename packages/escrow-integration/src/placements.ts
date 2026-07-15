@@ -43,6 +43,7 @@ export function sponsoredTerms(input: {
   readonly side: 'back' | 'doubt';
   readonly amount: bigint;
   readonly nonce: bigint;
+  readonly eventEpoch?: bigint;
   readonly recentBlockhash: string;
   readonly lastValidBlockHeight: bigint;
   readonly expiresAt: bigint;
@@ -58,7 +59,7 @@ export function sponsoredTerms(input: {
     amount: input.amount,
     asset: input.market.document.asset,
     expectedRatioMilli: input.market.document.ratioMilli,
-    expectedEventEpoch: 0n,
+    expectedEventEpoch: input.eventEpoch ?? 0n,
     expectedLotNonce: input.nonce,
     expiresAt: input.expiresAt,
     genesisHash: input.context.genesisHash,
@@ -74,6 +75,7 @@ export async function placeSponsoredPosition(input: {
   readonly side: 'back' | 'doubt';
   readonly amount: bigint;
   readonly nonce?: bigint;
+  readonly eventEpoch?: bigint;
 }): Promise<PlacedPosition> {
   const rpc = connection(input.context.rpcUrl);
   const latest = await rpc.getLatestBlockhash('processed');
@@ -85,6 +87,7 @@ export async function placeSponsoredPosition(input: {
   const terms = sponsoredTerms({
     context: input.context, market: input.market, owner: input.owner.publicKey,
     side: input.side, amount: input.amount, nonce,
+    ...(input.eventEpoch === undefined ? {} : { eventEpoch: input.eventEpoch }),
     recentBlockhash: latest.blockhash, lastValidBlockHeight: BigInt(latest.lastValidBlockHeight), expiresAt,
   });
   const built = buildSponsoredPositionTransaction(terms);

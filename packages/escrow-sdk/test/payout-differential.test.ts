@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   settlePositions,
@@ -21,6 +22,7 @@ interface DifferentialCredit {
 }
 
 interface DifferentialCase {
+  readonly case_seed: string;
   readonly ratio_milli: string;
   readonly outcome: SettlementOutcome;
   readonly positions: readonly DifferentialPosition[];
@@ -38,13 +40,24 @@ interface DifferentialCase {
 interface DifferentialCorpus {
   readonly schema_version: number;
   readonly seed: string;
+  readonly case_count: number;
   readonly cases: readonly DifferentialCase[];
 }
 
-const corpus: DifferentialCorpus = JSON.parse(readFileSync(new URL(
+const corpusUrl = new URL(
   '../../../programs/calledit-escrow/vectors/payout-differential-v1.json',
   import.meta.url,
-), 'utf8'));
+);
+const corpusBytes = readFileSync(corpusUrl);
+const corpus: DifferentialCorpus = JSON.parse(corpusBytes.toString('utf8'));
+
+function sha256(value: string | Uint8Array): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function caseSeed(seed: string, caseIndex: number): string {
+  return sha256(`${seed}\0${caseIndex}`);
+}
 
 function position(input: DifferentialPosition): EscrowMathPosition {
   return {
@@ -58,12 +71,19 @@ function position(input: DifferentialPosition): EscrowMathPosition {
 }
 
 describe('Rust and TypeScript payout differential corpus', () => {
-  it('loads the frozen 512-case schema V1 corpus', () => {
-    expect(corpus.schema_version).toBe(1);
-    expect(corpus.cases).toHaveLength(512);
+  it('loads at least 4,096 independently seeded schema V2 cases', () => {
+    expect(corpus.schema_version).toBe(2);
+    expect(corpus.case_count).toBe(corpus.cases.length);
+    expect(corpus.cases.length).toBeGreaterThanOrEqual(4_096);
+    const seeds = corpus.cases.map((vector, index) => {
+      expect(vector.case_seed, `case ${index} seed`).toBe(caseSeed(corpus.seed, index));
+      return vector.case_seed;
+    });
+    expect(new Set(seeds).size).toBe(corpus.case_count);
   });
 
   it('matches every Rust settlement result', () => {
+    let canonicalResults = '';
     for (const [index, vector] of corpus.cases.entries()) {
       const positions = vector.positions.map(position);
       const result = settlePositions(positions, vector.outcome, BigInt(vector.ratio_milli));
@@ -96,6 +116,32 @@ describe('Rust and TypeScript payout differential corpus', () => {
       })));
       expect(forfeitedPot, `case ${index} forfeited pot`).toBe(BigInt(vector.expected.forfeited_pot));
       expect(result.dust, `case ${index} dust`).toBe(BigInt(vector.expected.dust));
+      expect(result.totalEntitlement + result.dust, `case ${index} conservation`).toBe(result.totalDeposits);
+      canonicalResults += [
+        index,
+        result.pots.backAmount,
+        result.pots.doubtAmount,
+        result.pots.matchedBack,
+        result.pots.matchedDoubt,
+        forfeitedPot,
+        result.dust,
+      ].join('|');
+      canonicalResults += '|';
+      canonicalResults += credits.map((credit) => `${credit.userKey}:${credit.refund}:${credit.payout},`).join('');
+      canonicalResults += '\n';
+    }
+
+    const resultSha256 = sha256(canonicalResults);
+    const outputPath = process.env['PAYOUT_DIFFERENTIAL_TYPESCRIPT_RESULT_PATH'];
+    if (outputPath !== undefined) {
+      writeFileSync(outputPath, `${JSON.stringify({
+        schemaVersion: 1,
+        language: 'typescript',
+        seed: corpus.seed,
+        caseCount: corpus.case_count,
+        corpusSha256: sha256(corpusBytes),
+        resultSha256,
+      })}\n`, { flag: 'wx' });
     }
   });
 });

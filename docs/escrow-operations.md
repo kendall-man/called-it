@@ -6,6 +6,35 @@ which creates a new local manifest and refuses to overwrite an existing file.
 They never sign, deploy, upgrade, pause, submit a transaction, or mutate chain
 state.
 
+## Oracle Signer Deployments
+
+Run each settlement signer as a separate Railway service with its own HTTPS
+origin, bearer token, Ed25519 key, and durable journal volume. Configure all
+three services to use `apps/oracle-signer/railway.json`; the repository-root
+`railway.json` is the engine profile and must not be used for signer services.
+
+Each signer service must have exactly one replica. A signer key must never be
+loaded by another service or replica. The three services may share source code,
+but must use independent TxLINE credentials, finalized Solana RPC endpoints,
+and journal volumes. Before enabling intake, call each configured `/sign`
+endpoint with `GET` and verify that it returns its expected, distinct public
+key. A quorum is ready only when at least two expected services answer and the
+engine `/api/ready` endpoint returns HTTP 200.
+
+## Standalone Direct Recovery
+
+`apps/escrow-recovery` is the engine-, web-, database-, and relayer-independent
+owner recovery client. Its commands read finalized Solana state and default to
+dry-run JSON evidence. Direct submission is restricted to canonical devnet and
+requires an owner-matching `0600` keypair file plus the exact write-consent
+token. It supports settled claims, void refunds, and atomic timeout-void plus
+refund for both SOL and canonical USDC.
+
+Use [the recovery runbook](../apps/web/ESCROW_RECOVERY.md) for the complete
+command contract. Archive its JSON output for both SOL and USDC recovery probes;
+an `unknown` submission must be resolved by a new finalized inspection before
+any replacement transaction is signed.
+
 ## Control Commands
 
 Use the repository-pinned package manager and never put credentials in a JSON

@@ -16,6 +16,7 @@ import {
 import { verifyIdlPolicy } from './idl-policy.js';
 import { buildProvenance, parseReleaseManifest } from './manifest.js';
 import { formatOpsStatus } from './ops-status.js';
+import { parsePayoutDifferentialEvidenceReceipt } from './payout-differential-evidence.js';
 import { verifyRelease } from './release.js';
 import type { BuildManifest, EvidenceRpcReader, ReleaseManifest, RpcReader } from './types.js';
 import { EscrowControlError, EXIT } from './types.js';
@@ -443,6 +444,13 @@ export async function verifyMainnetEvidence(
   if (localReceipt.releaseManifest.build.lockSha256 !== expectedIdentity.lockSha256) blocked('local-validator evidence lockfile differs from mainnet');
   if (localReceipt.suiteSha256 !== await sha256Tree(context.integrationSuitePath)) blocked('local-validator suite digest is not current');
   if (localReceipt.controlsSha256 !== await sha256Tree(context.controlsPath)) blocked('local-validator control implementation digest is not current');
+  const payoutDifferential = parsePayoutDifferentialEvidenceReceipt(localReceipt.payoutDifferential);
+  if (payoutDifferential.sourceCommit !== expectedIdentity.sourceCommit) blocked('payout differential evidence source commit differs from mainnet');
+  const payoutCorpus = await readFile(new URL(
+    '../../programs/calledit-escrow/vectors/payout-differential-v1.json',
+    import.meta.url,
+  )).catch(() => blocked('payout differential corpus is missing'));
+  if (payoutDifferential.corpusSha256 !== sha256(payoutCorpus)) blocked('payout differential corpus digest is not current');
 
   const devnetReceipt = parseDevnetEvidence(await store.json(scalarReferences.devnetEvidence!, 'devnet evidence'));
   const devnetReportBytes = await store.bytes(scalarReferences.devnetReport!, 'devnet E2E report');
@@ -578,6 +586,7 @@ export async function verifyMainnetEvidence(
       ...mainnetVerification.checks,
       'current IDL policy',
       'generated local-validator release evidence',
+      'release-bound Rust/TypeScript payout differential evidence',
       'live devnet release and finalized E2E transactions',
       'artifact-bound drift-clean soak',
       'signed legacy, review, audit, and authority provenance',

@@ -1,5 +1,11 @@
 import { z } from 'zod';
+import { DEVNET_ESCROW_PROGRAM_ID } from '@calledit/escrow-sdk';
 import { tokenFingerprint } from './token-fingerprint';
+
+const ESCROW_GENESIS_HASHES = {
+  devnet: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
+  'mainnet-beta': '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d',
+} as const;
 
 const BooleanSchema = z.enum(['true', 'false']).default('false').transform(
   (value) => value === 'true',
@@ -37,6 +43,7 @@ const WebEnvSchema = z.object({
   NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: BotUsernameSchema.optional(),
   NEXT_PUBLIC_TELEGRAM_STARTGROUP: z.literal('calledit_v1').optional(),
   NEXT_PUBLIC_PRIVY_APP_ID: PrivyAppIdSchema.optional(),
+  TELEGRAM_BOT_TOKEN: z.string().min(10).optional(),
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   SOLANA_RPC_URL: z.string().url().optional(),
@@ -65,6 +72,7 @@ const WebEnvSchema = z.object({
   NEXT_PUBLIC_PRIVY_APP_SECRET: z.never().optional(),
   NEXT_PUBLIC_PRIVY_JWT_VERIFICATION_KEY: z.never().optional(),
   NEXT_PUBLIC_WALLET_AUTH_PRIVATE_KEY: z.never().optional(),
+  NEXT_PUBLIC_TELEGRAM_BOT_TOKEN: z.never().optional(),
 }).superRefine((env, ctx) => {
   const addPairIssue = (left: string, right: string): void => {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: [left], message: 'invalid relationship' });
@@ -151,6 +159,7 @@ const WebEnvSchema = z.object({
       ['PRIVY_JWT_VERIFICATION_KEY', env.PRIVY_JWT_VERIFICATION_KEY],
       ['WALLET_AUTH_PRIVATE_KEY', env.WALLET_AUTH_PRIVATE_KEY],
       ['WALLET_AUTH_KEY_ID', env.WALLET_AUTH_KEY_ID],
+      ['TELEGRAM_BOT_TOKEN', env.TELEGRAM_BOT_TOKEN],
       ['WEB_BASE_URL', env.WEB_BASE_URL],
       ['WALLET_PROVIDER', env.WALLET_PROVIDER === 'privy' ? env.WALLET_PROVIDER : undefined],
       ['WALLET_MINIAPP_ENABLED', env.WALLET_MINIAPP_ENABLED ? 'true' : undefined],
@@ -158,6 +167,23 @@ const WebEnvSchema = z.object({
     for (const [name, value] of escrowVariables) {
       if (value === undefined) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: 'required for escrow custody' });
+      }
+    }
+    const expectedGenesisHash = ESCROW_GENESIS_HASHES[env.NEXT_PUBLIC_SOLANA_NETWORK];
+    if (
+      env.NEXT_PUBLIC_ESCROW_GENESIS_HASH !== undefined &&
+      env.NEXT_PUBLIC_ESCROW_GENESIS_HASH !== expectedGenesisHash
+    ) addPairIssue('NEXT_PUBLIC_ESCROW_GENESIS_HASH', 'NEXT_PUBLIC_SOLANA_NETWORK');
+    if (
+      env.ESCROW_GENESIS_HASH !== undefined &&
+      env.ESCROW_GENESIS_HASH !== expectedGenesisHash
+    ) addPairIssue('ESCROW_GENESIS_HASH', 'NEXT_PUBLIC_SOLANA_NETWORK');
+    if (env.NEXT_PUBLIC_ESCROW_PROGRAM_ID !== undefined) {
+      const programIdentityMatchesNetwork = env.NEXT_PUBLIC_SOLANA_NETWORK === 'devnet'
+        ? env.NEXT_PUBLIC_ESCROW_PROGRAM_ID === DEVNET_ESCROW_PROGRAM_ID
+        : env.NEXT_PUBLIC_ESCROW_PROGRAM_ID !== DEVNET_ESCROW_PROGRAM_ID;
+      if (!programIdentityMatchesNetwork) {
+        addPairIssue('NEXT_PUBLIC_ESCROW_PROGRAM_ID', 'NEXT_PUBLIC_SOLANA_NETWORK');
       }
     }
   }

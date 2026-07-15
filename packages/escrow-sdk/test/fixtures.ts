@@ -11,14 +11,14 @@ import type {
 } from '../src/attestations.js';
 import { hashMarketDocumentV1, type MarketDocumentV1 } from '../src/domain.js';
 import type { EscrowInstructionRequest } from '../src/instructions.js';
-import { ESCROW_PROGRAM_ID } from '../src/schema.js';
+import { DEVNET_ESCROW_PROGRAM_ID } from '../src/schema.js';
 import type { SponsoredPositionBuildOptions } from '../src/transactions.js';
 
 export const keypair = (byte: number): Keypair => Keypair.fromSeed(new Uint8Array(32).fill(byte));
 export const key = (byte: number): PublicKey => keypair(byte).publicKey;
 export const hash = (byte: number): Uint8Array => new Uint8Array(32).fill(byte);
 
-export const PROGRAM_ID = new PublicKey(ESCROW_PROGRAM_ID);
+export const PROGRAM_ID = new PublicKey(DEVNET_ESCROW_PROGRAM_ID);
 export const MARKET_UUID = '00112233-4455-6677-8899-aabbccddeeff';
 export const GENESIS_HASH = key(21).toBase58();
 export const RECENT_BLOCKHASH = key(22).toBase58();

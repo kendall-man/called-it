@@ -1,5 +1,8 @@
 export type PositionFailureAction = 'return' | 'retry' | 'refresh' | 'fund';
 
+export const ESCROW_PUBLIC_ACTIVITY_NOTICE =
+  'Wallet addresses, position amounts, and transaction history are public on Solana. Group members may connect this activity to your Telegram profile.';
+
 export type PositionFailurePresentation = {
   readonly title: string;
   readonly text: string;
@@ -49,6 +52,13 @@ export function positionFailure(code: string): PositionFailurePresentation {
       return {
         title: 'Not enough balance',
         text: 'Your Privy wallet does not hold enough of this asset. No assets moved and no position was created. Return to Telegram and open /wallet to add funds.',
+        action: 'return',
+        actionLabel: 'Return to Telegram',
+      };
+    case 'telegram_auth_required':
+      return {
+        title: 'Open this approval in Telegram',
+        text: 'This approval must open from your private Telegram chat. No assets moved and no position was created. Return to Telegram and tap Review and sign again.',
         action: 'return',
         actionLabel: 'Return to Telegram',
       };

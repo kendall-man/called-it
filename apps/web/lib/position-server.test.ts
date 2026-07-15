@@ -8,7 +8,12 @@ import {
   prepareEscrowPosition,
   submitEscrowPosition,
 } from './position-server';
-import { FIXTURE_TOKEN, positionServerFixture, signedFixtureTransaction } from './position-test-fixture';
+import {
+  FIXTURE_INIT_DATA,
+  FIXTURE_TOKEN,
+  positionServerFixture,
+  signedFixtureTransaction,
+} from './position-test-fixture';
 import type { PositionSigningSession } from './position-contract';
 import type { PositionStore } from './position-store';
 
@@ -25,7 +30,7 @@ function withSession(
 describe('escrow position server boundary', () => {
   it('issues custom auth without disclosing transaction or provider bindings', async () => {
     const fixture = positionServerFixture();
-    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN }, {
+    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN, initData: FIXTURE_INIT_DATA }, {
       ...fixture.dependencies,
       async signAuthJwt(userId, expiresAt) {
         expect(userId).toBe(42);
@@ -56,7 +61,7 @@ describe('escrow position server boundary', () => {
       return 'short-lived-custom-auth-jwt';
     });
 
-    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN }, {
+    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN, initData: FIXTURE_INIT_DATA }, {
       ...fixture.dependencies,
       store: withSession(fixture.store, session),
       signAuthJwt,
@@ -81,7 +86,7 @@ describe('escrow position server boundary', () => {
       transactionSignature: '1'.repeat(64),
     };
     const signAuthJwt = vi.fn().mockResolvedValue('must-not-be-minted');
-    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN }, {
+    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN, initData: FIXTURE_INIT_DATA }, {
       ...fixture.dependencies,
       store: withSession(fixture.store, consumedSession),
       signAuthJwt,
@@ -101,7 +106,7 @@ describe('escrow position server boundary', () => {
       },
     };
 
-    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN }, {
+    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN, initData: FIXTURE_INIT_DATA }, {
       ...fixture.dependencies,
       store,
       signAuthJwt,
@@ -119,13 +124,60 @@ describe('escrow position server boundary', () => {
     };
     const signAuthJwt = vi.fn().mockResolvedValue('must-not-be-minted');
 
-    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN }, {
+    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN, initData: FIXTURE_INIT_DATA }, {
       ...fixture.dependencies,
       store: withSession(fixture.store, expiredSession),
       signAuthJwt,
     });
 
     expect(result).toEqual({ status: 410, body: { error: 'session_expired' } });
+    expect(signAuthJwt).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing Telegram initData before minting Privy auth', async () => {
+    const fixture = positionServerFixture();
+    const signAuthJwt = vi.fn().mockResolvedValue('must-not-be-minted');
+
+    const result = await createPositionAuthSession({ token: FIXTURE_TOKEN }, {
+      ...fixture.dependencies,
+      signAuthJwt,
+    });
+
+    expect(result).toEqual({ status: 401, body: { error: 'telegram_auth_required' } });
+    expect(signAuthJwt).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid or expired Telegram initData before minting Privy auth', async () => {
+    const fixture = positionServerFixture();
+    const signAuthJwt = vi.fn().mockResolvedValue('must-not-be-minted');
+
+    const result = await createPositionAuthSession({
+      token: FIXTURE_TOKEN,
+      initData: 'invalid-or-expired-init-data',
+    }, {
+      ...fixture.dependencies,
+      signAuthJwt,
+      verifyTelegramInitData() { throw new Error('invalid'); },
+    });
+
+    expect(result).toEqual({ status: 401, body: { error: 'telegram_auth_required' } });
+    expect(signAuthJwt).not.toHaveBeenCalled();
+  });
+
+  it('rejects valid Telegram initData for another user before minting Privy auth', async () => {
+    const fixture = positionServerFixture();
+    const signAuthJwt = vi.fn().mockResolvedValue('must-not-be-minted');
+
+    const result = await createPositionAuthSession({
+      token: FIXTURE_TOKEN,
+      initData: FIXTURE_INIT_DATA,
+    }, {
+      ...fixture.dependencies,
+      signAuthJwt,
+      verifyTelegramInitData() { return { telegramUserId: 43 }; },
+    });
+
+    expect(result).toEqual({ status: 403, body: { error: 'identity_mismatch' } });
     expect(signAuthJwt).not.toHaveBeenCalled();
   });
 

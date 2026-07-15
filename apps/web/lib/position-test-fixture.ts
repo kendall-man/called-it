@@ -1,6 +1,6 @@
 import {
   buildSponsoredPositionTransaction,
-  ESCROW_PROGRAM_ID,
+  DEVNET_ESCROW_PROGRAM_ID,
 } from '@calledit/escrow-sdk';
 import { Keypair, VersionedTransaction } from '@solana/web3.js';
 import type { PrivyWalletIdentity } from './privy-server';
@@ -14,6 +14,7 @@ export const FIXTURE_MARKET_ID = '8ec17c8a-2a30-4f08-9b75-7cbe565d568f';
 export const FIXTURE_GENESIS = 'calledit-test-genesis';
 export const FIXTURE_USDC_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
 export const FIXTURE_TOKEN = 'a'.repeat(43);
+export const FIXTURE_INIT_DATA = 'signed-telegram-init-data-for-user-42';
 
 export function positionServerFixture() {
   const sponsor = Keypair.generate();
@@ -22,7 +23,7 @@ export function positionServerFixture() {
   const expiresAt = BigInt(Math.floor(FIXTURE_NOW.getTime() / 1_000) + 300);
   const documentHash = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
   const built = buildSponsoredPositionTransaction({
-    programId: ESCROW_PROGRAM_ID,
+    programId: DEVNET_ESCROW_PROGRAM_ID,
     relayerFeePayer: sponsor.publicKey,
     userWallet: owner.publicKey,
     canonicalUsdcMint: FIXTURE_USDC_MINT,
@@ -44,7 +45,7 @@ export function positionServerFixture() {
   const messageHashHex = transactionMessageHashHex(built.transaction);
   const authorization: PositionAuthorization = {
     schemaVersion: 1,
-    programId: ESCROW_PROGRAM_ID,
+    programId: DEVNET_ESCROW_PROGRAM_ID,
     relayerFeePayer: sponsor.publicKey.toBase58(),
     canonicalUsdcMint: FIXTURE_USDC_MINT,
     marketUuid: FIXTURE_MARKET_ID,
@@ -98,8 +99,9 @@ export function positionServerFixture() {
     keyId: 'test-key',
     network: 'devnet',
     privateKeyBase64: 'unused-in-injected-tests',
-    programId: ESCROW_PROGRAM_ID,
+    programId: DEVNET_ESCROW_PROGRAM_ID,
     rpcUrl: 'https://rpc.example.test',
+    telegramBotToken: '123456789:test-bot-token-secret',
   };
   const store: PositionStore = {
     async readSession() { return { kind: 'found', session }; },
@@ -128,6 +130,7 @@ export function positionServerFixture() {
         async blockhashValid() { return true; },
       },
       async verifyIdentity() { return identity; },
+      verifyTelegramInitData() { return { telegramUserId: 42 }; },
     },
   };
 }

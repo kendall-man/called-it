@@ -9,7 +9,14 @@ import {
   type Signer,
   type TransactionInstruction,
 } from '@solana/web3.js';
-import { AccountUnavailableError, ExpectedTransactionFailureMissingError, HarnessConfigurationError, ScenarioTimeoutError } from './errors.js';
+import {
+  AccountUnavailableError,
+  ExpectedTransactionFailureMissingError,
+  HarnessConfigurationError,
+  IntegrityAssertionError,
+  ScenarioTimeoutError,
+  TransactionFailedError,
+} from './errors.js';
 import { isFinalizedSuccess } from './finalization.js';
 
 export const COMMITMENT = 'finalized' as const;
@@ -73,7 +80,7 @@ export async function submitSignedTransactionBytes(input: {
       searchTransactionHistory: true,
     })).value[0] ?? null;
     if (status?.err !== null && status?.err !== undefined) {
-      throw new HarnessConfigurationError(`transaction ${signature} failed: ${JSON.stringify(status.err)}`);
+      throw new TransactionFailedError(signature, status.err);
     }
     if (isFinalizedSuccess(status)) return signature;
     const blockHeight = await input.connection.getBlockHeight(BLOCKHASH_COMMITMENT);
@@ -102,6 +109,68 @@ export async function expectTransactionFailure(operation: string, action: () => 
     throw error;
   }
   throw new ExpectedTransactionFailureMissingError(operation);
+}
+
+function customProgramError(error: unknown): number | undefined {
+  if (error === null || typeof error !== 'object') return undefined;
+  const instructionError = (error as { readonly InstructionError?: unknown }).InstructionError;
+  if (!Array.isArray(instructionError) || instructionError.length !== 2) return undefined;
+  const detail = instructionError[1];
+  if (detail === null || typeof detail !== 'object') return undefined;
+  const custom = (detail as { readonly Custom?: unknown }).Custom;
+  return typeof custom === 'number' && Number.isSafeInteger(custom) ? custom : undefined;
+}
+
+export async function expectProgramError(
+  operation: string,
+  expectedCode: number,
+  action: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await action();
+  } catch (error) {
+    if (!(error instanceof TransactionFailedError)) throw error;
+    const actualCode = customProgramError(error.transactionError);
+    if (actualCode !== expectedCode) {
+      throw new IntegrityAssertionError(
+        `${operation} returned program error ${String(actualCode)} instead of ${expectedCode}`,
+      );
+    }
+    return;
+  }
+  throw new ExpectedTransactionFailureMissingError(operation);
+}
+
+export interface AccountStateSnapshot {
+  readonly address: string;
+  readonly exists: boolean;
+  readonly lamports?: number;
+  readonly owner?: string;
+  readonly executable?: boolean;
+  readonly dataBase64?: string;
+}
+
+export async function accountStateSnapshot(
+  connectionValue: Connection,
+  address: PublicKey,
+): Promise<AccountStateSnapshot> {
+  const info = await connectionValue.getAccountInfo(address, COMMITMENT);
+  if (info === null) return { address: address.toBase58(), exists: false };
+  return {
+    address: address.toBase58(),
+    exists: true,
+    lamports: info.lamports,
+    owner: info.owner.toBase58(),
+    executable: info.executable,
+    dataBase64: info.data.toString('base64'),
+  };
+}
+
+export async function accountStateSnapshots(
+  connectionValue: Connection,
+  addresses: readonly PublicKey[],
+): Promise<readonly AccountStateSnapshot[]> {
+  return Promise.all(addresses.map((address) => accountStateSnapshot(connectionValue, address)));
 }
 
 export async function accountData(connectionValue: Connection, address: PublicKey, owner?: PublicKey): Promise<Uint8Array> {

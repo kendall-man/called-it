@@ -155,7 +155,7 @@ export async function verifyWalletChallenge(
   if (!proof.ok) {
     return refusal(proof.code === 'challenge_expired' ? 410 : 400, 'signature_invalid');
   }
-  const verified = await client.rpc('wager_verify_privy_wallet_link_session', {
+  const verified = await client.rpc('escrow_verify_privy_wallet_link_session', {
     p_token_hash_hex: tokenHash,
     p_challenge_id: input.data.challengeId,
     p_pubkey: input.data.pubkey,

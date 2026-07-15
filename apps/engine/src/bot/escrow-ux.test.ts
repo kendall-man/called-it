@@ -63,7 +63,14 @@ describe('Telegram escrow position UX', () => {
     expect(harness.cardEdits).toHaveLength(0);
     expect(tap.privateMessages).toHaveLength(1);
     expect(tap.privateMessages[0]?.text).toContain('On-chain escrow · MAINNET · 0.01 SOL');
-    expect(JSON.stringify(tap.privateMessages[0]?.options)).toContain(`/position/${TOKEN}`);
+    expect(tap.privateMessages[0]?.options).toEqual({
+      reply_markup: {
+        inline_keyboard: [[{
+          text: 'Review and sign',
+          web_app: { url: `https://web.test/position/${TOKEN}` },
+        }]],
+      },
+    });
     expect(tap.privateMessages[0]?.text).not.toContain(TOKEN);
   });
 

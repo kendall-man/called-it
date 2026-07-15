@@ -13,6 +13,11 @@ export const PositionTokenRequestSchema = z.object({
   token: z.string().regex(POSITION_TOKEN_PATTERN),
 }).strict();
 
+export const PositionAuthRequestSchema = z.object({
+  token: z.string().regex(POSITION_TOKEN_PATTERN),
+  initData: z.string().min(1).max(8_192).optional(),
+}).strict();
+
 export const PositionIdentityRequestSchema = PositionTokenRequestSchema.extend({
   pubkey: z.string().regex(SOLANA_PUBKEY_PATTERN),
 }).strict();

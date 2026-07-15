@@ -1,6 +1,10 @@
 import { createHash, createPublicKey, verify as verifySignature } from 'node:crypto';
 
 import { parseReleaseManifest } from './manifest.js';
+import {
+  parsePayoutDifferentialEvidenceReceipt,
+  type PayoutDifferentialEvidenceReceipt,
+} from './payout-differential-evidence.js';
 import { findProgramAddress, manifestDigest, verifyRelease } from './release.js';
 import type {
   BuildManifest,
@@ -133,6 +137,7 @@ export interface LocalValidatorEvidenceReceipt {
   readonly buildManifestSha256: string;
   readonly suiteSha256: string;
   readonly controlsSha256: string;
+  readonly payoutDifferential: PayoutDifferentialEvidenceReceipt;
   readonly startedAt: string;
   readonly completedAt: string;
   readonly verifiedAt: string;
@@ -630,6 +635,7 @@ export function createLocalValidatorEvidence(input: {
   readonly verificationChecks: readonly string[];
   readonly suiteSha256: string;
   readonly controlsSha256: string;
+  readonly payoutDifferential: PayoutDifferentialEvidenceReceipt;
   readonly startedAt: string;
   readonly completedAt: string;
   readonly verifiedAt?: string;
@@ -652,6 +658,7 @@ export function createLocalValidatorEvidence(input: {
     buildManifestSha256: identity.buildManifestSha256,
     suiteSha256: asSha256(input.suiteSha256, 'local-validator evidence.suiteSha256'),
     controlsSha256: asSha256(input.controlsSha256, 'local-validator evidence.controlsSha256'),
+    payoutDifferential: parsePayoutDifferentialEvidenceReceipt(input.payoutDifferential),
     startedAt,
     completedAt,
     verifiedAt,
@@ -671,6 +678,7 @@ export function parseLocalValidatorEvidence(value: unknown): LocalValidatorEvide
     'buildManifestSha256',
     'suiteSha256',
     'controlsSha256',
+    'payoutDifferential',
     'startedAt',
     'completedAt',
     'verifiedAt',
@@ -689,6 +697,7 @@ export function parseLocalValidatorEvidence(value: unknown): LocalValidatorEvide
     verificationChecks: checks,
     suiteSha256: asSha256(root.suiteSha256, 'local-validator evidence.suiteSha256'),
     controlsSha256: asSha256(root.controlsSha256, 'local-validator evidence.controlsSha256'),
+    payoutDifferential: parsePayoutDifferentialEvidenceReceipt(root.payoutDifferential),
     startedAt: isoTimestamp(root.startedAt, 'local-validator evidence.startedAt'),
     completedAt: isoTimestamp(root.completedAt, 'local-validator evidence.completedAt'),
     verifiedAt: isoTimestamp(root.verifiedAt, 'local-validator evidence.verifiedAt'),

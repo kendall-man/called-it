@@ -42,7 +42,7 @@ describe('private escrow Telegram/read-model bridge', () => {
       async fetch(input, init) {
         const url = new URL(input);
         calls.push({ url, init });
-        if (url.pathname.endsWith('/wager_wallet_links')) {
+        if (url.pathname.endsWith('/escrow_wallet_links')) {
           return response([{
             user_id: 42, pubkey: 'owner', wallet_provider: 'privy',
             provider_user_id: 'did:privy:42', provider_wallet_id: 'wallet-42',

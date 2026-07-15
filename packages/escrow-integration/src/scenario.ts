@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { getAccount, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { bootstrapEscrow } from './bootstrap.js';
-import { proveSponsoredMessageIntegrity, proveOnChainSubstitutionRejection } from './adversarial.js';
+import {
+  proveSameOwnerPositionRules,
+  proveSponsoredMessageIntegrity,
+  proveOnChainSubstitutionRejection,
+} from './adversarial.js';
 import { proveAntiSnipe } from './anti-snipe.js';
 import { MARKET_UUIDS, marketDocument, openMarket } from './markets.js';
 import { fundUsdcUser, placeSponsoredPosition, usdcBalance } from './placements.js';
@@ -36,6 +40,11 @@ export async function runLocalValidatorScenario(): Promise<ScenarioResult> {
   const reserve = BigInt(await rpc.getMinimumBalanceForRentExemption(0, 'finalized'));
   assert.equal(BigInt(await rpc.getBalance(settlementMarket.vault, 'finalized')) - reserve, back.amount + doubt.amount);
   await proveOnChainSubstitutionRejection({ context, placement: back, otherVault: replayMarket.vault });
+  const additionalBack = await proveSameOwnerPositionRules({ context, placement: back });
+  assert.equal(
+    BigInt(await rpc.getBalance(settlementMarket.vault, 'finalized')) - reserve,
+    back.amount + doubt.amount + additionalBack.amount,
+  );
   await proveSignatureRecovery(context, back);
   await runReplayMarket({ context, market: replayMarket, liveBack: back, liveDoubt: doubt });
 
@@ -69,7 +78,32 @@ export async function runLocalValidatorScenario(): Promise<ScenarioResult> {
   await fundUsdcUser(context, context.roles.users[1].publicKey, 2_000_000n);
   await runReplayMarket({ context, market: replayUsdcMarket, liveBack: back, liveDoubt: doubt });
 
-  await settleAndClaim({ context, market: settlementMarket, back, doubt });
+  await settleAndClaim({
+    context,
+    market: settlementMarket,
+    back,
+    doubt,
+    additionalLots: [additionalBack],
+    outcome: 'claim_won',
+  });
+
+  const settlementLostMarket = await openMarket(context, await marketDocument({
+    context, marketUuid: MARKET_UUIDS.settlementLost, fixtureId: 10_007n,
+    asset: 'sol', replay: false, timing: 'standard',
+  }));
+  const lostBack = await placeSponsoredPosition({
+    context, market: settlementLostMarket, owner: context.roles.users[0], side: 'back', amount: 2_000_000n,
+  });
+  const lostDoubt = await placeSponsoredPosition({
+    context, market: settlementLostMarket, owner: context.roles.users[1], side: 'doubt', amount: 3_000_000n,
+  });
+  await settleAndClaim({
+    context,
+    market: settlementLostMarket,
+    back: lostBack,
+    doubt: lostDoubt,
+    outcome: 'claim_lost',
+  });
 
   const timeoutMarket = await openMarket(context, await marketDocument({
     context, marketUuid: MARKET_UUIDS.timeout, fixtureId: 10_003n,

@@ -94,9 +94,10 @@ function createWalletAccountStore(): WalletAccountStore {
   return {
     async summary(userId, pubkey) {
       const link = await client
-        .from('wager_wallet_links')
+        .from('escrow_wallet_links')
         .select('user_id')
         .eq('user_id', userId)
+        .eq('solana_network', env.NEXT_PUBLIC_SOLANA_NETWORK)
         .eq('pubkey', pubkey)
         .maybeSingle();
       if (link.error !== null) throw new Error('wallet account lookup failed');

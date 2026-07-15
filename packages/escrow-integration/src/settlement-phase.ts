@@ -12,7 +12,15 @@ import {
   TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 import { settlementAttestation, thresholdInstructions } from './attestation-fixtures.js';
-import { accountData, finalizedTransactionFee, connection, expectTransactionFailure, sendInstructions } from './runtime.js';
+import {
+  accountData,
+  accountStateSnapshots,
+  finalizedTransactionFee,
+  connection,
+  expectProgramError,
+  expectTransactionFailure,
+  sendInstructions,
+} from './runtime.js';
 import type { BootstrapContext, OpenedMarket, PlacedPosition } from './types.js';
 
 function entitlementFor(
@@ -55,13 +63,26 @@ export async function settleAndClaim(input: {
   readonly market: OpenedMarket;
   readonly back: PlacedPosition;
   readonly doubt: PlacedPosition;
+  readonly additionalLots?: readonly PlacedPosition[];
+  readonly outcome?: 'claim_won' | 'claim_lost';
 }): Promise<void> {
   const rpc = connection(input.context.rpcUrl);
+  const outcome = input.outcome ?? 'claim_won';
+  const placements = [input.back, input.doubt, ...(input.additionalLots ?? [])];
+  for (const placement of placements) {
+    assert(
+      placement.position.equals(input.back.position) || placement.position.equals(input.doubt.position),
+      'every additional lot must belong to one of the two aggregate positions',
+    );
+  }
+  const aggregateAmount = (primary: PlacedPosition): bigint => placements
+    .filter((placement) => placement.position.equals(primary.position))
+    .reduce((total, placement) => total + placement.amount, 0n);
   const expected = settlePositions([
-    { id: input.back.position.toBase58(), owner: input.back.owner.publicKey.toBase58(), side: input.back.side, activeAmount: input.back.amount, pendingAmount: 0n, refundableAmount: 0n },
-    { id: input.doubt.position.toBase58(), owner: input.doubt.owner.publicKey.toBase58(), side: input.doubt.side, activeAmount: input.doubt.amount, pendingAmount: 0n, refundableAmount: 0n },
-  ], 'claim_won', BigInt(input.market.document.ratioMilli));
-  const attestation = await settlementAttestation(input.context, input.market);
+    { id: input.back.position.toBase58(), owner: input.back.owner.publicKey.toBase58(), side: input.back.side, activeAmount: aggregateAmount(input.back), pendingAmount: 0n, refundableAmount: 0n },
+    { id: input.doubt.position.toBase58(), owner: input.doubt.owner.publicKey.toBase58(), side: input.doubt.side, activeAmount: aggregateAmount(input.doubt), pendingAmount: 0n, refundableAmount: 0n },
+  ], outcome, BigInt(input.market.document.ratioMilli));
+  const attestation = await settlementAttestation(input.context, input.market, outcome);
   const settle = materializeInstruction({
     kind: 'settle_market', marketUuid: input.market.document.marketUuid, attestation: attestation.value,
   }, { programId: input.context.programId });
@@ -69,10 +90,13 @@ export async function settleAndClaim(input: {
     connection: rpc, feePayer: input.context.roles.relayer,
     instructions: [...thresholdInstructions(input.context, attestation.message), settle],
   });
-  await expectTransactionFailure('duplicate settlement attestation', async () => sendInstructions({
+  const settlementProtectedAccounts = [input.market.market, input.market.vault] as const;
+  const beforeDuplicateSettlement = await accountStateSnapshots(rpc, settlementProtectedAccounts);
+  await expectProgramError('duplicate settlement attestation', 6_046, async () => sendInstructions({
     connection: rpc, feePayer: input.context.roles.relayer,
     instructions: [...thresholdInstructions(input.context, attestation.message), settle],
   }));
+  assert.deepEqual(await accountStateSnapshots(rpc, settlementProtectedAccounts), beforeDuplicateSettlement);
 
   for (const placement of [input.back, input.doubt]) {
     const calculate = materializeInstruction({
@@ -83,7 +107,10 @@ export async function settleAndClaim(input: {
   }
   const market = decodeMarketAccount(await accountData(rpc, input.market.market, input.context.programId));
   assert.equal(market.state, 'settled');
-  assert.equal(market.finalForfeitedTotal, expected.pots.matchedDoubt);
+  assert.equal(
+    market.finalForfeitedTotal,
+    outcome === 'claim_won' ? expected.pots.matchedDoubt : expected.pots.matchedBack,
+  );
   assert.equal(market.settlementProcessedPositionCount, 2n);
 
   const closeMarket = materializeInstruction({
@@ -128,14 +155,52 @@ export async function settleAndClaim(input: {
   assert.equal(backExpected + doubtExpected + expected.dust, expected.totalDeposits);
   assert.equal(await vaultPrincipal(input.context, input.market), expected.dust);
 
+  const backDestination = input.market.document.asset === 'sol'
+    ? input.back.owner.publicKey
+    : getAssociatedTokenAddressSync(
+      input.context.canonicalUsdcMint,
+      input.back.owner.publicKey,
+      false,
+      TOKEN_PROGRAM_ID,
+    );
+  const duplicateClaimProtectedAccounts = [
+    input.market.market,
+    input.back.position,
+    input.market.vault,
+    backDestination,
+  ] as const;
+  const beforeDuplicateClaim = await accountStateSnapshots(rpc, duplicateClaimProtectedAccounts);
+  const duplicateClaim = materializeInstruction({
+    kind: 'claim_position_for',
+    payer: input.context.roles.relayer.publicKey,
+    marketUuid: input.market.document.marketUuid,
+    owner: input.back.owner.publicKey,
+    asset: input.market.document.asset,
+    canonicalUsdcMint: input.context.canonicalUsdcMint,
+  }, { programId: input.context.programId });
+  await expectProgramError('double claim', 6_056, async () => sendInstructions({
+    connection: rpc,
+    feePayer: input.context.roles.relayer,
+    instructions: [duplicateClaim],
+  }));
+  assert.deepEqual(
+    await accountStateSnapshots(rpc, duplicateClaimProtectedAccounts),
+    beforeDuplicateClaim,
+    'double-claim rejection must preserve market, position, vault, and owner destination',
+  );
+
   await expectTransactionFailure('market close with open position accounts', async () => sendInstructions({
     connection: rpc, feePayer: input.context.roles.relayer, instructions: [closeMarket],
   }));
   for (const placement of [input.back, input.doubt]) {
+    const lotNonces = placements
+      .filter((candidate) => candidate.position.equals(placement.position))
+      .map((candidate) => candidate.nonce)
+      .sort((left, right) => left > right ? -1 : left < right ? 1 : 0);
     const closeLots = materializeInstruction({
       kind: 'close_position_lots', marketUuid: input.market.document.marketUuid,
       owner: placement.owner.publicKey, rentRecipient: input.context.roles.relayer.publicKey,
-      lotNonces: [0n],
+      lotNonces,
     }, { programId: input.context.programId });
     const closePosition = materializeInstruction({
       kind: 'close_position', marketUuid: input.market.document.marketUuid,

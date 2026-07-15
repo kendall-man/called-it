@@ -21,6 +21,7 @@ export const MARKET_UUIDS = {
   antiSnipe: '00000000-0000-4000-8000-000000000004',
   replay: '00000000-0000-4000-8000-000000000005',
   replayUsdc: '00000000-0000-4000-8000-000000000006',
+  settlementLost: '00000000-0000-4000-8000-000000000007',
 } as const;
 
 export type MarketTiming = 'standard' | 'in_play' | 'short_timeout';

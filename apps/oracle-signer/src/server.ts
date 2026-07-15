@@ -66,6 +66,13 @@ export function createOracleSignerServer(options: {
 }) {
   const log = options.log ?? (() => undefined);
   return createServer(async (request, response) => {
+    if (request.url === '/api/ready' && request.method === 'GET') {
+      reply(response, 200, {
+        status: 'ready',
+        signerPubkey: options.signer.publicKey.toBase58(),
+      });
+      return;
+    }
     if (request.url !== '/sign' || (request.method !== 'GET' && request.method !== 'POST')) {
       reply(response, 404, { error: 'not_found' });
       return;

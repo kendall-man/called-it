@@ -73,8 +73,9 @@ export type PreparedPosition = {
   readonly expiresAt: string;
 };
 
-export async function requestPositionAuthSession(token: string) {
-  const body = await apiRequest('/api/position/session', { token });
+export async function requestPositionAuthSession(token: string, initData: string) {
+  if (initData.length === 0) throw new PositionClientError('telegram_auth_required');
+  const body = await apiRequest('/api/position/session', { token, initData });
   const parsed = SessionSchema.safeParse(body);
   if (!parsed.success) throw new PositionClientError(responseError(body));
   return parsed.data;

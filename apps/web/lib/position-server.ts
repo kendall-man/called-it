@@ -10,9 +10,9 @@ import { z } from 'zod';
 import { loadWebEnv } from './env';
 import {
   EngineAcceptResponseSchema,
+  PositionAuthRequestSchema,
   PositionIdentityRequestSchema,
   PositionSubmitRequestSchema,
-  PositionTokenRequestSchema,
   positionAuthorizationForSdk,
   type PositionSigningSession,
 } from './position-contract';
@@ -29,6 +29,7 @@ import {
   type PositionStore,
 } from './position-store';
 import { signWalletAuthJwt } from './wallet-auth-server';
+import { verifyTelegramInitData as verifyTelegramWebAppInitData } from './telegram-init-data-server';
 
 export interface PositionApiResult {
   readonly status: number;
@@ -48,6 +49,7 @@ export type PositionServerConfig = {
   readonly privateKeyBase64: string;
   readonly programId: string;
   readonly rpcUrl: string;
+  readonly telegramBotToken: string;
 };
 
 export interface PositionChainVerifier {
@@ -64,6 +66,10 @@ export type PositionServerDependencies = {
   readonly signAuthJwt?: (userId: number, expiresAt: number) => Promise<string>;
   readonly store?: PositionStore;
   readonly verifyIdentity?: PrivyIdentityVerifier;
+  readonly verifyTelegramInitData?: (
+    initData: string,
+    now: Date,
+  ) => { readonly telegramUserId: number };
 };
 
 const AccountRequestSchema = z.object({
@@ -76,16 +82,30 @@ export async function createPositionAuthSession(
   raw: unknown,
   dependencies: PositionServerDependencies = {},
 ): Promise<PositionApiResult> {
-  const input = PositionTokenRequestSchema.safeParse(raw);
+  const input = PositionAuthRequestSchema.safeParse(raw);
   if (!input.success) return refusal(400, 'invalid_request');
+  if (input.data.initData === undefined) return refusal(401, 'telegram_auth_required');
   const config = dependencies.config ?? loadPositionServerConfig();
   if (config.custodyMode !== 'escrow') return refusal(404, 'escrow_not_enabled');
   const now = (dependencies.now ?? (() => new Date()))();
+  let telegramUserId: number;
+  try {
+    const verifier = dependencies.verifyTelegramInitData ?? ((initData: string, verifiedAt: Date) => (
+      verifyTelegramWebAppInitData(initData, {
+        botToken: config.telegramBotToken,
+        now: verifiedAt,
+      })
+    ));
+    telegramUserId = verifier(input.data.initData, now).telegramUserId;
+  } catch {
+    return refusal(401, 'telegram_auth_required');
+  }
   const lookup = await (dependencies.store ?? createPositionStore()).readSession(
     hashPositionToken(input.data.token),
     now,
   );
   if (lookup.kind === 'rejected') return lookupRefusal(lookup);
+  if (telegramUserId !== lookup.session.userId) return refusal(403, 'identity_mismatch');
   if (lookup.session.state !== 'pending') return refusal(409, 'session_consumed');
   const expiresAt = Date.parse(lookup.session.expiresAt);
   if (!Number.isFinite(expiresAt)) return refusal(410, 'session_expired');
@@ -423,7 +443,8 @@ function loadPositionServerConfig(): PositionServerConfig {
     env.PRIVY_APP_ID === undefined ||
     env.WEB_BASE_URL === undefined ||
     env.WALLET_AUTH_PRIVATE_KEY === undefined ||
-    env.WALLET_AUTH_KEY_ID === undefined
+    env.WALLET_AUTH_KEY_ID === undefined ||
+    env.TELEGRAM_BOT_TOKEN === undefined
   ) {
     throw new Error('escrow position configuration unavailable');
   }
@@ -440,6 +461,7 @@ function loadPositionServerConfig(): PositionServerConfig {
     privateKeyBase64: env.WALLET_AUTH_PRIVATE_KEY,
     programId: env.NEXT_PUBLIC_ESCROW_PROGRAM_ID,
     rpcUrl: env.SOLANA_RPC_URL,
+    telegramBotToken: env.TELEGRAM_BOT_TOKEN,
   };
 }
 

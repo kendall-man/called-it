@@ -350,9 +350,11 @@ export class OracleAttestationVerifier {
     }
     const decidingSequence = safeNumber(attestation.decidingSequence, 'deciding sequence');
     const deciding = events.find((event) => event.seq === decidingSequence);
-    const root = events.find((event) => eventHash(event) === bytesToHex(attestation.normalizedEvidenceRoot));
-    if (deciding === undefined || root === undefined || root.seq < deciding.seq) {
+    if (deciding === undefined || latest.seq < deciding.seq) {
       throw new Error('settlement deciding evidence is missing');
+    }
+    if (eventHash(latest) !== bytesToHex(attestation.normalizedEvidenceRoot)) {
+      throw new Error('settlement terminal evidence is not latest');
     }
     const decidingGoals = standingGoals(events, decidingSequence);
     const outcome = claimedOutcome(spec, deciding, decidingGoals);
@@ -363,9 +365,9 @@ export class OracleAttestationVerifier {
       outcome !== attestation.outcome ||
       !equal(commitment, attestation.evidenceSequenceCommitment) ||
       !equal(evidenceHash, attestation.evidenceHash) ||
-      attestation.terminalPhase !== root.phase ||
-      !scoreEqual(attestation.regulationScore, regulationScore(root)) ||
-      !scoreEqual(attestation.fullMatchScore, score(root))
+      attestation.terminalPhase !== latest.phase ||
+      !scoreEqual(attestation.regulationScore, regulationScore(latest)) ||
+      !scoreEqual(attestation.fullMatchScore, score(latest))
     ) throw new Error('settlement attestation mismatch');
 
     const latestOutcome = claimedOutcome(spec, latest, standingGoals(events, latest.seq));

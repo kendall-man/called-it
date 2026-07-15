@@ -3,17 +3,23 @@ import { createHash } from 'node:crypto';
 import { loadEnv } from './env.js';
 import { BASE_ENV } from './env.test-fixtures.js';
 
+const DEVNET_ESCROW_PROGRAM_ID = 'HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL';
+const DISTINCT_MAINNET_TEST_PROGRAM_ID = 'BPFLoaderUpgradeab1e11111111111111111111111';
+const DEVNET_GENESIS_HASH = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
+const MAINNET_GENESIS_HASH = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
+
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
 function completeEscrowEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const mainnet = overrides.SOLANA_NETWORK === 'mainnet-beta';
   return {
     ...BASE_ENV,
     WAGER_CUSTODY_MODE: 'escrow',
     ESCROW_ALLOWED_GROUP_IDS: '-100123',
-    ESCROW_PROGRAM_ID: '11111111111111111111111111111111',
-    ESCROW_GENESIS_HASH: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
+    ESCROW_PROGRAM_ID: mainnet ? DISTINCT_MAINNET_TEST_PROGRAM_ID : DEVNET_ESCROW_PROGRAM_ID,
+    ESCROW_GENESIS_HASH: mainnet ? MAINNET_GENESIS_HASH : DEVNET_GENESIS_HASH,
     ESCROW_CANONICAL_USDC_MINT: '22222222222222222222222222222222',
     ESCROW_CLASSIC_TOKEN_PROGRAM_ID: '33333333333333333333333333333333',
     ESCROW_ORACLE_SET_PDA: '44444444444444444444444444444444',
@@ -152,9 +158,17 @@ describe('loadEnv', () => {
       SOLANA_NETWORK: 'mainnet-beta',
       WAGER_CUSTODY_MODE: 'escrow',
       ESCROW_MAINNET_ENABLED: true,
+      ESCROW_PROGRAM_ID: DISTINCT_MAINNET_TEST_PROGRAM_ID,
+      ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
       TREASURY_COVERAGE_ENFORCED: false,
       WAGER_TREASURY_KEYPAIR_B58: undefined,
     });
+  });
+
+  it('rejects an escrow genesis crossed with the selected network', () => {
+    expect(() => loadEnv(completeEscrowEnv({
+      ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
+    }))).toThrowError('Engine environment invalid: ESCROW_GENESIS_HASH, SOLANA_NETWORK');
   });
 
   it('rejects a duplicate or insufficient escrow oracle set', () => {
