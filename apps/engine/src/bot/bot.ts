@@ -113,7 +113,7 @@ export function registerWagerCommands(
   }
   wager.registerCommands({
     command(command, handler) {
-      if (command === 'deposit' || command === 'withdraw') {
+      if (command === 'withdraw') {
         return bot.command(command, handler);
       }
       return undefined;

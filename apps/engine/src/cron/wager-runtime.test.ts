@@ -79,4 +79,20 @@ describe('wager runtime cron boundary', () => {
       ].sort((left, right) => left - right),
     );
   });
+
+  it('keeps legacy recovery workers but does not scan the shared treasury in escrow mode', () => {
+    const { deps } = makeFakeDeps();
+    const module = createWagerModule(deps);
+    const { intervals, registry } = collectingRegistry();
+
+    registerWagerCronWorkers(module, registry, 'escrow');
+
+    expect(intervals.sort((left, right) => left - right)).toEqual(
+      [
+        WAGER_TUNABLES.SETTLEMENT_SWEEP_MS,
+        WAGER_TUNABLES.OUTBOX_TICK_MS,
+        WAGER_TUNABLES.SOLVENCY_POLL_MS,
+      ].sort((left, right) => left - right),
+    );
+  });
 });

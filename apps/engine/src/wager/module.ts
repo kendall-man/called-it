@@ -350,9 +350,11 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
       bot.command('withdraw', handleWithdrawCommand);
     },
 
-    registerFundedWorkers(registry: WagerCronRegistry) {
-      for (const watcher of depositWatchers) {
-        registry.every(WAGER_TUNABLES.DEPOSIT_POLL_MS, () => watcher.tick());
+    registerFundedWorkers(registry: WagerCronRegistry, options = {}) {
+      if (options.legacyDepositIntakeEnabled ?? true) {
+        for (const watcher of depositWatchers) {
+          registry.every(WAGER_TUNABLES.DEPOSIT_POLL_MS, () => watcher.tick());
+        }
       }
       registry.every(WAGER_TUNABLES.OUTBOX_TICK_MS, () => executor.tick());
       registry.every(WAGER_TUNABLES.SOLVENCY_POLL_MS, () => solvency.tick());

@@ -217,8 +217,11 @@ export interface FundedWagerModule extends WagerModuleCore {
   }): Promise<{ reply: string; placed: boolean }>;
   cancelStakeConfirmation(userId: number, intentId: string): Promise<boolean>;
   registerCommands(bot: WagerBotLike): void;
-  /** Custody workers: deposits, withdrawals, and treasury solvency. */
-  registerFundedWorkers(registry: WagerCronRegistry): void;
+  /** Legacy custody recovery workers; deposit intake can be disabled after escrow cutover. */
+  registerFundedWorkers(
+    registry: WagerCronRegistry,
+    options?: { readonly legacyDepositIntakeEnabled?: boolean },
+  ): void;
 }
 
 export type WagerModule = StarterOnlyWagerModule | FundedWagerModule;

@@ -37,6 +37,7 @@ function assertNeverWagerModule(module: never): never {
 export function registerWagerCronWorkers(
   wager: WagerModule | null,
   registry: WagerCronRegistry,
+  custodyMode: 'legacy' | 'escrow' = 'legacy',
 ): void {
   if (wager === null) return;
   wager.registerSettlementRecovery(registry);
@@ -44,7 +45,9 @@ export function registerWagerCronWorkers(
     case 'starter_only':
       return;
     case 'funded':
-      wager.registerFundedWorkers(registry);
+      wager.registerFundedWorkers(registry, {
+        legacyDepositIntakeEnabled: custodyMode === 'legacy',
+      });
       return;
     default:
       assertNeverWagerModule(wager);
@@ -183,7 +186,7 @@ export function startCrons(args: {
         }, intervalMs),
       );
     },
-  });
+  }, deps.env.WAGER_CUSTODY_MODE);
 
   timers.push(
     setInterval(() => {

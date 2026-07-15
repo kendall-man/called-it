@@ -289,7 +289,7 @@ describe('onboarding scopes and lifecycle', () => {
     expect(ESCROW_PRIVATE_BOT_COMMANDS.map(({ command }) => command)).toEqual([
       'start', 'help', 'wallet',
     ]);
-    expect(registrations).toEqual(['deposit', 'withdraw']);
+    expect(registrations).toEqual(['withdraw']);
   });
 
   it('posts one ready message across group start and admin lifecycle updates', async () => {

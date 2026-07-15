@@ -860,7 +860,7 @@ export async function createProductionEscrowRuntime(options: {
     pointsProjection: options.pointsProjection,
     projectionSink: options.projectionSink,
     worker: {
-      intervalMs: Math.max(250, env.QUEUE_RETRY_BASE_MS),
+      intervalMs: env.ESCROW_WORKER_INTERVAL_MS,
       relayerLimit: 25,
       attestationLimit: 25,
       attestationLeaseMs: env.QUEUE_LEASE_MS,

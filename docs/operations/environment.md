@@ -164,6 +164,7 @@ The example values are the initial beta contract, not permissive fallbacks:
 | `QUEUE_MAX_ATTEMPTS` | 8 | integer from 1 through 100 |
 | `QUEUE_RETRY_BASE_MS` | 500 | no greater than retry maximum |
 | `QUEUE_RETRY_MAX_MS` | 30000 | bounded retry ceiling |
+| `ESCROW_WORKER_INTERVAL_MS` | 5000 | escrow relayer, attestation, and finalized-indexer cadence; 1000 through 60000 |
 | `READINESS_FEED_MAX_AGE_MS` | 60000 | active-pricing feed age |
 | `READINESS_WORKER_MAX_AGE_MS` | 30000 | Telegram, proof, and settlement worker heartbeat age |
 | `READINESS_INGRESS_MAX_AGE_MS` | 30000 | oldest ingress work age |
