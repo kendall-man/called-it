@@ -63,10 +63,11 @@ test('browser wallet link sessions are private, single-use, and owner-bound', as
     await seedWalletFixtures(client);
     const challengeId = 'f4f99fac-3cd6-46f5-abf6-c5f7b20c6238';
     const pubkey = '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk';
-    const session = await rpc(client, 'wager_create_wallet_link_session($1,$2,$3)', [
+    const session = await rpc(client, 'wager_create_wallet_link_session($1,$2,$3,$4)', [
       USER_ID,
       HASH_A,
       new Date(Date.now() + 10 * 60_000).toISOString(),
+      'devnet',
     ]);
     assert.equal(session.ok, true);
 
@@ -129,10 +130,11 @@ test('Privy wallet links atomically reserve the provider identity and wallet', a
     await seedWalletFixtures(client);
     const challengeId = '1f3250a0-8868-43a1-8842-c8164d72f177';
     const pubkey = '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk';
-    await rpc(client, 'wager_create_wallet_link_session($1,$2,$3)', [
+    await rpc(client, 'wager_create_wallet_link_session($1,$2,$3,$4)', [
       USER_ID,
       HASH_A,
       new Date(Date.now() + 5 * 60_000).toISOString(),
+      'devnet',
     ]);
     await rpc(client, 'wager_create_wallet_link_challenge($1,$2,$3,$4,$5)', [
       HASH_A,
@@ -166,10 +168,11 @@ test('Privy wallet links atomically reserve the provider identity and wallet', a
     });
 
     const otherChallengeId = 'b87ce271-cbb4-439e-97d1-d5c37f108aaf';
-    await rpc(client, 'wager_create_wallet_link_session($1,$2,$3)', [
+    await rpc(client, 'wager_create_wallet_link_session($1,$2,$3,$4)', [
       OTHER_USER_ID,
       HASH_B,
       new Date(Date.now() + 5 * 60_000).toISOString(),
+      'devnet',
     ]);
     await rpc(client, 'wager_create_wallet_link_challenge($1,$2,$3,$4,$5)', [
       HASH_B,

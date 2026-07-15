@@ -36,6 +36,7 @@ type WalletAuthConfig = {
 type WalletLinkSession = {
   readonly expiresAt: number;
   readonly userId: number;
+  readonly network: WalletAuthNetwork;
 };
 
 export async function createWalletAuthSession(raw: unknown): Promise<WalletAuthApiResult> {
@@ -50,6 +51,7 @@ export async function createWalletAuthSession(raw: unknown): Promise<WalletAuthA
   if (session === null || session.expiresAt - Date.now() < MIN_SESSION_LIFETIME_MS) {
     return refusal(410, 'wallet_link_expired');
   }
+  if (session.network !== config.network) return refusal(409, 'wallet_network_mismatch');
 
   const jwt = await signWalletAuthJwt(config, session);
   return {
@@ -77,7 +79,7 @@ export function walletAuthJwks(): { readonly keys: readonly JsonWebKey[] } {
 
 export async function signWalletAuthJwt(
   config: Pick<WalletAuthConfig, 'appId' | 'issuer' | 'keyId' | 'network' | 'privateKeyBase64'>,
-  session: WalletLinkSession,
+  session: Pick<WalletLinkSession, 'userId' | 'expiresAt'>,
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1_000);
   const expiresAt = Math.floor(session.expiresAt / 1_000);
@@ -111,8 +113,12 @@ async function lookupWalletLinkSession(
   const expiresAt = typeof result.expires_at === 'string'
     ? Date.parse(result.expires_at)
     : Number.NaN;
-  if (userId === null || !Number.isFinite(expiresAt)) return null;
-  return { userId, expiresAt };
+  const network = result.solana_network;
+  if (
+    userId === null || !Number.isFinite(expiresAt) ||
+    (network !== 'devnet' && network !== 'mainnet-beta')
+  ) return null;
+  return { userId, expiresAt, network };
 }
 
 function walletAuthConfig(): WalletAuthConfig {

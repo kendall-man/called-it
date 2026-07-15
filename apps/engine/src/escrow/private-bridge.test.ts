@@ -63,6 +63,7 @@ describe('private escrow Telegram/read-model bridge', () => {
     const body = String(calls[1]?.init?.body);
     expect(body).not.toContain(TOKEN);
     expect(body).toContain(createHash('sha256').update(TOKEN).digest('hex'));
+    expect(JSON.parse(body)).toMatchObject({ p_solana_network: 'devnet' });
     expect(calls[0]?.init?.headers).toMatchObject({ authorization: 'Bearer service-role' });
     expect(calls[0]?.url.searchParams.get('solana_network')).toBe('eq.devnet');
   });

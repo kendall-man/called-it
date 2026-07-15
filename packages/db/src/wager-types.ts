@@ -192,6 +192,7 @@ export interface WalletLinkSessionInput {
   user_id: number;
   token_hash_hex: string;
   expires_at: string;
+  solana_network: 'devnet' | 'mainnet-beta';
 }
 
 export type WalletLinkSessionResult =

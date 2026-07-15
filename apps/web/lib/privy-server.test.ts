@@ -108,6 +108,22 @@ describe('Privy wallet identity', () => {
     )).toThrowError(new PrivyIdentityError('identity_mismatch'));
   });
 
+  it('selects the custom-auth subject for the requested network when both are linked', () => {
+    const user = {
+      ...USER,
+      linked_accounts: [
+        { type: 'custom_auth', custom_user_id: 'calledit:mainnet-beta:telegram:987654321' },
+        ...USER.linked_accounts,
+      ],
+    };
+    expect(resolvePrivyWalletIdentity(
+      user,
+      USER.id,
+      '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
+      'devnet',
+    ).telegramUserId).toBe('123456789');
+  });
+
   it('uses the Solana address as a stable ID for legacy Privy wallets', () => {
     const legacyUser = {
       ...USER,

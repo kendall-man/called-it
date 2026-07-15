@@ -63,6 +63,7 @@ export function walletDbMethods(client: WagerDbClient): WalletDb {
           p_user_id: args.user_id,
           p_token_hash_hex: args.token_hash_hex,
           p_expires_at: args.expires_at,
+          p_solana_network: args.solana_network,
         }),
       );
       return parseWalletLinkSessionResult(payload);

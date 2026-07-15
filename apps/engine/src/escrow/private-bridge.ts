@@ -232,6 +232,7 @@ export function createSupabaseEscrowPrivateBridge(options: {
             p_user_id: input.telegramUserId,
             p_token_hash_hex: createHash('sha256').update(token).digest('hex'),
             p_expires_at: expiresAt,
+            p_solana_network: options.network,
           }),
         }));
         if (result?.ok !== true || typeof result.session_id !== 'string') {

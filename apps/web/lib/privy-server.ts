@@ -77,7 +77,10 @@ export function resolvePrivyWalletIdentity(
   }
   const customAuth = user.data.linked_accounts
     .map((account) => CustomAuthAccountSchema.safeParse(account))
-    .find((account) => account.success);
+    .find((account) => {
+      if (!account.success) return false;
+      return parseWalletAuthSubject(account.data.custom_user_id)?.network === expectedNetwork;
+    });
   if (customAuth === undefined || !customAuth.success) {
     throw new PrivyIdentityError('identity_mismatch');
   }

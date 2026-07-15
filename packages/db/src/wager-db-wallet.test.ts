@@ -26,6 +26,7 @@ describe('verified wallet RPC facade', () => {
       user_id: USER_ID,
       token_hash_hex: HASH_HEX,
       expires_at: '2026-07-13T12:10:00.000Z',
+      solana_network: 'devnet',
     })).resolves.toEqual({ ok: true, session_id: sessionId });
     expect(fake.rpcCalls[0]).toEqual({
       fn: 'wager_create_wallet_link_session',
@@ -33,6 +34,7 @@ describe('verified wallet RPC facade', () => {
         p_user_id: USER_ID,
         p_token_hash_hex: HASH_HEX,
         p_expires_at: '2026-07-13T12:10:00.000Z',
+        p_solana_network: 'devnet',
       },
     });
   });

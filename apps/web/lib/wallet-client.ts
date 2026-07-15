@@ -154,6 +154,8 @@ export function walletClientErrorMessage(cause: unknown): string {
     case 'challenge_expired':
     case 'session_invalid':
       return 'This private link expired. Return to Telegram and open /wallet again.';
+    case 'wallet_network_mismatch':
+      return 'This wallet link is for a different Solana network. Return to Telegram and open /wallet again.';
     case 'privy_auth_required':
       return 'Your secure wallet session expired. Return to Telegram and open /wallet again.';
     case 'privy_identity_invalid':

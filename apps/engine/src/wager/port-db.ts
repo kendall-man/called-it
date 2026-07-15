@@ -109,6 +109,7 @@ export interface WagerDb {
     user_id: number;
     token_hash_hex: string;
     expires_at: string;
+    solana_network: 'devnet' | 'mainnet-beta';
   }): Promise<
     | { ok: true; session_id: string }
     | { ok: false; code: 'session_invalid' | 'user_not_found' }

@@ -233,6 +233,7 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
       user_id: userId,
       token_hash_hex: createHash('sha256').update(token).digest('hex'),
       expires_at: new Date(deps.now() + WALLET_LINK_SESSION_TTL_MS).toISOString(),
+      solana_network: deps.solanaNetwork ?? 'devnet',
     });
     if (!session.ok) {
       deps.log.warn('wallet_link_session_refused', { code: session.code });
