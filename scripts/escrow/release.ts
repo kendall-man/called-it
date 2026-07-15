@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import type {
   BuildManifest,
   CheckResult,
+  EvidenceRpcReader,
   OracleSetAccount,
   ProtocolConfigAccount,
   ReleaseManifest,
@@ -340,7 +341,63 @@ export async function verifyRelease(
   return { ok: true, checks };
 }
 
-export class JsonRpcReader implements RpcReader {
+export async function captureReleaseManifest(
+  network: ReleaseManifest['network'],
+  build: BuildManifest,
+  rpc: RpcReader,
+): Promise<ReleaseManifest> {
+  const clusterGenesisHash = await rpc.genesisHash();
+  const program = await rpc.account(build.programId);
+  const programDataAddress = decodeProgramDataAddress(program);
+  const programData = await rpc.account(programDataAddress);
+  const upgradeAuthority = decodeUpgradeAuthority(programData);
+  if (upgradeAuthority === null) failMismatch('release program has no upgrade authority');
+  const configPda = findProgramAddress([Buffer.from('config')], build.programId).address;
+  const config = decodeProtocolConfig(await rpc.account(configPda));
+  const oracleSet = decodeOracleSet(await rpc.account(config.oracleSet));
+  if (oracleSet.signers.length !== 3) failMismatch('release oracle set must contain exactly three signers');
+  return {
+    schemaVersion: 1,
+    network,
+    clusterGenesisHash,
+    programId: build.programId,
+    upgradeableLoaderProgramId: UPGRADEABLE_LOADER,
+    programDataAddress,
+    upgradeAuthority,
+    configPda,
+    build,
+    config: {
+      custodyVersion: config.version,
+      paused: config.paused,
+      configAuthority: config.configAuthority,
+      pauseAuthority: config.pauseAuthority,
+      marketCreationAuthority: config.marketCreationAuthority,
+      feedOperatorAuthority: config.feedOperatorAuthority,
+      oracleSet: config.oracleSet,
+      relayerFeePayer: config.relayerFeePayer,
+      residualRecipient: config.residualRecipient,
+      canonicalUsdcMint: config.canonicalUsdcMint,
+      allowedTokenProgram: config.allowedTokenProgram,
+      minSolPosition: config.minSolPosition,
+      maxSolPosition: config.maxSolPosition,
+      minUsdcPosition: config.minUsdcPosition,
+      maxUsdcPosition: config.maxUsdcPosition,
+      maxMarketDurationSeconds: config.maxMarketDurationSeconds,
+      maxResolutionDelaySeconds: config.maxResolutionDelaySeconds,
+    },
+    oracleSet: {
+      address: config.oracleSet,
+      custodyVersion: oracleSet.version,
+      epoch: oracleSet.epoch,
+      signers: [oracleSet.signers[0]!, oracleSet.signers[1]!, oracleSet.signers[2]!],
+      threshold: 2,
+      activationSlot: oracleSet.activationSlot,
+      retirementSlot: oracleSet.retirementSlot,
+    },
+  };
+}
+
+export class JsonRpcReader implements EvidenceRpcReader {
   private requestId = 0;
 
   constructor(private readonly rpcUrl: string) {
@@ -374,6 +431,34 @@ export class JsonRpcReader implements RpcReader {
       lamports: result.value.lamports,
       data: Buffer.from(result.value.data[0], 'base64'),
     };
+  }
+
+  async finalizedTransaction(signature: string): Promise<{
+    readonly slot: number;
+    readonly blockTime: number;
+    readonly accountKeys: readonly string[];
+  }> {
+    const result = await this.call<null | {
+      readonly slot: number;
+      readonly blockTime: number | null;
+      readonly meta: { readonly err: unknown } | null;
+      readonly transaction: {
+        readonly message: {
+          readonly accountKeys: ReadonlyArray<string | { readonly pubkey: string }>;
+        };
+      };
+    }>('getTransaction', [signature, {
+      commitment: 'finalized',
+      encoding: 'json',
+      maxSupportedTransactionVersion: 0,
+    }]);
+    if (result === null) throw new EscrowControlError(EXIT.mismatch, `required finalized transaction is missing: ${signature}`);
+    if (result.meta === null || result.meta.err !== null) throw new EscrowControlError(EXIT.mismatch, `evidence transaction failed: ${signature}`);
+    if (!Number.isSafeInteger(result.slot) || result.slot < 0 || !Number.isSafeInteger(result.blockTime) || result.blockTime === null) {
+      throw new EscrowControlError(EXIT.mismatch, `evidence transaction metadata is malformed: ${signature}`);
+    }
+    const accountKeys = result.transaction.message.accountKeys.map((entry) => typeof entry === 'string' ? entry : entry.pubkey);
+    return { slot: result.slot, blockTime: result.blockTime, accountKeys };
   }
 
   private async call<T>(method: string, params: readonly unknown[]): Promise<T> {

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://called.it/schemas/escrow/devnet-e2e-report-v1.json",
+  "title": "Called It escrow devnet E2E transaction report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "releaseIdentity", "startedAt", "completedAt", "runId", "scenarios"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "devnet-e2e-report" },
+    "releaseIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["network", "clusterGenesisHash", "programId", "sourceCommit", "sbfSha256", "idlSha256", "sourceSha256", "lockSha256", "buildManifestSha256", "releaseManifestSha256"],
+      "properties": {
+        "network": { "const": "devnet" },
+        "clusterGenesisHash": { "type": "string" },
+        "programId": { "type": "string" },
+        "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{7,64}$" },
+        "sbfSha256": { "$ref": "#/$defs/sha256" },
+        "idlSha256": { "$ref": "#/$defs/sha256" },
+        "sourceSha256": { "$ref": "#/$defs/sha256" },
+        "lockSha256": { "$ref": "#/$defs/sha256" },
+        "buildManifestSha256": { "$ref": "#/$defs/sha256" },
+        "releaseManifestSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "runId": { "type": "string", "minLength": 1 },
+    "scenarios": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "transactionSignature", "observedAt"],
+        "properties": {
+          "id": {
+            "enum": [
+              "real-sol-position",
+              "real-usdc-position",
+              "settlement-and-claim",
+              "direct-claim-engine-down",
+              "paused-timeout-void",
+              "relayer-retry-recovery",
+              "telegram-privy-receipt"
+            ]
+          },
+          "transactionSignature": { "type": "string", "minLength": 64, "maxLength": 88 },
+          "observedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

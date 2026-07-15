@@ -79,6 +79,16 @@ export interface RpcReader {
   account(address: string): Promise<RpcAccount>;
 }
 
+export interface FinalizedTransaction {
+  readonly slot: number;
+  readonly blockTime: number;
+  readonly accountKeys: readonly string[];
+}
+
+export interface EvidenceRpcReader extends RpcReader {
+  finalizedTransaction(signature: string): Promise<FinalizedTransaction>;
+}
+
 export interface ProtocolConfigAccount {
   readonly version: number;
   readonly bump: number;

@@ -1,12 +1,19 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { createHash, generateKeyPairSync, sign, type KeyObject } from 'node:crypto';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import {
+  DEVNET_SCENARIOS,
+  createDevnetEvidence,
+  createLocalValidatorEvidence,
+  evidenceSigningPayload,
+  releaseIdentity,
+} from './evidence.js';
 import { verifyIdlPolicy } from './idl-policy.js';
-import { verifyMainnetEvidence } from './mainnet-gate.js';
+import { approvalBundleDigest, verifyMainnetEvidence, type MainnetGateContext } from './mainnet-gate.js';
 import { buildProvenance, parseReleaseManifest } from './manifest.js';
 import { formatOpsStatus } from './ops-status.js';
 import {
@@ -15,8 +22,8 @@ import {
   findProgramAddress,
   verifyRelease,
 } from './release.js';
-import { EscrowControlError, EXIT, type BuildManifest, type ReleaseManifest, type RpcAccount, type RpcReader } from './types.js';
-import { bigintLe, decodeBase58, encodeBase58, sha256 } from './util.js';
+import { EscrowControlError, EXIT, type BuildManifest, type EvidenceRpcReader, type ReleaseManifest, type RpcAccount } from './types.js';
+import { bigintLe, decodeBase58, encodeBase58, sha256, sha256Tree, stableJson } from './util.js';
 
 const fixture = (name: string) => new URL(`./fixtures/${name}`, import.meta.url);
 
@@ -87,12 +94,18 @@ function account(owner: string, data: Buffer, executable = false): RpcAccount {
   return { owner, data, executable, lamports: 1 };
 }
 
-function buildReleaseFixture(): { readonly manifest: ReleaseManifest; readonly build: BuildManifest; readonly rpc: RpcReader; readonly accounts: Map<string, RpcAccount>; readonly sbf: Buffer } {
-  const programId = key(1);
-  const sbf = Buffer.from('fake-sbf-without-secrets');
+function buildReleaseFixture(options: {
+  readonly network?: ReleaseManifest['network'];
+  readonly build?: BuildManifest;
+  readonly sbf?: Buffer;
+  readonly transactionBlockTime?: number;
+} = {}): { readonly manifest: ReleaseManifest; readonly build: BuildManifest; readonly rpc: EvidenceRpcReader; readonly accounts: Map<string, RpcAccount>; readonly sbf: Buffer } {
+  const network = options.network ?? 'localnet';
+  const programId = options.build?.programId ?? key(1);
+  const sbf = options.sbf ?? Buffer.from('fake-sbf-without-secrets');
   const config = findProgramAddress([Buffer.from('config')], programId);
   const oracle = findProgramAddress([Buffer.from('oracle-set'), bigintLe(1n)], programId);
-  const build: BuildManifest = {
+  const build: BuildManifest = options.build ?? {
     schemaVersion: 1,
     sourceCommit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     programId,
@@ -103,8 +116,12 @@ function buildReleaseFixture(): { readonly manifest: ReleaseManifest; readonly b
   };
   const manifest: ReleaseManifest = {
     schemaVersion: 1,
-    network: 'localnet',
-    clusterGenesisHash: key(2),
+    network,
+    clusterGenesisHash: network === 'mainnet-beta'
+      ? '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d'
+      : network === 'devnet'
+        ? 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG'
+        : key(2),
     programId,
     upgradeableLoaderProgramId: UPGRADEABLE_LOADER,
     programDataAddress: key(3),
@@ -121,7 +138,11 @@ function buildReleaseFixture(): { readonly manifest: ReleaseManifest; readonly b
       oracleSet: oracle.address,
       relayerFeePayer: key(9),
       residualRecipient: key(10),
-      canonicalUsdcMint: key(11),
+      canonicalUsdcMint: network === 'mainnet-beta'
+        ? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+        : network === 'devnet'
+          ? '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
+          : key(11),
       allowedTokenProgram: CLASSIC_TOKEN_PROGRAM,
       minSolPosition: '1000000',
       maxSolPosition: '50000000',
@@ -159,15 +180,299 @@ function buildReleaseFixture(): { readonly manifest: ReleaseManifest; readonly b
     [manifest.oracleSet.address, account(programId, oracleData(manifest, oracle.bump))],
     [manifest.config.canonicalUsdcMint, account(CLASSIC_TOKEN_PROGRAM, mint)],
   ]);
-  const rpc: RpcReader = {
+  const rpc: EvidenceRpcReader = {
     async genesisHash() { return manifest.clusterGenesisHash; },
     async account(address: string) {
       const found = accounts.get(address);
       if (found === undefined) throw new Error('missing fake account');
       return found;
     },
+    async finalizedTransaction() {
+      return {
+        slot: 100,
+        blockTime: options.transactionBlockTime ?? 1_786_000_000,
+        accountKeys: [manifest.programId],
+      };
+    },
   };
   return { manifest, build, rpc, accounts, sbf };
+}
+
+interface TestSigner {
+  readonly publicKey: string;
+  readonly privateKey: KeyObject;
+}
+
+interface EvidenceBundleFixture {
+  readonly directory: string;
+  readonly evidence: Record<string, any>;
+  readonly context: MainnetGateContext;
+  readonly paths: Readonly<Record<string, string>>;
+}
+
+function testSigner(): TestSigner {
+  const pair = generateKeyPairSync('ed25519');
+  const der = pair.publicKey.export({ format: 'der', type: 'spki' });
+  return { publicKey: encodeBase58(der.subarray(-32)), privateKey: pair.privateKey };
+}
+
+function signedStatement(signer: TestSigner, value: Record<string, unknown>): Record<string, unknown> {
+  const unsigned = { ...value, signerPublicKey: signer.publicKey };
+  return {
+    ...unsigned,
+    signature: encodeBase58(sign(null, evidenceSigningPayload(unsigned), signer.privateKey)),
+  };
+}
+
+async function writeArtifact(
+  directory: string,
+  name: string,
+  value: unknown,
+): Promise<{ readonly path: string; readonly sha256: string }> {
+  const bytes = Buffer.isBuffer(value)
+    ? value
+    : typeof value === 'string'
+      ? Buffer.from(value)
+      : Buffer.from(stableJson(value));
+  await writeFile(join(directory, name), bytes);
+  return { path: name, sha256: sha256(bytes) };
+}
+
+async function evidenceBundleFixture(options: { readonly staleLocal?: boolean } = {}): Promise<EvidenceBundleFixture> {
+  const directory = await mkdtemp(join(tmpdir(), 'escrow-mainnet-evidence-'));
+  const source = join(directory, 'source');
+  const suite = join(directory, 'suite');
+  const controls = join(directory, 'controls');
+  await Promise.all([mkdir(source), mkdir(suite), mkdir(controls)]);
+  const programSo = join(directory, 'mainnet.so');
+  const idlPath = join(directory, 'mainnet-idl.json');
+  const lock = join(directory, 'Cargo.lock');
+  const idl = await fixtureJson('idl-policy-pass.example.json');
+  await Promise.all([
+    writeFile(programSo, 'bound-sbf'),
+    writeFile(idlPath, stableJson(idl)),
+    writeFile(lock, 'locked\n'),
+    writeFile(join(source, 'lib.rs'), 'pub fn escrow() {}\n'),
+    writeFile(join(suite, 'local-validator.integration.test.ts'), 'required suite\n'),
+    writeFile(join(controls, 'gate.ts'), 'required controls\n'),
+  ]);
+  const build = await buildProvenance('a'.repeat(40), { programSo, idl: idlPath, source, lock });
+  const sbf = await readFile(programSo);
+  const transactionBlockTime = Date.parse('2026-07-15T08:45:00Z') / 1_000;
+  const mainnet = buildReleaseFixture({ network: 'mainnet-beta', build, sbf });
+  const devnet = buildReleaseFixture({ network: 'devnet', build, sbf, transactionBlockTime });
+  const local = buildReleaseFixture({ network: 'localnet', build, sbf });
+  const localVerification = await verifyRelease(local.manifest, build, local.rpc, sbf);
+  const localStart = options.staleLocal ? '2026-07-09T09:00:00Z' : '2026-07-15T09:00:00Z';
+  const localComplete = options.staleLocal ? '2026-07-09T09:30:00Z' : '2026-07-15T09:30:00Z';
+  const localReceipt = createLocalValidatorEvidence({
+    releaseManifest: local.manifest,
+    verificationChecks: localVerification.checks,
+    suiteSha256: await sha256Tree(suite),
+    controlsSha256: await sha256Tree(controls),
+    startedAt: localStart,
+    completedAt: localComplete,
+    verifiedAt: localComplete,
+  });
+  const devnetReport = {
+    schemaVersion: 1,
+    kind: 'devnet-e2e-report',
+    releaseIdentity: releaseIdentity(devnet.manifest),
+    startedAt: '2026-07-15T08:30:00Z',
+    completedAt: '2026-07-15T09:00:00Z',
+    runId: 'devnet-run-2026-07-15',
+    scenarios: DEVNET_SCENARIOS.map((id, index) => ({
+      id,
+      transactionSignature: encodeBase58(Buffer.alloc(64, index + 1)),
+      observedAt: '2026-07-15T08:45:00Z',
+    })),
+  };
+  const devnetReportRef = await writeArtifact(directory, 'devnet-report.json', devnetReport);
+  const devnetReceipt = await createDevnetEvidence({
+    manifest: devnet.manifest,
+    build,
+    rpc: devnet.rpc,
+    localSbf: sbf,
+    report: devnetReport,
+    reportSha256: devnetReportRef.sha256,
+    verifiedAt: '2026-07-15T09:05:00Z',
+  });
+
+  const operations = testSigner();
+  const independentReview = testSigner();
+  const externalAudit = testSigner();
+  const authority = testSigner();
+  const approval = testSigner();
+  const identity = releaseIdentity(mainnet.manifest);
+  const [legacyReport, reviewReport, auditReport, authorityReport] = await Promise.all([
+    writeArtifact(directory, 'legacy-report.txt', 'legacy liabilities and withdrawals reconciled\n'),
+    writeArtifact(directory, 'independent-review.txt', 'independent review closure\n'),
+    writeArtifact(directory, 'external-audit.txt', 'external audit closure\n'),
+    writeArtifact(directory, 'authority-report.txt', 'multisig authority inspection\n'),
+  ]);
+  const legacyStatement = signedStatement(operations, {
+    schemaVersion: 1,
+    kind: 'legacy-audit',
+    releaseIdentity: identity,
+    reportSha256: legacyReport.sha256,
+    auditor: 'Called It operations control',
+    auditId: 'legacy-2026-07-15',
+    issuedAt: '2026-07-14T10:00:00Z',
+    closedAt: '2026-07-15T07:00:00Z',
+    withdrawalsAvailable: true,
+    noAutoMigration: true,
+    newCustodyIntakeDisabled: true,
+    liabilityDriftAtomic: '0',
+  });
+  const reviewStatement = signedStatement(independentReview, {
+    schemaVersion: 1,
+    kind: 'independent-review',
+    releaseIdentity: identity,
+    reportSha256: reviewReport.sha256,
+    issuer: 'Independent reviewer',
+    reportId: 'review-2026-07-15',
+    scope: 'calledit escrow mainnet program and release',
+    issuedAt: '2026-07-13T10:00:00Z',
+    closedAt: '2026-07-15T07:30:00Z',
+    criticalOpen: 0,
+    highOpen: 0,
+  });
+  const auditStatement = signedStatement(externalAudit, {
+    schemaVersion: 1,
+    kind: 'external-audit',
+    releaseIdentity: identity,
+    reportSha256: auditReport.sha256,
+    issuer: 'External audit firm',
+    reportId: 'audit-2026-07-15',
+    scope: 'calledit escrow mainnet program and release',
+    issuedAt: '2026-07-12T10:00:00Z',
+    closedAt: '2026-07-15T08:00:00Z',
+    criticalOpen: 0,
+    highOpen: 0,
+  });
+  const multisigMembers = [key(20), key(21), key(22)];
+  const authorityStatement = signedStatement(authority, {
+    schemaVersion: 1,
+    kind: 'authority-provenance',
+    releaseIdentity: identity,
+    reportSha256: authorityReport.sha256,
+    verifier: 'Release authority verifier',
+    recordId: 'authorities-2026-07-15',
+    verifiedAt: '2026-07-15T09:15:00Z',
+    roles: [
+      ['upgrade', mainnet.manifest.upgradeAuthority],
+      ['config', mainnet.manifest.config.configAuthority],
+      ['pause', mainnet.manifest.config.pauseAuthority],
+      ['market_creation', mainnet.manifest.config.marketCreationAuthority],
+      ['feed_operator', mainnet.manifest.config.feedOperatorAuthority],
+    ].map(([role, address]) => ({ role, address, threshold: 2, members: multisigMembers })),
+  });
+  (authorityStatement.roles as unknown[]).push({
+    role: 'oracle_set',
+    address: mainnet.manifest.oracleSet.address,
+    threshold: 2,
+    members: mainnet.manifest.oracleSet.signers,
+  });
+  // The roles are part of the signed payload, so re-sign after adding the oracle set.
+  const finalAuthorityStatement = signedStatement(authority, Object.fromEntries(
+    Object.entries(authorityStatement).filter(([field]) => !['signerPublicKey', 'signature'].includes(field)),
+  ));
+
+  const releaseManifestRef = await writeArtifact(directory, 'mainnet-release.json', mainnet.manifest);
+  const localRef = await writeArtifact(directory, 'local-validator.json', localReceipt);
+  const devnetEvidenceRef = await writeArtifact(directory, 'devnet-evidence.json', devnetReceipt);
+  const devnetProgramRef = await writeArtifact(directory, 'devnet.so', sbf);
+  const devnetIdlRef = await writeArtifact(directory, 'devnet-idl.json', idl);
+  const legacyStatementRef = await writeArtifact(directory, 'legacy-statement.json', legacyStatement);
+  const reviewStatementRef = await writeArtifact(directory, 'review-statement.json', reviewStatement);
+  const auditStatementRef = await writeArtifact(directory, 'audit-statement.json', auditStatement);
+  const authorityStatementRef = await writeArtifact(directory, 'authority-statement.json', finalAuthorityStatement);
+  const soakSamples = [];
+  for (let day = 9; day <= 15; day += 1) {
+    const capturedAt = `2026-07-${String(day).padStart(2, '0')}T06:00:00Z`;
+    const sample = structuredClone(await fixtureJson('ops-status-healthy.example.json')) as Record<string, unknown>;
+    sample.cluster = 'devnet';
+    sample.capturedAt = capturedAt;
+    soakSamples.push({
+      capturedAt,
+      clusterGenesisHash: devnet.manifest.clusterGenesisHash,
+      programId: devnet.manifest.programId,
+      releaseManifestSha256: releaseIdentity(devnet.manifest).releaseManifestSha256,
+      artifact: await writeArtifact(directory, `soak-${day}.json`, sample),
+    });
+  }
+  const evidence: Record<string, any> = {
+    schemaVersion: 2,
+    network: 'mainnet-beta',
+    releaseIdentity: identity,
+    artifacts: {
+      releaseManifest: releaseManifestRef,
+      localValidator: localRef,
+      devnetEvidence: devnetEvidenceRef,
+      devnetReport: devnetReportRef,
+      devnetProgramSo: devnetProgramRef,
+      devnetIdl: devnetIdlRef,
+      legacyAuditStatement: legacyStatementRef,
+      legacyAuditReport: legacyReport,
+      independentReviewStatement: reviewStatementRef,
+      independentReviewReport: reviewReport,
+      externalAuditStatement: auditStatementRef,
+      externalAuditReport: auditReport,
+      authorityStatement: authorityStatementRef,
+      authorityReport,
+      soakSamples,
+      approvalStatement: { path: 'approval-placeholder.json', sha256: '0'.repeat(64) },
+    },
+    canary: {
+      allowlistEnabled: true,
+      groupCount: 1,
+      minSolPosition: mainnet.manifest.config.minSolPosition,
+      maxSolPosition: mainnet.manifest.config.maxSolPosition,
+      minUsdcPosition: mainnet.manifest.config.minUsdcPosition,
+      maxUsdcPosition: mainnet.manifest.config.maxUsdcPosition,
+    },
+  };
+  const approvalStatement = signedStatement(approval, {
+    schemaVersion: 1,
+    kind: 'mainnet-approval',
+    releaseIdentity: identity,
+    bundleSha256: approvalBundleDigest(evidence),
+    scope: 'mainnet escrow canary value enablement',
+    approver: 'Called It release authority',
+    approvalId: 'mainnet-canary-2026-07-15',
+    approvedAt: '2026-07-15T11:55:00Z',
+  });
+  evidence.artifacts.approvalStatement = await writeArtifact(directory, 'approval-statement.json', approvalStatement);
+  const context: MainnetGateContext = {
+    manifest: mainnet.manifest,
+    localBuild: build,
+    mainnetRpc: mainnet.rpc,
+    mainnetSbf: sbf,
+    mainnetIdl: idl,
+    devnetRpc: devnet.rpc,
+    sourcePath: source,
+    lockPath: lock,
+    artifactRoot: directory,
+    integrationSuitePath: suite,
+    controlsPath: controls,
+    trustedSigners: {
+      operations: operations.publicKey,
+      independentReview: independentReview.publicKey,
+      externalAudit: externalAudit.publicKey,
+      authority: authority.publicKey,
+      approval: approval.publicKey,
+    },
+    now: new Date('2026-07-15T12:00:00Z'),
+  };
+  return {
+    directory,
+    evidence,
+    context,
+    paths: {
+      legacyReport: join(directory, legacyReport.path),
+      devnetReport: join(directory, devnetReportRef.path),
+    },
+  };
 }
 
 test('build provenance is deterministic and changes when source changes', async () => {
@@ -247,24 +552,78 @@ test('IDL policy rejects pause prerequisites on timeout recovery', async () => {
   assert.throws(() => verifyIdlPolicy(value), /pause prerequisite/);
 });
 
-test('mainnet gate accepts complete fake evidence and rejects missing recovery evidence', async () => {
-  const good = await fixtureJson('mainnet-evidence.example.json');
-  assert.equal(verifyMainnetEvidence(good).ok, true);
-  const bad = structuredClone(good) as { pausedTimeoutVoid: { permissionlessRecovery: boolean } };
-  bad.pausedTimeoutVoid.permissionlessRecovery = false;
-  assert.throws(
-    () => verifyMainnetEvidence(bad),
-    (error: unknown) => error instanceof EscrowControlError && error.exitCode === EXIT.gate,
-  );
+test('mainnet gate verifies a live release and artifact-bound local/devnet evidence', async () => {
+  const fixtureData = await evidenceBundleFixture();
+  try {
+    const result = await verifyMainnetEvidence(fixtureData.evidence, fixtureData.context);
+    assert.equal(result.ok, true);
+    assert.ok(result.checks.includes('live devnet release and finalized E2E transactions'));
+    assert.equal(result.soakEnd, '2026-07-15T06:00:00Z');
+  } finally {
+    await rm(fixtureData.directory, { recursive: true, force: true });
+  }
 });
 
-test('mainnet gate rejects drift and insufficient distinct soak days', async () => {
-  const drift = await fixtureJson('mainnet-evidence.example.json') as { soakSamples: Array<{ capturedAt: string; driftAtomic: string }> };
-  drift.soakSamples[3]!.driftAtomic = '1';
-  assert.throws(() => verifyMainnetEvidence(drift), /accounting drift/);
-  const short = await fixtureJson('mainnet-evidence.example.json') as { soakSamples: Array<{ capturedAt: string }> };
-  short.soakSamples.forEach((sample) => { sample.capturedAt = '2026-07-01T12:00:00Z'; });
-  assert.throws(() => verifyMainnetEvidence(short), /seven distinct UTC days/);
+test('mainnet gate rejects the fabricated v1 example even when caller flags say passed', async () => {
+  const fixtureData = await evidenceBundleFixture();
+  try {
+    const fabricated = await fixtureJson('mainnet-evidence.example.json');
+    await assert.rejects(
+      verifyMainnetEvidence(fabricated, fixtureData.context),
+      /legacy flag-only evidence is forbidden/,
+    );
+  } finally {
+    await rm(fixtureData.directory, { recursive: true, force: true });
+  }
+});
+
+test('mainnet gate rejects tampered and missing artifacts', async () => {
+  const tampered = await evidenceBundleFixture();
+  try {
+    await writeFile(tampered.paths.legacyReport!, 'tampered report\n');
+    await assert.rejects(verifyMainnetEvidence(tampered.evidence, tampered.context), /artifact SHA-256 mismatch/);
+  } finally {
+    await rm(tampered.directory, { recursive: true, force: true });
+  }
+
+  const missing = await evidenceBundleFixture();
+  try {
+    await rm(missing.paths.devnetReport!);
+    await assert.rejects(verifyMainnetEvidence(missing.evidence, missing.context), /artifact is missing/);
+  } finally {
+    await rm(missing.directory, { recursive: true, force: true });
+  }
+});
+
+test('mainnet gate rejects stale machine evidence and wrong release identity', async () => {
+  const stale = await evidenceBundleFixture({ staleLocal: true });
+  try {
+    await assert.rejects(verifyMainnetEvidence(stale.evidence, stale.context), /local-validator evidence is stale/);
+  } finally {
+    await rm(stale.directory, { recursive: true, force: true });
+  }
+
+  const wrongIdentity = await evidenceBundleFixture();
+  try {
+    wrongIdentity.evidence.releaseIdentity.programId = key(31);
+    await assert.rejects(verifyMainnetEvidence(wrongIdentity.evidence, wrongIdentity.context), /mainnet release identity mismatch/);
+  } finally {
+    await rm(wrongIdentity.directory, { recursive: true, force: true });
+  }
+});
+
+test('mainnet gate rejects authority and approval provenance tampering', async () => {
+  const fixtureData = await evidenceBundleFixture();
+  try {
+    const approvalPath = join(fixtureData.directory, fixtureData.evidence.artifacts.approvalStatement.path);
+    const approval = JSON.parse(await readFile(approvalPath, 'utf8')) as Record<string, unknown>;
+    approval.approver = 'fabricated approver';
+    const approvalRef = await writeArtifact(fixtureData.directory, 'approval-tampered.json', approval);
+    fixtureData.evidence.artifacts.approvalStatement = approvalRef;
+    await assert.rejects(verifyMainnetEvidence(fixtureData.evidence, fixtureData.context), /signature is invalid/);
+  } finally {
+    await rm(fixtureData.directory, { recursive: true, force: true });
+  }
 });
 
 test('ops status reports healthy state and fails on every critical class', async () => {

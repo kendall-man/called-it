@@ -8,6 +8,7 @@ on:
     paths:
       - "programs/calledit-escrow/**"
       - "packages/escrow-sdk/**"
+      - "packages/escrow-integration/**"
       - "packages/db/**"
       - "apps/engine/src/escrow/**"
       - "apps/web/lib/position-*.ts"
@@ -21,6 +22,7 @@ on:
     paths:
       - "programs/calledit-escrow/**"
       - "packages/escrow-sdk/**"
+      - "packages/escrow-integration/**"
       - "packages/db/**"
       - "apps/engine/src/escrow/**"
       - "apps/web/lib/position-*.ts"
@@ -33,8 +35,20 @@ on:
   workflow_dispatch:
     inputs:
       evidence_path:
-        description: "Tracked sanitized evidence under release-evidence/ (verification only)"
-        required: false
+        description: "Artifact-bound v2 evidence index under release-evidence/"
+        required: true
+        type: string
+      release_manifest_path:
+        description: "Mainnet release manifest under release-evidence/"
+        required: true
+        type: string
+      program_so_path:
+        description: "Exact mainnet SBF artifact under release-evidence/"
+        required: true
+        type: string
+      idl_path:
+        description: "Exact mainnet IDL artifact under release-evidence/"
+        required: true
         type: string
       verification_mode:
         description: "This workflow never deploys or mutates chain state"
@@ -117,6 +131,60 @@ jobs:
             echo "SBF build skipped: this hosted runner has no cargo-build-sbf. The devnet release runner must execute it."
           fi
 
+  local-validator-evidence:
+    runs-on:
+      - self-hosted
+      - linux
+      - escrow-validator
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.11.1
+
+      - name: Install workspace
+        run: npx -y pnpm@10.33.0 install --frozen-lockfile
+
+      - name: Require pinned local-validator toolchain and test identity
+        run: |
+          set -euo pipefail
+          test "$(rustc --version | awk '{print $2}')" = "1.84.1"
+          test "$(anchor --version)" = "anchor-cli 0.31.1"
+          command -v cargo-build-sbf
+          command -v solana-test-validator
+          test -s /private/tmp/calledit-beta-secrets/calledit_escrow-devnet-keypair.json
+
+      - name: Build the exact local-validator program and IDL
+        run: |
+          set -euo pipefail
+          anchor build
+          mkdir -p /private/tmp/calledit-beta-artifacts
+          install -m 0600 target/deploy/calledit_escrow.so /private/tmp/calledit-beta-artifacts/calledit_escrow.so
+          install -m 0600 target/idl/calledit_escrow.json /private/tmp/calledit-beta-artifacts/calledit_escrow.json
+
+      - name: Run local-validator suite and assemble bound evidence
+        run: |
+          set -euo pipefail
+          mkdir -p .escrow-evidence
+          npx -y pnpm@10.33.0 exec tsx scripts/escrow/cli.ts local-validator-evidence \
+            --program-so /private/tmp/calledit-beta-artifacts/calledit_escrow.so \
+            --idl /private/tmp/calledit-beta-artifacts/calledit_escrow.json \
+            --source programs/calledit-escrow \
+            --lock Cargo.lock \
+            --source-commit "$GITHUB_SHA" \
+            --out .escrow-evidence/local-validator.json
+
+      - name: Upload local-validator release evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: escrow-local-validator-${{ github.sha }}
+          path: .escrow-evidence/local-validator.json
+          if-no-files-found: error
+          retention-days: 14
+
   focused-app-tests:
     runs-on: ubuntu-24.04
     steps:
@@ -157,6 +225,7 @@ jobs:
       - release-controls
       - rust-and-idl
       - focused-app-tests
+      - local-validator-evidence
     runs-on: ubuntu-24.04
     environment: mainnet-verification
     steps:
@@ -174,14 +243,48 @@ jobs:
       - name: Enforce verification-only evidence gate
         env:
           EVIDENCE_PATH: ${{ inputs.evidence_path }}
+          RELEASE_MANIFEST_PATH: ${{ inputs.release_manifest_path }}
+          PROGRAM_SO_PATH: ${{ inputs.program_so_path }}
+          IDL_PATH: ${{ inputs.idl_path }}
           VERIFICATION_MODE: ${{ inputs.verification_mode }}
+          MAINNET_RPC_URL: ${{ secrets.ESCROW_MAINNET_RPC_URL }}
+          DEVNET_RPC_URL: ${{ secrets.ESCROW_DEVNET_RPC_URL }}
+          ESCROW_OPERATIONS_EVIDENCE_PUBLIC_KEY: ${{ vars.ESCROW_OPERATIONS_EVIDENCE_PUBLIC_KEY }}
+          ESCROW_REVIEW_EVIDENCE_PUBLIC_KEY: ${{ vars.ESCROW_REVIEW_EVIDENCE_PUBLIC_KEY }}
+          ESCROW_AUDIT_EVIDENCE_PUBLIC_KEY: ${{ vars.ESCROW_AUDIT_EVIDENCE_PUBLIC_KEY }}
+          ESCROW_AUTHORITY_EVIDENCE_PUBLIC_KEY: ${{ vars.ESCROW_AUTHORITY_EVIDENCE_PUBLIC_KEY }}
+          ESCROW_APPROVAL_EVIDENCE_PUBLIC_KEY: ${{ vars.ESCROW_APPROVAL_EVIDENCE_PUBLIC_KEY }}
         run: |
           set -euo pipefail
           test "$VERIFICATION_MODE" = VERIFY_ONLY
-          case "$EVIDENCE_PATH" in
-            release-evidence/*.json) ;;
-            *) echo "Evidence must be a tracked sanitized JSON file under release-evidence/" >&2; exit 2 ;;
-          esac
-          test -f "$EVIDENCE_PATH"
-          npx -y pnpm@10.33.0 exec tsx scripts/escrow/cli.ts mainnet-gate --evidence "$EVIDENCE_PATH"
+          for path in "$EVIDENCE_PATH" "$RELEASE_MANIFEST_PATH" "$PROGRAM_SO_PATH" "$IDL_PATH"; do
+            case "$path" in
+              release-evidence/*) ;;
+              *) echo "Release inputs must be tracked files under release-evidence/" >&2; exit 2 ;;
+            esac
+            test -f "$path"
+          done
+          test -n "$MAINNET_RPC_URL"
+          test -n "$DEVNET_RPC_URL"
+          test -n "$ESCROW_OPERATIONS_EVIDENCE_PUBLIC_KEY"
+          test -n "$ESCROW_REVIEW_EVIDENCE_PUBLIC_KEY"
+          test -n "$ESCROW_AUDIT_EVIDENCE_PUBLIC_KEY"
+          test -n "$ESCROW_AUTHORITY_EVIDENCE_PUBLIC_KEY"
+          test -n "$ESCROW_APPROVAL_EVIDENCE_PUBLIC_KEY"
+          npx -y pnpm@10.33.0 exec tsx scripts/escrow/cli.ts verify-release \
+            --manifest "$RELEASE_MANIFEST_PATH" \
+            --program-so "$PROGRAM_SO_PATH" \
+            --idl "$IDL_PATH" \
+            --source programs/calledit-escrow \
+            --lock Cargo.lock \
+            --rpc "$MAINNET_RPC_URL" > /tmp/mainnet-release-verification.json
+          npx -y pnpm@10.33.0 exec tsx scripts/escrow/cli.ts mainnet-gate \
+            --evidence "$EVIDENCE_PATH" \
+            --manifest "$RELEASE_MANIFEST_PATH" \
+            --program-so "$PROGRAM_SO_PATH" \
+            --idl "$IDL_PATH" \
+            --source programs/calledit-escrow \
+            --lock Cargo.lock \
+            --rpc "$MAINNET_RPC_URL" \
+            --devnet-rpc "$DEVNET_RPC_URL"
           echo "Verification passed. This workflow has no deployment or chain-mutation step."

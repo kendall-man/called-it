@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
+import { createDevnetEvidence } from './evidence.js';
 import { verifyIdlPolicy } from './idl-policy.js';
+import { runLocalValidatorEvidence } from './local-validator-evidence.js';
 import { verifyMainnetEvidence } from './mainnet-gate.js';
 import { buildProvenance, parseBuildManifest, parseReleaseManifest, type ArtifactPaths } from './manifest.js';
 import { formatOpsStatus } from './ops-status.js';
 import { JsonRpcReader, manifestDigest, verifyRelease } from './release.js';
 import { EscrowControlError, EXIT, type ExitCode } from './types.js';
-import { equalJson, readJson, redactedError, stableJson } from './util.js';
+import { asPublicKey, equalJson, readJson, redactedError, sha256, stableJson } from './util.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -21,11 +24,13 @@ Commands:
   compare-builds  --left FILE --right FILE
   idl-policy      --idl FILE
   verify-release  --manifest FILE --program-so FILE --idl FILE --source DIR --lock FILE --rpc URL [--source-commit COMMIT]
+  local-validator-evidence --program-so FILE --idl FILE --source DIR --lock FILE --out FILE [--source-commit COMMIT]
+  devnet-evidence --manifest FILE --program-so FILE --idl FILE --source DIR --lock FILE --rpc URL --report FILE --out FILE [--source-commit COMMIT]
   manifest-hash   --manifest FILE
-  mainnet-gate    --evidence FILE
+  mainnet-gate    --evidence FILE --manifest FILE --program-so FILE --idl FILE --source DIR --lock FILE --rpc URL --devnet-rpc URL [--source-commit COMMIT]
   ops-status      --input FILE
 
-All commands are read-only except provenance --out, which writes only the requested manifest.
+All commands are read-only except provenance/local-validator-evidence/devnet-evidence --out, which write only the requested artifact.
 No command deploys, signs, submits, pauses, upgrades, or mutates chain state.`;
 
 function parseArgs(args: readonly string[]): Map<string, string> {
@@ -51,6 +56,14 @@ function required(options: Map<string, string>, name: string): string {
 function rejectUnknown(options: Map<string, string>, allowed: readonly string[]): void {
   const unknown = [...options.keys()].filter((key) => !allowed.includes(key));
   if (unknown.length > 0) throw new EscrowControlError(EXIT.usage, `unknown options: ${unknown.sort().join(', ')}`);
+}
+
+function trustedSigner(environmentName: string): string {
+  const value = process.env[environmentName];
+  if (value === undefined || value.length === 0) {
+    throw new EscrowControlError(EXIT.gate, `protected evidence signer is not configured: ${environmentName}`);
+  }
+  return asPublicKey(value, environmentName);
 }
 
 async function sourceCommit(options: Map<string, string>): Promise<string> {
@@ -107,12 +120,56 @@ async function execute(command: string, args: readonly string[]): Promise<void> 
       rejectUnknown(options, ['--manifest', '--program-so', '--idl', '--source', '--lock', '--rpc', '--source-commit']);
       const manifest = parseReleaseManifest(await readJson(required(options, '--manifest')));
       const paths = artifactPaths(options);
+      verifyIdlPolicy(await readJson(paths.idl));
       const build = await buildProvenance(await sourceCommit(options), paths);
       const localSbf = await readFile(paths.programSo).catch(() => {
         throw new EscrowControlError(EXIT.input, `cannot read SBF: ${paths.programSo}`);
       });
       const result = await verifyRelease(manifest, build, new JsonRpcReader(required(options, '--rpc')), localSbf);
       await printJson({ ...result, manifestSha256: manifestDigest(manifest), network: manifest.network, programId: manifest.programId });
+      return;
+    }
+    case 'local-validator-evidence': {
+      rejectUnknown(options, ['--program-so', '--idl', '--source', '--lock', '--source-commit', '--out']);
+      const paths = artifactPaths(options);
+      verifyIdlPolicy(await readJson(paths.idl));
+      const receipt = await runLocalValidatorEvidence({
+        sourceCommit: await sourceCommit(options),
+        paths,
+        integrationSuitePath: 'packages/escrow-integration',
+        controlsPath: 'scripts/escrow',
+      });
+      await printJson(receipt, required(options, '--out'));
+      return;
+    }
+    case 'devnet-evidence': {
+      rejectUnknown(options, ['--manifest', '--program-so', '--idl', '--source', '--lock', '--rpc', '--report', '--source-commit', '--out']);
+      const manifest = parseReleaseManifest(await readJson(required(options, '--manifest')));
+      const paths = artifactPaths(options);
+      verifyIdlPolicy(await readJson(paths.idl));
+      const build = await buildProvenance(await sourceCommit(options), paths);
+      const localSbf = await readFile(paths.programSo).catch(() => {
+        throw new EscrowControlError(EXIT.input, `cannot read SBF: ${paths.programSo}`);
+      });
+      const reportPath = required(options, '--report');
+      const reportBytes = await readFile(reportPath).catch(() => {
+        throw new EscrowControlError(EXIT.input, `cannot read devnet report: ${reportPath}`);
+      });
+      let report: unknown;
+      try {
+        report = JSON.parse(reportBytes.toString('utf8')) as unknown;
+      } catch {
+        throw new EscrowControlError(EXIT.input, `invalid devnet report JSON: ${reportPath}`);
+      }
+      const receipt = await createDevnetEvidence({
+        manifest,
+        build,
+        rpc: new JsonRpcReader(required(options, '--rpc')),
+        localSbf,
+        report,
+        reportSha256: sha256(reportBytes),
+      });
+      await printJson(receipt, required(options, '--out'));
       return;
     }
     case 'manifest-hash': {
@@ -122,8 +179,45 @@ async function execute(command: string, args: readonly string[]): Promise<void> 
       return;
     }
     case 'mainnet-gate': {
-      rejectUnknown(options, ['--evidence']);
-      await printJson(verifyMainnetEvidence(await readJson(required(options, '--evidence'))));
+      rejectUnknown(options, [
+        '--evidence',
+        '--manifest',
+        '--program-so',
+        '--idl',
+        '--source',
+        '--lock',
+        '--rpc',
+        '--devnet-rpc',
+        '--source-commit',
+      ]);
+      const evidencePath = required(options, '--evidence');
+      const manifest = parseReleaseManifest(await readJson(required(options, '--manifest')));
+      const paths = artifactPaths(options);
+      const build = await buildProvenance(await sourceCommit(options), paths);
+      const mainnetSbf = await readFile(paths.programSo).catch(() => {
+        throw new EscrowControlError(EXIT.input, `cannot read SBF: ${paths.programSo}`);
+      });
+      const result = await verifyMainnetEvidence(await readJson(evidencePath), {
+        manifest,
+        localBuild: build,
+        mainnetRpc: new JsonRpcReader(required(options, '--rpc')),
+        mainnetSbf,
+        mainnetIdl: await readJson(paths.idl),
+        devnetRpc: new JsonRpcReader(required(options, '--devnet-rpc')),
+        sourcePath: paths.source,
+        lockPath: paths.lock,
+        artifactRoot: dirname(resolve(evidencePath)),
+        integrationSuitePath: 'packages/escrow-integration',
+        controlsPath: 'scripts/escrow',
+        trustedSigners: {
+          operations: trustedSigner('ESCROW_OPERATIONS_EVIDENCE_PUBLIC_KEY'),
+          independentReview: trustedSigner('ESCROW_REVIEW_EVIDENCE_PUBLIC_KEY'),
+          externalAudit: trustedSigner('ESCROW_AUDIT_EVIDENCE_PUBLIC_KEY'),
+          authority: trustedSigner('ESCROW_AUTHORITY_EVIDENCE_PUBLIC_KEY'),
+          approval: trustedSigner('ESCROW_APPROVAL_EVIDENCE_PUBLIC_KEY'),
+        },
+      });
+      await printJson(result);
       return;
     }
     case 'ops-status': {
