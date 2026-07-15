@@ -10,7 +10,9 @@ export type WalletApplicationProps = {
   readonly treasuryPubkey: string;
   readonly botUsername: string;
   readonly custodyMode: 'legacy' | 'escrow';
+  readonly escrowProgramId?: string;
   readonly canonicalUsdcMint?: string;
+  readonly escrowGenesisHash?: string;
 };
 
 export function WalletApplication(props: WalletApplicationProps) {
@@ -22,7 +24,9 @@ export function WalletApplication(props: WalletApplicationProps) {
         treasuryPubkey={props.treasuryPubkey}
         botUsername={props.botUsername}
         custodyMode={props.custodyMode}
+        escrowProgramId={props.escrowProgramId}
         canonicalUsdcMint={props.canonicalUsdcMint}
+        escrowGenesisHash={props.escrowGenesisHash}
       />
     </WalletProvider>
   );

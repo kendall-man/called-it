@@ -218,7 +218,7 @@ describe('web environment', () => {
       ...BASE_ENV,
       NEXT_PUBLIC_WAGER_CUSTODY_MODE: 'escrow',
     })).toThrowError(
-      /ESCROW_GENESIS_HASH.*NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT.*NEXT_PUBLIC_ESCROW_PROGRAM_ID/,
+      /ESCROW_GENESIS_HASH.*NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT.*NEXT_PUBLIC_ESCROW_GENESIS_HASH.*NEXT_PUBLIC_ESCROW_PROGRAM_ID/,
     );
   });
 
@@ -229,6 +229,7 @@ describe('web environment', () => {
       NEXT_PUBLIC_WAGER_CUSTODY_MODE: 'escrow',
       NEXT_PUBLIC_ESCROW_PROGRAM_ID: 'HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL',
       NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+      NEXT_PUBLIC_ESCROW_GENESIS_HASH: 'devnet-genesis',
       ESCROW_GENESIS_HASH: 'devnet-genesis',
       CONCIERGE_WALLET_API_URL: 'https://engine.example.test',
       WEB_CONCIERGE_TOKEN: webToken,
@@ -253,6 +254,14 @@ describe('web environment', () => {
     const parsed = loadWebEnv(source);
     expect(parsed.NEXT_PUBLIC_WAGER_CUSTODY_MODE).toBe('escrow');
     expect(parsed.NEXT_PUBLIC_WAGER_TREASURY_PUBKEY).toBeUndefined();
+  });
+
+  it('requires the browser and server escrow genesis pins to match', () => {
+    expect(() => loadWebEnv({
+      ...BASE_ENV,
+      NEXT_PUBLIC_ESCROW_GENESIS_HASH: 'devnet-genesis',
+      ESCROW_GENESIS_HASH: 'mainnet-genesis',
+    })).toThrowError(/ESCROW_GENESIS_HASH.*NEXT_PUBLIC_ESCROW_GENESIS_HASH/);
   });
 
   it('requires the public and server Privy app IDs to match', () => {

@@ -7,6 +7,7 @@ import type {
   ReceiptStatus,
 } from '@/lib/receipts';
 import { Badge, type BadgeTone } from './ui';
+import { EscrowBoardSummary } from './escrow-receipt';
 
 const OUTCOME_CHIP: Record<ReceiptOutcome, { tone: BadgeTone; label: string }> = {
   claim_won: { tone: 'pitch', label: 'Called it' },
@@ -101,6 +102,11 @@ export function ReceiptRow({ receipt }: { receipt: PublicReceipt }) {
             {formatUtc(receipt.createdAt)} - {receipt.positionCount} positions -{' '}
             {formatAtomicAmount(receipt.matchedAmountLamports, receipt.currency)} matched
           </span>
+          {receipt.escrow ? (
+            <span className="mt-1 block text-[11px] font-semibold text-pitch-300">
+              Finalized escrow record · {receipt.escrow.asset.toUpperCase()}
+            </span>
+          ) : null}
       </span>
       <Badge tone={chip.tone}>{chip.label}</Badge>
     </Link>
@@ -128,6 +134,7 @@ export function BoardMarketRow({ market }: { market: PublicGroupBoardMarket }) {
         {formatMultiplier(market.quoteMultiplier)} multiplier - {timingLabel(market)}
       </p>
       <AggregateSummary market={market} />
+      {market.escrow ? <EscrowBoardSummary escrow={market.escrow} /> : null}
     </article>
   );
 }

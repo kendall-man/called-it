@@ -3,6 +3,7 @@ import {
   describeEvidenceFact,
   evidenceFromRow,
   groupBoardMarketFromRow,
+  isPublicMarketId,
   receiptFromRow,
   type PublicGroupBoardMarket,
   type PublicReceipt,
@@ -60,6 +61,11 @@ function mustMap(row: Record<string, unknown>): PublicReceipt {
 }
 
 describe('receiptFromRow', () => {
+  it('accepts canonical five-segment receipt UUIDs and rejects malformed route ids', () => {
+    expect(isPublicMarketId('27604aa1-39a7-4e0c-8a07-25ec1f560b25')).toBe(true);
+    expect(isPublicMarketId('27604aa1-39a7-4e0c-25ec1f560b25')).toBe(false);
+  });
+
   it('maps a complete privacy-safe view row', () => {
     const receipt = mustMap(viewRow());
     expect(receipt.marketId).toBe('4dcb8872-2f1e-4bc5-9b43-1a2b3c4d5e6f');

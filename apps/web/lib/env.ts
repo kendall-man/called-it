@@ -33,6 +33,7 @@ const WebEnvSchema = z.object({
   NEXT_PUBLIC_WAGER_CUSTODY_MODE: z.enum(['legacy', 'escrow']).default('legacy'),
   NEXT_PUBLIC_ESCROW_PROGRAM_ID: SolanaPubkeySchema.optional(),
   NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT: SolanaPubkeySchema.optional(),
+  NEXT_PUBLIC_ESCROW_GENESIS_HASH: z.string().min(1).max(128).optional(),
   NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: BotUsernameSchema.optional(),
   NEXT_PUBLIC_TELEGRAM_STARTGROUP: z.literal('calledit_v1').optional(),
   NEXT_PUBLIC_PRIVY_APP_ID: PrivyAppIdSchema.optional(),
@@ -137,6 +138,7 @@ const WebEnvSchema = z.object({
     const escrowVariables = [
       ['NEXT_PUBLIC_ESCROW_PROGRAM_ID', env.NEXT_PUBLIC_ESCROW_PROGRAM_ID],
       ['NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT', env.NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT],
+      ['NEXT_PUBLIC_ESCROW_GENESIS_HASH', env.NEXT_PUBLIC_ESCROW_GENESIS_HASH],
       ['ESCROW_GENESIS_HASH', env.ESCROW_GENESIS_HASH],
       ['SOLANA_RPC_URL', env.SOLANA_RPC_URL],
       ['CONCIERGE_WALLET_API_URL', env.CONCIERGE_WALLET_API_URL],
@@ -176,6 +178,13 @@ const WebEnvSchema = z.object({
   const hasProgramId = env.NEXT_PUBLIC_TXORACLE_PROGRAM_ID !== undefined;
   if (hasSolanaUrl !== hasProgramId) {
     addPairIssue('NEXT_PUBLIC_SOLANA_RPC_URL', 'NEXT_PUBLIC_TXORACLE_PROGRAM_ID');
+  }
+  if (
+    env.NEXT_PUBLIC_ESCROW_GENESIS_HASH !== undefined &&
+    env.ESCROW_GENESIS_HASH !== undefined &&
+    env.NEXT_PUBLIC_ESCROW_GENESIS_HASH !== env.ESCROW_GENESIS_HASH
+  ) {
+    addPairIssue('NEXT_PUBLIC_ESCROW_GENESIS_HASH', 'ESCROW_GENESIS_HASH');
   }
   if (
     env.NEXT_PUBLIC_SOLANA_NETWORK === 'mainnet-beta'

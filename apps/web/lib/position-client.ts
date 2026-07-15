@@ -44,6 +44,7 @@ const EscrowPositionSchema = z.object({
   refundableAtomic: z.string().regex(/^\d+$/),
   claimedAtomic: z.string().regex(/^\d+$/),
   chainState: z.string().min(1).max(32),
+  replay: z.boolean(),
   claimState: z.enum(['open', 'pending', 'checking', 'ready', 'claimed']),
 }).strict();
 

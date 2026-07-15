@@ -2,13 +2,14 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { EvidenceList, type EvidenceState } from '@/components/evidence-list';
+import { EscrowReceiptDetails } from '@/components/escrow-receipt';
 import { AwaitingConfiguration, DataUnavailable } from '@/components/states';
 import { TimelineList } from '@/components/timeline-list';
 import { TrustBadge, type TrustSnapshot } from '@/components/trust-badge';
 import { Badge, Card, PageShell, SectionTitle } from '@/components/ui';
 import { formatAtomicAmount, formatMultiplier, formatProbabilityPct } from '@/lib/format';
 import { fetchEvidence, fetchReceipt } from '@/lib/queries';
-import type { EvidenceFact, PublicReceipt } from '@/lib/receipts';
+import { isPublicMarketId, type EvidenceFact, type PublicReceipt } from '@/lib/receipts';
 import { PROVENANCE_COPY } from '@/lib/spec-terms';
 import { createAnonServerClient } from '@/lib/supabase';
 import { buildTimeline } from '@/lib/timeline';
@@ -17,8 +18,6 @@ import { isMainnet } from '@/lib/solana-network';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Receipt' };
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const OUTCOME_BANNER: Record<
   NonNullable<PublicReceipt['outcome']>,
@@ -77,7 +76,7 @@ export default async function ReceiptPage({
 }) {
   const mainnet = isMainnet();
   const { marketId } = await params;
-  if (!UUID_PATTERN.test(marketId)) notFound();
+  if (!isPublicMarketId(marketId)) notFound();
 
   const client = createAnonServerClient();
   if (!client) return <AwaitingConfiguration />;
@@ -161,6 +160,13 @@ export default async function ReceiptPage({
         <SectionTitle>Group totals</SectionTitle>
         <AggregateGrid receipt={receipt} />
       </Card>
+
+      {receipt.escrow ? (
+        <Card>
+          <SectionTitle>On-chain escrow</SectionTitle>
+          <EscrowReceiptDetails escrow={receipt.escrow} />
+        </Card>
+      ) : null}
 
       <Card>
         <SectionTitle>Proof status</SectionTitle>

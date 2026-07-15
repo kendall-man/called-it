@@ -22,7 +22,9 @@ export function WalletRoute() {
           treasuryPubkey={process.env.NEXT_PUBLIC_WAGER_TREASURY_PUBKEY ?? ''}
           botUsername={process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? ''}
           custodyMode={custodyMode}
+          escrowProgramId={process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID}
           canonicalUsdcMint={process.env.NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT}
+          escrowGenesisHash={process.env.NEXT_PUBLIC_ESCROW_GENESIS_HASH}
         />
       )}
     </PageShell>

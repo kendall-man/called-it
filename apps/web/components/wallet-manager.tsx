@@ -30,7 +30,9 @@ type WalletManagerProps = {
   readonly treasuryPubkey: string;
   readonly botUsername: string;
   readonly custodyMode: 'legacy' | 'escrow';
+  readonly escrowProgramId?: string;
   readonly canonicalUsdcMint?: string;
+  readonly escrowGenesisHash?: string;
 };
 
 type SessionState =
@@ -157,7 +159,7 @@ export function WalletManager(props: WalletManagerProps) {
           await signMessage({
             message,
             wallet,
-            options: { uiOptions: { showWalletUIs: false } },
+            options: { uiOptions: { showWalletUIs: true } },
           })
         ).signature,
       });

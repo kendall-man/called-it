@@ -102,6 +102,7 @@ export type EscrowAccountPosition = {
   readonly refundableAtomic: string;
   readonly claimedAtomic: string;
   readonly chainState: string;
+  readonly replay: boolean;
   readonly claimState: 'open' | 'pending' | 'checking' | 'ready' | 'claimed';
 };
 

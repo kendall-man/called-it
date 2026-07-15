@@ -54,6 +54,13 @@ const LinkRowSchema = z.object({
   chain_state: z.string().min(1).max(32),
 }).passthrough();
 
+const ReplayRowSchema = z.object({
+  id: z.string().uuid(),
+  is_replay: z.boolean(),
+}).passthrough();
+
+const ClaimedRowSchema = z.object({ market_id: z.string().uuid() }).passthrough();
+
 export function hashPositionToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
 }
@@ -162,6 +169,27 @@ export function createPositionStore(): PositionStore {
       if (!parsedLinks.success) throw new Error('escrow account market response invalid');
       const stateByMarket = new Map(parsedLinks.data.map((row) => [row.market_id, row.chain_state]));
 
+      const [marketRows, claimRows] = await Promise.all([
+        client.from('markets').select('id,is_replay').in('id', marketIds),
+        client
+          .from('escrow_claim_events')
+          .select('market_id')
+          .eq('owner_pubkey', ownerPubkey)
+          .eq('canonical', true)
+          .eq('commitment', 'finalized')
+          .in('market_id', marketIds),
+      ]);
+      if (marketRows.error !== null || claimRows.error !== null) {
+        throw new Error('escrow account claim metadata lookup failed');
+      }
+      const parsedMarkets = z.array(ReplayRowSchema).safeParse(marketRows.data ?? []);
+      const parsedClaims = z.array(ClaimedRowSchema).safeParse(claimRows.data ?? []);
+      if (!parsedMarkets.success || !parsedClaims.success) {
+        throw new Error('escrow account claim metadata response invalid');
+      }
+      const replayByMarket = new Map(parsedMarkets.data.map((row) => [row.id, row.is_replay]));
+      const claimedMarkets = new Set(parsedClaims.data.map((row) => row.market_id));
+
       return rows.data.map((row) => {
         const pending = parseAtomic(row.pending_atomic);
         const active = parseAtomic(row.active_atomic);
@@ -169,16 +197,18 @@ export function createPositionStore(): PositionStore {
         const claimed = parseAtomic(row.claimed_atomic);
         const deposited = parseAtomic(row.deposited_atomic);
         const chainState = stateByMarket.get(row.market_id) ?? 'unknown';
-        const claimState = refundable > 0n
-          ? 'ready'
-          : pending > 0n
+        const claimState = claimedMarkets.has(row.market_id)
+          ? 'claimed'
+          : chainState === 'settled' || chainState === 'voided'
+            ? 'ready'
+            : pending > 0n
             ? 'pending'
             : active > 0n
               ? 'open'
-              : claimed >= deposited && deposited > 0n
-                ? 'claimed'
-                : chainState === 'settled' || chainState === 'voided'
-                  ? 'checking'
+              : refundable > 0n
+                ? 'ready'
+                : claimed >= deposited && deposited > 0n
+                  ? 'claimed'
                   : 'open';
         return {
           marketId: row.market_id,
@@ -190,6 +220,7 @@ export function createPositionStore(): PositionStore {
           refundableAtomic: refundable.toString(),
           claimedAtomic: claimed.toString(),
           chainState,
+          replay: replayByMarket.get(row.market_id) ?? false,
           claimState,
         };
       });

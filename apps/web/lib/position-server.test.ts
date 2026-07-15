@@ -251,6 +251,7 @@ describe('escrow position server boundary', () => {
           refundableAtomic: '0',
           claimedAtomic: '0',
           chainState: 'open',
+          replay: false,
           claimState: 'open',
         }];
       },

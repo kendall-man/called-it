@@ -7,6 +7,7 @@
  * wallets, replay flags, and private balances never cross this mapper.
  */
 import { describePeriod, describeTerms, parseMarketSpec } from './spec-terms';
+import type { PublicEscrowReceipt } from './escrow-receipts';
 
 export type ReceiptStatus =
   | 'pending_lineup'
@@ -64,6 +65,8 @@ export interface PublicReceipt {
   explorerUrl: string | null;
   /** Browser-safe subset of the public proof record; never a transaction or wallet identifier. */
   browserProof: PublicBrowserProof | null;
+  /** Finalized aggregate-only escrow overlay; never includes a participant wallet. */
+  escrow?: PublicEscrowReceipt;
 }
 
 export interface PublicGroupBoardMarket {
@@ -84,6 +87,8 @@ export interface PublicGroupBoardMarket {
   createdAt: string;
   outcome: ReceiptOutcome | null;
   settledAt: string | null;
+  /** Finalized aggregate-only escrow overlay; never includes a participant wallet. */
+  escrow?: PublicEscrowReceipt;
 }
 
 export interface EvidenceFact {
@@ -167,6 +172,10 @@ const CURRENCIES: readonly ReceiptCurrency[] = ['sol', 'usdc'];
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PUBLIC_GROUP_SLUG = /^[A-Za-z0-9_-]{1,80}$/;
 const PROOF_HASH = /^[A-Za-z0-9+/=_-]{16,256}$/;
+
+export function isPublicMarketId(value: string): boolean {
+  return UUID_PATTERN.test(value);
+}
 
 function timestamp(value: unknown): string | null {
   const text = str(value);
@@ -252,7 +261,7 @@ function publicMarketCoreFromRow(row: unknown): PublicMarketCore | null {
   const createdAt = timestamp(row.created_at);
   if (
     !marketId ||
-    !UUID_PATTERN.test(marketId) ||
+    !isPublicMarketId(marketId) ||
     !groupSlug ||
     !PUBLIC_GROUP_SLUG.test(groupSlug) ||
     !terms ||

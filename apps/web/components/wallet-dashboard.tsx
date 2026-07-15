@@ -23,6 +23,11 @@ import {
 import { requestEscrowAccountPositions } from '@/lib/position-client';
 import type { EscrowAccountPosition } from '@/lib/position-contract';
 import {
+  DirectClaimError,
+  prepareDirectClaim,
+  submitDirectClaim,
+} from '@/lib/direct-claim';
+import {
   WalletButton,
   WalletHeading,
   WalletStatus,
@@ -36,7 +41,9 @@ type WalletDashboardProps = {
   readonly treasuryPubkey: string;
   readonly address: string;
   readonly custodyMode: 'legacy' | 'escrow';
+  readonly escrowProgramId?: string;
   readonly canonicalUsdcMint?: string;
+  readonly escrowGenesisHash?: string;
   readonly signTransaction: (transaction: Uint8Array) => Promise<Uint8Array>;
 };
 
@@ -241,7 +248,20 @@ export function WalletDashboard(props: WalletDashboardProps) {
             ) : escrowPositions.length === 0 ? (
               <p className="py-5 text-sm leading-6 text-fog">No escrow positions yet. Approve one from a call in Telegram.</p>
             ) : escrowPositions.map((position) => (
-              <EscrowPositionRow key={`${position.marketId}:${position.side}`} position={position} />
+              <EscrowPositionRow
+                key={`${position.marketId}:${position.side}`}
+                position={position}
+                network={props.network}
+                rpcUrl={props.rpcUrl}
+                owner={props.address}
+                programId={props.escrowProgramId}
+                canonicalUsdcMint={props.canonicalUsdcMint}
+                expectedGenesisHash={props.escrowGenesisHash}
+                signTransaction={props.signTransaction}
+                onFinalized={async () => {
+                  await Promise.all([refreshEscrowPositions(), refreshBalance()]);
+                }}
+              />
             ))}
           </div>
         </Card>
@@ -301,18 +321,88 @@ function BalanceValue(props: {
   );
 }
 
-function EscrowPositionRow(props: { readonly position: EscrowAccountPosition }) {
+type DirectClaimPhase =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'pending'; readonly label: string }
+  | { readonly kind: 'failed'; readonly text: string }
+  | { readonly kind: 'unknown'; readonly signature: string | null }
+  | { readonly kind: 'finalized'; readonly signature: string | null };
+
+type ClaimEligibility = 'checking' | 'ready' | 'hidden' | 'unavailable' | 'claimed';
+
+function EscrowPositionRow(props: {
+  readonly position: EscrowAccountPosition;
+  readonly network: 'devnet' | 'mainnet-beta';
+  readonly rpcUrl: string;
+  readonly owner: string;
+  readonly programId?: string;
+  readonly canonicalUsdcMint?: string;
+  readonly expectedGenesisHash?: string;
+  readonly signTransaction: (transaction: Uint8Array) => Promise<Uint8Array>;
+  readonly onFinalized: () => Promise<void>;
+}) {
   const position = props.position;
+  const [claim, setClaim] = useState<DirectClaimPhase>({ kind: 'idle' });
+  const [eligibility, setEligibility] = useState<ClaimEligibility>(
+    position.claimState === 'claimed' ? 'claimed' : 'checking',
+  );
   const amount = BigInt(position.depositedAtomic);
-  const status = position.claimState === 'ready'
+  const status = eligibility === 'ready'
     ? 'Ready to claim'
-    : position.claimState === 'checking'
+    : eligibility === 'checking'
       ? 'Claim check pending'
-      : position.claimState === 'claimed'
+      : eligibility === 'claimed' || position.claimState === 'claimed'
         ? 'Claimed'
         : position.claimState === 'pending'
           ? 'Waiting for activation'
           : 'Open';
+
+  useEffect(() => {
+    if (position.claimState === 'claimed') {
+      setEligibility('claimed');
+      return;
+    }
+    if (
+      props.programId === undefined ||
+      props.canonicalUsdcMint === undefined ||
+      props.expectedGenesisHash === undefined
+    ) {
+      setEligibility('unavailable');
+      return;
+    }
+    let cancelled = false;
+    setEligibility('checking');
+    void prepareDirectClaim({
+      canonicalUsdcMint: props.canonicalUsdcMint,
+      expectedGenesisHash: props.expectedGenesisHash,
+      marketId: position.marketId,
+      network: props.network,
+      owner: props.owner,
+      programId: props.programId,
+      rpcUrl: props.rpcUrl,
+    }).then(() => {
+      if (!cancelled) setEligibility('ready');
+    }).catch((cause) => {
+      if (cancelled) return;
+      if (cause instanceof DirectClaimError && cause.code === 'already_claimed') {
+        setEligibility('claimed');
+      } else if (cause instanceof DirectClaimError && cause.code === 'claim_not_ready') {
+        setEligibility('hidden');
+      } else {
+        setEligibility('unavailable');
+      }
+    });
+    return () => { cancelled = true; };
+  }, [
+    position.claimState,
+    position.marketId,
+    props.canonicalUsdcMint,
+    props.expectedGenesisHash,
+    props.network,
+    props.owner,
+    props.programId,
+    props.rpcUrl,
+  ]);
   return (
     <div className="py-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -327,17 +417,122 @@ function EscrowPositionRow(props: { readonly position: EscrowAccountPosition }) 
       <p className="mt-2 text-xs leading-5 text-fog">
         On-chain state: {position.chainState.replaceAll('_', ' ')}
       </p>
-      {(position.claimState === 'ready' || position.claimState === 'checking') && (
+      {position.replay && (
+        <p className="mt-2 text-xs font-semibold text-sky-400">
+          Completed-match replay · Uses {props.network === 'devnet' ? 'devnet test assets' : 'allowlisted mainnet assets'} · No Points
+        </p>
+      )}
+      {claim.kind === 'failed' && <p className="mt-3 text-sm leading-6 text-siren-400">{claim.text}</p>}
+      {claim.kind === 'unknown' && (
+        <p className="mt-3 text-sm leading-6 text-flood-300">
+          Confirmation is still unknown. Do not sign again yet. Refresh this wallet to check finalized state.
+        </p>
+      )}
+      {claim.kind === 'finalized' && (
+        <p className="mt-3 text-sm font-semibold text-pitch-300">Claim finalized. Assets were sent to this wallet.</p>
+      )}
+      {eligibility === 'unavailable' && position.claimState === 'ready' && claim.kind === 'idle' && (
+        <p className="mt-3 text-sm leading-6 text-flood-300">
+          Finalized claim state is temporarily unavailable. No assets moved. Refresh and try again.
+        </p>
+      )}
+      {(claim.kind === 'unknown' || claim.kind === 'finalized') && claim.signature !== null && (
+        <a
+          className="mt-2 inline-flex min-h-11 items-center break-all text-sm text-sky-400 underline underline-offset-4"
+          href={explorerTransactionUrl(claim.signature, props.network)}
+          target="_blank"
+          rel="noreferrer"
+        >
+          View claim transaction
+        </a>
+      )}
+      {eligibility === 'ready' && claim.kind !== 'finalized' && (
         <button
           type="button"
-          disabled
-          className="mt-3 min-h-11 w-full rounded-lg border border-line px-4 text-sm font-semibold text-fog opacity-70"
+          disabled={claim.kind === 'pending' || claim.kind === 'unknown'}
+          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-pitch-500 px-4 text-sm font-semibold text-chalk hover:bg-pitch-500/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300 disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={() => void claimPosition()}
         >
-          {position.claimState === 'ready' ? 'Claim action is being enabled' : 'Checking claim availability'}
+          {claim.kind === 'pending' && <LoaderCircle className="animate-spin motion-reduce:animate-none" size={18} />}
+          {claim.kind === 'pending' ? claim.label : position.chainState === 'voided' ? 'Claim refund' : 'Claim payout'}
         </button>
       )}
     </div>
   );
+
+  async function claimPosition(): Promise<void> {
+    if (
+      props.programId === undefined ||
+      props.canonicalUsdcMint === undefined ||
+      props.expectedGenesisHash === undefined
+    ) {
+      setClaim({
+        kind: 'failed',
+        text: 'Direct claim configuration is unavailable. No assets moved. Refresh after configuration is restored.',
+      });
+      return;
+    }
+    try {
+      setClaim({ kind: 'pending', label: 'Checking finalized state...' });
+      const preparation = await prepareDirectClaim({
+        canonicalUsdcMint: props.canonicalUsdcMint,
+        expectedGenesisHash: props.expectedGenesisHash,
+        marketId: position.marketId,
+        network: props.network,
+        owner: props.owner,
+        programId: props.programId,
+        rpcUrl: props.rpcUrl,
+      });
+      setClaim({ kind: 'pending', label: 'Approve in Privy...' });
+      const signedBytes = await props.signTransaction(preparation.transaction.serialize());
+      setClaim({ kind: 'pending', label: 'Waiting for finality...' });
+      const result = await submitDirectClaim({
+        preparation,
+        rpcUrl: props.rpcUrl,
+        signedBytes,
+      });
+      if (result.kind === 'unknown') {
+        setClaim({ kind: 'unknown', signature: result.signature });
+        return;
+      }
+      setEligibility('claimed');
+      setClaim({ kind: 'finalized', signature: result.signature });
+      await props.onFinalized();
+    } catch (cause) {
+      if (cause instanceof DirectClaimError && cause.code === 'already_claimed') {
+        setEligibility('claimed');
+        setClaim({ kind: 'finalized', signature: null });
+        await props.onFinalized();
+        return;
+      }
+      setClaim({ kind: 'failed', text: directClaimErrorMessage(cause) });
+    }
+  }
+}
+
+function directClaimErrorMessage(cause: unknown): string {
+  if (!(cause instanceof DirectClaimError)) {
+    return 'Claim approval was cancelled or interrupted. No new claim was submitted. Try again.';
+  }
+  switch (cause.code) {
+    case 'claim_not_ready':
+      return 'This position is not finalized and claimable yet. No assets moved. Refresh after settlement finishes.';
+    case 'already_claimed':
+      return 'This position was already claimed. No duplicate transfer occurred. Refresh the wallet.';
+    case 'blockhash_expired':
+      return 'The claim approval expired before submission. No assets moved. Try again.';
+    case 'network_mismatch':
+      return 'The connected Solana network does not match this position. No assets moved. Return to the correct network.';
+    case 'identity_mismatch':
+    case 'transaction_changed':
+      return 'The claim destination or transaction did not match this wallet. Nothing was submitted. Refresh the wallet.';
+    case 'insufficient_fee_balance':
+      return 'This wallet needs a small SOL balance for the claim fee. No assets moved. Add SOL and try again.';
+    case 'onchain_failure':
+      return 'Solana rejected the claim. No claim was finalized. Refresh finalized state before retrying.';
+    case 'rpc_unavailable':
+      return 'Finalized Solana state is temporarily unavailable. No claim was submitted. Try again shortly.';
+  }
 }
 
 function AssetButton(props: {
