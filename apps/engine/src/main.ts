@@ -62,6 +62,7 @@ import { marketStakeKeyboard } from './bot/keyboards.js';
 import { createEscrowEventWorkflowScheduler } from './escrow/event-workflow-scheduler.js';
 import { createProductionEscrowEventWorkflowPort } from './escrow/event-workflow-runtime.js';
 import { EscrowIntegratedSettler } from './background/escrow-settler.js';
+import { createEscrowReadinessHealthCheck } from './escrow/readiness-health.js';
 
 /**
  * Load the repo-root `.env` into process.env for local/dev runs. Production
@@ -281,11 +282,17 @@ async function main(): Promise<void> {
     settlement: { snapshot: (signal) => settlementReconciler.snapshot(signal) },
   });
   const escrowReadiness = escrowRuntime === null ? {} : {
-    escrow: {
-      async check(signal: AbortSignal) {
-        return (await escrowRuntime.readiness('intake', signal)).status === 'ready';
-      },
-    },
+    escrow: createEscrowReadinessHealthCheck({
+      readiness: (signal) => escrowRuntime.readiness('intake', signal),
+      now: deps.now,
+      cacheTtlMs: Math.max(
+        1_000,
+        Math.min(10_000, Math.floor(env.READINESS_WORKER_MAX_AGE_MS / 2)),
+      ),
+      failureCacheTtlMs: 1_000,
+      probeTimeoutMs: env.READINESS_CHECK_TIMEOUT_MS,
+      log,
+    }),
   };
   const readinessPorts: EngineReadinessPorts = {
     ...betaReadiness,
