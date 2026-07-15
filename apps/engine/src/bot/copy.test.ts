@@ -138,6 +138,20 @@ describe('fallback copy bank', () => {
     expect(guidance).toContain('/deposit');
   });
 
+  it('explains escrow without presenting Called It as the wallet custodian', () => {
+    const vars = { ...SAMPLE_VARS, custodyMode: 'escrow' };
+    const guidance = [
+      renderFallback('intro', vars, 'mainnet-beta'),
+      renderFallback('help', vars, 'mainnet-beta'),
+      renderFallback('group_ready', vars, 'mainnet-beta'),
+    ].join('\n');
+
+    expect(guidance).toContain('On-chain escrow');
+    expect(guidance).toContain('Privy wallet');
+    expect(guidance).toContain('Legacy /deposit and /withdraw');
+    expect(guidance).not.toContain('add funds to your Called It balance');
+  });
+
   it('discloses named group visibility and automatic points in active guidance', () => {
     // Given the three deterministic guidance surfaces
     const guidance = [

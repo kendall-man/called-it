@@ -53,9 +53,11 @@ export function readyMessageForGroup(input: {
   readonly group: { readonly id: number; readonly slug: string };
   readonly webBaseUrl: string;
   readonly solanaNetwork?: SolanaNetwork;
+  readonly custodyMode?: 'legacy' | 'escrow';
 }): string {
   return renderFallback('group_ready', {
     webUrl: groupBoardUrl(input.webBaseUrl, input.group.slug),
+    ...(input.custodyMode === undefined ? {} : { custodyMode: input.custodyMode }),
   }, input.solanaNetwork ?? 'devnet');
 }
 
@@ -64,6 +66,7 @@ export async function planGroupReadiness(input: {
   readonly group: { readonly id: number; readonly slug: string };
   readonly webBaseUrl: string;
   readonly solanaNetwork?: SolanaNetwork;
+  readonly custodyMode?: 'legacy' | 'escrow';
 }): Promise<GroupReadinessPlan> {
   const marker = await claimGroupReadiness(input.store, input.group.id);
   if (!marker.ok) return { kind: 'rejected', code: marker.code };

@@ -39,6 +39,7 @@ function makeHarness(options: {
   startResult?: 'started' | 'already_active' | 'live_markets';
   blockingPositions?: Array<{ state: 'pending' | 'active' | 'void' }>;
   network?: 'devnet' | 'mainnet-beta';
+  custodyMode?: 'legacy' | 'escrow';
 } = {}) {
   const handlers = new Map<string, (ctx: any) => Promise<unknown>>();
   const posts: string[] = [];
@@ -99,6 +100,7 @@ function makeHarness(options: {
         DEPLOYMENT_ENV: 'production',
         BETA_ALLOWED_GROUP_IDS: options.allowed === false ? [] : [GROUP_ID],
         SOLANA_NETWORK: options.network ?? 'devnet',
+        WAGER_CUSTODY_MODE: options.custodyMode ?? 'legacy',
       },
       log: { info() {}, warn() {}, error() {}, child() { return this; } },
       now: () => NOW_MS,
@@ -171,6 +173,18 @@ describe('/testmatch', () => {
     expect(harness.operations).toEqual([
       'upsert_group', 'upsert_user', 'membership', 'fixtures_between',
     ]);
+  });
+
+  it('labels an escrow mainnet run as a signed capped completed-match replay', async () => {
+    const harness = makeHarness({ network: 'mainnet-beta', custodyMode: 'escrow' });
+
+    await harness.run();
+
+    expect(harness.posts[0]).toContain('COMPLETED-MATCH REPLAY');
+    expect(harness.posts[0]).toContain('allowlisted, capped mainnet SOL or canonical USDC');
+    expect(harness.posts[0]).toContain('private Privy approval');
+    expect(harness.posts[0]).toContain('Replay results do not change Points.');
+    expect(harness.posts[0]).not.toContain('No SOL or USDC moves');
   });
 
   it('rejects non-admins and remains silent outside the beta allowlist', async () => {

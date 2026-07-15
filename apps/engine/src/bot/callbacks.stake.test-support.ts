@@ -15,6 +15,7 @@ import { createPointMethodStubs, type PointMethodStubs } from '../points/point-m
 import { installAtomicStarterRpc } from './callbacks.starter-rpc.test-support.js';
 import { EntityCache } from './entities.js';
 import { SendQueue } from './sendQueue.js';
+import type { EscrowTelegramPort } from './escrow-ux.js';
 
 export const NOW = Date.parse('2026-07-06T18:00:00.000Z');
 export const CHAT_ID = -100999;
@@ -85,6 +86,8 @@ export interface StakeHarnessOptions {
   starterBudgetEnabled?: boolean;
   refreshableCard?: boolean;
   solanaNetwork?: 'devnet' | 'mainnet-beta';
+  custodyMode?: 'legacy' | 'escrow';
+  escrow?: EscrowTelegramPort;
 }
 
 type StakeDb = Pick<
@@ -127,6 +130,7 @@ interface StakeHandler {
   budget: LlmBudget;
   queue: SendQueue;
   entities: EntityCache;
+  escrow?: EscrowTelegramPort;
 }
 
 interface StakeCallbackContext {
@@ -136,6 +140,13 @@ interface StakeCallbackContext {
   answerCallbackQuery(
     payload: Parameters<Context['answerCallbackQuery']>[0],
   ): Promise<true>;
+  api: {
+    sendMessage(
+      chatId: number,
+      text: string,
+      options?: unknown,
+    ): Promise<unknown>;
+  };
 }
 
 function asEngineDb(db: StakeDb): EngineDb {
@@ -248,6 +259,7 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
         WALLET_MINIAPP_ENABLED: false,
         STAKE_ACCEPTANCE_ENABLED: opts.stakeAcceptanceEnabled ?? false,
         SOLANA_NETWORK: opts.solanaNetwork ?? 'devnet',
+        WAGER_CUSTODY_MODE: opts.custodyMode ?? 'legacy',
       },
     },
     poster: {
@@ -267,6 +279,7 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
     budget: new LlmBudget(1000, () => NOW),
     queue: new SendQueue({ ratePerMinute: 1, collapseMs: 0, now: () => NOW }),
     entities: new EntityCache(db, () => NOW),
+    ...(opts.escrow === undefined ? {} : { escrow: opts.escrow }),
   });
   return { h, wagerDb: wagerBundle.db, cardEdits, posts };
 }
@@ -274,8 +287,17 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
 export function makeStakeContext(
   userId: number,
   callbackId = 'callback-1',
-): { ctx: Context; toasts: string[] } {
+): {
+  ctx: Context;
+  toasts: string[];
+  privateMessages: Array<{ readonly chatId: number; readonly text: string; readonly options: unknown }>;
+} {
   const toasts: string[] = [];
+  const privateMessages: Array<{
+    readonly chatId: number;
+    readonly text: string;
+    readonly options: unknown;
+  }> = [];
   const ctx = asCallbackContext({
     chat: { id: CHAT_ID },
     from: { id: userId, first_name: `U${userId}` },
@@ -286,8 +308,14 @@ export function makeStakeContext(
       }
       return true;
     },
+    api: {
+      async sendMessage(chatId, text, options) {
+        privateMessages.push({ chatId, text, options });
+        return true;
+      },
+    },
   });
-  return { ctx, toasts };
+  return { ctx, toasts, privateMessages };
 }
 
 export const stakeAction = (side: 'back' | 'doubt', presetIndex: 0) =>

@@ -6,6 +6,10 @@ function isMainnet(vars: CopyVars): boolean {
   return vars[NETWORK_VAR] === 'mainnet-beta';
 }
 
+function isEscrow(vars: CopyVars): boolean {
+  return vars['custodyMode'] === 'escrow';
+}
+
 export type TemplateKey =
   | 'intro'
   | 'help'
@@ -79,10 +83,23 @@ function value(vars: CopyVars, key: string, fallback = ''): string {
 }
 
 export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string> = {
-  intro: (vars) => isMainnet(vars)
+  intro: (vars) => isEscrow(vars)
+    ? `Add Called It to a Telegram group. Reply /bookit to a football call, then choose It happens or It does not using SOL or canonical USDC. Each live choice opens a private Privy wallet approval and settles through On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Named choices and results are visible in the group.`
+    : isMainnet(vars)
     ? 'Add Called It to a Telegram group. Reply /bookit to your own football call, then choose It happens or It does not using SOL or USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in the group. Use /wallet in private chat to review your verified wallet, and /leaderboard, /mystats, or /table in the group.'
     : 'Add Called It to a Telegram group. Reply /bookit to your own football call, then choose It happens or It does not using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test assets are devnet-only and have no monetary value.',
-  help: (vars) => [
+  help: (vars) => isEscrow(vars) ? [
+    'How On-chain escrow works:',
+    '• Make or book a football call in the group.',
+    '• Choose It happens or It does not in SOL or canonical USDC.',
+    '• Review and approve the exact amount with your Privy wallet in private chat.',
+    '• The group updates only after the position is finalized on-chain.',
+    `• Completed-match replays use ${isMainnet(vars) ? 'allowlisted, capped mainnet assets' : 'devnet test assets'} through the same Privy approval and never change Points.`,
+    '• Use /wallet in private chat for funding, claims, refunds, and recovery.',
+    '• Legacy /deposit and /withdraw remain available only for older Called It balances.',
+    '',
+    'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /help',
+  ].join('\n') : [
     'How this works:',
     '• Add Called It to a Telegram group.',
     '• Reply /bookit to your own football call.',
@@ -160,12 +177,16 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   settings_updated: (vars) => `Done — ${value(vars, 'summary')}.`,
   table_header: (vars) => `THE TABLE — ${value(vars, 'groupTitle', 'this group')}`,
   slate_intro: (vars) => `Morning, legends — today's card: ${value(vars, 'fixtures', 'check back soon')}`,
-  replay_started: (vars) => isMainnet(vars)
-    ? `TEST MATCH: ${value(vars, 'fixture')} is replaying at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. Positions use real mainnet SOL and require confirmation. Test results do not change Points.`
-    : `TEST MATCH: ${value(vars, 'fixture')} is replaying at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. No test SOL moves and test results do not change Points.`,
-  replay_finished: (vars) => isMainnet(vars)
-    ? `TEST MATCH FINISHED: ${value(vars, 'fixture')}. Mainnet SOL positions were settled; Points did not change.`
-    : `TEST MATCH FINISHED: ${value(vars, 'fixture')}. No test SOL moved and Points did not change.`,
+  replay_started: (vars) => isEscrow(vars)
+    ? `COMPLETED-MATCH REPLAY: ${value(vars, 'fixture')} is running at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. Positions use ${isMainnet(vars) ? 'allowlisted, capped mainnet SOL or canonical USDC' : 'devnet test SOL or test USDC'} through the same private Privy approval. Replay results do not change Points.`
+    : isMainnet(vars)
+      ? `TEST MATCH: ${value(vars, 'fixture')} is replaying at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. Positions use real mainnet SOL and require confirmation. Test results do not change Points.`
+      : `TEST MATCH: ${value(vars, 'fixture')} is replaying at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. No test SOL moves and test results do not change Points.`,
+  replay_finished: (vars) => isEscrow(vars)
+    ? `COMPLETED-MATCH REPLAY FINISHED: ${value(vars, 'fixture')}. Signed replay positions settled on ${isMainnet(vars) ? 'mainnet' : 'devnet'}; Points did not change.`
+    : isMainnet(vars)
+      ? `TEST MATCH FINISHED: ${value(vars, 'fixture')}. Mainnet SOL positions were settled; Points did not change.`
+      : `TEST MATCH FINISHED: ${value(vars, 'fixture')}. No test SOL moved and Points did not change.`,
   replay_blocked_live: (vars) => {
     const call = value(vars, 'call');
     if (call.length === 0) return 'Not while live calls are open in here — let those settle first.';
@@ -189,7 +210,9 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     'Called It is in a limited beta and this group is not enabled yet. No call or SOL changed.',
   admin_permission_required: () =>
     'One step left: promote Called It to group admin with permission to manage messages. I will post the ready message when setup is complete.',
-  group_ready: (vars) => isMainnet(vars)
+  group_ready: (vars) => isEscrow(vars)
+    ? `Called It is ready with On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Make a football call, then choose "It happens" or "It does not" in SOL or canonical USDC. Every live or completed-match replay choice opens a private Privy wallet approval; this group updates only after finalization. Replays do not change Points. Legacy /deposit and /withdraw remain only for older balances. Board: ${value(vars, 'webUrl', 'the group board')}`
+    : isMainnet(vars)
     ? `Called It is ready on Solana mainnet. Say a football call, mention me, or reply /bookit to your own message. Choose "It happens" or "It does not," then pick an amount. New calls use SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this group. Correct choices earn 10 points automatically. A verified wallet is required; /wallet in private chat shows your status. Board: ${value(vars, 'webUrl', 'the group board')}`
     : `Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Choose "It happens" or "It does not," then pick an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test assets are devnet-only with no monetary value. Board: ${value(vars, 'webUrl', 'the group board')}`,
   private_start: () => 'Called It lives in group chats. Add it to a group to make a football call.',

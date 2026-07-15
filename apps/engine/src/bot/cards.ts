@@ -24,6 +24,8 @@ import {
 } from '../points/presentation.js';
 import { formatAssetAmount } from '../wager/format.js';
 import { fullMatchMultiplier } from '../wager/pot.js';
+import type { SolanaNetwork } from '../solana-network.js';
+import { escrowNetworkLabel, publicEscrowActionUrl } from './escrow-ux.js';
 
 const QUOTED_TEXT_LIMIT = 512;
 const PERSON_NAME_LIMIT = 64;
@@ -131,6 +133,8 @@ export interface ClaimCardInput {
   /** 0..100 — matched fraction of the total staked pot. */
   matchedPct: number;
   isReplay: boolean;
+  readonly custodyMode?: 'legacy' | 'escrow';
+  readonly solanaNetwork?: SolanaNetwork;
   receiptUrl: string;
   /** False when a rollout or solvency gate has paused new positions. */
   positionsAvailable?: boolean;
@@ -153,6 +157,14 @@ export function claimCardText(input: ClaimCardInput): string {
     `📋 ${describeTerms(input.spec)}`,
     `📈 Feed says ${formatProbabilityPct(input.probability)}% — back pays ${backMult}, against ${againstMult} if matched (${provenanceChip(input.provenance)})`,
     `🚦 ${statusLine(input.status, currency)}`,
+    ...(input.isReplay && input.custodyMode === 'escrow'
+      ? [
+          '🧪 Completed-match replay · No Points change',
+          `🔐 On-chain escrow · ${escrowNetworkLabel(input.solanaNetwork ?? 'devnet')} · ${currency.toUpperCase()}`,
+        ]
+      : input.custodyMode === 'escrow'
+        ? [`🔐 On-chain escrow · ${escrowNetworkLabel(input.solanaNetwork ?? 'devnet')} · ${currency.toUpperCase()}`]
+        : []),
     ...(input.positionsAvailable === false
       ? [`⏸ New ${currency.toUpperCase()} positions are temporarily paused. No ${currency.toUpperCase()} can move.`]
       : []),
@@ -192,6 +204,10 @@ export interface ReceiptCardInput {
   provenance: 'market' | 'modelled';
   payoutsLine: string;
   isReplay: boolean;
+  readonly custodyMode?: 'legacy' | 'escrow';
+  readonly solanaNetwork?: SolanaNetwork;
+  /** Public explorer URL only. Private signing/claim links never belong in group receipts. */
+  readonly transactionUrl?: string;
   receiptUrl: string;
   readonly points?: {
     readonly winnerCount: number;
@@ -232,9 +248,18 @@ export function receiptCardText(input: ReceiptCardInput): string {
     `📈 Locked at the call: ${formatProbabilityPct(input.probability)}% — back ${backMult}, against ${againstMult} (${provenanceChip(input.provenance)})`,
     `🏁 ${outcomeLine(input.outcome, input.claimerName, currency)}`,
   ];
+  if (input.isReplay && input.custodyMode === 'escrow') {
+    lines.push(
+      '🧪 Completed-match replay · No Points changed',
+      `🔐 On-chain escrow · ${escrowNetworkLabel(input.solanaNetwork ?? 'devnet')} · ${currency.toUpperCase()}`,
+    );
+  } else if (input.custodyMode === 'escrow') {
+    lines.push(`🔐 On-chain escrow · ${escrowNetworkLabel(input.solanaNetwork ?? 'devnet')} · ${currency.toUpperCase()}`);
+  }
   if (input.payoutsLine.length > 0) lines.push(`💠 ${input.payoutsLine}`);
   lines.push(`🔏 ${trustTierLine(input.spec.trustTier)}`);
-  if (input.points !== undefined && input.outcome !== 'void') {
+  const pointsAllowed = !(input.isReplay && input.custodyMode === 'escrow');
+  if (pointsAllowed && input.points !== undefined && input.outcome !== 'void') {
     const settlement = settlementPointsText(input.points, TELEGRAM_MESSAGE_LIMIT);
     if (settlement.length > 0) lines.push('', settlement);
     lines.push(
@@ -242,6 +267,8 @@ export function receiptCardText(input: ReceiptCardInput): string {
       leaderboardText({ entries: input.points.leaderboard, limit: 5 }, TELEGRAM_MESSAGE_LIMIT),
     );
   }
+  const transactionUrl = publicEscrowActionUrl(input.transactionUrl);
+  if (transactionUrl !== null) lines.push('', `Transaction: ${transactionUrl}`);
   lines.push('', `Receipt: ${input.receiptUrl}`);
   return telegramMessageBody(lines.join('\n'));
 }

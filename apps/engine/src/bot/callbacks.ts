@@ -6,6 +6,7 @@
  * "that ship has sailed" (PRD story 17).
  */
 
+import { createHash } from 'node:crypto';
 import type { Bot, Context } from 'grammy';
 import { TUNABLES } from '@calledit/market-engine';
 import type { ClaimRow, GroupRow, MarketRow } from '../ports.js';
@@ -22,10 +23,16 @@ import { mintOffer, retryOffer } from '../pipeline/offer.js';
 import { voidAbandonedMarket } from '../pipeline/void.js';
 import { composeClaimCard } from '../pipeline/render.js';
 import { renderFallback } from './copy.js';
-import { WAGER_TUNABLES } from '../wager/constants.js';
+import { WAGER_TUNABLES, presetStakes } from '../wager/constants.js';
 import { multiplierLabel, wagerDoubtMultiplier } from '../wager/stake.js';
 import { isBetaGroupAllowed } from './beta-access.js';
 import { createWagerCopy } from '../wager/copy.js';
+import {
+  escrowPlacementRejectionText,
+  escrowSigningPrompt,
+  privateEscrowUrl,
+  type EscrowPlacementSessionInput,
+} from './escrow-ux.js';
 
 async function answer(ctx: Context, text: string): Promise<void> {
   try {
@@ -345,6 +352,80 @@ async function handleReplayStake(
   }
 }
 
+function escrowPlacementIdempotencyKey(callbackId: string): string {
+  return createHash('sha256')
+    .update(`telegram:escrow-position:${callbackId}`)
+    .digest('hex');
+}
+
+async function handleEscrowStake(
+  h: HandlerCtx,
+  ctx: Context,
+  input: Omit<EscrowPlacementSessionInput, 'idempotencyKey'> & {
+    readonly callbackId: string;
+  },
+): Promise<void> {
+  const escrow = h.escrow;
+  if (escrow === undefined) {
+    await answer(ctx, escrowPlacementRejectionText('temporarily_unavailable'));
+    return;
+  }
+  const result = await escrow.createPlacementSession({
+    telegramUserId: input.telegramUserId,
+    groupId: input.groupId,
+    marketId: input.marketId,
+    side: input.side,
+    asset: input.asset,
+    amountAtomic: input.amountAtomic,
+    network: input.network,
+    replay: input.replay,
+    idempotencyKey: escrowPlacementIdempotencyKey(input.callbackId),
+  });
+  if (result.kind === 'rejected') {
+    h.deps.log.info('escrow_signing_session_rejected', {
+      code: result.code,
+      asset: input.asset,
+    });
+    await answer(ctx, escrowPlacementRejectionText(result.code));
+    return;
+  }
+  const url = privateEscrowUrl(h.deps.env.WEB_BASE_URL, 'position', result.token);
+  const expiresAtMs = Date.parse(result.expiresAt);
+  if (url === null || !Number.isFinite(expiresAtMs) || expiresAtMs <= h.deps.now()) {
+    await answer(ctx, escrowPlacementRejectionText('callback_expired'));
+    return;
+  }
+  const prompt = escrowSigningPrompt({
+    network: h.deps.env.SOLANA_NETWORK,
+    side: input.side,
+    asset: input.asset,
+    amountAtomic: input.amountAtomic,
+    expiresAt: result.expiresAt,
+    replay: input.replay,
+  });
+  try {
+    await ctx.api.sendMessage(input.telegramUserId, prompt, {
+      reply_markup: {
+        inline_keyboard: [[{ text: 'Review and sign', url }]],
+      },
+    });
+  } catch (error) {
+    h.deps.log.warn('escrow_private_link_delivery_failed', {
+      reason: error instanceof Error ? 'telegram_api_exception' : 'unknown_exception',
+    });
+    await answer(ctx, 'Open my private chat, run /wallet, then tap your choice again. No assets moved.');
+    return;
+  }
+  h.deps.log.info('escrow_signing_link_issued', {
+    asset: input.asset,
+    side: input.side,
+    duplicate: result.duplicate,
+  });
+  await answer(ctx, result.duplicate
+    ? 'Your existing private signing link was sent again.'
+    : 'Private signing link sent. The group updates only after finalization.');
+}
+
 /**
  * A Back / Against tap. Every market is SOL now, so this delegates straight
  * into the wager module (funds, presets, and copy). The preset index is
@@ -358,7 +439,8 @@ async function handleStake(
   const chatId = ctx.chat?.id;
   const from = ctx.from;
   const wager = h.deps.wager;
-  if (chatId === undefined || !from || !wager) {
+  const escrowMode = h.deps.env.WAGER_CUSTODY_MODE === 'escrow';
+  if (chatId === undefined || !from || (!escrowMode && !wager)) {
     await stale(h, ctx);
     return;
   }
@@ -375,7 +457,9 @@ async function handleStake(
     await answer(ctx, `${statusLine(market.status)}.`);
     return;
   }
-  const lamports = wager.presetLamports(action.presetIndex, market.currency);
+  const lamports = escrowMode
+    ? presetStakes(market.currency)[action.presetIndex] ?? null
+    : wager?.presetLamports(action.presetIndex, market.currency) ?? null;
   if (lamports === null) {
     await stale(h, ctx);
     return;
@@ -399,6 +483,24 @@ async function handleStake(
     return;
   }
   await ensureUserSeen(h, chatId, from);
+  if (escrowMode) {
+    await handleEscrowStake(h, ctx, {
+      callbackId,
+      telegramUserId: from.id,
+      groupId: chatId,
+      marketId: market.id,
+      side: action.side,
+      asset: market.currency,
+      amountAtomic: lamports,
+      network: h.deps.env.SOLANA_NETWORK,
+      replay: market.is_replay,
+    });
+    return;
+  }
+  if (wager === null) {
+    await stale(h, ctx);
+    return;
+  }
   const fundedReplay = market.is_replay
     && wager.kind === 'funded'
     && h.deps.env.SOLANA_NETWORK === 'mainnet-beta';

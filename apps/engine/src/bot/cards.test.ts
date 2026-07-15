@@ -237,4 +237,66 @@ describe('cards', () => {
     expect(receipt).toContain('CALLED IT');
     expect(receipt).toContain('0.08 SOL');
   });
+
+  it('labels escrow cards and exposes only public transaction links', () => {
+    const claim = claimCardText({
+      ...CLAIM_INPUT,
+      custodyMode: 'escrow',
+      solanaNetwork: 'mainnet-beta',
+      currency: 'usdc',
+    });
+    const receipt = receiptCardText({
+      ...RECEIPT_INPUT,
+      custodyMode: 'escrow',
+      solanaNetwork: 'mainnet-beta',
+      currency: 'usdc',
+      transactionUrl: 'https://explorer.solana.com/tx/abc',
+    });
+    const signingToken = 'a'.repeat(43);
+    const unsafeReceipt = receiptCardText({
+      ...RECEIPT_INPUT,
+      custodyMode: 'escrow',
+      solanaNetwork: 'devnet',
+      transactionUrl: `https://example.test/position/${signingToken}`,
+    });
+
+    expect(claim).toContain('On-chain escrow · MAINNET · USDC');
+    expect(receipt).toContain('Transaction: https://explorer.solana.com/tx/abc');
+    expect(unsafeReceipt).not.toContain(signingToken);
+  });
+
+  it('labels signed completed-match replay cards as no-Points in escrow mode', () => {
+    const replay = claimCardText({
+      ...CLAIM_INPUT,
+      custodyMode: 'escrow',
+      solanaNetwork: 'mainnet-beta',
+      isReplay: true,
+    });
+
+    expect(replay).toContain('Completed-match replay · No Points change');
+    expect(replay).toContain('On-chain escrow · MAINNET · SOL');
+    expect(replay).not.toContain('No SOL or USDC moves');
+  });
+
+  it('never renders Points on an escrow replay receipt', () => {
+    const replay = receiptCardText({
+      ...RECEIPT_INPUT,
+      custodyMode: 'escrow',
+      solanaNetwork: 'devnet',
+      isReplay: true,
+      points: {
+        winnerCount: 1,
+        missCount: 0,
+        winners: [{ username: 'alice_7', displayName: 'Alice' }],
+        misses: [],
+        leaderboard: [
+          { username: 'alice_7', displayName: 'Alice', points: 10, wins: 1, losses: 0 },
+        ],
+      },
+    });
+
+    expect(replay).toContain('Completed-match replay · No Points changed');
+    expect(replay).not.toContain('+10 points');
+    expect(replay).not.toContain('Group leaderboard');
+  });
 });

@@ -139,9 +139,15 @@ const AGENT_TEMPLATE_MAP: Partial<Record<TemplateKey, (vars: CopyVars) => AgentM
       : null,
 };
 
-export function createSay(agent: AgentPort, log: Logger, network: SolanaNetwork = 'devnet'): Say {
+export function createSay(
+  agent: AgentPort,
+  log: Logger,
+  network: SolanaNetwork = 'devnet',
+  custodyMode: 'legacy' | 'escrow' = 'legacy',
+): Say {
   return async (key, vars = {}) => {
-    if (FIXED_PRODUCT_CONTRACT_KEYS.has(key)) return renderFallback(key, vars, network);
+    const productVars = { ...vars, custodyMode };
+    if (FIXED_PRODUCT_CONTRACT_KEYS.has(key)) return renderFallback(key, productVars, network);
     const mapping = AGENT_TEMPLATE_MAP[key]?.(vars) ?? null;
     if (mapping) {
       try {
@@ -154,6 +160,6 @@ export function createSay(agent: AgentPort, log: Logger, network: SolanaNetwork 
         });
       }
     }
-    return renderFallback(key, vars, network);
+    return renderFallback(key, productVars, network);
   };
 }

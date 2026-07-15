@@ -208,7 +208,7 @@ describe('handleStake - beta starter position', () => {
 });
 
 describe('handleStake - mainnet confirmation', () => {
-  it('confirms and debits a mainnet replay using the virtual match clock', async () => {
+  it('confirms and debits a legacy mainnet replay using the virtual match clock', async () => {
     const harness = makeHarness({
       marketRow: market({ is_replay: true }),
       fixture: fixtureAt('F', 90),

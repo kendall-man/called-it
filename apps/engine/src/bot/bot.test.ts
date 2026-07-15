@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LogFields, Logger } from '../log.js';
 import type { BotGroupReadyMarkerResult } from '../ports.js';
 import {
+  ESCROW_PRIVATE_BOT_COMMANDS,
   GROUP_BOT_COMMANDS,
   MAINNET_PRIVATE_BOT_COMMANDS,
   PRIVATE_BOT_COMMANDS,
@@ -14,9 +15,10 @@ import {
   type GroupLifecycleBot,
   type GroupLifecycleContext,
   type GroupLifecycleHandlerCtx,
+  type WagerCommandModule,
 } from './bot.js';
 import type { Bot } from 'grammy';
-import type { WagerModule } from '../wager/module.js';
+import type { WagerBotLike, WagerModule } from '../wager/module.js';
 
 type RecordedLog = {
   readonly event: string;
@@ -182,19 +184,19 @@ describe('group lifecycle logging privacy', () => {
 describe('onboarding scopes and lifecycle', () => {
   it('registers private account handlers for the funded runtime only', () => {
     const registrations: string[] = [];
-    const bot = {
+    const bot: WagerBotLike = {
       command(command: string) {
         registrations.push(command);
       },
-    } as unknown as Bot;
-    const funded = {
+    };
+    const funded: WagerCommandModule = {
       kind: 'funded',
       registerCommands(commandBot: { command(command: string): unknown }) {
         commandBot.command('wallet');
         commandBot.command('deposit');
         commandBot.command('withdraw');
       },
-    } as unknown as WagerModule;
+    };
     const starterOnly = { kind: 'starter_only' } as unknown as WagerModule;
 
     registerWagerCommands(bot, funded);
@@ -253,6 +255,41 @@ describe('onboarding scopes and lifecycle', () => {
       'start', 'help', 'wallet', 'deposit', 'withdraw',
     ]);
     expect(calls[1]).toEqual({ commands: GROUP_BOT_COMMANDS, scope: 'all_group_chats' });
+  });
+
+  it('hides legacy custody commands from escrow menus while retaining typed recovery handlers', async () => {
+    const calls: Array<{ readonly commands: readonly { readonly command: string }[]; readonly scope: string }> = [];
+    const registrations: string[] = [];
+    const api: BotCommandScopeApi = {
+      async setMyCommands(commands, options) {
+        calls.push({ commands, scope: options.scope.type });
+      },
+    };
+    const bot = {
+      command(command: string) {
+        registrations.push(command);
+      },
+    } as unknown as Bot;
+    const funded = {
+      kind: 'funded',
+      registerCommands(commandBot: { command(command: string): unknown }) {
+        commandBot.command('wallet');
+        commandBot.command('deposit');
+        commandBot.command('withdraw');
+      },
+    } as unknown as WagerModule;
+
+    await configureScopedBotCommands(api, 'mainnet-beta', 'escrow');
+    registerWagerCommands(bot, funded, 'escrow');
+
+    expect(calls[0]).toEqual({
+      commands: ESCROW_PRIVATE_BOT_COMMANDS,
+      scope: 'all_private_chats',
+    });
+    expect(ESCROW_PRIVATE_BOT_COMMANDS.map(({ command }) => command)).toEqual([
+      'start', 'help', 'wallet',
+    ]);
+    expect(registrations).toEqual(['deposit', 'withdraw']);
   });
 
   it('posts one ready message across group start and admin lifecycle updates', async () => {

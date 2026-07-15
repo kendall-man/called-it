@@ -24,6 +24,16 @@ import {
   handleWallet,
 } from './server-read.js';
 import { handleQuoteRequest } from './server-write.js';
+import {
+  handleEscrowPositionAccept,
+  type EscrowPositionAcceptApi,
+} from './server-escrow.js';
+
+export type {
+  EscrowPositionAcceptApi,
+  EscrowPositionAcceptInput,
+  EscrowPositionAcceptResult,
+} from './server-escrow.js';
 
 export interface TelegramIngressPort {
   accept(update: Record<string, unknown>): Promise<void>;
@@ -37,10 +47,13 @@ export interface EngineApiOptions {
   readiness: ReadinessEvaluator;
   drainState: DrainState;
   telegramIngress?: TelegramIngressPort;
+  escrowPositions?: EscrowPositionAcceptApi;
+  /** SHA-256 digest of WEB_CONCIERGE_TOKEN; never pass the bearer plaintext here. */
+  escrowWebTokenSha256?: string;
 }
 
 export function startEngineApi(options: EngineApiOptions): Server {
-  const credentials = createRouteCredentialBoundary(routeCredentials(options.env));
+  const credentials = createRouteCredentialBoundary(routeCredentials(options));
   const quoteBudget = new LlmBudget(undefined, options.deps.now);
   const server = createServer((req, res) => {
     const requestId = randomUUID();
@@ -67,11 +80,21 @@ async function route(
 ): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://engine.local');
   const path = url.pathname;
+  const escrowAcceptRequest = req.method === 'POST' && path === '/api/escrow/positions/accept';
   if (credentials.hasCredentialSearchParam(url)) {
-    sendJson(res, 401, { error: 'unauthorized' });
+    sendAuthorizationFailure(res, 401, 'unauthorized', escrowAcceptRequest);
     return;
   }
-  const body = await readBodyWithoutCredentials(req, res, credentials);
+  const allowedBodyCredentialNames = path === '/api/escrow/positions/accept'
+    ? new Set(['token'])
+    : undefined;
+  const body = await readBodyWithoutCredentials(
+    req,
+    res,
+    credentials,
+    allowedBodyCredentialNames,
+    escrowAcceptRequest,
+  );
   if (body.kind === 'rejected') return;
   if (path === '/api/live') {
     sendJson(res, 200, { status: 'live' });
@@ -115,11 +138,11 @@ async function route(
   }
   const authorization = credentials.authorize(req, routeScope);
   if (authorization.kind === 'unauthorized') {
-    sendJson(res, 401, { error: 'unauthorized' });
+    sendAuthorizationFailure(res, 401, 'unauthorized', escrowAcceptRequest);
     return;
   }
   if (authorization.kind === 'wrong_scope') {
-    sendJson(res, 403, { error: 'forbidden' });
+    sendAuthorizationFailure(res, 403, 'forbidden', escrowAcceptRequest);
     return;
   }
   if (req.method === 'GET' && path === '/api/ops/status') {
@@ -132,6 +155,10 @@ async function route(
     return;
   }
   if (options.drainState.isDraining()) {
+    if (req.method === 'POST' && path === '/api/escrow/positions/accept') {
+      sendJson(res, 503, { kind: 'rejected', code: 'draining' });
+      return;
+    }
     sendJson(res, 503, { error: 'draining' });
     return;
   }
@@ -175,6 +202,16 @@ async function route(
     sendJson(res, 200, { ok: true });
     return;
   }
+  if (req.method === 'POST' && path === '/api/escrow/positions/accept') {
+    await handleEscrowPositionAccept({
+      body: body.value,
+      custodyMode: options.env.WAGER_CUSTODY_MODE,
+      api: options.escrowPositions,
+      log: options.log,
+      res,
+    });
+    return;
+  }
   sendJson(res, 404, { error: 'not_found' });
 }
 
@@ -187,11 +224,14 @@ function telegramWebhookSecretMatches(req: IncomingMessage, expected: string): b
     && timingSafeEqual(suppliedBytes, expectedBytes);
 }
 
-function routeCredentials(env: Env): RouteCredentials {
+function routeCredentials(options: EngineApiOptions): RouteCredentials {
   return {
-    concierge: env.ENGINE_CONCIERGE_TOKEN,
-    telegram: env.ENGINE_TELEGRAM_TOKEN,
-    ops: env.ENGINE_OPS_TOKEN,
+    concierge: options.env.ENGINE_CONCIERGE_TOKEN,
+    telegram: options.env.ENGINE_TELEGRAM_TOKEN,
+    ops: options.env.ENGINE_OPS_TOKEN,
+    ...(options.escrowWebTokenSha256 === undefined
+      ? {}
+      : { escrowWebSha256: options.escrowWebTokenSha256 }),
   };
 }
 
@@ -203,6 +243,7 @@ function allowedScopes(method: string, path: string): ReadonlySet<RouteScope> | 
   if (method === 'POST' && path === '/api/quote') return concierge();
   if (method === 'POST' && path === '/api/telegram-ingress') return telegram();
   if (method === 'GET' && path === '/api/ops/status') return ops();
+  if (method === 'POST' && path === '/api/escrow/positions/accept') return escrowWeb();
   return null;
 }
 
@@ -210,6 +251,8 @@ async function readBodyWithoutCredentials(
   req: IncomingMessage,
   res: ServerResponse,
   credentials: RouteCredentialBoundary,
+  allowedTopLevelCredentialNames?: ReadonlySet<string>,
+  escrowResponse = false,
 ): Promise<
   | { readonly kind: 'rejected'; readonly value: undefined }
   | { readonly kind: 'ok'; readonly value: unknown }
@@ -218,8 +261,8 @@ async function readBodyWithoutCredentials(
     return { kind: 'ok', value: undefined };
   }
   const body = await readJson(req);
-  if (credentials.hasCredentialField(body)) {
-    sendJson(res, 401, { error: 'unauthorized' });
+  if (credentials.hasCredentialField(body, allowedTopLevelCredentialNames)) {
+    sendAuthorizationFailure(res, 401, 'unauthorized', escrowResponse);
     return { kind: 'rejected', value: undefined };
   }
   return { kind: 'ok', value: body };
@@ -244,4 +287,17 @@ function telegram(): ReadonlySet<RouteScope> {
 
 function ops(): ReadonlySet<RouteScope> {
   return new Set<RouteScope>(['ops']);
+}
+
+function escrowWeb(): ReadonlySet<RouteScope> {
+  return new Set<RouteScope>(['escrow_web']);
+}
+
+function sendAuthorizationFailure(
+  res: ServerResponse,
+  status: 401 | 403,
+  code: 'unauthorized' | 'forbidden',
+  escrowResponse: boolean,
+): void {
+  sendJson(res, status, escrowResponse ? { kind: 'rejected', code } : { error: code });
 }

@@ -26,6 +26,7 @@ import {
   personalStatsText,
   TELEGRAM_MESSAGE_LIMIT,
 } from '../points/presentation.js';
+import { registerEscrowAccountCommands } from './escrow-commands.js';
 
 const GROUP_LEADERBOARD_LIMIT = 10;
 const GROUP_RANK_LIMIT = 100;
@@ -116,7 +117,7 @@ export interface NavigationHandlerCtx {
       'upsertGroup' | 'markGroupReady' | 'leaderboard' | 'groupPlayerStats'
     >;
     readonly env: Pick<Env, 'WEB_BASE_URL' | 'DEPLOYMENT_ENV' | 'BETA_ALLOWED_GROUP_IDS'>
-      & Partial<Pick<Env, 'SOLANA_NETWORK'>>;
+      & Partial<Pick<Env, 'SOLANA_NETWORK' | 'WAGER_CUSTODY_MODE'>>;
   };
   readonly poster: Pick<Poster, 'post'>;
   readonly say: Say;
@@ -201,12 +202,15 @@ export function registerNavigationCommands(bot: NavigationCommandBot, h: Navigat
       group,
       webBaseUrl: h.deps.env.WEB_BASE_URL,
       solanaNetwork: h.deps.env.SOLANA_NETWORK,
+      custodyMode: h.deps.env.WAGER_CUSTODY_MODE ?? 'legacy',
     });
     if (plan.kind === 'post_ready') h.poster.post(ctx.chat.id, plan.text);
   });
 
   bot.command('help', async (ctx) => {
-    const line = await h.say('help');
+    const line = await h.say('help', {
+      custodyMode: h.deps.env.WAGER_CUSTODY_MODE ?? 'legacy',
+    });
     h.poster.post(ctx.chat.id, line);
   });
 
@@ -265,6 +269,14 @@ export function registerNavigationCommands(bot: NavigationCommandBot, h: Navigat
 }
 
 export function registerCommands(bot: Bot, h: HandlerCtx): void {
+  if (h.deps.env.WAGER_CUSTODY_MODE === 'escrow') {
+    registerEscrowAccountCommands(bot, {
+      webBaseUrl: h.deps.env.WEB_BASE_URL,
+      network: h.deps.env.SOLANA_NETWORK,
+      escrow: h.escrow,
+      now: h.deps.now,
+    });
+  }
   registerNavigationCommands(bot, {
     deps: h.deps,
     poster: h.poster,
@@ -376,6 +388,7 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
         fixture: `${fixture.p1_name} vs ${fixture.p2_name}`,
         p1: fixture.p1_name,
         p2: fixture.p2_name,
+        custodyMode: h.deps.env.WAGER_CUSTODY_MODE,
       }),
       { replyToMessageId },
     );

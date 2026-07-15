@@ -7,7 +7,11 @@ import { createPointMethodStubs } from '../points/point-methods.test-support.js'
 import { createWagerModule } from '../wager/module.js';
 import { makeFakeDeps, type FakeWagerDb } from '../wager/fakes.js';
 import { DrainState, createReadinessEvaluator, type ReadinessEvaluator } from './readiness.js';
-import { startEngineApi, type TelegramIngressPort } from './server.js';
+import {
+  startEngineApi,
+  type EscrowPositionAcceptApi,
+  type TelegramIngressPort,
+} from './server.js';
 import { TEST_ENV } from './server-test-env.js';
 
 export const NOW = Date.parse('2026-07-08T12:00:00.000Z');
@@ -17,6 +21,7 @@ export const MARKET_ID = '11111111-2222-4333-8444-555555555555';
 export const CONCIERGE_TOKEN = TEST_ENV.ENGINE_CONCIERGE_TOKEN;
 export const TELEGRAM_TOKEN = TEST_ENV.ENGINE_TELEGRAM_TOKEN;
 export const OPS_TOKEN = TEST_ENV.ENGINE_OPS_TOKEN;
+export const ESCROW_WEB_TOKEN = 'escrow-web-token-000000000000000000';
 export const PUBKEY = 'Wa11etPubkey1111111111111111111111111111';
 export const PRIVATE_DISPLAY_NAME = 'Private Participant Name', PRIVATE_USERNAME = 'private_participant_handle';
 
@@ -206,6 +211,8 @@ export async function startHarness(options: {
   wager?: Deps['wager'];
   telegramIngress?: TelegramIngressPort;
   handleTelegramUpdate?: (update: Record<string, unknown>) => Promise<void>;
+  escrowPositions?: EscrowPositionAcceptApi;
+  escrowWebTokenSha256?: string;
 } = {}): Promise<ApiHarness> {
   const wagerBundle = makeFakeDeps({ now: () => NOW });
   const wager = options.wager === undefined ? createWagerModule(wagerBundle.deps) : options.wager;
@@ -248,6 +255,12 @@ export async function startHarness(options: {
     ...(options.handleTelegramUpdate
       ? { telegramIngress: { accept: options.handleTelegramUpdate } }
       : {}),
+    ...(options.escrowPositions === undefined
+      ? {}
+      : { escrowPositions: options.escrowPositions }),
+    ...(options.escrowWebTokenSha256 === undefined
+      ? {}
+      : { escrowWebTokenSha256: options.escrowWebTokenSha256 }),
   });
   activeServer = server;
   await new Promise<void>((resolve) => server.once('listening', resolve));
