@@ -5,7 +5,13 @@
  */
 
 import { CLAIM_TYPES, checkDebounce, compileClaim, priceSpec, reduceMarket, type MatchEvent } from '@calledit/market-engine';
-import { createEngineDb } from '@calledit/db';
+import { createEngineDb, createEscrowDb } from '@calledit/db';
+import {
+  deriveMarketPda,
+  deriveOracleSetPda,
+  deriveProtocolConfigPda,
+  ESCROW_PROGRAM_ID,
+} from '@calledit/escrow-sdk';
 import {
   classifyMessage,
   parseClaim,
@@ -23,6 +29,8 @@ import {
   type TxlineLogger,
 } from '@calledit/txline';
 import {
+  base58Decode,
+  bytesToHex,
   Connection,
   loadWallet,
   submitValidateStat,
@@ -38,6 +46,70 @@ import { createSupabaseProductionReadinessPorts } from './api/readiness-producti
 import { resolvePersonaTemplateKey } from './wiring-agent.js';
 import { createProductionProofSubmitter } from './wiring-proof.js';
 import { createProductionWagerRuntime } from './wiring-wager-runtime.js';
+import {
+  SolanaEscrowAccountReader,
+  SolanaEscrowPlacementChain,
+  SolanaEscrowRecoveryChain,
+  SolanaMarketInitializationReader,
+  SolanaMarketRelayerChain,
+} from './escrow/solana-accounts.js';
+import { createEscrowSolanaRpc } from './escrow/solana-rpc.js';
+import { createEscrowPlacementService } from './escrow/placement-service.js';
+import type { EscrowPlacementDeployment } from './escrow/placement-types.js';
+import {
+  createEscrowRecoveryService,
+  type EscrowRecoveryDeployment,
+} from './escrow/recovery-workflows.js';
+import { createEscrowRecoveryTransactionBuilder } from './escrow/recovery-relayer.js';
+import { createEscrowRecoveryFinalityVerifier } from './escrow/recovery-finality.js';
+import { createEscrowRelayerWorker } from './escrow/relayer-worker.js';
+import { SolanaEscrowEventProjector } from './escrow/event-projector.js';
+import { SolanaFinalizedEscrowEventSource } from './escrow/solana-finalized-source.js';
+import { createFinalizedEscrowIndexer } from './escrow/finalized-indexer.js';
+import type { EscrowReadinessReport } from './escrow/readiness.js';
+import type { EscrowFinalizedPointsProjection } from './escrow/points-projection.js';
+import { PublicKey, type Signer } from '@solana/web3.js';
+import {
+  createMarketInitializationService,
+  type EscrowMarketDeployment,
+} from './escrow/market-initializer.js';
+import {
+  createMarketInitializationFinalityVerifier,
+  createMarketInitializationTransactionBuilder,
+} from './escrow/market-relayer.js';
+import { createEscrowPlacementFinalityVerifier } from './escrow/placement-finality.js';
+import { createEscrowReconciler } from './escrow/reconciler.js';
+import { SolanaEscrowReconciliationChain } from './escrow/solana-reconciliation.js';
+import {
+  createEscrowRuntimeLifecycle,
+  type EscrowRuntimeLifecycleLog,
+} from './escrow/runtime-lifecycle.js';
+import type {
+  EscrowFinalizedTransactionProjection,
+} from './escrow/finalized-indexer.js';
+import {
+  checkEscrowReadiness,
+  type EscrowDeploymentExpectation,
+} from './escrow/readiness.js';
+import { SolanaEscrowReadinessProbe } from './escrow/solana-readiness.js';
+import {
+  createEscrowTelegramPort,
+  type EscrowPrivateWalletIdentityProvider,
+  type EscrowPrivateWalletSessionProvider,
+} from './escrow/telegram-port.js';
+import {
+  createHttpsEscrowOracleAttestationProvider,
+  createLocalEscrowOracleAttestationProvider,
+  type EscrowOracleAttestationProvider,
+} from './escrow/attestation-signers.js';
+import {
+  createEscrowControlService,
+  type EscrowControlDeployment,
+} from './escrow/control-workflows.js';
+import {
+  createEscrowControlFinalityVerifier,
+  createEscrowControlTransactionBuilder,
+} from './escrow/control-relayer.js';
 
 // ── Dependency construction ───────────────────────────────────────────────
 
@@ -246,6 +318,451 @@ export async function createDeps(
     env,
     log,
     now,
+  };
+}
+
+export function createEscrowWave4Runtime(options: {
+  readonly supabaseUrl: string;
+  readonly serviceRoleKey: string;
+  readonly rpcUrl: string;
+  readonly sponsor: Signer;
+  readonly marketCreationAuthority: Signer;
+  readonly feedOperator: Signer;
+  readonly marketDeployment: EscrowMarketDeployment;
+  readonly placementDeployment: EscrowPlacementDeployment;
+  readonly recoveryDeployment: EscrowRecoveryDeployment;
+  readonly controlDeployment: EscrowControlDeployment;
+  readonly intakeReadiness: () => Promise<EscrowReadinessReport>;
+  readonly recoveryReadiness: () => Promise<EscrowReadinessReport>;
+  readonly clock: () => { readonly unix: bigint; readonly iso: string };
+  readonly workerId: string;
+  readonly retryAt: (nowIso: string) => string;
+  readonly pointsProjection: EscrowFinalizedPointsProjection;
+  readonly projectionSink: {
+    afterFinalizedTransaction(transaction: EscrowFinalizedTransactionProjection): Promise<void>;
+  };
+  readonly worker: {
+    readonly intervalMs: number;
+    readonly relayerLimit: number;
+    readonly indexerLimit: number;
+    readonly log: EscrowRuntimeLifecycleLog;
+  };
+}) {
+  if (
+    options.marketDeployment.programId !== ESCROW_PROGRAM_ID ||
+    options.placementDeployment.programId !== ESCROW_PROGRAM_ID ||
+    options.recoveryDeployment.programId !== ESCROW_PROGRAM_ID ||
+    options.marketDeployment.programId !== options.placementDeployment.programId ||
+    options.placementDeployment.programId !== options.recoveryDeployment.programId ||
+    options.marketDeployment.genesisHash !== options.placementDeployment.genesisHash ||
+    options.placementDeployment.genesisHash !== options.recoveryDeployment.genesisHash ||
+    options.marketDeployment.canonicalUsdcMint !== options.placementDeployment.canonicalUsdcMint ||
+    options.placementDeployment.canonicalUsdcMint !== options.recoveryDeployment.canonicalUsdcMint ||
+    options.marketDeployment.relayerFeePayer !== options.sponsor.publicKey.toBase58() ||
+    options.recoveryDeployment.relayerFeePayer !== options.sponsor.publicKey.toBase58() ||
+    options.marketDeployment.marketCreationAuthority !== options.marketCreationAuthority.publicKey.toBase58()
+    || options.controlDeployment.feedOperatorAuthority !== options.feedOperator.publicKey.toBase58()
+    || options.feedOperator.publicKey.equals(options.sponsor.publicKey)
+  ) throw new TypeError('escrow Wave 4 deployment identity mismatch');
+  const db = createEscrowDb(options.supabaseUrl, options.serviceRoleKey);
+  const rpc = createEscrowSolanaRpc(options.rpcUrl);
+  const accounts = new SolanaEscrowAccountReader(rpc.connection);
+  const placementChain = new SolanaEscrowPlacementChain(rpc, accounts);
+  const recoveryChain = new SolanaEscrowRecoveryChain(rpc, accounts);
+  const initializationReader = new SolanaMarketInitializationReader(accounts);
+  const marketRelayerChain = new SolanaMarketRelayerChain(rpc, accounts);
+  const initialization = createMarketInitializationService({
+    db, deployment: options.marketDeployment, chain: initializationReader,
+    readiness: options.intakeReadiness,
+  });
+  const placement = createEscrowPlacementService({
+    db, sponsor: options.sponsor, deployment: options.placementDeployment,
+    chain: placementChain, readiness: options.intakeReadiness, clock: options.clock,
+  });
+  const recovery = createEscrowRecoveryService({
+    db, deployment: options.recoveryDeployment,
+    readiness: options.recoveryReadiness, clock: () => options.clock().iso,
+  });
+  const control = createEscrowControlService({
+    db, deployment: options.controlDeployment,
+    readiness: options.recoveryReadiness, clock: () => options.clock().iso,
+  });
+  const controlBuilder = createEscrowControlTransactionBuilder({
+    db, chain: recoveryChain, sponsor: options.sponsor,
+    feedOperator: options.feedOperator, deployment: options.controlDeployment,
+  });
+  const controlFinality = createEscrowControlFinalityVerifier({
+    chain: recoveryChain, programId: options.controlDeployment.programId,
+  });
+  const recoveryBuilder = createEscrowRecoveryTransactionBuilder({
+    db, chain: recoveryChain, sponsor: options.sponsor, deployment: options.recoveryDeployment,
+  });
+  const finality = createEscrowRecoveryFinalityVerifier({
+    chain: recoveryChain, programId: options.recoveryDeployment.programId,
+  });
+  const marketExpectation = {
+    cluster: options.marketDeployment.cluster,
+    genesisHash: options.marketDeployment.genesisHash,
+    programId: options.marketDeployment.programId,
+    protocolConfigPda: deriveProtocolConfigPda(options.marketDeployment.programId).address,
+    oracleSetPda: deriveOracleSetPda(
+      options.marketDeployment.programId,
+      options.marketDeployment.oracleSetEpoch,
+    ).address,
+    oracleSetEpoch: options.marketDeployment.oracleSetEpoch,
+    canonicalUsdcMint: options.marketDeployment.canonicalUsdcMint,
+    marketCreationAuthority: options.marketDeployment.marketCreationAuthority,
+    relayerFeePayer: options.marketDeployment.relayerFeePayer,
+  };
+  const marketBuilder = createMarketInitializationTransactionBuilder({
+    chain: marketRelayerChain,
+    sponsor: options.sponsor,
+    marketCreationAuthority: options.marketCreationAuthority,
+    expected: marketExpectation,
+  });
+  const marketFinality = createMarketInitializationFinalityVerifier({
+    chain: initializationReader,
+    expected: marketExpectation,
+  });
+  const placementFinality = createEscrowPlacementFinalityVerifier({ chain: accounts });
+  const recoveryKinds = [
+    'settlement_submission', 'timeout_monitoring', 'auto_claim', 'account_close',
+  ] as const;
+  const builders = {
+    ...Object.fromEntries(recoveryKinds.map((kind) => [kind, recoveryBuilder])),
+    freeze: controlBuilder,
+    unfreeze: controlBuilder,
+    position_invalidation: controlBuilder,
+    market_initialization: marketBuilder,
+  };
+  const finalityVerifiers = {
+    ...Object.fromEntries(recoveryKinds.map((kind) => [kind, finality])),
+    freeze: controlFinality,
+    unfreeze: controlFinality,
+    position_invalidation: controlFinality,
+    market_initialization: marketFinality,
+    position_placement: placementFinality,
+  };
+  const relayer = createEscrowRelayerWorker({
+    db, chain: rpc, workerId: options.workerId, retryAt: options.retryAt,
+    builders, finalityVerifiers,
+  });
+  const projector = new SolanaEscrowEventProjector(accounts, db, {
+    cluster: options.recoveryDeployment.cluster,
+    genesisHash: options.recoveryDeployment.genesisHash,
+    programId: options.recoveryDeployment.programId,
+    canonicalUsdcMint: options.recoveryDeployment.canonicalUsdcMint,
+    custodyVersion: options.recoveryDeployment.custodyVersion,
+  });
+  const source = new SolanaFinalizedEscrowEventSource(rpc.connection, {
+    genesisHash: options.recoveryDeployment.genesisHash,
+    programId: options.recoveryDeployment.programId,
+  }, projector);
+  const reconciliationChain = new SolanaEscrowReconciliationChain(rpc.connection, {
+    programId: options.recoveryDeployment.programId,
+    canonicalUsdcMint: options.recoveryDeployment.canonicalUsdcMint,
+  });
+  const reconciler = createEscrowReconciler({
+    db,
+    chain: reconciliationChain,
+    expected: {
+      cluster: options.recoveryDeployment.cluster,
+      programId: options.recoveryDeployment.programId,
+      canonicalUsdcMint: options.recoveryDeployment.canonicalUsdcMint,
+      custodyVersion: options.recoveryDeployment.custodyVersion,
+    },
+    clock: () => options.clock().iso,
+  });
+  const indexer = createFinalizedEscrowIndexer({
+    db, source,
+    expected: {
+      cluster: options.recoveryDeployment.cluster,
+      genesisHash: options.recoveryDeployment.genesisHash,
+      programId: options.recoveryDeployment.programId,
+    },
+    clock: () => options.clock().iso,
+    points: options.pointsProjection,
+    async afterTransaction(transaction) {
+      const marketIds = new Set(transaction.projections.map((projection) => projection.marketId));
+      for (const marketId of marketIds) {
+        if (transaction.projections.some((projection) =>
+          projection.marketId === marketId && projection.kind === 'market_closed')) continue;
+        const marketPda = deriveMarketPda(options.recoveryDeployment.programId, marketId).address;
+        const link = await db.getMarketLink({
+          cluster: options.recoveryDeployment.cluster,
+          genesisHash: options.recoveryDeployment.genesisHash,
+          programId: options.recoveryDeployment.programId,
+          marketPda,
+        });
+        if (!link.ok || !link.found || link.chainState === 'closed') continue;
+        await reconciler.reconcile({
+          marketId,
+          custodyMode: 'escrow',
+          marketPda: link.marketPda,
+          vaultPda: link.vaultPda,
+          asset: link.asset,
+        });
+      }
+      await options.projectionSink.afterFinalizedTransaction(transaction);
+    },
+  });
+  const lifecycle = createEscrowRuntimeLifecycle({
+    relayer,
+    indexer,
+    clock: () => options.clock().iso,
+    intervalMs: options.worker.intervalMs,
+    relayerLimit: options.worker.relayerLimit,
+    indexerLimit: options.worker.indexerLimit,
+    log: options.worker.log,
+  });
+  return {
+    db, rpc, accounts, initialization, placement, control, recovery, recoveryBuilder,
+    relayer, indexer, reconciler, lifecycle,
+  };
+}
+
+export class EscrowProductionContractError extends Error {
+  readonly name = 'EscrowProductionContractError';
+  constructor(readonly code: 'configuration_incomplete' | 'deployment_identity_mismatch' | 'market_authority_signer_unavailable') {
+    super(`escrow production runtime unavailable: ${code}`);
+  }
+}
+
+function requiredEscrowValue<T>(value: T | undefined): T {
+  if (value === undefined) throw new EscrowProductionContractError('configuration_incomplete');
+  return value;
+}
+
+async function upgradeAuthority(connection: Connection, programId: string): Promise<string | null> {
+  const program = await connection.getAccountInfo(new PublicKey(programId), 'finalized');
+  if (program === null || program.data.length < 36 || program.data.readUInt32LE(0) !== 2) return null;
+  const programDataAddress = new PublicKey(program.data.subarray(4, 36));
+  const programData = await connection.getAccountInfo(programDataAddress, 'finalized');
+  if (programData === null || programData.data.length < 13 || programData.data.readUInt32LE(0) !== 3) return null;
+  const authorityPresent = programData.data[12];
+  if (authorityPresent === 0) return null;
+  if (authorityPresent !== 1 || programData.data.length < 45) return null;
+  return new PublicKey(programData.data.subarray(13, 45)).toBase58();
+}
+
+export async function createProductionEscrowRuntime(options: {
+  readonly env: Env;
+  readonly log: Logger;
+  readonly pointsProjection: EscrowFinalizedPointsProjection;
+  readonly projectionSink: {
+    afterFinalizedTransaction(transaction: EscrowFinalizedTransactionProjection): Promise<void>;
+  };
+  readonly identities: EscrowPrivateWalletIdentityProvider;
+  readonly walletSessions: EscrowPrivateWalletSessionProvider;
+  readonly oracleAttestationProvider?: EscrowOracleAttestationProvider;
+}) {
+  const { env } = options;
+  if (env.WAGER_CUSTODY_MODE !== 'escrow') {
+    throw new EscrowProductionContractError('configuration_incomplete');
+  }
+  const programId = requiredEscrowValue(env.ESCROW_PROGRAM_ID);
+  const genesisHash = requiredEscrowValue(env.ESCROW_GENESIS_HASH);
+  const canonicalUsdcMint = requiredEscrowValue(env.ESCROW_CANONICAL_USDC_MINT);
+  const classicTokenProgramId = requiredEscrowValue(env.ESCROW_CLASSIC_TOKEN_PROGRAM_ID);
+  const oracleSetPda = requiredEscrowValue(env.ESCROW_ORACLE_SET_PDA);
+  const oracleSetEpoch = requiredEscrowValue(env.ESCROW_ORACLE_SET_EPOCH);
+  const oracleThreshold = requiredEscrowValue(env.ESCROW_ORACLE_THRESHOLD);
+  const indexerMaxLagSlots = requiredEscrowValue(env.ESCROW_INDEXER_MAX_LAG_SLOTS);
+  const configAuthority = requiredEscrowValue(env.ESCROW_CONFIG_AUTHORITY);
+  const pauseAuthority = requiredEscrowValue(env.ESCROW_PAUSE_AUTHORITY);
+  const marketCreationAuthority = requiredEscrowValue(env.ESCROW_MARKET_CREATION_AUTHORITY);
+  const configuredUpgradeAuthority = requiredEscrowValue(env.ESCROW_UPGRADE_AUTHORITY);
+  const residualRecipient = requiredEscrowValue(env.ESCROW_RESIDUAL_RECIPIENT);
+  const sponsor = loadWallet(requiredEscrowValue(env.ESCROW_RELAYER_KEYPAIR_B58));
+  const feedOperator = loadWallet(requiredEscrowValue(env.ESCROW_FEED_OPERATOR_KEYPAIR_B58));
+  if (programId !== ESCROW_PROGRAM_ID) {
+    throw new EscrowProductionContractError('deployment_identity_mismatch');
+  }
+  if (sponsor.publicKey.toBase58() !== marketCreationAuthority) {
+    throw new EscrowProductionContractError('market_authority_signer_unavailable');
+  }
+
+  const bootstrapRpc = createEscrowSolanaRpc(env.SOLANA_RPC_URL);
+  const bootstrapAccounts = new SolanaEscrowAccountReader(bootstrapRpc.connection);
+  const configPda = deriveProtocolConfigPda(programId).address;
+  const [observedGenesis, config, oracle] = await Promise.all([
+    bootstrapRpc.genesisHash(),
+    bootstrapAccounts.config(configPda),
+    bootstrapAccounts.oracleSet(oracleSetPda),
+  ]);
+  const genesisBytes = base58Decode(genesisHash);
+  if (
+    genesisBytes.length !== 32 || observedGenesis !== genesisHash || config === null || oracle === null ||
+    config.ownerProgramId !== programId || oracle.ownerProgramId !== programId ||
+    bytesToHex(config.value.clusterGenesisHash) !== bytesToHex(genesisBytes) ||
+    config.value.canonicalUsdcMint !== canonicalUsdcMint || config.value.allowedTokenProgram !== classicTokenProgramId ||
+    config.value.oracleSet !== oracleSetPda || oracle.value.epoch !== oracleSetEpoch ||
+    oracle.value.signatureThreshold !== oracleThreshold ||
+    new Set(oracle.value.signers).size !== env.ESCROW_ORACLE_SIGNERS.length ||
+    !env.ESCROW_ORACLE_SIGNERS.every((signer) => oracle.value.signers.includes(signer)) ||
+    config.value.configAuthority !== configAuthority || config.value.pauseAuthority !== pauseAuthority ||
+    config.value.marketCreationAuthority !== marketCreationAuthority ||
+    config.value.feedOperatorAuthority !== feedOperator.publicKey.toBase58() ||
+    config.value.relayerFeePayer !== sponsor.publicKey.toBase58() ||
+    config.value.residualRecipient !== residualRecipient ||
+    feedOperator.publicKey.equals(sponsor.publicKey) ||
+    feedOperator.publicKey.toBase58() === configAuthority ||
+    env.ESCROW_ORACLE_SIGNERS.includes(feedOperator.publicKey.toBase58())
+  ) throw new EscrowProductionContractError('deployment_identity_mismatch');
+
+  const oracleAttestations = options.oracleAttestationProvider ?? (
+    env.ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON.length > 0
+      ? createHttpsEscrowOracleAttestationProvider({
+          endpoints: env.ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON.map((endpoint, index) => ({
+            ...endpoint,
+            expectedSigner: env.ESCROW_ORACLE_SIGNERS[index]!,
+          })),
+          threshold: oracleThreshold,
+          forbiddenSignerAddresses: [configAuthority, sponsor.publicKey.toBase58()],
+        })
+      : createLocalEscrowOracleAttestationProvider({
+          network: env.SOLANA_NETWORK,
+          authorizedSignerAddresses: env.ESCROW_ORACLE_SIGNERS,
+          signers: env.ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON.map((value) => loadWallet(value)),
+          threshold: oracleThreshold,
+          forbiddenSignerAddresses: [configAuthority, sponsor.publicKey.toBase58()],
+        })
+  );
+
+  const cursorDb = createEscrowDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const expectation: EscrowDeploymentExpectation = {
+    network: env.SOLANA_NETWORK,
+    genesisHash,
+    programId,
+    canonicalUsdcMint,
+    classicTokenProgramId,
+    oracleSetPda,
+    oracleSetEpoch,
+    oracleThreshold,
+    oracleSigners: env.ESCROW_ORACLE_SIGNERS,
+    indexerMaxLagSlots,
+    authorities: {
+      configAuthority,
+      pauseAuthority,
+      marketCreationAuthority,
+      upgradeAuthority: configuredUpgradeAuthority,
+    },
+  };
+  const readinessProbe = new SolanaEscrowReadinessProbe(
+    bootstrapRpc.connection,
+    bootstrapAccounts,
+    expectation,
+    {
+      async inspect() {
+        const [cursor, slot] = await Promise.all([
+          cursorDb.getChainCursor({ cluster: env.SOLANA_NETWORK, genesisHash, programId }),
+          bootstrapRpc.connection.getSlot('finalized'),
+        ]);
+        return cursor.ok
+          ? { available: true, lagSlots: BigInt(slot) - cursor.finalizedSlot }
+          : { available: false, lagSlots: 0n };
+      },
+    },
+    {
+      availableSigners: () => oracleAttestations.availableSigners(),
+    },
+    {
+      read: (value) => upgradeAuthority(bootstrapRpc.connection, value),
+    },
+  );
+  const readiness = (mode: 'intake' | 'recovery') => checkEscrowReadiness({
+    expected: expectation,
+    probe: readinessProbe,
+    signal: new AbortController().signal,
+    mode,
+  });
+  const clock = () => {
+    const milliseconds = Date.now();
+    return {
+      unix: BigInt(Math.floor(milliseconds / 1_000)),
+      iso: new Date(milliseconds).toISOString(),
+    };
+  };
+  const marketDeployment: EscrowMarketDeployment = {
+    cluster: env.SOLANA_NETWORK,
+    genesisHash,
+    programId,
+    canonicalUsdcMint,
+    marketCreationAuthority,
+    relayerFeePayer: sponsor.publicKey.toBase58(),
+    oracleSetEpoch,
+    custodyVersion: 1,
+  };
+  const placementDeployment: EscrowPlacementDeployment = {
+    cluster: env.SOLANA_NETWORK,
+    genesisHash,
+    programId,
+    canonicalUsdcMint,
+    oracleSetEpoch,
+    custodyVersion: 1,
+    minimumSolPosition: config.value.minimumSolPosition,
+    maximumSolPosition: config.value.maximumSolPosition,
+    minimumUsdcPosition: config.value.minimumUsdcPosition,
+    maximumUsdcPosition: config.value.maximumUsdcPosition,
+    allowedGroupIds: env.ESCROW_ALLOWED_GROUP_IDS,
+  };
+  const recoveryDeployment: EscrowRecoveryDeployment = {
+    cluster: env.SOLANA_NETWORK,
+    genesisHash,
+    programId,
+    canonicalUsdcMint,
+    relayerFeePayer: sponsor.publicKey.toBase58(),
+    residualRecipient,
+    custodyVersion: 1,
+  };
+  const controlDeployment: EscrowControlDeployment = {
+    cluster: env.SOLANA_NETWORK,
+    genesisHash,
+    programId,
+    custodyVersion: 1,
+    feedOperatorAuthority: feedOperator.publicKey.toBase58(),
+  };
+  const runtime = createEscrowWave4Runtime({
+    supabaseUrl: env.SUPABASE_URL,
+    serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    rpcUrl: env.SOLANA_RPC_URL,
+    sponsor,
+    marketCreationAuthority: sponsor,
+    feedOperator,
+    marketDeployment,
+    placementDeployment,
+    recoveryDeployment,
+    controlDeployment,
+    intakeReadiness: () => readiness('intake'),
+    recoveryReadiness: () => readiness('recovery'),
+    clock,
+    workerId: `engine-${process.pid}`,
+    retryAt: (nowIso) => new Date(Date.parse(nowIso) + env.QUEUE_RETRY_BASE_MS).toISOString(),
+    pointsProjection: options.pointsProjection,
+    projectionSink: options.projectionSink,
+    worker: {
+      intervalMs: Math.max(250, env.QUEUE_RETRY_BASE_MS),
+      relayerLimit: 25,
+      indexerLimit: 100,
+      log: options.log,
+    },
+  });
+  const telegram = createEscrowTelegramPort({
+    placement: runtime.placement,
+    identities: options.identities,
+    walletSessions: options.walletSessions,
+    network: env.SOLANA_NETWORK,
+    sessionTtlSeconds: 300,
+  });
+  return {
+    ...runtime,
+    telegram,
+    oracleAttestations,
+    marketPolicy: {
+      oracleSetEpoch,
+      maximumMarketDurationSeconds: config.value.maximumMarketDurationSeconds,
+      maximumResolutionDelaySeconds: config.value.maximumResolutionDelaySeconds,
+    },
   };
 }
 

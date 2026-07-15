@@ -108,6 +108,33 @@ export function sponsorTransaction(
   };
 }
 
+export function sponsorTransactionWithAuthority(
+  transaction: VersionedTransaction,
+  sponsor: Signer,
+  authority: Signer,
+): PreparedSponsoredTransaction {
+  const sponsorIndex = signerIndex(transaction, sponsor.publicKey);
+  const authorityIndex = signerIndex(transaction, authority.publicKey);
+  if (
+    sponsor.publicKey.equals(authority.publicKey) || sponsorIndex !== 0 || authorityIndex !== 1 ||
+    transaction.message.header.numRequiredSignatures !== 2 ||
+    transaction.signatures.some(signatureIsPresent)
+  ) throw new EscrowTransactionSignatureError('invalid_signer_layout');
+  transaction.sign([sponsor, authority]);
+  if (
+    !verifySignature(transaction, sponsorIndex, sponsor.publicKey) ||
+    !verifySignature(transaction, authorityIndex, authority.publicKey)
+  ) throw new EscrowTransactionSignatureError('sponsor_signature_invalid');
+  const signature = transaction.signatures[sponsorIndex];
+  if (signature === undefined) throw new EscrowTransactionSignatureError('sponsor_signature_missing');
+  return {
+    rawTransactionBase64: Buffer.from(transaction.serialize()).toString('base64'),
+    messageHashHex: messageHash(transaction),
+    expectedSignature: base58Encode(signature),
+    recentBlockhash: transaction.message.recentBlockhash,
+  };
+}
+
 export function inspectUserSignedTransaction(input: {
   readonly rawTransactionBase64: string;
   readonly expectedMessageHashHex: string;

@@ -10,6 +10,7 @@ import { Keypair, VersionedTransaction } from '@solana/web3.js';
 import { describe, expect, it } from 'vitest';
 import { buildImmutableMarketDocument } from './market-document.js';
 import {
+  createMarketInitializationFinalityVerifier,
   createMarketInitializationTransactionBuilder,
   EscrowMarketRelayerError,
   type EscrowMarketRelayerChain,
@@ -79,7 +80,14 @@ function setup() {
       relayerFeePayer: payload.relayerFeePayer,
     },
   });
-  return { builder, job, payload, observation, sponsor, authority };
+  const expected = {
+    cluster: 'devnet' as const, genesisHash: GENESIS, programId: payload.programId,
+    protocolConfigPda: configPda, oracleSetPda, oracleSetEpoch: 9n,
+    canonicalUsdcMint: payload.canonicalUsdcMint,
+    marketCreationAuthority: payload.marketCreationAuthority,
+    relayerFeePayer: payload.relayerFeePayer,
+  };
+  return { builder, job, payload, observation, sponsor, authority, expected };
 }
 
 describe('market initialization relayer', () => {
@@ -113,4 +121,30 @@ describe('market initialization relayer', () => {
       await expect(fixture.builder.build(tampered)).rejects.toBeInstanceOf(EscrowMarketRelayerError);
     },
   );
+
+  it('confirms only the exact finalized market account', async () => {
+    const fixture = setup();
+    const record = {
+      ownerProgramId: fixture.payload.programId,
+      marketPda: fixture.payload.marketPda,
+      vaultPda: fixture.payload.vaultPda,
+      documentHashHex: fixture.payload.documentHashHex,
+      asset: fixture.payload.asset,
+      tokenMint: null,
+      oracleSetEpoch: 9n,
+      ratioMilli: fixture.payload.ratioMilli,
+      state: 'open' as const,
+    };
+    const verifier = createMarketInitializationFinalityVerifier({
+      expected: fixture.expected,
+      chain: { async readMarket() { return record; } },
+    });
+
+    await expect(verifier.confirm(fixture.job)).resolves.toBe('confirmed');
+    const mismatched = createMarketInitializationFinalityVerifier({
+      expected: fixture.expected,
+      chain: { async readMarket() { return { ...record, documentHashHex: '00'.repeat(32) }; } },
+    });
+    await expect(mismatched.confirm(fixture.job)).resolves.toBe('mismatch');
+  });
 });

@@ -1,10 +1,12 @@
-import type { EscrowDb, EscrowRelayerJobRow } from '@calledit/db';
+import type { EscrowDb } from '@calledit/db';
 import { buildSponsoredPositionTransaction, deriveMarketPda } from '@calledit/escrow-sdk';
 import { Keypair } from '@solana/web3.js';
 import { describe, expect, it } from 'vitest';
 import { sponsorTransaction } from './transaction-signatures.js';
 import {
   createEscrowRelayerWorker,
+  type DurableEscrowRelayerJobRow,
+  type EscrowRelayerWorkerDatabase,
   type EscrowRelayChain,
 } from './relayer-worker.js';
 
@@ -65,9 +67,9 @@ function signedPlacementPayload() {
   };
 }
 
-function leasedJob(payload: ReturnType<typeof signedPlacementPayload>, raw: string | null): EscrowRelayerJobRow {
+function leasedJob(payload: ReturnType<typeof signedPlacementPayload>, raw: string | null): DurableEscrowRelayerJobRow {
   return {
-    id: '123e4567-e89b-12d3-a456-426614174111', kind: 'position_activation',
+    id: '123e4567-e89b-12d3-a456-426614174111', kind: 'position_placement',
     idempotencyKey: 'placement-a', state: 'leased', cluster: 'devnet', programId: payload.programId,
     custodyMode: 'escrow', custodyVersion: 1, marketId: payload.marketId, ownerPubkey: payload.ownerPubkey,
     payload, attempts: 1, maxAttempts: 8, leaseDurationMs: 60_000, dueAt: NOW,
@@ -80,14 +82,16 @@ function leasedJob(payload: ReturnType<typeof signedPlacementPayload>, raw: stri
   };
 }
 
-function setup(job: EscrowRelayerJobRow, chainOverrides: Partial<EscrowRelayChain> = {}) {
+function setup(
+  job: DurableEscrowRelayerJobRow,
+  chainOverrides: Partial<EscrowRelayChain> = {},
+  finalityVerifiers?: Parameters<typeof createEscrowRelayerWorker>[0]['finalityVerifiers'],
+) {
   const calls: string[] = [];
   const broadcasts: string[] = [];
   const payloadSignature = job.payload.expectedSignature;
   if (typeof payloadSignature !== 'string') throw new Error('expected placement signature');
-  const db: Pick<EscrowDb,
-    'leaseRelayerJobs' | 'recordRelayerSignedTransaction' | 'markRelayerSubmitted' |
-    'retryRelayerJob' | 'completeRelayerJob' | 'deadLetterRelayerJob'> = {
+  const db: EscrowRelayerWorkerDatabase = {
       async leaseRelayerJobs() { calls.push('lease'); return [job]; },
       async recordRelayerSignedTransaction() { calls.push('record_signed'); return { ok: true, created: false, jobId: job.id }; },
       async markRelayerSubmitted() { calls.push('submitted'); return { ok: true, duplicate: false, state: 'submitted' }; },
@@ -103,7 +107,9 @@ function setup(job: EscrowRelayerJobRow, chainOverrides: Partial<EscrowRelayChai
     async isBlockhashValid() { return true; },
     ...chainOverrides,
   };
-  const worker = createEscrowRelayerWorker({ db, chain, workerId: 'worker-a', retryAt: () => LATER });
+  const worker = createEscrowRelayerWorker({
+    db, chain, workerId: 'worker-a', retryAt: () => LATER, finalityVerifiers,
+  });
   return { worker, calls, broadcasts };
 }
 
@@ -165,5 +171,17 @@ describe('sponsored escrow relayer recovery', () => {
     }]);
     expect(fixture.broadcasts).toHaveLength(0);
     expect(fixture.calls).toEqual(['lease', 'dead:invalid_user_transaction']);
+  });
+
+  it('waits for the finalized economic effect before completing a job', async () => {
+    const payload = signedPlacementPayload();
+    const fixture = setup(leasedJob(payload, payload.rawTransactionBase64), {
+      signatureState: async () => ({ kind: 'finalized', slot: 42n }),
+    }, {
+      position_placement: { confirm: async () => 'pending' },
+    });
+
+    await expect(fixture.worker.runOnce(NOW, 1)).resolves.toMatchObject([{ kind: 'retrying' }]);
+    expect(fixture.calls).toEqual(['lease', 'retry:true']);
   });
 });

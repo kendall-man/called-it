@@ -13,7 +13,7 @@ import { autoRetry } from '@grammyjs/auto-retry';
 import { run } from '@grammyjs/runner';
 import { loadEnv } from './env.js';
 import { createLogger } from './log.js';
-import { createDeps } from './wiring.js';
+import { createDeps, createProductionEscrowRuntime } from './wiring.js';
 import { classifySendFailure, createEngineSendQueue } from './bot/send-failure.js';
 import { createPoster } from './bot/poster.js';
 import { createSay } from './bot/copy.js';
@@ -48,6 +48,16 @@ import {
   type ShutdownSignal,
 } from './api/shutdown.js';
 import { createAllowlistedBackgroundDeps } from './background/allowlisted-db.js';
+import { createCustodyIsolatedBackgroundDeps } from './background/escrow-custody.js';
+import { createEscrowFinalizedPointsProjection } from './escrow/points-projection.js';
+import { createSupabaseEscrowPrivateBridge } from './escrow/private-bridge.js';
+import { createEscrowMarketProvisioner } from './escrow/market-provisioning.js';
+import { registerEscrowMarketProvisioner } from './pipeline/escrow-market-provisioning.js';
+import { composeClaimCard } from './pipeline/render.js';
+import { marketStakeKeyboard } from './bot/keyboards.js';
+import { createEscrowEventWorkflowScheduler } from './escrow/event-workflow-scheduler.js';
+import { createProductionEscrowEventWorkflowPort } from './escrow/event-workflow-runtime.js';
+import { EscrowIntegratedSettler } from './background/escrow-settler.js';
 
 /**
  * Load the repo-root `.env` into process.env for local/dev runs. Production
@@ -96,16 +106,139 @@ async function main(): Promise<void> {
   });
   assertWagerBootable(env, deps.wager?.kind ?? null);
 
-  const say = createSay(deps.agent, log, env.SOLANA_NETWORK);
-  const backgroundDeps = createAllowlistedBackgroundDeps(deps);
+  const say = createSay(deps.agent, log, env.SOLANA_NETWORK, env.WAGER_CUSTODY_MODE);
+  const backgroundDeps = createCustodyIsolatedBackgroundDeps(
+    createAllowlistedBackgroundDeps(deps),
+  );
   const points = createGroupPointsService({ db: backgroundDeps.db, log });
-  const settler = new Settler(backgroundDeps, poster, say, points, null);
+
+  const escrowPrivateBridge = env.WAGER_CUSTODY_MODE === 'escrow'
+    ? createSupabaseEscrowPrivateBridge({
+        supabaseUrl: env.SUPABASE_URL,
+        serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+        network: env.SOLANA_NETWORK,
+        markets: deps.db,
+        clock: deps.now,
+      })
+    : null;
+
+  const escrowRuntime = env.WAGER_CUSTODY_MODE === 'escrow'
+    ? await (async () => {
+        if (escrowPrivateBridge === null) throw new TypeError('escrow private bridge unavailable');
+        return createProductionEscrowRuntime({
+          env,
+          log,
+          pointsProjection: createEscrowFinalizedPointsProjection({
+            privateParticipants: {
+              async prepare(marketId) {
+                const market = await deps.db.getMarket(marketId);
+                if (market === null) throw new Error('escrow points market unavailable');
+                if (!env.ESCROW_ALLOWED_GROUP_IDS.includes(market.group_id)) {
+                  throw new Error('escrow points market outside rollout');
+                }
+                return { custodyMode: 'escrow', replay: market.is_replay };
+              },
+            },
+            points,
+          }),
+          identities: escrowPrivateBridge,
+          walletSessions: escrowPrivateBridge,
+          projectionSink: {
+            async afterFinalizedTransaction(transaction) {
+              await escrowPrivateBridge.project(transaction);
+              const marketIds = new Set(
+                transaction.projections.map((projection) => projection.marketId),
+              );
+              for (const marketId of marketIds) {
+                const marketState = transaction.projections.find((projection) =>
+                  projection.marketId === marketId && projection.kind === 'market_state');
+                const settlement = transaction.projections.find((projection) =>
+                  projection.marketId === marketId && projection.kind === 'settlement');
+                const market = await deps.db.getMarket(marketId);
+                if (market === null) continue;
+                if (marketState?.kind === 'market_state') {
+                  await deps.db.updateMarketStatus(marketId, marketState.state);
+                }
+                if (settlement?.kind === 'settlement') {
+                  await deps.db.updateMarketStatus(
+                    marketId,
+                    settlement.outcome === 'void' ? 'voided' : 'settled',
+                  );
+                  await deps.db.insertSettlement({
+                    market_id: marketId,
+                    outcome: settlement.outcome,
+                    deciding_seq: null,
+                    evidence_seqs: [],
+                    tier: market.spec.trustTier,
+                  });
+                }
+                const current = await deps.db.getMarket(marketId);
+                if (current === null || current.card_tg_message_id === null) continue;
+                const card = await composeClaimCard(deps, current);
+                if (card === null || card.messageId === null) continue;
+                const keyboard = current.status === 'open' || current.status === 'pending_lineup'
+                  ? marketStakeKeyboard(deps, current)
+                  : undefined;
+                poster.editCard(card.chatId, current.id, card.messageId, card.text, keyboard);
+              }
+            },
+          },
+        });
+      })()
+    : null;
+
+  if (escrowRuntime !== null) {
+    registerEscrowMarketProvisioner(deps, createEscrowMarketProvisioner({
+      db: deps.db,
+      initialize: (input) => escrowRuntime.initialization.initialize(input),
+      allowedGroupIds: env.ESCROW_ALLOWED_GROUP_IDS,
+      oracleSetEpoch: escrowRuntime.marketPolicy.oracleSetEpoch,
+      maximumMarketDurationSeconds: escrowRuntime.marketPolicy.maximumMarketDurationSeconds,
+      maximumResolutionDelaySeconds: escrowRuntime.marketPolicy.maximumResolutionDelaySeconds,
+      clock: () => {
+        const milliseconds = deps.now();
+        return {
+          unix: BigInt(Math.floor(milliseconds / 1_000)),
+          iso: new Date(milliseconds).toISOString(),
+        };
+      },
+    }));
+  }
+
+  const escrowScheduler = escrowRuntime === null ? null : createEscrowEventWorkflowScheduler({
+    deps,
+    allowedGroupIds: env.ESCROW_ALLOWED_GROUP_IDS,
+    deployment: {
+      genesisHash: env.ESCROW_GENESIS_HASH!,
+      programId: env.ESCROW_PROGRAM_ID!,
+    },
+    oracle: escrowRuntime.oracleAttestations,
+    workflow: createProductionEscrowEventWorkflowPort({
+      supabaseUrl: env.SUPABASE_URL,
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      db: escrowRuntime.db,
+      accounts: escrowRuntime.accounts,
+      deployment: {
+        cluster: env.SOLANA_NETWORK,
+        genesisHash: env.ESCROW_GENESIS_HASH!,
+        programId: env.ESCROW_PROGRAM_ID!,
+        custodyVersion: 1,
+      },
+      control: escrowRuntime.control,
+      recovery: escrowRuntime.recovery,
+    }),
+    clock: () => BigInt(Math.floor(deps.now() / 1_000)),
+  });
+  const settler = escrowScheduler === null
+    ? new Settler(backgroundDeps, poster, say, points, null)
+    : new EscrowIntegratedSettler(backgroundDeps, poster, say, points, null, escrowScheduler);
   const supervisor = new IngestSupervisor(backgroundDeps, settler);
   const settlementReconciler = createSettlementReconciler(backgroundDeps, log);
 
   const handlerCtx: HandlerCtx = {
     deps, queue, poster, say, supervisor,
     entities: new EntityCache(deps.db), budget: new LlmBudget(),
+    ...(escrowRuntime === null ? {} : { escrow: escrowRuntime.telegram }),
   };
 
   supervisor.onReplayFinished = (groupId, fixtureId) => {
@@ -134,6 +267,7 @@ async function main(): Promise<void> {
   const crons = startCrons({
     deps: backgroundDeps, poster, say, settler, supervisor, settlementReconciler,
   });
+  escrowRuntime?.lifecycle.start();
   const webhookIngress = env.TELEGRAM_INGRESS === 'webhook';
   let runner: ReturnType<typeof run> | null = null;
   let webhookWorkerReady = false;
@@ -183,6 +317,10 @@ async function main(): Promise<void> {
     log,
     readiness,
     drainState,
+    ...(escrowRuntime === null ? {} : { escrowPositions: escrowRuntime.placement }),
+    ...(env.WEB_CONCIERGE_TOKEN_SHA256 === undefined
+      ? {}
+      : { escrowWebTokenSha256: env.WEB_CONCIERGE_TOKEN_SHA256 }),
     ...(webhookIngress
       ? {
           telegramIngress: {
@@ -205,6 +343,7 @@ async function main(): Promise<void> {
     proofSubmitter: deps.proofSubmitter !== null,
     api: apiServer !== null,
     wagerModule: deps.wager !== null,
+    escrowRuntime: escrowRuntime !== null,
   });
 
   let queueDrained = false;
@@ -225,6 +364,7 @@ async function main(): Promise<void> {
       stopIntake() {
         crons.stop();
         supervisor.stopAll();
+        void escrowRuntime?.lifecycle.stop();
       },
       async closeResources(abortSignal) {
         const closeApi = new Promise<void>((resolveClose) => {
@@ -245,7 +385,15 @@ async function main(): Promise<void> {
         const closeRunner = runner?.isRunning() ? runner.stop() : Promise.resolve();
         await Promise.all([closeApi, closeRunner]);
       },
-      drains: [...deps.drains, queueDrain],
+      drains: [
+        ...deps.drains,
+        ...(escrowRuntime === null ? [] : [{
+          name: 'escrow_workers',
+          drain: () => escrowRuntime.lifecycle.stop(),
+          unfinished: () => escrowRuntime.lifecycle.unfinished(),
+        }]),
+        queueDrain,
+      ],
     });
     queue.stop();
     log.info('engine_shutdown_complete', {

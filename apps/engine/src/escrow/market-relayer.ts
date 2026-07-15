@@ -1,4 +1,3 @@
-import type { EscrowRelayerJobRow } from '@calledit/db';
 import { base58Decode } from '@calledit/solana';
 import {
   buildUnsignedV0Transaction,
@@ -18,7 +17,9 @@ import { z } from 'zod';
 import type {
   EscrowRelayerPreparedTransaction,
   EscrowRelayerTransactionBuilder,
+  DurableEscrowRelayerJobRow,
 } from './relayer-worker.js';
+import type { EscrowMarketInitializationChain } from './market-initializer.js';
 import { sponsorTransaction } from './transaction-signatures.js';
 
 export interface EscrowMarketInitializationObservation {
@@ -86,9 +87,9 @@ const payloadSchema = z.object({
   documentHashHex: z.string().regex(/^[0-9a-fA-F]{64}$/), marketPda: z.string().min(1), vaultPda: z.string().min(1),
 }).passthrough();
 
-type MarketPayload = z.infer<typeof payloadSchema>;
+export type MarketInitializationPayload = z.infer<typeof payloadSchema>;
 
-function parsePayload(job: EscrowRelayerJobRow): MarketPayload {
+function parsePayload(job: DurableEscrowRelayerJobRow): MarketInitializationPayload {
   const result = payloadSchema.safeParse(job.payload);
   if (
     !result.success || job.kind !== 'market_initialization' ||
@@ -100,7 +101,7 @@ function parsePayload(job: EscrowRelayerJobRow): MarketPayload {
   return result.data;
 }
 
-function document(payload: MarketPayload): MarketDocumentV1 {
+function document(payload: MarketInitializationPayload): MarketDocumentV1 {
   return {
     marketUuid: payload.marketUuid, fixtureId: BigInt(payload.fixtureId),
     claimSpecificationHash: hexToBytes(payload.claimSpecificationHashHex),
@@ -114,7 +115,7 @@ function document(payload: MarketPayload): MarketDocumentV1 {
   };
 }
 
-function matchesExpected(payload: MarketPayload, expected: EscrowMarketRelayerExpectation): boolean {
+function matchesExpected(payload: MarketInitializationPayload, expected: EscrowMarketRelayerExpectation): boolean {
   return payload.cluster === expected.cluster && payload.genesisHash === expected.genesisHash &&
     payload.programId === expected.programId && payload.protocolConfigPda === expected.protocolConfigPda &&
     payload.oracleSetPda === expected.oracleSetPda && BigInt(payload.oracleSetEpoch) === expected.oracleSetEpoch &&
@@ -122,7 +123,7 @@ function matchesExpected(payload: MarketPayload, expected: EscrowMarketRelayerEx
     payload.marketCreationAuthority === expected.marketCreationAuthority && payload.relayerFeePayer === expected.relayerFeePayer;
 }
 
-function verifyDerivedIdentities(payload: MarketPayload, value: MarketDocumentV1): void {
+function verifyDerivedIdentities(payload: MarketInitializationPayload, value: MarketDocumentV1): void {
   const genesis = base58Decode(payload.genesisHash);
   const market = deriveMarketPda(payload.programId, payload.marketUuid);
   const config = deriveProtocolConfigPda(payload.programId);
@@ -138,7 +139,7 @@ function verifyDerivedIdentities(payload: MarketPayload, value: MarketDocumentV1
   ) throw new EscrowMarketRelayerError('identity_mismatch');
 }
 
-function verifyObservation(payload: MarketPayload, observed: EscrowMarketInitializationObservation): void {
+function verifyObservation(payload: MarketInitializationPayload, observed: EscrowMarketInitializationObservation): void {
   if (observed.marketExists) throw new EscrowMarketRelayerError('market_already_exists');
   if (
     observed.genesisHash !== payload.genesisHash || !observed.programExecutable || observed.programId !== payload.programId ||
@@ -194,6 +195,37 @@ export function createMarketInitializationTransactionBuilder(options: {
         transactionMessageHashHex: sponsored.messageHashHex,
         lastValidBlockHeight: blockhash.lastValidBlockHeight,
       };
+    },
+  };
+}
+
+export function createMarketInitializationFinalityVerifier(options: {
+  readonly chain: EscrowMarketInitializationChain;
+  readonly expected: EscrowMarketRelayerExpectation;
+}) {
+  return {
+    async confirm(job: DurableEscrowRelayerJobRow): Promise<'confirmed' | 'pending' | 'mismatch'> {
+      let payload: MarketInitializationPayload;
+      let value: MarketDocumentV1;
+      try {
+        payload = parsePayload(job);
+        value = document(payload);
+        verifyDerivedIdentities(payload, value);
+        if (!matchesExpected(payload, options.expected) || job.programId !== payload.programId) return 'mismatch';
+      } catch {
+        return 'mismatch';
+      }
+      const observed = await options.chain.readMarket(payload.marketPda);
+      if (observed === null) return 'pending';
+      return observed.ownerProgramId === payload.programId &&
+        observed.marketPda === payload.marketPda && observed.vaultPda === payload.vaultPda &&
+        observed.documentHashHex.toLowerCase() === payload.documentHashHex.toLowerCase() &&
+        observed.asset === payload.asset &&
+        observed.tokenMint === (payload.asset === 'usdc' ? payload.canonicalUsdcMint : null) &&
+        observed.oracleSetEpoch === BigInt(payload.oracleSetEpoch) &&
+        observed.ratioMilli === payload.ratioMilli
+        ? 'confirmed'
+        : 'mismatch';
     },
   };
 }

@@ -9,7 +9,7 @@ import type {
 import type { SolanaEscrowAccountReader } from './solana-accounts.js';
 
 const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
-const MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2pQd';
+const MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
 
 export interface EscrowIndexerHealthSource {
   inspect(signal: AbortSignal): Promise<{
@@ -26,7 +26,7 @@ export interface EscrowUpgradeAuthoritySource {
   read(programId: string, signal: AbortSignal): Promise<string | null>;
 }
 
-function network(genesisHash: string): EscrowNetwork {
+export function escrowNetworkForGenesisHash(genesisHash: string): EscrowNetwork {
   if (genesisHash === DEVNET_GENESIS) return 'devnet';
   if (genesisHash === MAINNET_GENESIS) return 'mainnet-beta';
   return 'localnet';
@@ -66,7 +66,7 @@ export class SolanaEscrowReadinessProbe implements EscrowReadinessProbe {
       throw new TypeError('escrow readiness account unavailable');
     }
     return {
-      rpc: { available: true, network: network(genesisHash), genesisHash },
+      rpc: { available: true, network: escrowNetworkForGenesisHash(genesisHash), genesisHash },
       program: {
         id: this.expected.programId,
         executable: programInfo.executable,

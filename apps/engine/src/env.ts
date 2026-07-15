@@ -51,6 +51,50 @@ const EscrowOracleSignersSchema = z.string().default('').transform((value, ctx) 
   }
   return values;
 });
+const EscrowOracleSignerEndpointsSchema = z.string().default('').transform((value, ctx) => {
+  if (value.trim() === '') return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must be valid JSON' });
+    return z.NEVER;
+  }
+  const result = z.array(z.object({
+    url: z.string().url(),
+    bearerToken: z.string().min(1).optional(),
+  }).strict()).length(3).safeParse(parsed);
+  if (!result.success) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must contain exactly three signer endpoints' });
+    return z.NEVER;
+  }
+  const origins = new Set<string>();
+  for (const endpoint of result.data) {
+    const url = new URL(endpoint.url);
+    if (url.protocol !== 'https:' || url.username !== '' || url.password !== '' || origins.has(url.origin)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must use three independent HTTPS origins' });
+      return z.NEVER;
+    }
+    origins.add(url.origin);
+  }
+  return result.data;
+});
+const EscrowOracleLocalKeypairsSchema = z.string().default('').transform((value, ctx) => {
+  if (value.trim() === '') return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must be valid JSON' });
+    return z.NEVER;
+  }
+  const result = z.array(z.string().min(1)).length(3).safeParse(parsed);
+  if (!result.success) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must contain exactly three keypairs' });
+    return z.NEVER;
+  }
+  return result.data;
+});
 
 function isPubliclyRoutableHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
@@ -132,6 +176,8 @@ const EnvSchema = z.object({
     z.coerce.number().int().min(1).max(8).optional(),
   ),
   ESCROW_ORACLE_SIGNERS: EscrowOracleSignersSchema,
+  ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON: EscrowOracleSignerEndpointsSchema,
+  ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON: EscrowOracleLocalKeypairsSchema,
   ESCROW_INDEXER_MAX_LAG_SLOTS: OptionalUnsignedBigIntSchema,
   ESCROW_CONFIG_AUTHORITY: OptionalBase58AddressSchema,
   ESCROW_PAUSE_AUTHORITY: OptionalBase58AddressSchema,
@@ -140,6 +186,8 @@ const EnvSchema = z.object({
   ESCROW_RESIDUAL_RECIPIENT: OptionalBase58AddressSchema,
   /** Fee payer only. It must never be accepted as a user position signer. */
   ESCROW_RELAYER_KEYPAIR_B58: OptionalConfiguredStringSchema,
+  /** Bounded freeze authority. Must be distinct from relayer, config, and oracle signers. */
+  ESCROW_FEED_OPERATOR_KEYPAIR_B58: OptionalConfiguredStringSchema,
   ESCROW_MAINNET_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
   STARTER_GRANTS_ENABLED: z.enum(['true', 'false']).transform((value) => value === 'true'),
@@ -312,6 +360,7 @@ const EnvSchema = z.object({
       ['ESCROW_UPGRADE_AUTHORITY', env.ESCROW_UPGRADE_AUTHORITY],
       ['ESCROW_RESIDUAL_RECIPIENT', env.ESCROW_RESIDUAL_RECIPIENT],
       ['ESCROW_RELAYER_KEYPAIR_B58', env.ESCROW_RELAYER_KEYPAIR_B58],
+      ['ESCROW_FEED_OPERATOR_KEYPAIR_B58', env.ESCROW_FEED_OPERATOR_KEYPAIR_B58],
     ] as const;
     for (const [name, value] of required) {
       if (value === undefined) addIssue(name, 'required in escrow custody mode');
@@ -323,12 +372,21 @@ const EnvSchema = z.object({
     if (uniqueSigners.size !== env.ESCROW_ORACLE_SIGNERS.length) {
       addIssue('ESCROW_ORACLE_SIGNERS', 'must contain unique signers');
     }
-    if (
-      env.ESCROW_ORACLE_THRESHOLD === undefined ||
-      env.ESCROW_ORACLE_THRESHOLD > uniqueSigners.size
-    ) {
+    if (env.ESCROW_ORACLE_THRESHOLD !== 2 || uniqueSigners.size !== 3) {
       addPairIssue('ESCROW_ORACLE_SIGNERS', 'ESCROW_ORACLE_THRESHOLD');
     }
+    const hasEndpoints = env.ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON.length > 0;
+    const hasLocalKeys = env.ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON.length > 0;
+    if (hasEndpoints === hasLocalKeys) {
+      addPairIssue('ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON', 'ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON');
+    }
+    if (env.SOLANA_NETWORK === 'mainnet-beta' && hasLocalKeys) {
+      addIssue('ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON', 'local oracle keys are forbidden on mainnet');
+    }
+    if (
+      env.ESCROW_CONFIG_AUTHORITY !== undefined &&
+      env.ESCROW_ORACLE_SIGNERS.includes(env.ESCROW_CONFIG_AUTHORITY)
+    ) addPairIssue('ESCROW_CONFIG_AUTHORITY', 'ESCROW_ORACLE_SIGNERS');
   }
   if (env.ESCROW_MAINNET_ENABLED && (
     env.DEPLOYMENT_ENV !== 'production' ||
@@ -359,12 +417,11 @@ const EnvSchema = z.object({
   }
 
 }).transform((env) => {
-  const { WEB_CONCIERGE_TOKEN_SHA256: _auditOnly, ...runtime } = env;
   return {
-    ...runtime,
-    WAGER_RUNTIME_MODE: resolvedWagerRuntimeMode(runtime),
-    GLM_BASE_URL: runtime.GLM_BASE_URL ?? 'https://api.z.ai/api/anthropic',
-    SOLANA_RPC_URL: runtime.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com',
+    ...env,
+    WAGER_RUNTIME_MODE: resolvedWagerRuntimeMode(env),
+    GLM_BASE_URL: env.GLM_BASE_URL ?? 'https://api.z.ai/api/anthropic',
+    SOLANA_RPC_URL: env.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com',
   };
 });
 

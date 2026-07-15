@@ -30,8 +30,32 @@ export interface EscrowRelayerPreparedTransaction {
   readonly lastValidBlockHeight: bigint;
 }
 
+export type DurableEscrowRelayerJobRow = Omit<EscrowRelayerJobRow, 'kind'> & {
+  readonly kind: EscrowRelayerJobRow['kind'] | 'position_placement';
+};
+
+export interface EscrowRelayerWorkerDatabase extends Omit<
+  Pick<
+    EscrowDb,
+    'leaseRelayerJobs' | 'recordRelayerSignedTransaction' | 'markRelayerSubmitted' |
+    'retryRelayerJob' | 'completeRelayerJob' | 'deadLetterRelayerJob'
+  >,
+  'leaseRelayerJobs'
+> {
+  leaseRelayerJobs(
+    input: Parameters<EscrowDb['leaseRelayerJobs']>[0],
+  ): Promise<readonly DurableEscrowRelayerJobRow[]>;
+}
+
 export interface EscrowRelayerTransactionBuilder {
-  build(job: EscrowRelayerJobRow): Promise<EscrowRelayerPreparedTransaction>;
+  build(job: DurableEscrowRelayerJobRow): Promise<EscrowRelayerPreparedTransaction>;
+}
+
+export interface EscrowRelayerFinalityVerifier {
+  confirm(
+    job: DurableEscrowRelayerJobRow,
+    finalized: { readonly signature: string; readonly slot: bigint },
+  ): Promise<'confirmed' | 'pending' | 'mismatch'>;
 }
 
 export type EscrowRelayerRunResult =
@@ -48,7 +72,7 @@ export class EscrowRelayerWorkerError extends Error {
   }
 }
 
-function lease(job: EscrowRelayerJobRow): { readonly workerId: string; readonly leaseToken: string } {
+function lease(job: DurableEscrowRelayerJobRow): { readonly workerId: string; readonly leaseToken: string } {
   if (job.custodyMode !== 'escrow' || job.leaseOwner === null || job.leaseToken === null) {
     throw new EscrowRelayerWorkerError('invalid_job');
   }
@@ -77,17 +101,14 @@ function unixTimestamp(iso: string): bigint {
 }
 
 export function createEscrowRelayerWorker(options: {
-  readonly db: Pick<
-    EscrowDb,
-    'leaseRelayerJobs' | 'recordRelayerSignedTransaction' | 'markRelayerSubmitted' |
-    'retryRelayerJob' | 'completeRelayerJob' | 'deadLetterRelayerJob'
-  >;
+  readonly db: EscrowRelayerWorkerDatabase;
   readonly chain: EscrowRelayChain;
   readonly workerId: string;
   readonly retryAt: (nowIso: string) => string;
-  readonly builders?: Partial<Record<EscrowRelayerJobRow['kind'], EscrowRelayerTransactionBuilder>>;
+  readonly builders?: Partial<Record<DurableEscrowRelayerJobRow['kind'], EscrowRelayerTransactionBuilder>>;
+  readonly finalityVerifiers?: Partial<Record<DurableEscrowRelayerJobRow['kind'], EscrowRelayerFinalityVerifier>>;
 }): { runOnce(nowIso: string, limit: number): Promise<readonly EscrowRelayerRunResult[]> } {
-  async function retryUnknown(job: EscrowRelayerJobRow, errorCode: string, nowIso: string): Promise<void> {
+  async function retryUnknown(job: DurableEscrowRelayerJobRow, errorCode: string, nowIso: string): Promise<void> {
     requireMutation(await options.db.retryRelayerJob({
       jobId: job.id,
       ...lease(job),
@@ -98,14 +119,14 @@ export function createEscrowRelayerWorker(options: {
     }));
   }
 
-  async function dead(job: EscrowRelayerJobRow, errorCode: string, nowIso: string): Promise<EscrowRelayerRunResult> {
+  async function dead(job: DurableEscrowRelayerJobRow, errorCode: string, nowIso: string): Promise<EscrowRelayerRunResult> {
     requireMutation(await options.db.deadLetterRelayerJob({
       jobId: job.id, ...lease(job), errorCode, nowIso,
     }));
     return { kind: 'terminal', jobId: job.id, errorCode };
   }
 
-  async function processPersisted(job: EscrowRelayerJobRow, nowIso: string): Promise<EscrowRelayerRunResult> {
+  async function processPersisted(job: DurableEscrowRelayerJobRow, nowIso: string): Promise<EscrowRelayerRunResult> {
     const raw = job.rawTransactionBase64;
     const signature = job.expectedSignature;
     if (raw === null || signature === null || job.lastValidBlockHeight === null) {
@@ -113,6 +134,15 @@ export function createEscrowRelayerWorker(options: {
     }
     const state = await options.chain.signatureState(signature);
     if (state.kind === 'finalized') {
+      const verifier = options.finalityVerifiers?.[job.kind];
+      if (verifier !== undefined) {
+        const effect = await verifier.confirm(job, { signature, slot: state.slot });
+        if (effect === 'pending') {
+          await retryUnknown(job, 'finalized_effect_pending', nowIso);
+          return { kind: 'retrying', jobId: job.id, signature };
+        }
+        if (effect === 'mismatch') return dead(job, 'finalized_effect_mismatch', nowIso);
+      }
       requireMutation(await options.db.completeRelayerJob({ jobId: job.id, ...lease(job), nowIso }));
       return { kind: 'complete', jobId: job.id, signature };
     }
@@ -165,7 +195,7 @@ export function createEscrowRelayerWorker(options: {
     return { kind: 'retrying', jobId: job.id, signature };
   }
 
-  async function process(job: EscrowRelayerJobRow, nowIso: string): Promise<EscrowRelayerRunResult> {
+  async function process(job: DurableEscrowRelayerJobRow, nowIso: string): Promise<EscrowRelayerRunResult> {
     if (job.rawTransactionBase64 !== null) return processPersisted(job, nowIso);
     const payload = placementRelayPayload(job);
     const builder = options.builders?.[job.kind];
@@ -181,7 +211,23 @@ export function createEscrowRelayerWorker(options: {
         return dead(job, 'invalid_user_transaction', nowIso);
       }
     } else if (builder !== undefined) {
-      prepared = await builder.build(job);
+      try {
+        prepared = await builder.build(job);
+      } catch (error) {
+        if (!(error instanceof Error)) throw error;
+        const code = 'code' in error && typeof error.code === 'string'
+          ? error.code
+          : 'builder_failed';
+        requireMutation(await options.db.retryRelayerJob({
+          jobId: job.id,
+          ...lease(job),
+          errorCode: code,
+          retryAtIso: options.retryAt(nowIso),
+          confirmationUnknown: false,
+          nowIso,
+        }));
+        return { kind: 'retrying', jobId: job.id, signature: '' };
+      }
     } else {
       return dead(job, 'builder_unavailable', nowIso);
     }

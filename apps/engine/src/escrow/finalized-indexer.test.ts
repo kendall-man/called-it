@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   createFinalizedEscrowIndexer,
   EscrowFinalizedIndexerError,
+  type EscrowFinalizedCursor,
+  type EscrowFinalizedIndexDb,
   type EscrowFinalizedTransaction,
 } from './finalized-indexer.js';
 
@@ -35,60 +37,86 @@ function transaction(): EscrowFinalizedTransaction {
   };
 }
 
-function setup(items: readonly EscrowFinalizedTransaction[]) {
+function setup(
+  items: readonly EscrowFinalizedTransaction[],
+  initialCursor: EscrowFinalizedCursor = { slot: 0n, signature: null },
+) {
   const identities = new Set<string>();
   const writes: string[] = [];
   const cursors: Parameters<EscrowDb['advanceChainCursor']>[0][] = [];
+  const scans: EscrowFinalizedCursor[] = [];
+  const pointCalls: string[] = [];
+  let persistedCursor = initialCursor;
   const result = (identity: string) => {
     const duplicate = identities.has(identity);
     identities.add(identity);
     return { ok: true as const, duplicate, finalized: true };
   };
-  const db: Pick<EscrowDb,
-    'upsertMarketLink' | 'recordPositionEvent' | 'recordSettlementEvent' |
-    'recordClaimEvent' | 'advanceChainCursor'> = {
+  const db: EscrowFinalizedIndexDb = {
+      async getChainCursor() {
+        return {
+          ok: true, initialized: persistedCursor.signature !== null,
+          cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID,
+          confirmedSlot: persistedCursor.slot, confirmedSignature: persistedCursor.signature,
+          finalizedSlot: persistedCursor.slot, finalizedSignature: persistedCursor.signature,
+          updatedAtIso: persistedCursor.signature === null ? null : NOW,
+        };
+      },
       async upsertMarketLink(input) { writes.push(`market:${input.initializeSignature}:${input.initializeInstructionIndex}`); return result(writes.at(-1) ?? ''); },
       async recordPositionEvent(input) { writes.push(`position:${input.signature}:${input.instructionIndex}`); return result(writes.at(-1) ?? ''); },
       async recordSettlementEvent(input) { writes.push(`settlement:${input.signature}:${input.instructionIndex}`); return result(writes.at(-1) ?? ''); },
       async recordClaimEvent(input) { writes.push(`claim:${input.signature}:${input.instructionIndex}`); return result(writes.at(-1) ?? ''); },
-      async advanceChainCursor(input) { cursors.push(input); return { ok: true, duplicate: false, finalized: true }; },
+      async advanceChainCursor(input) {
+        cursors.push(input);
+        persistedCursor = { slot: input.slot, signature: input.signature };
+        return { ok: true, duplicate: false, finalized: true };
+      },
     };
   const indexer = createFinalizedEscrowIndexer({
     db,
-    source: { scan: async () => items },
+    source: { scan: async (cursor) => { scans.push(cursor); return items; } },
     expected: { cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID },
     clock: () => NOW,
+    points: { async afterEconomicProjection(input) { pointCalls.push(input.marketId); return { kind: 'replay_skipped' }; } },
   });
-  return { indexer, writes, cursors };
+  return { db, indexer, writes, cursors, scans, pointCalls, restart: () => createFinalizedEscrowIndexer({
+    db,
+    source: { scan: async (cursor) => { scans.push(cursor); return items; } },
+    expected: { cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID },
+    clock: () => NOW,
+    points: { async afterEconomicProjection(input) { pointCalls.push(input.marketId); return { kind: 'replay_skipped' }; } },
+  }) };
 }
 
 describe('finalized escrow indexer', () => {
   it('projects finalized events and advances the durable cursor afterward', async () => {
     // Given a finalized transaction with two economic events
-    const fixture = setup([transaction()]);
+    const fixture = setup([transaction()], { slot: 12n, signature: 'signature-before' });
 
     // When the indexer consumes the page
-    const result = await fixture.indexer.runOnce({ slot: 0n, signature: null }, 100);
+    const result = await fixture.indexer.runOnce(100);
 
     // Then both 0024 facades commit before one finalized cursor advancement
     expect(result).toEqual({ cursor: { slot: 42n, signature: 'signature-a' }, transactions: 1, events: 2, duplicates: 0 });
     expect(fixture.writes).toEqual(['market:signature-a:0', 'position:signature-a:1']);
     expect(fixture.cursors).toHaveLength(1);
     expect(fixture.cursors[0]).toMatchObject({ commitment: 'finalized', slot: 42n, signature: 'signature-a' });
+    expect(fixture.scans).toEqual([{ slot: 12n, signature: 'signature-before' }]);
   });
 
   it('safely replays duplicate delivery after restart', async () => {
     // Given the same finalized transaction delivered before and after restart
     const item = transaction();
     const fixture = setup([item]);
-    await fixture.indexer.runOnce({ slot: 0n, signature: null }, 100);
+    await fixture.indexer.runOnce(100);
 
     // When the persisted cursor page is replayed
-    const result = await fixture.indexer.runOnce({ slot: 0n, signature: null }, 100);
+    const result = await fixture.restart().runOnce(100);
 
     // Then chain identities dedupe every effect while the cursor remains recoverable
     expect(result.duplicates).toBe(2);
     expect(result.cursor).toEqual({ slot: 42n, signature: 'signature-a' });
+    expect(fixture.scans.at(-1)).toEqual({ slot: 42n, signature: 'signature-a' });
   });
 
   it.each([
@@ -100,8 +128,84 @@ describe('finalized escrow indexer', () => {
     const fixture = setup([bad]);
 
     // When indexing runs, then no cursor can skip the invalid transaction
-    await expect(fixture.indexer.runOnce({ slot: 0n, signature: null }, 100))
+    await expect(fixture.indexer.runOnce(100))
       .rejects.toBeInstanceOf(EscrowFinalizedIndexerError);
+    expect(fixture.cursors).toHaveLength(0);
+  });
+
+  it('rejects reordered finalized transactions before advancing past them', async () => {
+    const first = transaction();
+    const reordered = { ...transaction(), signature: 'signature-b', slot: 41n };
+    const fixture = setup([first, reordered]);
+
+    await expect(fixture.indexer.runOnce(100)).rejects.toMatchObject({ code: 'cursor_regression' });
+    expect(fixture.cursors).toHaveLength(0);
+  });
+
+  it('does not advance past MarketClosed when migration 0024 has no close facade', async () => {
+    const closed: EscrowFinalizedTransaction = {
+      ...transaction(),
+      events: [{
+        instructionIndex: 0,
+        projection: {
+          kind: 'market_closed', marketId: MARKET_ID, marketPda: 'market-a',
+          asset: 'sol', dustAmountAtomic: 2n,
+        },
+      }],
+    };
+    const fixture = setup([closed]);
+
+    await expect(fixture.indexer.runOnce(100)).rejects.toMatchObject({ code: 'projection_unavailable' });
+    expect(fixture.cursors).toHaveLength(0);
+  });
+
+  it('hands finalized settlement to Points before advancing the cursor', async () => {
+    const settled: EscrowFinalizedTransaction = {
+      ...transaction(),
+      events: [{
+        instructionIndex: 0,
+        projection: {
+          kind: 'settlement', marketId: MARKET_ID, outcome: 'claim_won',
+          evidenceHashHex: 'cd'.repeat(32), documentHashHex: 'ab'.repeat(32), oracleEpoch: 9n,
+        },
+      }],
+    };
+    const fixture = setup([settled]);
+    const order: string[] = [];
+    const indexer = createFinalizedEscrowIndexer({
+      db: fixture.db,
+      source: { scan: async () => [settled] },
+      expected: { cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID },
+      clock: () => NOW,
+      points: {
+        async afterEconomicProjection() {
+          order.push('points');
+          return { kind: 'replay_skipped' };
+        },
+      },
+      async afterTransaction() { order.push('private_projection'); },
+    });
+
+    await indexer.runOnce(100);
+
+    expect(fixture.writes).toEqual(['settlement:signature-a:0']);
+    expect(order).toEqual(['private_projection', 'points']);
+    expect(fixture.cursors).toHaveLength(1);
+  });
+
+  it('does not advance the cursor when finalized presentation or reconciliation fails', async () => {
+    const item = transaction();
+    const fixture = setup([item]);
+    const indexer = createFinalizedEscrowIndexer({
+      db: fixture.db,
+      source: { scan: async () => [item] },
+      expected: { cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID },
+      clock: () => NOW,
+      points: { async afterEconomicProjection() { return { kind: 'replay_skipped' }; } },
+      async afterTransaction() { throw new Error('presentation unavailable'); },
+    });
+
+    await expect(indexer.runOnce(100)).rejects.toThrow('presentation unavailable');
     expect(fixture.cursors).toHaveLength(0);
   });
 });

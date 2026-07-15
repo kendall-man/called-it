@@ -24,6 +24,7 @@ import type { TemplateKey } from '../bot/copy.js';
 import { composeTelegramMessage } from '../bot/message-budget.js';
 import type { CompileContextOverrides } from './context.js';
 import { composeClaimCard } from './render.js';
+import { escrowMarketPositionsReady } from './escrow-market-provisioning.js';
 import {
   checkMintWindow,
   createMarketFromClaim,
@@ -201,8 +202,11 @@ export async function mintOffer(
   const { market } = mintResult;
   const currency = market.currency === 'usdc' ? 'usdc' : 'sol';
 
-  const positionsAvailable = market.is_replay
-    || (h.deps.wager !== null && await h.deps.wager.stakesAvailable(currency));
+  const escrowReady = await escrowMarketPositionsReady(h.deps, market);
+  const positionsAvailable = escrowReady && (
+    market.is_replay
+    || (h.deps.wager !== null && await h.deps.wager.stakesAvailable(currency))
+  );
   const card = await composeClaimCard(h.deps, market, { positionsAvailable });
   if (!card) return { minted: true };
   const claimer = await h.deps.db.getUser(claim.claimer_user_id);

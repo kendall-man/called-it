@@ -126,14 +126,16 @@ export class SolanaFinalizedEscrowEventSource implements EscrowFinalizedEventSou
       const events: EscrowFinalizedEvent[] = [];
       const logs = transaction.meta?.err === null ? transaction.meta.logMessages ?? [] : [];
       for (const located of eventLogs(logs, this.expected.programId)) {
-        const projection = await this.projector.project(located.event, {
-          signature: signature.signature,
+        events.push({
           instructionIndex: located.instructionIndex,
-          slot: BigInt(signature.slot),
+          projection: {
+            resolve: () => this.projector.project(located.event, {
+              signature: signature.signature,
+              instructionIndex: located.instructionIndex,
+              slot: BigInt(signature.slot),
+            }),
+          },
         });
-        if (projection !== null) {
-          events.push({ instructionIndex: located.instructionIndex, projection });
-        }
       }
       const blockTime = transaction.blockTime ?? signature.blockTime;
       transactions.push({

@@ -2,10 +2,12 @@ import { bytesToHex } from '@calledit/solana';
 import {
   decodeMarketAccount,
   decodeOracleSetAccount,
+  decodePositionLotAccount,
   decodeProtocolConfigAccount,
   decodeUserPositionAccount,
   type MarketAccount,
   type OracleSetAccount,
+  type PositionLotAccount,
   type ProtocolConfigAccount,
   type UserPositionAccount,
 } from '@calledit/escrow-sdk';
@@ -18,6 +20,7 @@ import type {
 import type {
   EscrowPlacementChain,
 } from './placement-types.js';
+import type { EscrowRecoveryChain } from './recovery-relayer.js';
 import type { EscrowSolanaRpc } from './solana-rpc.js';
 
 export interface DecodedEscrowAccount<T> {
@@ -55,6 +58,11 @@ export class SolanaEscrowAccountReader {
     return account === null ? null : { ...account, value: decodeUserPositionAccount(account.value) };
   }
 
+  async lot(address: string): Promise<DecodedEscrowAccount<PositionLotAccount> | null> {
+    const account = await this.raw(address);
+    return account === null ? null : { ...account, value: decodePositionLotAccount(account.value) };
+  }
+
   async config(address: string): Promise<DecodedEscrowAccount<ProtocolConfigAccount> | null> {
     const account = await this.raw(address);
     return account === null ? null : { ...account, value: decodeProtocolConfigAccount(account.value) };
@@ -78,6 +86,7 @@ function marketRecord(account: DecodedEscrowAccount<MarketAccount>, custodyMode:
     ratioMilli: account.value.ratioMilli,
     eventEpoch: account.value.eventEpoch,
     oracleSetEpoch: account.value.oracleSetEpoch,
+    replay: account.value.replay,
     positionCutoffTimestamp: account.value.positionCutoffTimestamp,
     state: account.value.state,
   } as const;
@@ -114,6 +123,21 @@ export class SolanaEscrowPlacementChain implements EscrowPlacementChain {
   blockHeight() { return this.rpc.blockHeight(); }
   genesisHash() { return this.rpc.genesisHash(); }
   isBlockhashValid(blockhash: string) { return this.rpc.isBlockhashValid(blockhash); }
+}
+
+export class SolanaEscrowRecoveryChain implements EscrowRecoveryChain {
+  constructor(
+    private readonly rpc: EscrowSolanaRpc,
+    private readonly accounts: SolanaEscrowAccountReader,
+  ) {}
+
+  genesisHash() { return this.rpc.genesisHash(); }
+  latestBlockhash() { return this.rpc.latestBlockhash(); }
+  market(address: string) { return this.accounts.market(address); }
+  position(address: string) { return this.accounts.position(address); }
+  lot(address: string) { return this.accounts.lot(address); }
+  oracleSet(address: string) { return this.accounts.oracleSet(address); }
+  async accountExists(address: string) { return await this.accounts.raw(address) !== null; }
 }
 
 export class SolanaMarketInitializationReader implements EscrowMarketInitializationChain {

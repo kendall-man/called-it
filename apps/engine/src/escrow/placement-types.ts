@@ -8,9 +8,7 @@ import type { MarketState, PositionSide } from '@calledit/escrow-sdk';
 import type { Signer } from '@solana/web3.js';
 import type { EscrowReadinessReason, EscrowReadinessReport } from './readiness.js';
 
-// Migration 0024 currently has no placement-specific kind. Payload parsing
-// isolates this compatibility lane from actual position-activation jobs.
-export const PLACEMENT_RELAYER_STORAGE_KIND = 'position_activation' as const;
+export const PLACEMENT_RELAYER_STORAGE_KIND = 'position_placement' as const;
 
 export interface EscrowPlacementMarket {
   readonly custodyMode: 'legacy' | 'escrow';
@@ -23,6 +21,7 @@ export interface EscrowPlacementMarket {
   readonly ratioMilli: number;
   readonly eventEpoch: bigint;
   readonly oracleSetEpoch: bigint;
+  readonly replay: boolean;
   readonly positionCutoffTimestamp: bigint;
   readonly state: MarketState;
 }
@@ -58,6 +57,7 @@ export interface EscrowPlacementDeployment {
   readonly maximumSolPosition: bigint;
   readonly minimumUsdcPosition: bigint;
   readonly maximumUsdcPosition: bigint;
+  readonly allowedGroupIds: readonly number[];
 }
 
 export interface EscrowPlacementIdentity {
@@ -88,7 +88,10 @@ export interface EscrowPlacementAuthorization {
 }
 
 export interface CreateEscrowPlacementInput extends EscrowPlacementIdentity {
+  readonly groupId: number;
   readonly marketId: string;
+  readonly expectedAsset?: EscrowAsset;
+  readonly expectedReplay?: boolean;
   readonly side: PositionSide;
   readonly amountAtomic: bigint;
   readonly ttlSeconds: number;
@@ -147,13 +150,49 @@ export interface EscrowPlacementDatabase {
     readonly tokenHashHex: string;
     readonly nowIso: string;
   }): Promise<GetDurableEscrowPlacementSessionResult>;
+  getMarketLink(input: {
+    readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
+    readonly genesisHash: string;
+    readonly programId: string;
+    readonly marketPda: string;
+  }): Promise<EscrowPlacementMarketLinkResult>;
   consumeSigningSession(
     input: Parameters<EscrowDb['consumeSigningSession']>[0],
   ): ReturnType<EscrowDb['consumeSigningSession']>;
   enqueueRelayerJob(
-    input: Parameters<EscrowDb['enqueueRelayerJob']>[0],
+    input: Omit<Parameters<EscrowDb['enqueueRelayerJob']>[0], 'kind'> & {
+      readonly kind: typeof PLACEMENT_RELAYER_STORAGE_KIND;
+    },
   ): ReturnType<EscrowDb['enqueueRelayerJob']>;
 }
+
+export type EscrowPlacementMarketLinkResult =
+  | { readonly ok: true; readonly found: false }
+  | {
+      readonly ok: true;
+      readonly found: true;
+      readonly marketId: string;
+      readonly custodyMode: 'escrow';
+      readonly custodyVersion: number;
+      readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
+      readonly genesisHash: string;
+      readonly programId: string;
+      readonly marketPda: string;
+      readonly vaultPda: string;
+      readonly asset: EscrowAsset;
+      readonly mintPubkey: string | null;
+      readonly documentHashHex: string;
+      readonly oracleEpoch: bigint;
+      readonly eventEpoch: bigint;
+      readonly ratioMilli: bigint;
+      readonly chainState: 'open' | 'frozen' | 'settled' | 'voided' | 'closed';
+      readonly commitment: 'confirmed' | 'finalized';
+      readonly projectionStale: boolean;
+    }
+  | {
+      readonly ok: false;
+      readonly code: 'invalid_input' | 'identity_mismatch' | 'ambiguous' | 'noncanonical' | 'custody_mismatch';
+    };
 
 export type EscrowPlacementPresentationResult =
   | {
@@ -183,11 +222,13 @@ export type EscrowPlacementErrorCode =
   | 'market_identity_mismatch'
   | 'market_unavailable'
   | 'asset_mismatch'
+  | 'replay_mismatch'
   | 'oracle_epoch_mismatch'
   | 'opposite_side_position'
   | 'position_identity_mismatch'
   | 'position_claimed'
   | 'amount_out_of_range'
+  | 'group_not_allowed'
   | 'invalid_session_ttl'
   | 'signing_session_rejected'
   | 'invalid_signed_transaction'

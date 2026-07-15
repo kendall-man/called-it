@@ -1,4 +1,3 @@
-import type { EscrowRelayerJobRow } from '@calledit/db';
 import {
   deriveMarketPda,
   hexToBytes,
@@ -8,6 +7,7 @@ import { VersionedTransaction } from '@solana/web3.js';
 import { z } from 'zod';
 import { PLACEMENT_RELAYER_STORAGE_KIND } from './placement-types.js';
 import { inspectUserSignedTransaction } from './transaction-signatures.js';
+import type { DurableEscrowRelayerJobRow } from './relayer-worker.js';
 
 const payloadSchema = z.object({
   operation: z.literal('place_position'),
@@ -37,14 +37,14 @@ export interface EscrowVerifiedPlacementTransaction {
   readonly lastValidBlockHeight: bigint;
 }
 
-export function placementRelayPayload(job: EscrowRelayerJobRow): EscrowPlacementRelayPayload | null {
+export function placementRelayPayload(job: DurableEscrowRelayerJobRow): EscrowPlacementRelayPayload | null {
   if (job.kind !== PLACEMENT_RELAYER_STORAGE_KIND) return null;
   const result = payloadSchema.safeParse(job.payload);
   return result.success ? result.data : null;
 }
 
 export async function verifyPlacementRelayTransaction(input: {
-  readonly job: EscrowRelayerJobRow;
+  readonly job: DurableEscrowRelayerJobRow;
   readonly payload: EscrowPlacementRelayPayload;
   readonly chain: EscrowPlacementRelayChain;
   readonly nowUnix: bigint;

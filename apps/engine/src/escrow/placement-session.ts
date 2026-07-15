@@ -13,6 +13,7 @@ import {
   type CreateEscrowPlacementResult,
   type EscrowPlacementDeployment,
   type EscrowPlacementDatabase,
+  type EscrowPlacementMarketLinkResult,
   type EscrowPlacementMarket,
   type EscrowPlacementServiceDependencies,
 } from './placement-types.js';
@@ -39,20 +40,52 @@ function assertMarket(
   ) {
     throw new EscrowPlacementError('market_identity_mismatch');
   }
-  if (market.tokenMint !== expectedMint) throw new EscrowPlacementError('asset_mismatch');
-  if (market.oracleSetEpoch !== dependencies.deployment.oracleSetEpoch) {
-    throw new EscrowPlacementError('oracle_epoch_mismatch');
+  if (input.expectedAsset !== undefined && market.asset !== input.expectedAsset) {
+    throw new EscrowPlacementError('asset_mismatch');
   }
+  if (input.expectedReplay !== undefined && market.replay !== input.expectedReplay) {
+    throw new EscrowPlacementError('replay_mismatch');
+  }
+  if (market.tokenMint !== expectedMint) throw new EscrowPlacementError('asset_mismatch');
   if (market.state !== 'open' || dependencies.clock().unix >= market.positionCutoffTimestamp) {
     throw new EscrowPlacementError('market_unavailable');
   }
 }
 
+function assertMarketLink(
+  link: EscrowPlacementMarketLinkResult,
+  market: EscrowPlacementMarket,
+  dependencies: EscrowPlacementServiceDependencies,
+): void {
+  if (!link.ok || !link.found) throw new EscrowPlacementError('market_identity_mismatch');
+  const expectedMint = market.asset === 'usdc' ? dependencies.deployment.canonicalUsdcMint : null;
+  if (
+    link.custodyMode !== 'escrow' ||
+    link.custodyVersion !== dependencies.deployment.custodyVersion ||
+    link.cluster !== dependencies.deployment.cluster ||
+    link.genesisHash !== dependencies.deployment.genesisHash ||
+    link.programId !== dependencies.deployment.programId ||
+    link.marketPda !== market.marketPda ||
+    link.marketId !== market.marketId ||
+    link.asset !== market.asset ||
+    link.mintPubkey !== expectedMint ||
+    link.documentHashHex.toLowerCase() !== market.documentHashHex.toLowerCase() ||
+    link.oracleEpoch !== market.oracleSetEpoch ||
+    link.ratioMilli !== BigInt(market.ratioMilli) ||
+    link.chainState !== 'open' ||
+    link.commitment !== 'finalized' ||
+    link.projectionStale
+  ) throw new EscrowPlacementError('market_identity_mismatch');
+}
+
 export function createPlacementSessionCreator(
-  db: Pick<EscrowPlacementDatabase, 'createSigningSession'>,
+  db: Pick<EscrowPlacementDatabase, 'createSigningSession' | 'getMarketLink'>,
   dependencies: EscrowPlacementServiceDependencies,
 ): (input: CreateEscrowPlacementInput) => Promise<CreateEscrowPlacementResult> {
   return async (input) => {
+    if (!Number.isSafeInteger(input.groupId) || !dependencies.deployment.allowedGroupIds.includes(input.groupId)) {
+      throw new EscrowPlacementError('group_not_allowed');
+    }
     const readiness = await dependencies.readiness();
     if (readiness.status === 'not_ready') return { kind: 'blocked', reasons: readiness.reasons };
     const observedGenesis = await dependencies.chain.genesisHash();
@@ -66,6 +99,13 @@ export function createPlacementSessionCreator(
     const market = await dependencies.chain.readMarket(marketPda);
     if (market === null) throw new EscrowPlacementError('market_not_found');
     assertMarket(market, input, dependencies, marketPda);
+    const marketLink = await db.getMarketLink({
+      cluster: dependencies.deployment.cluster,
+      genesisHash: dependencies.deployment.genesisHash,
+      programId: dependencies.deployment.programId,
+      marketPda,
+    });
+    assertMarketLink(marketLink, market, dependencies);
 
     const positionPda = deriveUserPositionPda(
       dependencies.deployment.programId,

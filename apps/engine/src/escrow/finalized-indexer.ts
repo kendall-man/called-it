@@ -6,6 +6,7 @@ import type {
   EscrowPositionEventInput,
   EscrowSettlementEventInput,
 } from '@calledit/db';
+import type { EscrowFinalizedPointsProjection } from './points-projection.js';
 
 export interface EscrowFinalizedCursor {
   readonly slot: bigint;
@@ -37,11 +38,27 @@ export type EscrowFinalizedProjection =
   | ({ readonly kind: 'claim' } & Omit<
       EscrowClaimEventInput,
       'signature' | 'instructionIndex' | 'programId' | 'slot' | 'blockTimeIso' | 'commitment' | 'observedAtIso'
-    >);
+    >)
+  | {
+      readonly kind: 'market_closed';
+      readonly marketId: string;
+      readonly marketPda: string;
+      readonly asset: EscrowAsset;
+      readonly dustAmountAtomic: bigint;
+    }
+  | {
+      readonly kind: 'market_state';
+      readonly marketId: string;
+      readonly state: 'open' | 'frozen';
+      readonly eventEpoch: bigint;
+      readonly evidenceHashHex: string;
+    };
 
 export interface EscrowFinalizedEvent {
   readonly instructionIndex: number;
-  readonly projection: EscrowFinalizedProjection;
+  readonly projection: EscrowFinalizedProjection | {
+    resolve(): Promise<EscrowFinalizedProjection | null>;
+  };
 }
 
 export interface EscrowFinalizedTransaction {
@@ -57,84 +74,143 @@ export interface EscrowFinalizedEventSource {
   scan(cursor: EscrowFinalizedCursor, limit: number): Promise<readonly EscrowFinalizedTransaction[]>;
 }
 
+export interface EscrowFinalizedTransactionProjection {
+  readonly signature: string;
+  readonly slot: bigint;
+  readonly blockTimeIso: string | null;
+  readonly projections: readonly EscrowFinalizedProjection[];
+}
+
 export class EscrowFinalizedIndexerError extends Error {
   readonly name = 'EscrowFinalizedIndexerError';
 
-  constructor(readonly code: 'invalid_page' | 'chain_identity_mismatch' | 'cursor_regression') {
+  constructor(readonly code: 'invalid_page' | 'chain_identity_mismatch' | 'cursor_regression' | 'cursor_unavailable' | 'projection_unavailable') {
     super(`escrow finalized indexer rejected: ${code}`);
   }
 }
 
-type IndexDb = Pick<
+export type EscrowFinalizedChainCursorResult =
+  | {
+      readonly ok: true;
+      readonly initialized: boolean;
+      readonly cluster: EscrowCluster;
+      readonly genesisHash: string;
+      readonly programId: string;
+      readonly confirmedSlot: bigint;
+      readonly confirmedSignature: string | null;
+      readonly finalizedSlot: bigint;
+      readonly finalizedSignature: string | null;
+      readonly updatedAtIso: string | null;
+    }
+  | { readonly ok: false; readonly code: 'invalid_input' | 'genesis_mismatch' };
+
+export interface EscrowFinalizedIndexDb extends Pick<
   EscrowDb,
   'upsertMarketLink' | 'recordPositionEvent' | 'recordSettlementEvent' |
   'recordClaimEvent' | 'advanceChainCursor'
->;
+> {
+  getChainCursor(input: {
+    readonly cluster: EscrowCluster;
+    readonly genesisHash: string;
+    readonly programId: string;
+  }): Promise<EscrowFinalizedChainCursorResult>;
+  recordMarketClosed?(input: {
+    readonly signature: string;
+    readonly instructionIndex: number;
+    readonly marketId: string;
+    readonly programId: string;
+    readonly marketPda: string;
+    readonly asset: EscrowAsset;
+    readonly dustAmountAtomic: bigint;
+    readonly slot: bigint;
+    readonly blockTimeIso: string | null;
+    readonly commitment: 'finalized';
+    readonly observedAtIso: string;
+  }): Promise<{ readonly ok: true; readonly duplicate: boolean; readonly finalized: boolean }>;
+}
 
 async function project(
-  db: IndexDb,
+  db: EscrowFinalizedIndexDb,
   transaction: EscrowFinalizedTransaction,
-  event: EscrowFinalizedEvent,
+  instructionIndex: number,
+  projection: EscrowFinalizedProjection,
   expected: { readonly cluster: EscrowCluster; readonly genesisHash: string; readonly programId: string },
   observedAtIso: string,
 ): Promise<boolean> {
   const common = {
     signature: transaction.signature,
-    instructionIndex: event.instructionIndex,
+    instructionIndex,
     programId: expected.programId,
     slot: transaction.slot,
     blockTimeIso: transaction.blockTimeIso,
     commitment: 'finalized' as const,
     observedAtIso,
   };
-  switch (event.projection.kind) {
+  switch (projection.kind) {
     case 'market': {
       const result = await db.upsertMarketLink({
-        marketId: event.projection.marketId,
+        marketId: projection.marketId,
         custodyMode: 'escrow',
-        custodyVersion: event.projection.custodyVersion,
+        custodyVersion: projection.custodyVersion,
         cluster: expected.cluster,
         genesisHash: expected.genesisHash,
         programId: expected.programId,
-        marketPda: event.projection.marketPda,
-        vaultPda: event.projection.vaultPda,
-        asset: event.projection.asset,
-        mintPubkey: event.projection.mintPubkey,
-        documentHashHex: event.projection.documentHashHex,
+        marketPda: projection.marketPda,
+        vaultPda: projection.vaultPda,
+        asset: projection.asset,
+        mintPubkey: projection.mintPubkey,
+        documentHashHex: projection.documentHashHex,
         initializeSignature: transaction.signature,
-        initializeInstructionIndex: event.instructionIndex,
+        initializeInstructionIndex: instructionIndex,
         initializeSlot: transaction.slot,
         initializeBlockTimeIso: transaction.blockTimeIso,
-        oracleEpoch: event.projection.oracleEpoch,
-        eventEpoch: event.projection.eventEpoch,
-        ratioMilli: event.projection.ratioMilli,
+        oracleEpoch: projection.oracleEpoch,
+        eventEpoch: projection.eventEpoch,
+        ratioMilli: projection.ratioMilli,
         commitment: 'finalized',
         observedAtIso,
       });
       return result.duplicate;
     }
     case 'position': {
-      const { kind: _, ...value } = event.projection;
+      const { kind: _, ...value } = projection;
       return (await db.recordPositionEvent({ ...value, ...common })).duplicate;
     }
     case 'settlement': {
-      const { kind: _, ...value } = event.projection;
+      const { kind: _, ...value } = projection;
       return (await db.recordSettlementEvent({ ...value, ...common })).duplicate;
     }
     case 'claim': {
-      const { kind: _, ...value } = event.projection;
+      const { kind: _, ...value } = projection;
       return (await db.recordClaimEvent({ ...value, ...common })).duplicate;
     }
+    case 'market_closed': {
+      if (db.recordMarketClosed === undefined) {
+        throw new EscrowFinalizedIndexerError('projection_unavailable');
+      }
+      const { kind: _, ...value } = projection;
+      return (await db.recordMarketClosed({ ...value, ...common })).duplicate;
+    }
+    case 'market_state':
+      return false;
   }
 }
 
+async function resolveProjection(
+  event: EscrowFinalizedEvent,
+): Promise<EscrowFinalizedProjection | null> {
+  return 'resolve' in event.projection ? event.projection.resolve() : event.projection;
+}
+
 export function createFinalizedEscrowIndexer(options: {
-  readonly db: IndexDb;
+  readonly db: EscrowFinalizedIndexDb;
   readonly source: EscrowFinalizedEventSource;
   readonly expected: { readonly cluster: EscrowCluster; readonly genesisHash: string; readonly programId: string };
   readonly clock: () => string;
+  readonly points: EscrowFinalizedPointsProjection;
+  readonly afterTransaction?: (transaction: EscrowFinalizedTransactionProjection) => Promise<void>;
 }): {
-  runOnce(cursor: EscrowFinalizedCursor, limit: number): Promise<{
+  runOnce(limit: number): Promise<{
     readonly cursor: EscrowFinalizedCursor;
     readonly transactions: number;
     readonly events: number;
@@ -142,30 +218,77 @@ export function createFinalizedEscrowIndexer(options: {
   }>;
 } {
   return {
-    async runOnce(cursor, limit) {
-      if (cursor.slot < 0n || !Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
+    async runOnce(limit) {
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
         throw new EscrowFinalizedIndexerError('invalid_page');
       }
+      const stored = await options.db.getChainCursor(options.expected);
+      if (!stored.ok) throw new EscrowFinalizedIndexerError('cursor_unavailable');
+      if (
+        stored.cluster !== options.expected.cluster ||
+        stored.genesisHash !== options.expected.genesisHash ||
+        stored.programId !== options.expected.programId
+      ) throw new EscrowFinalizedIndexerError('chain_identity_mismatch');
+      const cursor: EscrowFinalizedCursor = stored.initialized
+        ? { slot: stored.finalizedSlot, signature: stored.finalizedSignature }
+        : { slot: 0n, signature: null };
+      if (cursor.slot < 0n || (cursor.slot > 0n && cursor.signature === null)) {
+        throw new EscrowFinalizedIndexerError('cursor_unavailable');
+      }
       const transactions = await options.source.scan(cursor, limit);
-      let nextCursor = cursor;
-      let eventCount = 0;
-      let duplicates = 0;
+      let pageSlot = cursor.slot;
       for (const transaction of transactions) {
         if (
           transaction.genesisHash !== options.expected.genesisHash ||
           transaction.programId !== options.expected.programId
         ) throw new EscrowFinalizedIndexerError('chain_identity_mismatch');
-        if (transaction.slot < nextCursor.slot) {
-          throw new EscrowFinalizedIndexerError('cursor_regression');
-        }
+        if (transaction.slot < pageSlot) throw new EscrowFinalizedIndexerError('cursor_regression');
+        pageSlot = transaction.slot;
+      }
+      let nextCursor = cursor;
+      let eventCount = 0;
+      let duplicates = 0;
+      for (const transaction of transactions) {
         const indexes = new Set<number>();
+        const resolvedProjections: EscrowFinalizedProjection[] = [];
+        const economicProjections: Array<{
+          readonly instructionIndex: number;
+          readonly projection: Extract<EscrowFinalizedProjection, { kind: 'settlement' | 'claim' }>;
+        }> = [];
         for (const event of transaction.events) {
           if (!Number.isSafeInteger(event.instructionIndex) || event.instructionIndex < 0 || indexes.has(event.instructionIndex)) {
             throw new EscrowFinalizedIndexerError('invalid_page');
           }
           indexes.add(event.instructionIndex);
-          if (await project(options.db, transaction, event, options.expected, options.clock())) duplicates += 1;
+          const projection = await resolveProjection(event);
+          if (projection === null) continue;
+          resolvedProjections.push(projection);
+          if (await project(
+            options.db,
+            transaction,
+            event.instructionIndex,
+            projection,
+            options.expected,
+            options.clock(),
+          )) duplicates += 1;
+          if (projection.kind === 'settlement' || projection.kind === 'claim') {
+            economicProjections.push({ instructionIndex: event.instructionIndex, projection });
+          }
           eventCount += 1;
+        }
+        await options.afterTransaction?.({
+          signature: transaction.signature,
+          slot: transaction.slot,
+          blockTimeIso: transaction.blockTimeIso,
+          projections: resolvedProjections,
+        });
+        for (const economic of economicProjections) {
+          await options.points.afterEconomicProjection({
+            marketId: economic.projection.marketId,
+            kind: economic.projection.kind,
+            signature: transaction.signature,
+            instructionIndex: economic.instructionIndex,
+          });
         }
         await options.db.advanceChainCursor({
           cluster: options.expected.cluster,

@@ -62,6 +62,29 @@ describe('escrow deployment readiness', () => {
     });
   });
 
+  it('keeps paused and oracle-rotated deployments available for recovery', () => {
+    const rotatedAndPaused: EscrowDeploymentObservation = {
+      ...OBSERVED,
+      program: { ...OBSERVED.program, paused: true },
+      oracleSet: {
+        ...OBSERVED.oracleSet,
+        pda: 'rotated-oracle',
+        epoch: 8n,
+        threshold: 3,
+        signers: ['new-a', 'new-b', 'new-c'],
+        availableSigners: [],
+      },
+    };
+
+    expect(evaluateEscrowDeployment(EXPECTED, rotatedAndPaused, 'intake')).toMatchObject({
+      status: 'not_ready',
+      reasons: expect.arrayContaining(['program_paused', 'oracle_set_epoch_mismatch']),
+    });
+    expect(evaluateEscrowDeployment(EXPECTED, rotatedAndPaused, 'recovery')).toEqual({
+      status: 'ready', reasons: [],
+    });
+  });
+
   it.each([
     ['RPC network', { rpc: { ...OBSERVED.rpc, network: 'mainnet-beta' as const } }, 'network_mismatch'],
     ['genesis hash', { rpc: { ...OBSERVED.rpc, genesisHash: 'wrong' } }, 'genesis_hash_mismatch'],

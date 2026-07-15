@@ -1,4 +1,5 @@
 export type EscrowNetwork = 'localnet' | 'devnet' | 'mainnet-beta';
+export type EscrowReadinessMode = 'intake' | 'recovery';
 
 export interface EscrowDeploymentExpectation {
   readonly network: EscrowNetwork;
@@ -134,9 +135,10 @@ function availableSignerSetIsValid(observed: EscrowDeploymentObservation['oracle
 export function evaluateEscrowDeployment(
   expected: EscrowDeploymentExpectation,
   observed: EscrowDeploymentObservation,
+  mode: EscrowReadinessMode = 'intake',
 ): EscrowReadinessReport {
   const reasons: EscrowReadinessReason[] = [];
-  if (!expectationIsValid(expected)) reasons.push('oracle_expectation_invalid');
+  if (mode === 'intake' && !expectationIsValid(expected)) reasons.push('oracle_expectation_invalid');
   if (!authorityExpectationIsValid(expected.authorities)) {
     reasons.push('authority_expectation_invalid');
   }
@@ -165,7 +167,7 @@ export function evaluateEscrowDeployment(
   if (observed.program.authorities.upgradeAuthority !== expected.authorities.upgradeAuthority) {
     reasons.push('upgrade_authority_mismatch');
   }
-  if (observed.program.paused) reasons.push('program_paused');
+  if (mode === 'intake' && observed.program.paused) reasons.push('program_paused');
   if (observed.usdcMint.address !== expected.canonicalUsdcMint) {
     reasons.push('usdc_mint_mismatch');
   }
@@ -173,21 +175,23 @@ export function evaluateEscrowDeployment(
     reasons.push('usdc_token_program_mismatch');
   }
   if (observed.usdcMint.decimals !== 6) reasons.push('usdc_decimals_mismatch');
-  if (observed.oracleSet.pda !== expected.oracleSetPda) reasons.push('oracle_set_pda_mismatch');
-  if (observed.oracleSet.epoch !== expected.oracleSetEpoch) {
-    reasons.push('oracle_set_epoch_mismatch');
-  }
-  if (observed.oracleSet.threshold !== expected.oracleThreshold) {
-    reasons.push('oracle_threshold_mismatch');
-  }
-  if (!exactUniqueSetMatches(expected.oracleSigners, observed.oracleSet.signers)) {
-    reasons.push('oracle_signers_mismatch');
-  }
-  if (!availableSignerSetIsValid(observed.oracleSet)) {
-    reasons.push('oracle_available_signers_invalid');
-  }
-  if (new Set(observed.oracleSet.availableSigners).size < expected.oracleThreshold) {
-    reasons.push('oracle_threshold_unavailable');
+  if (mode === 'intake') {
+    if (observed.oracleSet.pda !== expected.oracleSetPda) reasons.push('oracle_set_pda_mismatch');
+    if (observed.oracleSet.epoch !== expected.oracleSetEpoch) {
+      reasons.push('oracle_set_epoch_mismatch');
+    }
+    if (observed.oracleSet.threshold !== expected.oracleThreshold) {
+      reasons.push('oracle_threshold_mismatch');
+    }
+    if (!exactUniqueSetMatches(expected.oracleSigners, observed.oracleSet.signers)) {
+      reasons.push('oracle_signers_mismatch');
+    }
+    if (!availableSignerSetIsValid(observed.oracleSet)) {
+      reasons.push('oracle_available_signers_invalid');
+    }
+    if (new Set(observed.oracleSet.availableSigners).size < expected.oracleThreshold) {
+      reasons.push('oracle_threshold_unavailable');
+    }
   }
   if (!observed.indexer.available) reasons.push('indexer_unavailable');
   if (
@@ -205,12 +209,13 @@ export async function checkEscrowReadiness(options: {
   readonly expected: EscrowDeploymentExpectation;
   readonly probe: EscrowReadinessProbe;
   readonly signal: AbortSignal;
+  readonly mode?: EscrowReadinessMode;
 }): Promise<EscrowReadinessReport> {
   try {
     options.signal.throwIfAborted();
     const observation = await options.probe.inspect(options.signal);
     options.signal.throwIfAborted();
-    return evaluateEscrowDeployment(options.expected, observation);
+    return evaluateEscrowDeployment(options.expected, observation, options.mode);
   } catch {
     return { status: 'not_ready', reasons: ['readiness_probe_unavailable'] };
   }

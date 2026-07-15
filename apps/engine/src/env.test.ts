@@ -13,7 +13,7 @@ function completeEscrowEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv
     WAGER_CUSTODY_MODE: 'escrow',
     ESCROW_ALLOWED_GROUP_IDS: '-100123',
     ESCROW_PROGRAM_ID: '11111111111111111111111111111111',
-    ESCROW_GENESIS_HASH: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+    ESCROW_GENESIS_HASH: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
     ESCROW_CANONICAL_USDC_MINT: '22222222222222222222222222222222',
     ESCROW_CLASSIC_TOKEN_PROGRAM_ID: '33333333333333333333333333333333',
     ESCROW_ORACLE_SET_PDA: '44444444444444444444444444444444',
@@ -24,6 +24,11 @@ function completeEscrowEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv
       '66666666666666666666666666666666',
       '77777777777777777777777777777777',
     ].join(','),
+    ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON: JSON.stringify([
+      { url: 'https://oracle-1.example.test/sign', bearerToken: 'oracle-token-1' },
+      { url: 'https://oracle-2.example.test/sign', bearerToken: 'oracle-token-2' },
+      { url: 'https://oracle-3.example.test/sign', bearerToken: 'oracle-token-3' },
+    ]),
     ESCROW_INDEXER_MAX_LAG_SLOTS: '32',
     ESCROW_CONFIG_AUTHORITY: '88888888888888888888888888888888',
     ESCROW_PAUSE_AUTHORITY: '99999999999999999999999999999999',
@@ -31,6 +36,7 @@ function completeEscrowEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv
     ESCROW_UPGRADE_AUTHORITY: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
     ESCROW_RESIDUAL_RECIPIENT: 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
     ESCROW_RELAYER_KEYPAIR_B58: 'devnet-relayer-secret',
+    ESCROW_FEED_OPERATOR_KEYPAIR_B58: 'devnet-feed-operator-secret',
     ...overrides,
   };
 }
@@ -63,7 +69,7 @@ describe('loadEnv', () => {
       ...BASE_ENV,
       WAGER_CUSTODY_MODE: 'escrow',
     })).toThrowError(
-      'Engine environment invalid: ESCROW_ALLOWED_GROUP_IDS, ESCROW_CANONICAL_USDC_MINT, ESCROW_CLASSIC_TOKEN_PROGRAM_ID, ESCROW_CONFIG_AUTHORITY, ESCROW_GENESIS_HASH, ESCROW_INDEXER_MAX_LAG_SLOTS, ESCROW_MARKET_CREATION_AUTHORITY, ESCROW_ORACLE_SET_EPOCH, ESCROW_ORACLE_SET_PDA, ESCROW_ORACLE_SIGNERS, ESCROW_ORACLE_THRESHOLD, ESCROW_PAUSE_AUTHORITY, ESCROW_PROGRAM_ID, ESCROW_RELAYER_KEYPAIR_B58, ESCROW_RESIDUAL_RECIPIENT, ESCROW_UPGRADE_AUTHORITY',
+      'Engine environment invalid: ESCROW_ALLOWED_GROUP_IDS, ESCROW_CANONICAL_USDC_MINT, ESCROW_CLASSIC_TOKEN_PROGRAM_ID, ESCROW_CONFIG_AUTHORITY, ESCROW_FEED_OPERATOR_KEYPAIR_B58, ESCROW_GENESIS_HASH, ESCROW_INDEXER_MAX_LAG_SLOTS, ESCROW_MARKET_CREATION_AUTHORITY, ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON, ESCROW_ORACLE_SET_EPOCH, ESCROW_ORACLE_SET_PDA, ESCROW_ORACLE_SIGNERS, ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON, ESCROW_ORACLE_THRESHOLD, ESCROW_PAUSE_AUTHORITY, ESCROW_PROGRAM_ID, ESCROW_RELAYER_KEYPAIR_B58, ESCROW_RESIDUAL_RECIPIENT, ESCROW_UPGRADE_AUTHORITY',
     );
   });
 
@@ -81,6 +87,8 @@ describe('loadEnv', () => {
       ESCROW_MAINNET_ENABLED: false,
     });
     expect(parsed.ESCROW_ORACLE_SIGNERS).toHaveLength(3);
+    expect(parsed.ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON).toHaveLength(3);
+    expect(parsed.ESCROW_GENESIS_HASH).toBe('EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG');
   });
 
   it('requires the explicit mainnet gate without requiring a legacy treasury', () => {
@@ -124,13 +132,18 @@ describe('loadEnv', () => {
       WAGER_CUSTODY_MODE: 'escrow',
       ESCROW_ALLOWED_GROUP_IDS: '-100123',
       ESCROW_PROGRAM_ID: '11111111111111111111111111111111',
-      ESCROW_GENESIS_HASH: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+      ESCROW_GENESIS_HASH: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
       ESCROW_CANONICAL_USDC_MINT: '22222222222222222222222222222222',
       ESCROW_CLASSIC_TOKEN_PROGRAM_ID: '33333333333333333333333333333333',
       ESCROW_ORACLE_SET_PDA: '44444444444444444444444444444444',
       ESCROW_ORACLE_SET_EPOCH: '7',
       ESCROW_ORACLE_THRESHOLD: '2',
       ESCROW_ORACLE_SIGNERS: `${shared},${shared}`,
+      ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON: JSON.stringify([
+        { url: 'https://oracle-1.example.test/sign' },
+        { url: 'https://oracle-2.example.test/sign' },
+        { url: 'https://oracle-3.example.test/sign' },
+      ]),
       ESCROW_INDEXER_MAX_LAG_SLOTS: '32',
       ESCROW_CONFIG_AUTHORITY: '88888888888888888888888888888888',
       ESCROW_PAUSE_AUTHORITY: '99999999999999999999999999999999',
@@ -138,11 +151,32 @@ describe('loadEnv', () => {
       ESCROW_UPGRADE_AUTHORITY: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
       ESCROW_RESIDUAL_RECIPIENT: 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
       ESCROW_RELAYER_KEYPAIR_B58: 'devnet-relayer-secret',
+      ESCROW_FEED_OPERATOR_KEYPAIR_B58: 'devnet-feed-operator-secret',
     };
 
     expect(() => loadEnv(source)).toThrowError(
       'Engine environment invalid: ESCROW_ORACLE_SIGNERS, ESCROW_ORACLE_THRESHOLD',
     );
+  });
+
+  it('rejects local oracle key injection on mainnet before runtime boot', () => {
+    expect(() => loadEnv(completeEscrowEnv({
+      DEPLOYMENT_ENV: 'production',
+      BETA_ALLOWED_GROUP_IDS: '-100123',
+      GLM_BASE_URL: 'https://api.z.ai/api/anthropic',
+      SOLANA_NETWORK: 'mainnet-beta',
+      SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
+      WEB_BASE_URL: 'https://web.example.test',
+      WALLET_LINK_DOMAIN: 'web.example.test',
+      WAGER_RUNTIME_MODE: 'funded',
+      WAGER_MODE_ENABLED: 'true',
+      STARTER_GRANTS_ENABLED: 'false',
+      STAKE_ACCEPTANCE_ENABLED: 'true',
+      TREASURY_COVERAGE_ENFORCED: 'false',
+      ESCROW_MAINNET_ENABLED: 'true',
+      ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON: '',
+      ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON: JSON.stringify(['key-1', 'key-2', 'key-3']),
+    }))).toThrowError(/ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON/);
   });
 
   it('treats an explicitly blank proof signer as disabled', () => {
@@ -305,7 +339,7 @@ describe('loadEnv', () => {
     expect(parse).toThrowError(`Engine environment invalid: ${variables}`);
   });
 
-  it('strips the audit-only web credential fingerprint from engine runtime config', () => {
+  it('retains the web credential fingerprint for the escrow presentation boundary', () => {
     // Given a distinct web bridge credential fingerprint is visible in a shared environment
     const source = {
       ...BASE_ENV,
@@ -315,8 +349,10 @@ describe('loadEnv', () => {
     // When the engine parser audits and returns runtime config
     const parsed = loadEnv(source);
 
-    // Then engine code cannot consume the web credential
-    expect(parsed).not.toHaveProperty('WEB_CONCIERGE_TOKEN_SHA256');
+    // Then the API boundary receives the validated digest without exposing the token
+    expect(parsed.WEB_CONCIERGE_TOKEN_SHA256).toBe(
+      sha256('distinct-web-bridge-token-with-32-bytes'),
+    );
   });
 
   it('does not require a deferred web bridge fingerprint in the beta', () => {

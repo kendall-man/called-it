@@ -20,6 +20,7 @@ function setup(
   asset: 'sol' | 'usdc',
   overrides: Partial<EscrowPlacementMarket> = {},
   observedGenesisHash = GENESIS_HASH,
+  linkOverrides: Readonly<Record<string, unknown>> = {},
 ) {
   const program = Keypair.generate();
   const sponsor = Keypair.generate();
@@ -37,13 +38,14 @@ function setup(
     ratioMilli: 1_500,
     eventEpoch: 4n,
     oracleSetEpoch: 9n,
+    replay: false,
     positionCutoffTimestamp: NOW_UNIX + 3_600n,
     state: 'open',
     ...overrides,
   };
   const sessions: CreateDurableEscrowPlacementSessionInput[] = [];
   const consumed: Parameters<EscrowDb['consumeSigningSession']>[0][] = [];
-  const jobs: Parameters<EscrowDb['enqueueRelayerJob']>[0][] = [];
+  const jobs: Parameters<EscrowPlacementDatabase['enqueueRelayerJob']>[0][] = [];
   const jobKeys = new Set<string>();
   let consumedSignature: string | null = null;
   const db: EscrowPlacementDatabase = {
@@ -60,6 +62,30 @@ function setup(
         ownerPubkey: expected.ownerPubkey,
         rawTransactionBase64: expected.rawTransactionBase64,
         authorization: expected.authorization,
+      };
+    },
+    async getMarketLink() {
+      return {
+        ok: true,
+        found: true,
+        marketId: market.marketId,
+        custodyMode: 'escrow',
+        custodyVersion: 1,
+        cluster: 'devnet',
+        genesisHash: GENESIS_HASH,
+        programId: program.publicKey.toBase58(),
+        marketPda,
+        vaultPda: 'vault-a',
+        asset: market.asset,
+        mintPubkey: market.asset === 'usdc' ? market.tokenMint : null,
+        documentHashHex: market.documentHashHex,
+        oracleEpoch: market.oracleSetEpoch,
+        eventEpoch: market.eventEpoch,
+        ratioMilli: BigInt(market.ratioMilli),
+        chainState: 'open',
+        commitment: 'finalized',
+        projectionStale: false,
+        ...linkOverrides,
       };
     },
     async consumeSigningSession(input) {
@@ -99,6 +125,7 @@ function setup(
       maximumSolPosition: 1_000_000_000n,
       minimumUsdcPosition: 1n,
       maximumUsdcPosition: 1_000_000_000n,
+      allowedGroupIds: [-100_123],
     },
     chain: {
       readMarket: async () => market,
@@ -127,6 +154,7 @@ function setup(
 }
 
 const identity = (owner: Keypair) => ({
+  groupId: -100_123,
   telegramUserId: 42,
   privyUserId: 'privy-user-42',
   privyWalletId: 'privy-wallet-42',
@@ -206,6 +234,7 @@ describe('escrow placement signing sessions', () => {
     expect(fixture.jobs[0]?.payload).toMatchObject({
       operation: 'place_position', rawTransactionBase64, lastValidBlockHeight: '900',
     });
+    expect(fixture.jobs[0]?.kind).toBe('position_placement');
     expect(new Set(fixture.jobs.map((job) => job.idempotencyKey)).size).toBe(1);
   });
 
@@ -252,7 +281,6 @@ describe('escrow placement signing sessions', () => {
   it.each([
     { field: 'ownerProgramId', value: Keypair.generate().publicKey.toBase58() },
     { field: 'tokenMint', value: Keypair.generate().publicKey.toBase58() },
-    { field: 'oracleSetEpoch', value: 8n },
   ] as const)('fails closed for a wrong $field', async ({ field, value }) => {
     // Given a chain account that does not match configured deployment identity
     const fixture = setup('usdc', { [field]: value });
@@ -261,6 +289,48 @@ describe('escrow placement signing sessions', () => {
     await expect(fixture.service.create({
       ...identity(fixture.owner), marketId: MARKET_ID, side: 'back', amountAtomic: 25n, ttlSeconds: 300,
     })).rejects.toBeInstanceOf(EscrowPlacementError);
+    expect(fixture.sessions).toHaveLength(0);
+  });
+
+  it('uses the market-pinned oracle epoch after the deployment epoch rotates', async () => {
+    const fixture = setup('sol', { oracleSetEpoch: 8n });
+
+    await expect(fixture.service.create({
+      ...identity(fixture.owner), marketId: MARKET_ID, side: 'back', amountAtomic: 25n, ttlSeconds: 300,
+    })).resolves.toMatchObject({ kind: 'created' });
+    expect(fixture.sessions).toHaveLength(1);
+  });
+
+  it('rejects a stale or mismatched historical market link', async () => {
+    const fixture = setup('sol', {}, GENESIS_HASH, { oracleEpoch: 8n });
+
+    await expect(fixture.service.create({
+      ...identity(fixture.owner), marketId: MARKET_ID, side: 'back', amountAtomic: 25n, ttlSeconds: 300,
+    })).rejects.toMatchObject({ code: 'market_identity_mismatch' });
+    expect(fixture.sessions).toHaveLength(0);
+  });
+
+  it('uses the same capped user-signed escrow path for an isolated replay market', async () => {
+    const fixture = setup('sol', { replay: true });
+
+    await expect(fixture.service.create({
+      ...identity(fixture.owner), marketId: MARKET_ID, side: 'back', amountAtomic: 25n, ttlSeconds: 300,
+    })).resolves.toMatchObject({ kind: 'created' });
+    expect(fixture.sessions).toHaveLength(1);
+    expect(fixture.jobs).toHaveLength(0);
+
+    await expect(fixture.service.create({
+      ...identity(fixture.owner), marketId: MARKET_ID, side: 'back', amountAtomic: 1_000_000_001n, ttlSeconds: 300,
+    })).rejects.toMatchObject({ code: 'amount_out_of_range' });
+  });
+
+  it('fails closed outside the configured escrow group allowlist', async () => {
+    const fixture = setup('sol', { replay: true });
+
+    await expect(fixture.service.create({
+      ...identity(fixture.owner), groupId: -100_999, marketId: MARKET_ID,
+      side: 'back', amountAtomic: 25n, ttlSeconds: 300,
+    })).rejects.toMatchObject({ code: 'group_not_allowed' });
     expect(fixture.sessions).toHaveLength(0);
   });
 
