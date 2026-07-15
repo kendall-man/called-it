@@ -41,7 +41,7 @@ describe('solvency monitor', () => {
     const { deps, db, chain, poster } = makeFakeDeps({ opsChatId: 777 });
     db.seedBalance(1, 1_000_000_000n);
     chain.treasuryLamports = 10_000_000_000n;
-    await createSolvencyMonitor(deps).tick();
+    await expect(createSolvencyMonitor(deps).tick()).resolves.toBe(true);
     expect(db.status.paused).toBe(false);
     expect(poster.posts).toHaveLength(0);
   });
@@ -98,7 +98,7 @@ describe('solvency monitor', () => {
     const { deps, db, chain, poster } = makeFakeDeps({ opsChatId: 777 });
     db.seedBalance(1, 100_000_000_000n); // wildly insolvent on paper
     chain.treasuryBalanceFails = true;
-    await createSolvencyMonitor(deps).tick();
+    await expect(createSolvencyMonitor(deps).tick()).resolves.toBe(false);
     expect(db.status.paused).toBe(false);
     expect(poster.posts).toHaveLength(0);
   });

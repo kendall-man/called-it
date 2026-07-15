@@ -53,6 +53,7 @@ export function testWager(
     confirmStakeConfirmation: async () => ({ reply: 'Unavailable', placed: false }),
     cancelStakeConfirmation: async () => false,
     registerCommands: () => undefined,
+    ensureInitialSolvencyCheck: async () => true,
     registerSettlementRecovery: () => undefined,
     registerFundedWorkers: () => undefined,
   };

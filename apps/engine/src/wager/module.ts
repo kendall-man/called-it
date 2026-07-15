@@ -69,6 +69,17 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
   ] as const;
   const executor = createWithdrawalExecutor(deps);
   const solvency = createSolvencyMonitor(deps);
+  let initialSolvencyCheck: Promise<boolean> | null = null;
+
+  function ensureInitialSolvencyCheck(): Promise<boolean> {
+    if (initialSolvencyCheck === null) {
+      initialSolvencyCheck = solvency.tick().then((healthy) => {
+        if (!healthy) initialSolvencyCheck = null;
+        return healthy;
+      });
+    }
+    return initialSolvencyCheck;
+  }
 
   async function accountSummary(userId: number): Promise<{
     balances: Readonly<Record<WagerAsset, { availableAtomic: bigint; lockedAtomic: bigint }>>;
@@ -351,6 +362,8 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
       bot.command('withdraw', handleWithdrawCommand);
     },
 
+    ensureInitialSolvencyCheck,
+
     registerFundedWorkers(registry: WagerCronRegistry, options = {}) {
       if (options.legacyDepositIntakeEnabled ?? true) {
         for (const watcher of depositWatchers) {
@@ -358,7 +371,10 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
         }
       }
       registry.every(WAGER_TUNABLES.OUTBOX_TICK_MS, () => executor.tick());
-      registry.every(WAGER_TUNABLES.SOLVENCY_POLL_MS, () => solvency.tick());
+      void ensureInitialSolvencyCheck();
+      registry.every(WAGER_TUNABLES.SOLVENCY_POLL_MS, async () => {
+        await solvency.tick();
+      });
     },
   };
 }

@@ -95,6 +95,7 @@ export class TelegramFlowWager implements FundedWagerModule {
   }
   async cancelStakeConfirmation(): Promise<boolean> { return false; }
   registerCommands(): void {}
+  async ensureInitialSolvencyCheck(): Promise<boolean> { return true; }
   registerSettlementRecovery(_registry: WagerCronRegistry): void {}
   registerFundedWorkers(_registry: WagerCronRegistry): void {}
 }

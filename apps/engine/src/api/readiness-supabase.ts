@@ -4,8 +4,12 @@ import { bindAbortSignalToFetch, cancelUnusedResponse } from './readiness-http.j
 const LIVE_PRICING_PHASES = ['H1', 'HT', 'H2', 'ET1', 'HTET', 'ET2', 'PE', 'INT'];
 const FixtureRows = z.array(z.object({ fixture_id: z.number().int() }));
 const ProbeRows = z.array(z.object({ last_event_id: z.string().nullable() }));
-const WagerStatusRows = z.array(
-  z.object({ paused: z.boolean(), reason: z.string().nullable() }),
+const WagerAssetStatusRows = z.array(
+  z.object({
+    asset: z.enum(['sol', 'usdc']),
+    paused: z.boolean(),
+    reason: z.string().nullable(),
+  }),
 );
 const DatabaseInteger = z.union([
   z.bigint(),
@@ -118,17 +122,22 @@ export function createSupabaseReadinessClient(
     async wagerStatus(signal) {
       const body = await requestJson(
         options,
-        tableUrl(options.baseUrl, 'wager_status', {
-          select: 'paused,reason',
-          id: 'eq.1',
-          limit: '1',
+        tableUrl(options.baseUrl, 'wager_asset_status', {
+          select: 'asset,paused,reason',
+          order: 'asset.asc',
         }),
         signal,
       );
-      const row = WagerStatusRows.parse(body)[0];
+      const rows = WagerAssetStatusRows.parse(body);
       signal.throwIfAborted();
-      if (row === undefined) throw new Error('wager readiness status missing');
-      return row;
+      const byAsset = new Map(rows.map((row) => [row.asset, row]));
+      if (byAsset.size !== 2 || !byAsset.has('sol') || !byAsset.has('usdc')) {
+        throw new Error('wager readiness status missing');
+      }
+      const paused = rows.find((row) => row.paused);
+      return paused === undefined
+        ? { paused: false, reason: null }
+        : { paused: true, reason: paused.reason };
     },
     async starterBudget(signal) {
       const body = await requestJson(

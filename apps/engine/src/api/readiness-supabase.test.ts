@@ -7,6 +7,36 @@ const OPTIONS = {
 };
 
 describe('abortable Supabase readiness client', () => {
+  it('uses the authoritative SOL and USDC asset breakers', async () => {
+    let requestedUrl = '';
+    const request: typeof fetch = async (input) => {
+      requestedUrl = String(input);
+      return new Response(JSON.stringify([
+        { asset: 'sol', paused: false, reason: null },
+        { asset: 'usdc', paused: true, reason: 'solvency: shortfall' },
+      ]), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    const client = createSupabaseReadinessClient({ ...OPTIONS, request });
+
+    await expect(client.wagerStatus(new AbortController().signal)).resolves.toEqual({
+      paused: true,
+      reason: 'solvency: shortfall',
+    });
+    const url = new URL(requestedUrl);
+    expect(url.pathname).toBe('/rest/v1/wager_asset_status');
+    expect(url.searchParams.get('select')).toBe('asset,paused,reason');
+  });
+
+  it('fails closed when either asset breaker row is missing', async () => {
+    const request: typeof fetch = async () => new Response(JSON.stringify([
+      { asset: 'sol', paused: false, reason: null },
+    ]), { status: 200, headers: { 'content-type': 'application/json' } });
+    const client = createSupabaseReadinessClient({ ...OPTIONS, request });
+
+    await expect(client.wagerStatus(new AbortController().signal))
+      .rejects.toThrow('wager readiness status missing');
+  });
+
   it('reports whether the authoritative starter budget can issue another grant', async () => {
     // Given the singleton budget has reached its count and lamport caps
     let requestedUrl = '';

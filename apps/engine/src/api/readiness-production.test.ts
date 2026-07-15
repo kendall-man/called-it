@@ -120,6 +120,47 @@ describe('production readiness ports', () => {
     expect(calls).toEqual([]);
   });
 
+  it('fails closed until the initial funded solvency pass completes successfully', async () => {
+    let solvencyAttempts = 0;
+    let statusReads = 0;
+    const ports = createProductionReadinessPorts({
+      database: {
+        probe: async () => undefined,
+        liveFixtureIds: async () => [],
+        wagerStatus: async () => {
+          statusReads += 1;
+          return { paused: false, reason: null };
+        },
+        starterBudget: async () => ({ enabled: false, available: false }),
+      },
+      odds: { snapshot: async () => ({ kind: 'unavailable' }) },
+      liveLookaheadMs: 60_000,
+      now: () => NOW,
+      wagerRuntimeMode: 'funded',
+      wagerModuleKind: 'funded',
+      starterGrantsEnabled: false,
+      starterIntakeEnabled: false,
+      proofEnabled: false,
+      settlementEnabled: false,
+      initialSolvencyCheck: async () => {
+        solvencyAttempts += 1;
+        return solvencyAttempts > 1;
+      },
+    });
+    const signal = new AbortController().signal;
+
+    await expect(ports.wager.snapshot(signal)).resolves.toMatchObject({
+      configured: false,
+      covered: false,
+    });
+    expect(statusReads).toBe(0);
+    await expect(ports.wager.snapshot(signal)).resolves.toMatchObject({
+      configured: true,
+      covered: true,
+    });
+    expect(statusReads).toBe(1);
+  });
+
   it('forwards one AbortSignal through database, feed, odds, and wager operations', async () => {
     const calls: Array<{ name: string; signal: AbortSignal }> = [];
     const ports = createProductionReadinessPorts({

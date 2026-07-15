@@ -351,6 +351,9 @@ export async function createDeps(
     now,
     wagerRuntimeMode: env.WAGER_RUNTIME_MODE,
     wagerModuleKind: wager?.kind ?? null,
+    initialSolvencyCheck: wager?.kind === 'funded'
+      ? () => wager.ensureInitialSolvencyCheck()
+      : undefined,
     starterGrantsEnabled: env.STARTER_GRANTS_ENABLED,
     starterIntakeEnabled: env.STARTER_GRANTS_ENABLED && env.STAKE_ACCEPTANCE_ENABLED,
     proofEnabled: proofSubmitter !== null,

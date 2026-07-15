@@ -146,9 +146,15 @@ describe('module surface', () => {
     expect(createWagerModule(deps).cardFooter()).toBe(WAGER_COPY.cardFooter());
   });
 
-  it('funded recovery and workers register both deposit watchers and the other wager loops', () => {
+  it('funded recovery and workers register loops and check solvency immediately', async () => {
     const { deps } = makeFakeDeps();
     const registered: number[] = [];
+    let solvencyRuns = 0;
+    const openWagerMarkets = deps.db.openWagerMarkets.bind(deps.db);
+    deps.db.openWagerMarkets = async () => {
+      solvencyRuns += 1;
+      return openWagerMarkets();
+    };
     const module = createWagerModule(deps);
     const registry: WagerCronRegistry = {
       every(intervalMs) {
@@ -157,6 +163,8 @@ describe('module surface', () => {
     };
     module.registerSettlementRecovery(registry);
     module.registerFundedWorkers(registry);
+    await expect(module.ensureInitialSolvencyCheck()).resolves.toBe(true);
+    expect(solvencyRuns).toBe(1);
     expect(registered.sort((a, b) => a - b)).toEqual(
       [
         WAGER_TUNABLES.OUTBOX_TICK_MS,
@@ -166,6 +174,25 @@ describe('module surface', () => {
         WAGER_TUNABLES.SOLVENCY_POLL_MS,
       ].sort((a, b) => a - b),
     );
+  });
+
+  it('retries a failed initial solvency pass and single-flights the successful result', async () => {
+    const { deps } = makeFakeDeps();
+    const openWagerMarkets = deps.db.openWagerMarkets.bind(deps.db);
+    let calls = 0;
+    deps.db.openWagerMarkets = async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('temporary database failure');
+      return openWagerMarkets();
+    };
+    const module = createWagerModule(deps);
+
+    await expect(module.ensureInitialSolvencyCheck()).resolves.toBe(false);
+    await expect(Promise.all([
+      module.ensureInitialSolvencyCheck(),
+      module.ensureInitialSolvencyCheck(),
+    ])).resolves.toEqual([true, true]);
+    expect(calls).toBe(2);
   });
 });
 

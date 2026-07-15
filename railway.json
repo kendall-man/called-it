@@ -7,7 +7,7 @@
   "deploy": {
     "startCommand": "case \"$RAILWAY_SERVICE_NAME\" in escrow-oracle-*) pnpm --filter @calledit/oracle-signer start ;; *) pnpm --filter @calledit/engine start ;; esac",
     "healthcheckPath": "/api/ready",
-    "healthcheckTimeout": 30,
+    "healthcheckTimeout": 120,
     "drainingSeconds": 15,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3

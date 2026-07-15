@@ -32,17 +32,19 @@ export function escrowedLamports(positions: WagerPositionRow[]): bigint {
 }
 
 export interface SolvencyMonitor {
-  tick(): Promise<void>;
+  tick(): Promise<boolean>;
 }
 
 export function createSolvencyMonitor(deps: WagerModuleDeps): SolvencyMonitor {
-  async function run(): Promise<void> {
+  async function run(): Promise<boolean> {
+    let allAssetsVerified = true;
     const openMarkets = await deps.db.openWagerMarkets();
     for (const asset of WAGER_ASSETS) {
       const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet', asset);
       const treasury = await deps.chain.treasuryBalance(asset);
       if (!treasury.ok) {
         // An RPC blip is not insolvency — never move the breaker on ignorance.
+        allAssetsVerified = false;
         deps.log.warn('wager_solvency_balance_failed', { asset });
         continue;
       }
@@ -90,14 +92,16 @@ export function createSolvencyMonitor(deps: WagerModuleDeps): SolvencyMonitor {
         deps.poster.post(deps.opsChatId, copy.opsSolvencyAlert(treasury.amountAtomic, required));
       }
     }
+    return allAssetsVerified;
   }
 
   return {
-    async tick(): Promise<void> {
+    async tick(): Promise<boolean> {
       try {
-        await run();
+        return await run();
       } catch {
         deps.log.error('wager_solvency_check_failed');
+        return false;
       }
     },
   };

@@ -41,6 +41,7 @@ export interface ProductionReadinessOptions {
   readonly starterIntakeEnabled: boolean;
   readonly proofEnabled: boolean;
   readonly settlementEnabled: boolean;
+  readonly initialSolvencyCheck?: (() => Promise<boolean>) | undefined;
   /** Injected durable workers expose real leased-job backlog and heartbeat. */
   readonly proofQueue?: QueueReadinessPort;
   readonly settlementQueue?: QueueReadinessPort;
@@ -161,6 +162,20 @@ export function createProductionReadinessPorts(
                 paused: false,
                 covered: false,
                 starterIntakeReady: false,
+              };
+            }
+            if (
+              options.initialSolvencyCheck !== undefined &&
+              !await options.initialSolvencyCheck()
+            ) {
+              checkCancellation(signal);
+              return {
+                enabled: true,
+                configured: false,
+                runtimeMatches: true,
+                paused: false,
+                covered: false,
+                starterIntakeReady: true,
               };
             }
             const status = await options.database.wagerStatus(signal);

@@ -217,6 +217,8 @@ export interface FundedWagerModule extends WagerModuleCore {
   }): Promise<{ reply: string; placed: boolean }>;
   cancelStakeConfirmation(userId: number, intentId: string): Promise<boolean>;
   registerCommands(bot: WagerBotLike): void;
+  /** Completes one authoritative solvency pass before funded readiness may succeed. */
+  ensureInitialSolvencyCheck(): Promise<boolean>;
   /** Legacy custody recovery workers; deposit intake can be disabled after escrow cutover. */
   registerFundedWorkers(
     registry: WagerCronRegistry,
