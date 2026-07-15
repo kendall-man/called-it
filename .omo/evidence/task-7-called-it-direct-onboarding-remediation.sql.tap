@@ -1,9 +1,12 @@
 TAP version 13
 ok 1 - fresh tracked migrations applied and cleaned
-ok 2 - upgraded 0001-0003 plus 0004 and 0005 applied and cleaned
+ok 2 - upgraded the complete 0001-0014 schema through the authoritative 0015 starter-only boundary and cleaned
 ok 3 - open and pending_lineup wrote exact linked position, +/-10000000 ledger, grant and budget rows; ten replays deduped; privileges enforced
 ok 4 - starter-grant linked-wallet fixture created one current link backed by one append-only history row
-ok 5 - linked allow_starter=false underfunded user returned insufficient with unchanged deposit/budget state; funded user wrote one debit and position with no grant and replay dedupe
-ok 6 - disabled paused frozen settling settled voided bad-state wrong-side non-SOL history cap and injected exception returned stable codes with exact before/after state
-ok 7 - 50 same-key calls produced one exact position; distinct first taps produced success plus wallet_required; 500 real grants remained in parity and the 501st wrote nothing
-1..7
+ok 5 - linked funded first strict tap used a net-zero starter; replay deduped; distinct and non-0.01 strict calls refused without ordinary balance debit
+ok 6 - stake waited on settlement market lock, observed closure after commit, and wrote no position, grant, ledger, or budget mutation
+ok 7 - starterOnly=false underfunded user returned insufficient unchanged; funded user wrote one ordinary debit and position with no grant and replay dedupe
+ok 8 - disabled paused frozen settling settled voided bad-state wrong-side non-SOL non-starter history cap and injected exception returned stable codes with exact before/after state
+ok 9 - direct beta granted one starter with no wager_groups row and unrelated legacy ledger activity
+ok 10 - 50 same-key calls produced one exact position; distinct first taps produced one grant plus one stable refusal; 500 real grants remained in parity and the 501st wrote nothing
+1..10
