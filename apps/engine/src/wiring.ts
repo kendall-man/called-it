@@ -124,6 +124,19 @@ import { createEscrowAttestationRequestWorker } from './escrow/attestation-reque
 import { createEscrowGroupRolloutService } from './escrow/group-rollout.js';
 import { createEscrowSettlementEntitlementScheduler } from './escrow/event-workflow-scheduler.js';
 import { createProductionEscrowSettlementPositionPort } from './escrow/event-workflow-runtime.js';
+import {
+  createEscrowPositionActivationFinalityVerifier,
+  createEscrowPositionActivationTransactionBuilder,
+} from './escrow/position-activation-relayer.js';
+import { createEscrowPositionActivationService } from './escrow/position-activation-service.js';
+import { createProductionEscrowPositionActivationScheduler } from './escrow/position-activation-runtime.js';
+import { createEscrowTerminalWorkflowOrchestrator } from './escrow/terminal-workflow-orchestrator.js';
+import { createEscrowTerminalPositionSource } from './escrow/terminal-workflow-position-source.js';
+import { createEscrowPeriodicReconciliationRunner } from './escrow/periodic-reconciliation-runner.js';
+import {
+  createProductionEscrowReconciliationLinkPort,
+} from './escrow/periodic-reconciliation-runtime.js';
+import type { EscrowPeriodicReconciliationLog } from './escrow/periodic-reconciliation-runner.js';
 
 // ── Dependency construction ───────────────────────────────────────────────
 
@@ -385,7 +398,7 @@ export function createEscrowWave4Runtime(options: {
     readonly attestationLimit: number;
     readonly attestationLeaseMs: number;
     readonly indexerLimit: number;
-    readonly log: EscrowRuntimeLifecycleLog;
+    readonly log: EscrowRuntimeLifecycleLog & EscrowPeriodicReconciliationLog;
   };
 }) {
   if (
@@ -468,6 +481,23 @@ export function createEscrowWave4Runtime(options: {
   const recoveryBuilder = createEscrowRecoveryTransactionBuilder({
     db, chain: recoveryChain, sponsor: options.sponsor, deployment: options.recoveryDeployment,
   });
+  const activationDeployment = {
+    cluster: options.recoveryDeployment.cluster,
+    genesisHash: options.recoveryDeployment.genesisHash,
+    programId: options.recoveryDeployment.programId,
+    custodyVersion: options.recoveryDeployment.custodyVersion,
+    relayerFeePayer: options.recoveryDeployment.relayerFeePayer,
+  } as const;
+  const activation = createEscrowPositionActivationService({
+    db, chain: recoveryChain, deployment: activationDeployment,
+    readiness: options.recoveryReadiness, clock: () => options.clock().iso,
+  });
+  const activationBuilder = createEscrowPositionActivationTransactionBuilder({
+    db, chain: recoveryChain, sponsor: options.sponsor, deployment: activationDeployment,
+  });
+  const activationFinality = createEscrowPositionActivationFinalityVerifier({
+    chain: recoveryChain, deployment: activationDeployment,
+  });
   const entitlements = createEscrowSettlementEntitlementScheduler({
     recovery,
     positions: createProductionEscrowSettlementPositionPort({
@@ -513,6 +543,7 @@ export function createEscrowWave4Runtime(options: {
     freeze: controlBuilder,
     unfreeze: controlBuilder,
     position_invalidation: controlBuilder,
+    position_activation: activationBuilder,
     market_initialization: marketBuilder,
   };
   const finalityVerifiers = {
@@ -520,6 +551,7 @@ export function createEscrowWave4Runtime(options: {
     freeze: controlFinality,
     unfreeze: controlFinality,
     position_invalidation: controlFinality,
+    position_activation: activationFinality,
     market_initialization: marketFinality,
     position_placement: placementFinality,
   };
@@ -552,6 +584,44 @@ export function createEscrowWave4Runtime(options: {
       custodyVersion: options.recoveryDeployment.custodyVersion,
     },
     clock: () => options.clock().iso,
+  });
+  const activationScheduler = createProductionEscrowPositionActivationScheduler({
+    supabaseUrl: options.supabaseUrl,
+    serviceRoleKey: options.serviceRoleKey,
+    activation,
+  });
+  const terminal = createEscrowTerminalWorkflowOrchestrator({
+    programId: options.recoveryDeployment.programId,
+    chain: recoveryChain,
+    positions: createEscrowTerminalPositionSource({
+      supabaseUrl: options.supabaseUrl,
+      serviceRoleKey: options.serviceRoleKey,
+    }),
+    recovery,
+    nowEpochSeconds: () => options.clock().unix,
+  });
+  const periodicReconciliation = createEscrowPeriodicReconciliationRunner({
+    links: createProductionEscrowReconciliationLinkPort({
+      supabaseUrl: options.supabaseUrl,
+      serviceRoleKey: options.serviceRoleKey,
+      deployment: {
+        cluster: options.recoveryDeployment.cluster,
+        genesisHash: options.recoveryDeployment.genesisHash,
+        programId: options.recoveryDeployment.programId,
+        custodyVersion: options.recoveryDeployment.custodyVersion,
+      },
+    }),
+    reconciler: {
+      async reconcile(link) {
+        const result = await reconciler.reconcile(link);
+        await activationScheduler.schedulePending(link);
+        await terminal.progress(link);
+        return result;
+      },
+    },
+    batchSize: options.worker.indexerLimit,
+    intervalMs: options.worker.intervalMs,
+    log: options.worker.log,
   });
   const indexer = createFinalizedEscrowIndexer({
     db, source,
@@ -590,6 +660,7 @@ export function createEscrowWave4Runtime(options: {
     attestations: attestationWorker,
     relayer,
     indexer,
+    reconciliation: periodicReconciliation,
     clock: () => options.clock().iso,
     intervalMs: options.worker.intervalMs,
     relayerLimit: options.worker.relayerLimit,
@@ -599,6 +670,7 @@ export function createEscrowWave4Runtime(options: {
   });
   return {
     db, rpc, accounts, initialization, placement, control, recovery, recoveryBuilder,
+    activation, activationScheduler, terminal, periodicReconciliation,
     groupRollouts, attestationRequests, attestationWorker, relayer, indexer, reconciler, lifecycle,
   };
 }

@@ -299,7 +299,11 @@ export function createEscrowPositionActivationFinalityVerifier(options: {
       ) return 'mismatch';
       if (lot.value.state === 'active') return 'confirmed';
       if (
-        lot.value.state === 'voided' || lot.value.invalidationEvidenceHash !== null ||
+        lot.value.state === 'voided' && lot.value.invalidationEvidenceHash !== null &&
+        market.value.eventEpoch > BigInt(payload.expectedEventEpoch)
+      ) return 'confirmed';
+      if (
+        lot.value.invalidationEvidenceHash !== null ||
         market.value.eventEpoch > BigInt(payload.expectedEventEpoch)
       ) return 'mismatch';
       return 'pending';

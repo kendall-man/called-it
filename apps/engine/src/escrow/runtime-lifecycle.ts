@@ -10,10 +10,19 @@ export interface EscrowRuntimeLifecycle {
   unfinished(): number;
 }
 
+export interface EscrowAuxiliaryRuntimeLifecycle {
+  start(): void;
+  runOnce(): Promise<unknown>;
+  stopLeasing(): void;
+  drain(signal: AbortSignal): Promise<void>;
+  unfinished(): number;
+}
+
 export function createEscrowRuntimeLifecycle(options: {
   readonly attestations: { runOnce(nowIso: string, limit: number): Promise<unknown> };
   readonly relayer: { runOnce(nowIso: string, limit: number): Promise<unknown> };
   readonly indexer: { runOnce(limit: number): Promise<unknown> };
+  readonly reconciliation?: EscrowAuxiliaryRuntimeLifecycle;
   readonly clock: () => string;
   readonly intervalMs: number;
   readonly relayerLimit: number;
@@ -60,26 +69,32 @@ export function createEscrowRuntimeLifecycle(options: {
     start() {
       if (running) return;
       running = true;
+      options.reconciliation?.start();
       options.log.info('escrow_workers_started');
       schedule();
     },
     async runOnce() {
       if (active !== null) return active;
-      active = cycle().finally(() => { active = null; });
+      active = Promise.all([
+        cycle(),
+        options.reconciliation?.runOnce() ?? Promise.resolve(),
+      ]).then(() => undefined).finally(() => { active = null; });
       return active;
     },
     async stop() {
-      if (!running && active === null) return;
+      if (!running && active === null && (options.reconciliation?.unfinished() ?? 0) === 0) return;
       running = false;
+      options.reconciliation?.stopLeasing();
       if (timer !== null) {
         clearTimeout(timer);
         timer = null;
       }
       await active;
+      await options.reconciliation?.drain(new AbortController().signal);
       options.log.info('escrow_workers_stopped');
     },
     unfinished() {
-      return active === null ? 0 : 1;
+      return (active === null ? 0 : 1) + (options.reconciliation?.unfinished() ?? 0);
     },
   };
 }

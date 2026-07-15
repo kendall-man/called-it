@@ -188,9 +188,20 @@ describe('escrow position activation relayer', () => {
       active.job, { signature: 'sig', slot: 20n },
     )).resolves.toBe('confirmed');
 
-    const invalidated = setup({ lot: { state: 'voided', invalidationEvidenceHash: new Uint8Array(32) } });
-    await expect(createEscrowPositionActivationFinalityVerifier(invalidated).confirm(
-      invalidated.job, { signature: 'sig', slot: 20n },
+    const invalidatedAfterActivation = setup({
+      market: { eventEpoch: 8n, pendingBackTotal: 0n, activeBackTotal: 0n },
+      position: { pendingAmount: 0n, activeAmount: 0n, refundableAmount: 10_000n },
+      lot: { state: 'voided', invalidationEvidenceHash: new Uint8Array(32) },
+    });
+    await expect(createEscrowPositionActivationFinalityVerifier(invalidatedAfterActivation).confirm(
+      invalidatedAfterActivation.job, { signature: 'sig', slot: 20n },
+    )).resolves.toBe('confirmed');
+
+    const invalidatedWithoutEpochAdvance = setup({
+      lot: { state: 'voided', invalidationEvidenceHash: new Uint8Array(32) },
+    });
+    await expect(createEscrowPositionActivationFinalityVerifier(invalidatedWithoutEpochAdvance).confirm(
+      invalidatedWithoutEpochAdvance.job, { signature: 'sig', slot: 20n },
     )).resolves.toBe('mismatch');
   });
 });

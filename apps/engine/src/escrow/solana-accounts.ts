@@ -133,11 +133,20 @@ export class SolanaEscrowRecoveryChain implements EscrowRecoveryChain {
 
   genesisHash() { return this.rpc.genesisHash(); }
   latestBlockhash() { return this.rpc.latestBlockhash(); }
+  config(address: string) { return this.accounts.config(address); }
   market(address: string) { return this.accounts.market(address); }
   position(address: string) { return this.accounts.position(address); }
   lot(address: string) { return this.accounts.lot(address); }
   oracleSet(address: string) { return this.accounts.oracleSet(address); }
   async accountExists(address: string) { return await this.accounts.raw(address) !== null; }
+  async unixTimestamp() {
+    const slot = await this.accounts.connection.getSlot('finalized');
+    const timestamp = await this.accounts.connection.getBlockTime(slot);
+    if (timestamp === null || !Number.isSafeInteger(timestamp)) {
+      throw new TypeError('finalized Solana block time unavailable');
+    }
+    return BigInt(timestamp);
+  }
 }
 
 export class SolanaMarketInitializationReader implements EscrowMarketInitializationChain {
