@@ -601,6 +601,7 @@ dependencies = [
  "anchor-spl",
  "proptest",
  "serde_json",
+ "solana-curve25519",
  "solana-program",
  "spl-associated-token-account",
  "spl-token",

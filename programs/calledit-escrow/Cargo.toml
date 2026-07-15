@@ -25,6 +25,7 @@ idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "anchor-spl/token_
 anchor-lang.workspace = true
 anchor-spl.workspace = true
 solana-program.workspace = true
+solana-curve25519.workspace = true
 spl-associated-token-account.workspace = true
 spl-token.workspace = true
 

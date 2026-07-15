@@ -1,5 +1,6 @@
 use anchor_lang::{prelude::*, solana_program::program_pack::Pack, system_program};
 use anchor_spl::token::{self, Token};
+use solana_curve25519::edwards::{validate_edwards, PodEdwardsPoint};
 
 use crate::{
     constants::{
@@ -714,7 +715,10 @@ fn validate_lot_nonce(position: &UserPosition, expected_lot_nonce: u64) -> Resul
 }
 
 fn validate_wallet_key(owner: Pubkey) -> Result<()> {
-    require!(owner.is_on_curve(), EscrowError::InvalidUserSigner);
+    require!(
+        validate_edwards(&PodEdwardsPoint(owner.to_bytes())),
+        EscrowError::InvalidUserSigner
+    );
     Ok(())
 }
 
