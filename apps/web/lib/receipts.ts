@@ -67,6 +67,8 @@ export interface PublicReceipt {
   browserProof: PublicBrowserProof | null;
   /** Finalized aggregate-only escrow overlay; never includes a participant wallet. */
   escrow?: PublicEscrowReceipt;
+  /** Present only for completed-match escrow replays; legacy public views exclude replays. */
+  isReplay?: true;
 }
 
 export interface PublicGroupBoardMarket {
@@ -89,6 +91,8 @@ export interface PublicGroupBoardMarket {
   settledAt: string | null;
   /** Finalized aggregate-only escrow overlay; never includes a participant wallet. */
   escrow?: PublicEscrowReceipt;
+  /** Present only for completed-match escrow replays; legacy public views exclude replays. */
+  isReplay?: true;
 }
 
 export interface EvidenceFact {

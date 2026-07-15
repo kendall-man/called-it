@@ -23,12 +23,16 @@ export function EscrowReceiptDetails({ escrow }: { readonly escrow: PublicEscrow
           {escrowNetworkLabel(escrow.cluster)}
         </Badge>
         <Badge tone="neutral">{escrow.asset.toUpperCase()}</Badge>
+        {escrow.isReplay ? <Badge tone="flood">Replay · No Points</Badge> : null}
       </div>
 
       <dl className="grid gap-4 text-sm sm:grid-cols-2">
         <PublicValue label="Market PDA" value={escrow.marketPda} />
         <PublicValue label="Per-market vault" value={escrow.vaultPda} />
         <PublicValue label="Escrow program" value={escrow.programId} />
+        <PublicValue label="Cluster genesis" value={escrow.genesisHash} />
+        {escrow.mintPubkey ? <PublicValue label="Canonical USDC mint" value={escrow.mintPubkey} /> : null}
+        <PublicValue label="Custody version" value={String(escrow.custodyVersion)} />
         <PublicValue label="Immutable document hash" value={escrow.documentHashHex} />
       </dl>
 
@@ -40,6 +44,8 @@ export function EscrowReceiptDetails({ escrow }: { readonly escrow: PublicEscrow
             signature={escrow.initializeSignature}
             slot={escrow.initializeSlot}
             cluster={escrow.cluster}
+            instructionIndex={escrow.initializeInstructionIndex}
+            timestamp={escrow.initializeBlockTime}
           />
           {escrow.settlementSignature === null || escrow.settlementSlot === null ? (
             <p className="py-3 text-sm leading-6 text-fog">
@@ -51,6 +57,7 @@ export function EscrowReceiptDetails({ escrow }: { readonly escrow: PublicEscrow
               signature={escrow.settlementSignature}
               slot={escrow.settlementSlot}
               cluster={escrow.cluster}
+              instructionIndex={escrow.settlementInstructionIndex ?? undefined}
               timestamp={escrow.settledAt}
             />
           )}
@@ -136,6 +143,7 @@ function TransactionRow(props: {
   readonly signature: string;
   readonly slot: string;
   readonly cluster: PublicEscrowReceipt['cluster'];
+  readonly instructionIndex?: number;
   readonly timestamp?: string | null;
 }) {
   const explorer = explorerTransactionUrlForCluster(props.signature, props.cluster);
@@ -144,7 +152,9 @@ function TransactionRow(props: {
       <div className="min-w-0">
         <p className="break-words text-sm font-semibold text-chalk">{props.label}</p>
         <p className="mt-1 text-xs text-fog">
-          Finalized at slot {props.slot}{props.timestamp ? ` · ${formatUtc(props.timestamp)}` : ''}
+          Finalized at slot {props.slot}
+          {props.instructionIndex === undefined ? '' : ` · instruction ${props.instructionIndex}`}
+          {props.timestamp ? ` · ${formatUtc(props.timestamp)}` : ''}
         </p>
       </div>
       {explorer === null ? (

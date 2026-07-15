@@ -125,6 +125,12 @@ export default async function ReceiptPage({
 
       <Card>
         <p className="display-type text-xs tracking-[0.25em] text-fog">On the record</p>
+        {receipt.isReplay ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Badge tone="flood">Completed-match replay</Badge>
+            <Badge tone="neutral">No Points</Badge>
+          </div>
+        ) : null}
         <h1 className="mt-2 break-words text-3xl font-bold leading-tight text-chalk sm:text-4xl">
           {receipt.terms.text}
         </h1>

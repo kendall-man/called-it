@@ -98,6 +98,11 @@ export function ReceiptRow({ receipt }: { receipt: PublicReceipt }) {
           <span className="block break-words text-sm font-semibold text-chalk">
             {receipt.terms.text}
           </span>
+          {receipt.isReplay ? (
+            <span className="mt-0.5 block text-[11px] font-semibold text-flood-300">
+              Completed-match replay · No Points
+            </span>
+          ) : null}
           <span className="block text-[11px] text-fog">
             {formatUtc(receipt.createdAt)} - {receipt.positionCount} positions -{' '}
             {formatAtomicAmount(receipt.matchedAmountLamports, receipt.currency)} matched
@@ -127,6 +132,11 @@ export function BoardMarketRow({ market }: { market: PublicGroupBoardMarket }) {
             {market.terms.text}
           </Link>
           <p className="mt-1 text-xs text-fog">{market.terms.period}</p>
+          {market.isReplay ? (
+            <p className="mt-1 text-xs font-semibold text-flood-300">
+              Completed-match replay · No Points
+            </p>
+          ) : null}
         </div>
         <Badge tone={chip.tone}>{chip.label}</Badge>
       </div>

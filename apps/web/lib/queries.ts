@@ -1,7 +1,7 @@
 /**
  * Read-only queries against the public_* views. Anything unexpected from the
- * network degrades to a typed result — receipt pages must never white-screen
- * because the scoreboard hiccuped.
+ * network degrades to a typed result so receipt pages render an explicit state
+ * instead of throwing.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -15,12 +15,15 @@ import {
 import {
   assembleEscrowReceipts,
   escrowReceiptFromRow,
+  getPublicEscrowIdentityConfig,
+  publicGroupBoardMarketFromEscrow,
+  publicReceiptFromEscrow,
   type PublicEscrowReceipt,
 } from './escrow-receipts';
 
 export type QueryResult<T> = { ok: true; data: T } | { ok: false };
 
-type EscrowOverlayResult<T> =
+type SourceResult<T> =
   | { readonly kind: 'available'; readonly data: T }
   | { readonly kind: 'unavailable' }
   | { readonly kind: 'invalid' };
@@ -86,6 +89,7 @@ const PUBLIC_EVIDENCE_SELECT = ['fixture_id', 'seq', 'kind', 'confirmed', 'minut
 export const PUBLIC_ESCROW_RECEIPT_SELECT = [
   'market_id',
   'group_slug',
+  'web_enabled',
   'cluster',
   'program_id',
   'market_pda',
@@ -99,6 +103,27 @@ export const PUBLIC_ESCROW_RECEIPT_SELECT = [
   'settlement_slot',
   'evidence_hash_hex',
   'settled_at',
+  'fixture_id',
+  'fixture_p1_name',
+  'fixture_p2_name',
+  'spec',
+  'is_replay',
+  'kickoff_at',
+  'created_at',
+  'price_provenance',
+  'quote_probability',
+  'quote_multiplier',
+  'probability_ppm',
+  'ratio_milli',
+  'currency',
+  'genesis_hash',
+  'mint_pubkey',
+  'custody_version',
+  'chain_state',
+  'initialize_instruction_index',
+  'initialize_block_time',
+  'settlement_instruction_index',
+  'status',
 ].join(',');
 
 export const PUBLIC_ESCROW_AGGREGATE_SELECT = [
@@ -138,23 +163,27 @@ export async function fetchReceipt(
   client: SupabaseClient,
   marketId: string,
 ): Promise<QueryResult<PublicReceipt | null>> {
-  const [legacy, escrowResult] = await Promise.all([
-    client.from(RECEIPTS_VIEW).select(PUBLIC_RECEIPT_SELECT).eq('market_id', marketId).limit(2),
+  const [legacyResult, escrowResult] = await Promise.all([
+    fetchLegacyReceipt(client, marketId),
     fetchEscrowForMarket(client, marketId),
   ]);
-  const { data, error } = legacy;
-  const receipts = mapRows(data, receiptFromRow);
-  if (error || receipts === null || receipts.length > 1) return { ok: false };
-  const receipt = receipts[0] ?? null;
-  if (escrowResult.kind === 'unavailable') return { ok: true, data: receipt };
-  if (escrowResult.kind === 'invalid') return { ok: false };
-  if (receipt === null && escrowResult.data !== null) return { ok: false };
-  return {
-    ok: true,
-    data: receipt === null || escrowResult.data === null
-      ? receipt
-      : { ...receipt, escrow: escrowResult.data },
-  };
+  if (legacyResult.kind === 'invalid' || escrowResult.kind === 'invalid') return { ok: false };
+  if (escrowResult.kind === 'unavailable') {
+    return legacyResult.kind === 'available'
+      ? { ok: true, data: legacyResult.data }
+      : { ok: false };
+  }
+  const escrowReceipt = escrowResult.data === null
+    ? null
+    : publicReceiptFromEscrow(escrowResult.data);
+  if (escrowResult.data !== null && escrowReceipt === null) return { ok: false };
+  if (legacyResult.kind === 'unavailable') return { ok: true, data: escrowReceipt };
+  const merged = mergeReceiptSources(
+    legacyResult.data === null ? [] : [legacyResult.data],
+    escrowReceipt === null ? [] : [escrowReceipt],
+  );
+  if (merged === null || merged.length > 1) return { ok: false };
+  return { ok: true, data: merged[0] ?? null };
 }
 
 export async function fetchEvidence(
@@ -175,39 +204,33 @@ export async function fetchEvidence(
 }
 
 /**
- * The group's receipts index — every call this group has put on the record,
- * newest first. The views expose no groups row directly, so a slug with zero
- * receipts is either unknown or web-disabled: null → 404 territory.
+ * The group's receipts index, newest first. A slug with zero rows across the
+ * available public sources is unknown or web-disabled and maps to null.
  */
 export async function fetchGroupReceipts(
   client: SupabaseClient,
   slug: string,
 ): Promise<QueryResult<PublicReceipt[] | null>> {
-  const [legacy, escrowResult] = await Promise.all([
-    client
-      .from(RECEIPTS_VIEW)
-      .select(PUBLIC_RECEIPT_SELECT)
-      .eq('group_slug', slug)
-      .order('created_at', { ascending: false })
-      .limit(GROUP_RECEIPTS_FETCH_LIMIT),
+  const [legacyResult, escrowResult] = await Promise.all([
+    fetchLegacyGroupReceipts(client, slug),
     fetchEscrowForGroup(client, slug),
   ]);
-  const { data, error } = legacy;
-  const mapped = mapRows(data, receiptFromRow);
-  const deduped = mapped === null ? null : dedupeMarketRows(mapped);
-  if (error || deduped === null) return { ok: false };
+  if (legacyResult.kind === 'invalid' || escrowResult.kind === 'invalid') return { ok: false };
   if (escrowResult.kind === 'unavailable') {
-    const receipts = deduped.slice(0, GROUP_RECEIPTS_SHOWN);
+    if (legacyResult.kind !== 'available') return { ok: false };
+    const receipts = legacyResult.data.slice(0, GROUP_RECEIPTS_SHOWN);
     return { ok: true, data: receipts.length === 0 ? null : receipts };
   }
-  if (escrowResult.kind === 'invalid') return { ok: false };
-  if (escrowResult.data.some((escrow) => !deduped.some((row) => row.marketId === escrow.marketId))) {
-    return { ok: false };
+  const escrowReceipts = escrowResult.data.map(publicReceiptFromEscrow);
+  if (escrowReceipts.some((row) => row === null)) return { ok: false };
+  if (legacyResult.kind === 'unavailable') {
+    const receipts = newestFirst(nonNull(escrowReceipts)).slice(0, GROUP_RECEIPTS_SHOWN);
+    return { ok: true, data: receipts.length === 0 ? null : receipts };
   }
-
-  const receipts = mergeEscrowOverlays(deduped, escrowResult.data).slice(0, GROUP_RECEIPTS_SHOWN);
-  if (receipts.length === 0) return { ok: true, data: null };
-  return { ok: true, data: receipts };
+  const merged = mergeReceiptSources(legacyResult.data, nonNull(escrowReceipts));
+  if (merged === null) return { ok: false };
+  const receipts = merged.slice(0, GROUP_RECEIPTS_SHOWN);
+  return { ok: true, data: receipts.length === 0 ? null : receipts };
 }
 
 /** Aggregate-only board rows. Receipt identity is deliberately unavailable on this surface. */
@@ -215,45 +238,89 @@ export async function fetchGroupBoard(
   client: SupabaseClient,
   slug: string,
 ): Promise<QueryResult<PublicGroupBoardMarket[] | null>> {
-  const [legacy, escrowResult] = await Promise.all([
-    client
-      .from(GROUP_BOARD_VIEW)
-      .select(PUBLIC_GROUP_BOARD_SELECT)
-      .eq('group_slug', slug)
-      .order('created_at', { ascending: false })
-      .limit(GROUP_RECEIPTS_FETCH_LIMIT),
+  const [legacyResult, escrowResult] = await Promise.all([
+    fetchLegacyGroupBoard(client, slug),
     fetchEscrowForGroup(client, slug),
   ]);
-  const { data, error } = legacy;
-  const mapped = mapRows(data, groupBoardMarketFromRow);
-  const deduped = mapped === null ? null : dedupeMarketRows(mapped);
-  if (error || deduped === null) return { ok: false };
+  if (legacyResult.kind === 'invalid' || escrowResult.kind === 'invalid') return { ok: false };
   if (escrowResult.kind === 'unavailable') {
-    const markets = deduped.slice(0, GROUP_RECEIPTS_SHOWN);
+    if (legacyResult.kind !== 'available') return { ok: false };
+    const markets = legacyResult.data.slice(0, GROUP_RECEIPTS_SHOWN);
     return { ok: true, data: markets.length === 0 ? null : markets };
   }
-  if (escrowResult.kind === 'invalid') return { ok: false };
-  if (escrowResult.data.some((escrow) => !deduped.some((row) => row.marketId === escrow.marketId))) {
-    return { ok: false };
+  const escrowMarkets = escrowResult.data.map(publicGroupBoardMarketFromEscrow);
+  if (escrowMarkets.some((row) => row === null)) return { ok: false };
+  if (legacyResult.kind === 'unavailable') {
+    const markets = newestFirst(nonNull(escrowMarkets)).slice(0, GROUP_RECEIPTS_SHOWN);
+    return { ok: true, data: markets.length === 0 ? null : markets };
   }
-
-  const markets = mergeEscrowOverlays(deduped, escrowResult.data).slice(0, GROUP_RECEIPTS_SHOWN);
+  const merged = mergeBoardSources(legacyResult.data, nonNull(escrowMarkets));
+  if (merged === null) return { ok: false };
+  const markets = merged.slice(0, GROUP_RECEIPTS_SHOWN);
   return { ok: true, data: markets.length === 0 ? null : markets };
 }
 
-export function mergeEscrowOverlays<T extends { readonly marketId: string }>(
-  legacyRows: readonly T[],
-  escrowRows: readonly PublicEscrowReceipt[],
-): Array<T & { readonly escrow?: PublicEscrowReceipt }> {
-  const escrowByMarket = new Map(escrowRows.map((row) => [row.marketId, row]));
-  const uniqueLegacyRows = new Map<string, T>();
-  for (const row of legacyRows) {
-    if (!uniqueLegacyRows.has(row.marketId)) uniqueLegacyRows.set(row.marketId, row);
+export function mergeReceiptSources(
+  legacyRows: readonly PublicReceipt[],
+  escrowRows: readonly PublicReceipt[],
+): PublicReceipt[] | null {
+  const legacy = dedupeMarketRows(legacyRows);
+  const escrow = dedupeMarketRows(escrowRows);
+  if (legacy === null || escrow === null) return null;
+  const values = new Map(legacy.map((row) => [row.marketId, row]));
+  for (const escrowRow of escrow) {
+    const legacyRow = values.get(escrowRow.marketId);
+    if (legacyRow === undefined) {
+      values.set(escrowRow.marketId, escrowRow);
+      continue;
+    }
+    if (!sameMarketIdentity(legacyRow, escrowRow)) return null;
+    values.set(escrowRow.marketId, {
+      ...escrowRow,
+      decidingSeq: legacyRow.decidingSeq,
+      evidenceSeqs: legacyRow.evidenceSeqs,
+      tier: legacyRow.tier ?? escrowRow.tier,
+      proofStatus: legacyRow.proofStatus,
+      explorerUrl: legacyRow.explorerUrl,
+      browserProof: legacyRow.browserProof,
+    });
   }
-  return [...uniqueLegacyRows.values()].map((row) => {
-    const escrow = escrowByMarket.get(row.marketId);
-    return escrow === undefined ? row : { ...row, escrow };
-  });
+  return newestFirst([...values.values()]);
+}
+
+export function mergeBoardSources(
+  legacyRows: readonly PublicGroupBoardMarket[],
+  escrowRows: readonly PublicGroupBoardMarket[],
+): PublicGroupBoardMarket[] | null {
+  const legacy = dedupeMarketRows(legacyRows);
+  const escrow = dedupeMarketRows(escrowRows);
+  if (legacy === null || escrow === null) return null;
+  const values = new Map(legacy.map((row) => [row.marketId, row]));
+  for (const escrowRow of escrow) {
+    const legacyRow = values.get(escrowRow.marketId);
+    if (legacyRow !== undefined && !sameMarketIdentity(legacyRow, escrowRow)) return null;
+    values.set(escrowRow.marketId, escrowRow);
+  }
+  return newestFirst([...values.values()]);
+}
+
+function sameMarketIdentity(
+  legacy: PublicReceipt | PublicGroupBoardMarket,
+  escrow: PublicReceipt | PublicGroupBoardMarket,
+): boolean {
+  return (
+    legacy.marketId === escrow.marketId &&
+    legacy.groupSlug === escrow.groupSlug &&
+    JSON.stringify(legacy.terms) === JSON.stringify(escrow.terms) &&
+    legacy.status === escrow.status &&
+    legacy.currency === escrow.currency &&
+    legacy.priceProvenance === escrow.priceProvenance &&
+    legacy.quoteProbability === escrow.quoteProbability &&
+    legacy.quoteMultiplier === escrow.quoteMultiplier &&
+    legacy.createdAt === escrow.createdAt &&
+    legacy.outcome === escrow.outcome &&
+    Boolean(legacy.isReplay) === Boolean(escrow.isReplay)
+  );
 }
 
 function dedupeMarketRows<T extends { readonly marketId: string }>(rows: readonly T[]): T[] | null {
@@ -266,10 +333,73 @@ function dedupeMarketRows<T extends { readonly marketId: string }>(rows: readonl
   return [...values.values()];
 }
 
+function newestFirst<T extends { readonly marketId: string; readonly createdAt: string }>(rows: readonly T[]): T[] {
+  return [...rows].sort((left, right) => {
+    const byTime = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+    return byTime === 0 ? left.marketId.localeCompare(right.marketId) : byTime;
+  });
+}
+
+function nonNull<T>(rows: readonly (T | null)[]): T[] {
+  return rows.filter((row): row is T => row !== null);
+}
+
+async function fetchLegacyReceipt(
+  client: SupabaseClient,
+  marketId: string,
+): Promise<SourceResult<PublicReceipt | null>> {
+  const result = await client
+    .from(RECEIPTS_VIEW)
+    .select(PUBLIC_RECEIPT_SELECT)
+    .eq('market_id', marketId)
+    .limit(2);
+  if (result.error) return { kind: 'unavailable' };
+  const mapped = mapRows(result.data, receiptFromRow);
+  const deduped = mapped === null ? null : dedupeMarketRows(mapped);
+  if (deduped === null || deduped.length > 1) return { kind: 'invalid' };
+  return { kind: 'available', data: deduped[0] ?? null };
+}
+
+async function fetchLegacyGroupReceipts(
+  client: SupabaseClient,
+  slug: string,
+): Promise<SourceResult<readonly PublicReceipt[]>> {
+  const result = await client
+    .from(RECEIPTS_VIEW)
+    .select(PUBLIC_RECEIPT_SELECT)
+    .eq('group_slug', slug)
+    .order('created_at', { ascending: false })
+    .limit(GROUP_RECEIPTS_FETCH_LIMIT);
+  if (result.error) return { kind: 'unavailable' };
+  const mapped = mapRows(result.data, receiptFromRow);
+  const deduped = mapped === null ? null : dedupeMarketRows(mapped);
+  return deduped === null
+    ? { kind: 'invalid' }
+    : { kind: 'available', data: newestFirst(deduped) };
+}
+
+async function fetchLegacyGroupBoard(
+  client: SupabaseClient,
+  slug: string,
+): Promise<SourceResult<readonly PublicGroupBoardMarket[]>> {
+  const result = await client
+    .from(GROUP_BOARD_VIEW)
+    .select(PUBLIC_GROUP_BOARD_SELECT)
+    .eq('group_slug', slug)
+    .order('created_at', { ascending: false })
+    .limit(GROUP_RECEIPTS_FETCH_LIMIT);
+  if (result.error) return { kind: 'unavailable' };
+  const mapped = mapRows(result.data, groupBoardMarketFromRow);
+  const deduped = mapped === null ? null : dedupeMarketRows(mapped);
+  return deduped === null
+    ? { kind: 'invalid' }
+    : { kind: 'available', data: newestFirst(deduped) };
+}
+
 async function fetchEscrowForMarket(
   client: SupabaseClient,
   marketId: string,
-): Promise<EscrowOverlayResult<PublicEscrowReceipt | null>> {
+): Promise<SourceResult<PublicEscrowReceipt | null>> {
   const receiptResult = await client
     .from(ESCROW_RECEIPTS_VIEW)
     .select(PUBLIC_ESCROW_RECEIPT_SELECT)
@@ -279,12 +409,19 @@ async function fetchEscrowForMarket(
   const receiptRows = Array.isArray(receiptResult.data) ? receiptResult.data : null;
   if (receiptRows === null) return { kind: 'invalid' };
   if (receiptRows.length === 0) return { kind: 'available', data: null };
+  const identity = getPublicEscrowIdentityConfig();
+  if (identity === null) return { kind: 'invalid' };
   const [aggregateResult, claimResult] = await Promise.all([
     client.from(ESCROW_AGGREGATES_VIEW).select(PUBLIC_ESCROW_AGGREGATE_SELECT).eq('market_id', marketId),
     client.from(ESCROW_CLAIMS_VIEW).select(PUBLIC_ESCROW_CLAIM_SELECT).eq('market_id', marketId),
   ]);
   if (aggregateResult.error || claimResult.error) return { kind: 'unavailable' };
-  const assembled = assembleEscrowReceipts(receiptRows, aggregateResult.data, claimResult.data);
+  const assembled = assembleEscrowReceipts(
+    receiptRows,
+    aggregateResult.data,
+    claimResult.data,
+    identity,
+  );
   if (assembled === null || assembled.length !== 1) return { kind: 'invalid' };
   return { kind: 'available', data: assembled[0] ?? null };
 }
@@ -292,17 +429,20 @@ async function fetchEscrowForMarket(
 async function fetchEscrowForGroup(
   client: SupabaseClient,
   slug: string,
-): Promise<EscrowOverlayResult<readonly PublicEscrowReceipt[]>> {
+): Promise<SourceResult<readonly PublicEscrowReceipt[]>> {
   const receiptResult = await client
     .from(ESCROW_RECEIPTS_VIEW)
     .select(PUBLIC_ESCROW_RECEIPT_SELECT)
     .eq('group_slug', slug)
+    .order('created_at', { ascending: false })
     .limit(GROUP_RECEIPTS_FETCH_LIMIT);
   if (receiptResult.error) return { kind: 'unavailable' };
   if (!Array.isArray(receiptResult.data)) return { kind: 'invalid' };
   const rows = receiptResult.data;
   if (rows.length === 0) return { kind: 'available', data: [] };
-  const parsed = mapRows(rows, escrowReceiptFromRow);
+  const identity = getPublicEscrowIdentityConfig();
+  if (identity === null) return { kind: 'invalid' };
+  const parsed = mapRows(rows, (row) => escrowReceiptFromRow(row, identity));
   if (parsed === null) return { kind: 'invalid' };
   const marketIds = [...new Set(parsed.map((row) => row.marketId))];
   const [aggregateResult, claimResult] = await Promise.all([
@@ -310,7 +450,7 @@ async function fetchEscrowForGroup(
     client.from(ESCROW_CLAIMS_VIEW).select(PUBLIC_ESCROW_CLAIM_SELECT).in('market_id', marketIds),
   ]);
   if (aggregateResult.error || claimResult.error) return { kind: 'unavailable' };
-  const assembled = assembleEscrowReceipts(rows, aggregateResult.data, claimResult.data);
+  const assembled = assembleEscrowReceipts(rows, aggregateResult.data, claimResult.data, identity);
   return assembled === null
     ? { kind: 'invalid' }
     : { kind: 'available', data: assembled };

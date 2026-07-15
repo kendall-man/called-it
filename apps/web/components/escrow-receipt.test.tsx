@@ -21,6 +21,9 @@ describe('escrow receipt components', () => {
     expect(html).toContain('Finalized escrow record');
     expect(html).toContain(asset.toUpperCase());
     expect(html).toContain('Per-market vault');
+    expect(html).toContain('Cluster genesis');
+    expect(html).toContain('Custody version');
+    if (asset === 'usdc') expect(html).toContain('Canonical USDC mint');
     expect(html).toContain('Finalized payouts');
     expect(html).toContain('Aggregate chain data only');
     expect(html).not.toContain(secret);
@@ -40,6 +43,14 @@ describe('escrow receipt components', () => {
     expect(html).toContain('Settlement is not finalized yet');
     expect(html).not.toContain('It happens won');
   });
+
+  it('labels an escrow replay as replay-only with no Points', () => {
+    const html = renderToStaticMarkup(
+      <EscrowReceiptDetails escrow={{ ...fixture('usdc'), isReplay: true }} />,
+    );
+    expect(html).toContain('Replay · No Points');
+    expect(html).not.toMatch(/Points earned|awards Points/i);
+  });
 });
 
 function fixture(asset: 'sol' | 'usdc'): PublicEscrowReceipt {
@@ -48,14 +59,37 @@ function fixture(asset: 'sol' | 'usdc'): PublicEscrowReceipt {
     groupSlug: 'called-it-testers',
     cluster: 'devnet',
     asset,
+    fixtureId: 42,
+    terms: {
+      fixtureId: 42,
+      text: 'North FC to win',
+      period: 'However it ends',
+      trustTier: 'chain_proven',
+    },
+    isReplay: false,
+    kickoffAt: '2029-12-01T12:00:00.000Z',
+    createdAt: '2029-12-01T00:00:00.000Z',
+    priceProvenance: 'market',
+    quoteProbability: 0.4,
+    quoteMultiplier: 2.5,
+    probabilityPpm: 400_000,
+    ratioMilli: '1500',
     programId: '11111111111111111111111111111111',
+    genesisHash: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
     marketPda: '11111111111111111111111111111111',
     vaultPda: '11111111111111111111111111111111',
+    mintPubkey: asset === 'usdc' ? '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU' : null,
+    custodyVersion: 1,
+    chainState: 'settled',
+    status: 'settled',
     documentHashHex: 'ab'.repeat(32),
     initializeSignature: '1'.repeat(64),
+    initializeInstructionIndex: 0,
     initializeSlot: '100',
+    initializeBlockTime: '2029-12-01T00:01:00.000Z',
     outcome: 'claim_won',
     settlementSignature: '2'.repeat(64),
+    settlementInstructionIndex: 1,
     settlementSlot: '200',
     settlementEvidenceHashHex: 'cd'.repeat(32),
     settledAt: '2030-01-01T00:00:00.000Z',
