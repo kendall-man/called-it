@@ -47,6 +47,8 @@ export class EscrowSolanaRpc implements EscrowRelayChain {
       case 'processed':
       case undefined:
         return { kind: 'confirmed', slot };
+      default:
+        throw new TypeError(`unsupported Solana confirmation status: ${String(status.confirmationStatus)}`);
     }
   }
 }

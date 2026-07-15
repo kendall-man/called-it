@@ -104,5 +104,8 @@ function isRecord(value: unknown): value is DatabaseRow {
 }
 
 function databaseFailure(op: string, code: string | undefined): never {
-  throw new DbError(op, { message: 'database operation failed', code });
+  throw new DbError(op, {
+    message: 'database operation failed',
+    ...(code === undefined ? {} : { code }),
+  });
 }

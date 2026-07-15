@@ -3,14 +3,14 @@ export type WagerRuntimeMode = (typeof WAGER_RUNTIME_MODES)[number];
 
 export interface WagerRuntimeEnvironmentInput {
   readonly DEPLOYMENT_ENV: 'development' | 'staging' | 'production';
-  readonly WAGER_RUNTIME_MODE?: WagerRuntimeMode;
+  readonly WAGER_RUNTIME_MODE?: WagerRuntimeMode | undefined;
   readonly WAGER_MODE_ENABLED: 'true' | 'false';
   readonly TELEGRAM_INGRESS: 'poll' | 'webhook';
   readonly BETA_ALLOWED_GROUP_IDS: readonly number[];
   readonly STARTER_GRANTS_ENABLED: boolean;
   readonly STAKE_ACCEPTANCE_ENABLED: boolean;
   readonly WALLET_MINIAPP_ENABLED: boolean;
-  readonly WAGER_TREASURY_KEYPAIR_B58?: string;
+  readonly WAGER_TREASURY_KEYPAIR_B58?: string | undefined;
   readonly TREASURY_COVERAGE_ENFORCED: boolean;
 }
 
