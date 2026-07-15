@@ -1,16 +1,103 @@
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { createPrivateKey, createPublicKey, sign, type KeyObject } from 'node:crypto';
+import { constants } from 'node:fs';
+import { open, readFile } from 'node:fs/promises';
 
-import { createLocalValidatorEvidence, type LocalValidatorEvidenceReceipt } from './evidence.js';
+import {
+  createLocalValidatorEvidence,
+  evidenceSigningPayload,
+  releaseIdentity,
+  type LocalValidatorEvidenceReceipt,
+  type ReleaseIdentity,
+} from './evidence.js';
 import type { ArtifactPaths } from './manifest.js';
 import { buildProvenance } from './manifest.js';
 import { captureReleaseManifest, JsonRpcReader, verifyRelease } from './release.js';
 import { EscrowControlError, EXIT } from './types.js';
-import { sha256File, sha256Tree } from './util.js';
+import { asPublicKey, encodeBase58, sha256, sha256File, sha256Tree, stableJson } from './util.js';
 
 const LOCAL_RPC_URL = 'http://127.0.0.1:18999';
 const DEPLOYED_PROGRAM_ARTIFACT = '/private/tmp/calledit-beta-artifacts/calledit_escrow.so';
 const RUN_TIMEOUT_MS = 6 * 60 * 1_000;
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+
+export interface LocalValidatorEvidenceEnvelope {
+  readonly schemaVersion: 1;
+  readonly kind: 'machine-evidence-envelope';
+  readonly releaseIdentity: ReleaseIdentity;
+  readonly outputSha256: string;
+  readonly output: LocalValidatorEvidenceReceipt;
+  readonly signerPublicKey: string;
+  readonly signature: string;
+}
+
+function signingFailure(message: string): never {
+  throw new EscrowControlError(EXIT.gate, message);
+}
+
+async function operationsEvidenceSigner(
+  keyPath: string,
+  expectedPublicKeyValue: string,
+): Promise<{ readonly privateKey: KeyObject; readonly publicKey: string }> {
+  const expectedPublicKey = asPublicKey(expectedPublicKeyValue, 'configured operations evidence public key');
+  const file = await open(keyPath, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => {
+    signingFailure('operations evidence key file is missing or unreadable');
+  });
+  let keyBytes: Buffer | undefined;
+  try {
+    const metadata = await file.stat();
+    if (!metadata.isFile()) signingFailure('operations evidence key path must be a regular file');
+    if ((metadata.mode & 0o777) !== 0o600) signingFailure('operations evidence key file must have mode 0600');
+    keyBytes = await file.readFile();
+  } finally {
+    await file.close();
+  }
+
+  let privateKey: KeyObject;
+  try {
+    privateKey = createPrivateKey(keyBytes);
+  } catch {
+    signingFailure('operations evidence key file does not contain a valid private key');
+  } finally {
+    keyBytes.fill(0);
+  }
+  if (privateKey.asymmetricKeyType !== 'ed25519') signingFailure('operations evidence key must be Ed25519');
+  const publicKeyDer = createPublicKey(privateKey).export({ format: 'der', type: 'spki' });
+  if (
+    publicKeyDer.length !== ED25519_SPKI_PREFIX.length + 32
+    || !publicKeyDer.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)
+  ) {
+    signingFailure('operations evidence key has an invalid Ed25519 public key');
+  }
+  const publicKey = encodeBase58(publicKeyDer.subarray(ED25519_SPKI_PREFIX.length));
+  if (publicKey !== expectedPublicKey) {
+    signingFailure('operations evidence key does not match the configured operations evidence public key');
+  }
+  return { privateKey, publicKey };
+}
+
+export async function createLocalValidatorEvidenceEnvelope(input: {
+  readonly output: LocalValidatorEvidenceReceipt;
+  readonly operationsEvidenceKeyPath: string;
+  readonly expectedOperationsPublicKey: string;
+}): Promise<LocalValidatorEvidenceEnvelope> {
+  const signer = await operationsEvidenceSigner(
+    input.operationsEvidenceKeyPath,
+    input.expectedOperationsPublicKey,
+  );
+  const unsigned = {
+    schemaVersion: 1,
+    kind: 'machine-evidence-envelope',
+    releaseIdentity: releaseIdentity(input.output.releaseManifest),
+    outputSha256: sha256(stableJson(input.output)),
+    output: input.output,
+    signerPublicKey: signer.publicKey,
+  } as const;
+  return {
+    ...unsigned,
+    signature: encodeBase58(sign(null, evidenceSigningPayload(unsigned), signer.privateKey)),
+  };
+}
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
@@ -21,7 +108,9 @@ export async function runLocalValidatorEvidence(input: {
   readonly paths: ArtifactPaths;
   readonly integrationSuitePath: string;
   readonly controlsPath: string;
-}): Promise<LocalValidatorEvidenceReceipt> {
+  readonly operationsEvidenceKeyPath: string;
+  readonly expectedOperationsPublicKey: string;
+}): Promise<LocalValidatorEvidenceEnvelope> {
   const [build, requestedSbfSha256, deployedSbfSha256] = await Promise.all([
     buildProvenance(input.sourceCommit, input.paths),
     sha256File(input.paths.programSo),
@@ -64,7 +153,7 @@ export async function runLocalValidatorEvidence(input: {
       captured = manifest;
       verificationChecks = verification.checks;
     } catch (error) {
-      lastCaptureError = error;
+      lastCaptureError = error instanceof Error ? error : new EscrowControlError(EXIT.gate, 'unknown local-validator capture failure');
       await delay(250);
     }
   }
@@ -80,7 +169,7 @@ export async function runLocalValidatorEvidence(input: {
     sha256Tree(input.integrationSuitePath),
     sha256Tree(input.controlsPath),
   ]);
-  return createLocalValidatorEvidence({
+  const output = createLocalValidatorEvidence({
     releaseManifest: captured,
     verificationChecks,
     suiteSha256,
@@ -88,5 +177,10 @@ export async function runLocalValidatorEvidence(input: {
     startedAt,
     completedAt,
     verifiedAt: completedAt,
+  });
+  return createLocalValidatorEvidenceEnvelope({
+    output,
+    operationsEvidenceKeyPath: input.operationsEvidenceKeyPath,
+    expectedOperationsPublicKey: input.expectedOperationsPublicKey,
   });
 }

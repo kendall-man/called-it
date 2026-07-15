@@ -1,7 +1,7 @@
-import { createPublicKey, verify as verifySignature } from 'node:crypto';
+import { createHash, createPublicKey, verify as verifySignature } from 'node:crypto';
 
 import { parseReleaseManifest } from './manifest.js';
-import { manifestDigest, verifyRelease } from './release.js';
+import { findProgramAddress, manifestDigest, verifyRelease } from './release.js';
 import type {
   BuildManifest,
   EvidenceRpcReader,
@@ -48,6 +48,35 @@ const RELEASE_CHECKS = [
 ] as const;
 const SIGNING_DOMAIN = 'calledit-escrow-release-evidence-v2';
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+const PLACE_POSITION_DATA_LENGTH = 126;
+
+type VerifiedInstructionKind =
+  | 'place_position'
+  | 'calculate_position_entitlement'
+  | 'timeout_void'
+  | 'claim_position'
+  | 'claim_position_for';
+
+interface FinalizedInstruction {
+  readonly programId: string;
+  readonly accounts: readonly string[];
+  readonly data: Buffer;
+}
+
+interface TokenBalance {
+  readonly account: string;
+  readonly mint: string;
+  readonly amount: bigint;
+}
+
+interface DecodedFinalizedTransaction {
+  readonly accountKeys: readonly string[];
+  readonly instructions: readonly FinalizedInstruction[];
+  readonly preBalances: readonly bigint[];
+  readonly postBalances: readonly bigint[];
+  readonly preTokenBalances: readonly TokenBalance[];
+  readonly postTokenBalances: readonly TokenBalance[];
+}
 
 export interface ReleaseIdentity {
   readonly network: ReleaseManifest['network'];
@@ -190,6 +219,249 @@ function assertReleaseChecks(checks: readonly string[], label: string): void {
   }
 }
 
+function instructionDiscriminator(kind: VerifiedInstructionKind): Buffer {
+  return createHash('sha256').update(`global:${kind}`).digest().subarray(0, 8);
+}
+
+function deterministicMarket(runId: string, scenario: DevnetScenario['id'], programId: string): {
+  readonly uuidBytes: Buffer;
+  readonly address: string;
+} {
+  const uuidBytes = createHash('sha256')
+    .update('calledit.devnet-e2e.market.v1')
+    .update(runId)
+    .update(scenario)
+    .digest()
+    .subarray(0, 16);
+  uuidBytes[6] = (uuidBytes[6] ?? 0) & 0x0f | 0x40;
+  uuidBytes[8] = (uuidBytes[8] ?? 0) & 0x3f | 0x80;
+  return {
+    uuidBytes,
+    address: findProgramAddress([Buffer.from('market'), uuidBytes], programId).address,
+  };
+}
+
+function publicKeyArray(value: unknown, label: string): readonly string[] {
+  if (!Array.isArray(value)) evidenceInput(`${label} must be an array`);
+  return value.map((entry, index) => asPublicKey(entry, `${label}[${index}]`));
+}
+
+function balanceArray(value: unknown, label: string, expectedLength: number): readonly bigint[] {
+  if (!Array.isArray(value) || value.length !== expectedLength) {
+    evidenceInput(`${label} must align exactly with transaction account keys`);
+  }
+  return value.map((entry, index) => {
+    const amount = asInteger(entry, `${label}[${index}]`);
+    if (amount < 0) evidenceInput(`${label}[${index}] must be non-negative`);
+    return BigInt(amount);
+  });
+}
+
+function tokenBalances(value: unknown, label: string): readonly TokenBalance[] {
+  if (!Array.isArray(value)) evidenceInput(`${label} must be an array`);
+  return value.map((entry, index) => {
+    const itemLabel = `${label}[${index}]`;
+    const record = asRecord(entry, itemLabel);
+    rejectExtraKeys(record, ['account', 'mint', 'amount'], itemLabel);
+    const amount = asString(record.amount, `${itemLabel}.amount`);
+    if (!/^(0|[1-9][0-9]*)$/.test(amount)) evidenceInput(`${itemLabel}.amount must be an atomic decimal string`);
+    return {
+      account: asPublicKey(record.account, `${itemLabel}.account`),
+      mint: asPublicKey(record.mint, `${itemLabel}.mint`),
+      amount: BigInt(amount),
+    };
+  });
+}
+
+function finalizedInstructions(value: unknown, label: string): readonly FinalizedInstruction[] {
+  if (!Array.isArray(value)) evidenceInput(`${label} must be an array`);
+  return value.map((entry, index) => {
+    const itemLabel = `${label}[${index}]`;
+    const record = asRecord(entry, itemLabel);
+    rejectExtraKeys(record, ['programId', 'accounts', 'data'], itemLabel);
+    const encoded = asString(record.data, `${itemLabel}.data`);
+    const data = decodeBase58(encoded);
+    if (data.length < 8) evidenceInput(`${itemLabel}.data has no instruction discriminator`);
+    return {
+      programId: asPublicKey(record.programId, `${itemLabel}.programId`),
+      accounts: publicKeyArray(record.accounts, `${itemLabel}.accounts`),
+      data,
+    };
+  });
+}
+
+function decodeFinalizedTransaction(value: unknown, scenario: DevnetScenario['id']): DecodedFinalizedTransaction {
+  const label = `devnet E2E ${scenario} transaction`;
+  const record = asRecord(value, label);
+  if (
+    record.instructions === undefined
+    || record.preBalances === undefined
+    || record.postBalances === undefined
+    || record.preTokenBalances === undefined
+    || record.postTokenBalances === undefined
+  ) {
+    evidenceInput(`${label} lacks decoded instructions and balance effects`);
+  }
+  const accountKeys = publicKeyArray(record.accountKeys, `${label}.accountKeys`);
+  if (new Set(accountKeys).size !== accountKeys.length) evidenceInput(`${label}.accountKeys contains duplicates`);
+  const instructions = finalizedInstructions(record.instructions, `${label}.instructions`);
+  for (const instruction of instructions) {
+    if (instruction.accounts.some((account) => !accountKeys.includes(account))) {
+      evidenceInput(`${label} instruction references an account outside accountKeys`);
+    }
+  }
+  const preTokenBalances = tokenBalances(record.preTokenBalances, `${label}.preTokenBalances`);
+  const postTokenBalances = tokenBalances(record.postTokenBalances, `${label}.postTokenBalances`);
+  if ([...preTokenBalances, ...postTokenBalances].some((balance) => !accountKeys.includes(balance.account))) {
+    evidenceInput(`${label} token effect references an account outside accountKeys`);
+  }
+  return {
+    accountKeys,
+    instructions,
+    preBalances: balanceArray(record.preBalances, `${label}.preBalances`, accountKeys.length),
+    postBalances: balanceArray(record.postBalances, `${label}.postBalances`, accountKeys.length),
+    preTokenBalances,
+    postTokenBalances,
+  };
+}
+
+function instructionKind(instruction: FinalizedInstruction, label: string): VerifiedInstructionKind {
+  for (const kind of [
+    'place_position',
+    'calculate_position_entitlement',
+    'timeout_void',
+    'claim_position',
+    'claim_position_for',
+  ] as const) {
+    if (instruction.data.subarray(0, 8).equals(instructionDiscriminator(kind))) return kind;
+  }
+  evidenceInput(`${label} uses an unsupported escrow instruction`);
+}
+
+function accountAt(instruction: FinalizedInstruction, index: number, label: string): string {
+  const account = instruction.accounts[index];
+  if (account === undefined) evidenceInput(`${label} is missing required account ${index}`);
+  return account;
+}
+
+function solDelta(transaction: DecodedFinalizedTransaction, address: string, label: string): bigint {
+  const index = transaction.accountKeys.indexOf(address);
+  if (index < 0) evidenceInput(`${label} is absent from transaction account keys`);
+  const before = transaction.preBalances[index];
+  const after = transaction.postBalances[index];
+  if (before === undefined || after === undefined) evidenceInput(`${label} balance effect is missing`);
+  return after - before;
+}
+
+function tokenAmount(balances: readonly TokenBalance[], account: string, mint: string): bigint {
+  const matches = balances.filter((balance) => balance.account === account && balance.mint === mint);
+  if (matches.length > 1) evidenceInput(`token balance metadata duplicates ${account}`);
+  return matches[0]?.amount ?? 0n;
+}
+
+function verifyPlacement(
+  report: DevnetE2eReport,
+  manifest: ReleaseManifest,
+  scenario: DevnetScenario,
+  transaction: DecodedFinalizedTransaction,
+  instruction: FinalizedInstruction,
+  expectedAsset: 'sol' | 'usdc',
+): void {
+  const label = `devnet E2E ${scenario.id}`;
+  const expectedMarket = deterministicMarket(report.runId, scenario.id, report.releaseIdentity.programId);
+  if (instruction.data.length !== PLACE_POSITION_DATA_LENGTH) evidenceInput(`${label} place_position data length is invalid`);
+  if (!instruction.data.subarray(8, 24).equals(expectedMarket.uuidBytes)) evidenceInput(`${label} is bound to a different deterministic market`);
+  if (accountAt(instruction, 1, label) !== expectedMarket.address) evidenceInput(`${label} market account does not match its run ID and scenario`);
+  const amount = instruction.data.readBigUInt64LE(25);
+  const expectedAmount = BigInt(expectedAsset === 'sol' ? manifest.config.minSolPosition : manifest.config.minUsdcPosition);
+  if (amount !== expectedAmount) evidenceInput(`${label} position amount does not match the release minimum`);
+  const asset = instruction.data[33];
+  if (asset !== (expectedAsset === 'sol' ? 0 : 1)) evidenceInput(`${label} position uses the wrong asset`);
+  const vault = accountAt(instruction, 6, `${label} place_position`);
+  if (expectedAsset === 'sol') {
+    if (solDelta(transaction, vault, `${label} vault`) !== amount) evidenceInput(`${label} has no exact SOL vault deposit effect`);
+    return;
+  }
+  const mint = accountAt(instruction, 8, `${label} place_position`);
+  if (mint !== manifest.config.canonicalUsdcMint) evidenceInput(`${label} token mint is not canonical devnet USDC`);
+  const before = tokenAmount(transaction.preTokenBalances, vault, mint);
+  const after = tokenAmount(transaction.postTokenBalances, vault, mint);
+  if (after - before !== amount) evidenceInput(`${label} has no exact USDC vault deposit effect`);
+}
+
+function verifyClaim(
+  report: DevnetE2eReport,
+  scenario: DevnetScenario,
+  transaction: DecodedFinalizedTransaction,
+  instructions: readonly FinalizedInstruction[],
+  firstKind: 'calculate_position_entitlement' | 'timeout_void',
+  claimKind: 'claim_position' | 'claim_position_for',
+): void {
+  const label = `devnet E2E ${scenario.id}`;
+  const expectedMarket = deterministicMarket(report.runId, scenario.id, report.releaseIdentity.programId).address;
+  const first = instructions[0];
+  const claim = instructions[1];
+  if (first === undefined || claim === undefined) evidenceInput(`${label} instruction sequence is incomplete`);
+  if (instructionKind(first, label) !== firstKind || instructionKind(claim, label) !== claimKind) {
+    evidenceInput(`${label} instruction sequence does not match the required scenario`);
+  }
+  if (first.data.length !== 8 || claim.data.length !== 8) evidenceInput(`${label} contains unexpected instruction arguments`);
+  const firstMarketIndex = 0;
+  const claimMarketIndex = claimKind === 'claim_position' ? 0 : 1;
+  if (accountAt(first, firstMarketIndex, label) !== expectedMarket || accountAt(claim, claimMarketIndex, label) !== expectedMarket) {
+    evidenceInput(`${label} claim is bound to a different deterministic market`);
+  }
+  const ownerIndex = claimKind === 'claim_position' ? 2 : 3;
+  const vaultIndex = claimKind === 'claim_position' ? 3 : 4;
+  const owner = accountAt(claim, ownerIndex, label);
+  const vault = accountAt(claim, vaultIndex, label);
+  if (solDelta(transaction, vault, `${label} vault`) >= 0n || solDelta(transaction, owner, `${label} owner`) <= 0n) {
+    evidenceInput(`${label} has no observable SOL claim transfer effect`);
+  }
+}
+
+function verifyScenarioTransaction(
+  report: DevnetE2eReport,
+  manifest: ReleaseManifest,
+  scenario: DevnetScenario,
+  value: unknown,
+): void {
+  const transaction = decodeFinalizedTransaction(value, scenario.id);
+  const instructions = transaction.instructions.filter((instruction) => instruction.programId === report.releaseIdentity.programId);
+  const kinds = instructions.map((instruction) => instructionKind(instruction, `devnet E2E ${scenario.id}`));
+  switch (scenario.id) {
+    case 'real-sol-position':
+    case 'relayer-retry-recovery': {
+      const instruction = instructions[0];
+      if (kinds.length !== 1 || kinds[0] !== 'place_position' || instruction === undefined) evidenceInput(`devnet E2E ${scenario.id} must contain exactly place_position`);
+      verifyPlacement(report, manifest, scenario, transaction, instruction, 'sol');
+      return;
+    }
+    case 'real-usdc-position': {
+      const instruction = instructions[0];
+      if (kinds.length !== 1 || kinds[0] !== 'place_position' || instruction === undefined) evidenceInput(`devnet E2E ${scenario.id} must contain exactly place_position`);
+      verifyPlacement(report, manifest, scenario, transaction, instruction, 'usdc');
+      return;
+    }
+    case 'settlement-and-claim':
+    case 'telegram-privy-receipt': {
+      if (kinds.length !== 2) evidenceInput(`devnet E2E ${scenario.id} must contain exactly calculate and claim`);
+      verifyClaim(report, scenario, transaction, instructions, 'calculate_position_entitlement', 'claim_position_for');
+      return;
+    }
+    case 'direct-claim-engine-down': {
+      if (kinds.length !== 2) evidenceInput(`devnet E2E ${scenario.id} must contain exactly calculate and direct claim`);
+      verifyClaim(report, scenario, transaction, instructions, 'calculate_position_entitlement', 'claim_position');
+      return;
+    }
+    case 'paused-timeout-void': {
+      if (kinds.length !== 2) evidenceInput(`devnet E2E ${scenario.id} must contain exactly timeout and claim`);
+      verifyClaim(report, scenario, transaction, instructions, 'timeout_void', 'claim_position_for');
+      return;
+    }
+  }
+}
+
 export function parseDevnetE2eReport(value: unknown): DevnetE2eReport {
   const root = asRecord(value, 'devnet E2E report');
   rejectExtraKeys(root, ['schemaVersion', 'kind', 'releaseIdentity', 'startedAt', 'completedAt', 'runId', 'scenarios'], 'devnet E2E report');
@@ -241,6 +513,7 @@ export function parseDevnetE2eReport(value: unknown): DevnetE2eReport {
 export async function verifyDevnetTransactions(
   report: DevnetE2eReport,
   rpc: EvidenceRpcReader,
+  manifest: ReleaseManifest,
 ): Promise<void> {
   const earliest = Date.parse(report.startedAt) / 1_000 - 3_600;
   const latest = Date.parse(report.completedAt) / 1_000 + 3_600;
@@ -252,6 +525,7 @@ export async function verifyDevnetTransactions(
     if (transaction.blockTime < earliest || transaction.blockTime > latest) {
       evidenceInput(`devnet E2E ${scenario.id} transaction is outside the recorded run window`);
     }
+    verifyScenarioTransaction(report, manifest, scenario, transaction);
   }));
 }
 
@@ -270,7 +544,7 @@ export async function createDevnetEvidence(input: {
   if (!equalJson(report.releaseIdentity, identity)) evidenceInput('devnet E2E report release identity mismatch');
   const verification = await verifyRelease(input.manifest, input.build, input.rpc, input.localSbf);
   assertReleaseChecks(verification.checks, 'devnet release verification');
-  await verifyDevnetTransactions(report, input.rpc);
+  await verifyDevnetTransactions(report, input.rpc, input.manifest);
   const verifiedAt = isoTimestamp(input.verifiedAt ?? new Date().toISOString(), 'devnet evidence.verifiedAt');
   if (Date.parse(verifiedAt) < Date.parse(report.completedAt)) evidenceInput('devnet evidence was verified before the E2E run completed');
   return {

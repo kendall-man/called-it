@@ -32,6 +32,138 @@ const CANONICAL_USDC: Readonly<Partial<Record<ReleaseManifest['network'], string
   devnet: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
   'mainnet-beta': 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
 };
+const BASE58_VALUE = /^[1-9A-HJ-NP-Za-km-z]*$/;
+
+interface NormalizedInstruction {
+  readonly programId: string;
+  readonly accounts: readonly string[];
+  readonly data: string;
+}
+
+interface NormalizedTokenBalance {
+  readonly account: string;
+  readonly mint: string;
+  readonly amount: string;
+}
+
+interface NormalizedFinalizedTransaction {
+  readonly slot: number;
+  readonly blockTime: number;
+  readonly accountKeys: readonly string[];
+  readonly instructions: readonly NormalizedInstruction[];
+  readonly preBalances: readonly number[];
+  readonly postBalances: readonly number[];
+  readonly preTokenBalances: readonly NormalizedTokenBalance[];
+  readonly postTokenBalances: readonly NormalizedTokenBalance[];
+}
+
+interface TransactionResolutionContext {
+  readonly signature: string;
+  readonly accountKeys: readonly string[];
+}
+
+function malformedTransaction(signature: string, detail: string): never {
+  throw new EscrowControlError(EXIT.mismatch, `evidence transaction is malformed (${detail}): ${signature}`);
+}
+
+function transactionRecord(value: unknown, signature: string, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) malformedTransaction(signature, label);
+  return value as Record<string, unknown>;
+}
+
+function transactionArray(value: unknown, signature: string, label: string): readonly unknown[] {
+  if (!Array.isArray(value)) malformedTransaction(signature, label);
+  return value;
+}
+
+function transactionInteger(value: unknown, signature: string, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) malformedTransaction(signature, label);
+  return value;
+}
+
+function transactionPublicKey(value: unknown, signature: string, label: string): string {
+  if (typeof value !== 'string' || !BASE58_VALUE.test(value) || decodeBase58(value).length !== 32) {
+    malformedTransaction(signature, label);
+  }
+  return value;
+}
+
+function transactionPublicKeys(value: unknown, signature: string, label: string): readonly string[] {
+  return transactionArray(value, signature, label)
+    .map((entry, index) => transactionPublicKey(entry, signature, `${label}[${index}]`));
+}
+
+function resolvedAccount(value: unknown, context: TransactionResolutionContext, label: string): string {
+  const index = transactionInteger(value, context.signature, label);
+  const account = context.accountKeys[index];
+  if (account === undefined) malformedTransaction(context.signature, `${label} is outside resolved account keys`);
+  return account;
+}
+
+function loadedAccountKeys(value: unknown, signature: string): readonly string[] {
+  if (value === undefined || value === null) return [];
+  const loaded = transactionRecord(value, signature, 'meta.loadedAddresses');
+  return [
+    ...transactionPublicKeys(loaded.writable, signature, 'meta.loadedAddresses.writable'),
+    ...transactionPublicKeys(loaded.readonly, signature, 'meta.loadedAddresses.readonly'),
+  ];
+}
+
+function transactionBalances(
+  value: unknown,
+  context: TransactionResolutionContext,
+  label: string,
+): readonly number[] {
+  const balances = transactionArray(value, context.signature, label);
+  if (balances.length !== context.accountKeys.length) {
+    malformedTransaction(context.signature, `${label} does not align with resolved account keys`);
+  }
+  return balances.map((entry, index) => transactionInteger(entry, context.signature, `${label}[${index}]`));
+}
+
+function transactionInstructions(
+  value: unknown,
+  context: TransactionResolutionContext,
+): readonly NormalizedInstruction[] {
+  return transactionArray(value, context.signature, 'transaction.message.instructions').map((entry, instructionIndex) => {
+    const label = `transaction.message.instructions[${instructionIndex}]`;
+    const instruction = transactionRecord(entry, context.signature, label);
+    const data = instruction.data;
+    if (typeof data !== 'string' || !BASE58_VALUE.test(data)) malformedTransaction(context.signature, `${label}.data`);
+    return {
+      programId: resolvedAccount(instruction.programIdIndex, context, `${label}.programIdIndex`),
+      accounts: transactionArray(instruction.accounts, context.signature, `${label}.accounts`)
+        .map((accountIndex, index) => resolvedAccount(accountIndex, context, `${label}.accounts[${index}]`)),
+      data,
+    };
+  });
+}
+
+function transactionTokenBalances(
+  value: unknown,
+  context: TransactionResolutionContext,
+  label: string,
+): readonly NormalizedTokenBalance[] {
+  if (value === undefined || value === null) return [];
+  const seenAccounts = new Set<string>();
+  return transactionArray(value, context.signature, label).map((entry, index) => {
+    const itemLabel = `${label}[${index}]`;
+    const balance = transactionRecord(entry, context.signature, itemLabel);
+    const account = resolvedAccount(balance.accountIndex, context, `${itemLabel}.accountIndex`);
+    if (seenAccounts.has(account)) malformedTransaction(context.signature, `${label} contains duplicate accounts`);
+    seenAccounts.add(account);
+    const tokenAmount = transactionRecord(balance.uiTokenAmount, context.signature, `${itemLabel}.uiTokenAmount`);
+    const amount = tokenAmount.amount;
+    if (typeof amount !== 'string' || !/^(0|[1-9][0-9]*)$/.test(amount)) {
+      malformedTransaction(context.signature, `${itemLabel}.uiTokenAmount.amount`);
+    }
+    return {
+      account,
+      mint: transactionPublicKey(balance.mint, context.signature, `${itemLabel}.mint`),
+      amount,
+    };
+  });
+}
 
 class Cursor {
   private offset = 0;
@@ -433,32 +565,34 @@ export class JsonRpcReader implements EvidenceRpcReader {
     };
   }
 
-  async finalizedTransaction(signature: string): Promise<{
-    readonly slot: number;
-    readonly blockTime: number;
-    readonly accountKeys: readonly string[];
-  }> {
-    const result = await this.call<null | {
-      readonly slot: number;
-      readonly blockTime: number | null;
-      readonly meta: { readonly err: unknown } | null;
-      readonly transaction: {
-        readonly message: {
-          readonly accountKeys: ReadonlyArray<string | { readonly pubkey: string }>;
-        };
-      };
-    }>('getTransaction', [signature, {
+  async finalizedTransaction(signature: string): Promise<NormalizedFinalizedTransaction> {
+    const result = await this.call<unknown>('getTransaction', [signature, {
       commitment: 'finalized',
       encoding: 'json',
       maxSupportedTransactionVersion: 0,
     }]);
     if (result === null) throw new EscrowControlError(EXIT.mismatch, `required finalized transaction is missing: ${signature}`);
-    if (result.meta === null || result.meta.err !== null) throw new EscrowControlError(EXIT.mismatch, `evidence transaction failed: ${signature}`);
-    if (!Number.isSafeInteger(result.slot) || result.slot < 0 || !Number.isSafeInteger(result.blockTime) || result.blockTime === null) {
-      throw new EscrowControlError(EXIT.mismatch, `evidence transaction metadata is malformed: ${signature}`);
-    }
-    const accountKeys = result.transaction.message.accountKeys.map((entry) => typeof entry === 'string' ? entry : entry.pubkey);
-    return { slot: result.slot, blockTime: result.blockTime, accountKeys };
+    const transactionResult = transactionRecord(result, signature, 'result');
+    const meta = transactionRecord(transactionResult.meta, signature, 'meta');
+    if (meta.err !== null) throw new EscrowControlError(EXIT.mismatch, `evidence transaction failed: ${signature}`);
+    const transaction = transactionRecord(transactionResult.transaction, signature, 'transaction');
+    const message = transactionRecord(transaction.message, signature, 'transaction.message');
+    const accountKeys = [
+      ...transactionPublicKeys(message.accountKeys, signature, 'transaction.message.accountKeys'),
+      ...loadedAccountKeys(meta.loadedAddresses, signature),
+    ];
+    if (new Set(accountKeys).size !== accountKeys.length) malformedTransaction(signature, 'resolved account keys contain duplicates');
+    const resolution = { signature, accountKeys } satisfies TransactionResolutionContext;
+    return {
+      slot: transactionInteger(transactionResult.slot, signature, 'slot'),
+      blockTime: transactionInteger(transactionResult.blockTime, signature, 'blockTime'),
+      accountKeys,
+      instructions: transactionInstructions(message.instructions, resolution),
+      preBalances: transactionBalances(meta.preBalances, resolution, 'meta.preBalances'),
+      postBalances: transactionBalances(meta.postBalances, resolution, 'meta.postBalances'),
+      preTokenBalances: transactionTokenBalances(meta.preTokenBalances, resolution, 'meta.preTokenBalances'),
+      postTokenBalances: transactionTokenBalances(meta.postTokenBalances, resolution, 'meta.postTokenBalances'),
+    };
   }
 
   private async call<T>(method: string, params: readonly unknown[]): Promise<T> {

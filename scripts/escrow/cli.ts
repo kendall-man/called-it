@@ -24,7 +24,7 @@ Commands:
   compare-builds  --left FILE --right FILE
   idl-policy      --idl FILE
   verify-release  --manifest FILE --program-so FILE --idl FILE --source DIR --lock FILE --rpc URL [--source-commit COMMIT]
-  local-validator-evidence --program-so FILE --idl FILE --source DIR --lock FILE --out FILE [--source-commit COMMIT]
+  local-validator-evidence --program-so FILE --idl FILE --source DIR --lock FILE --operations-evidence-key-file FILE --operations-evidence-public-key KEY --out FILE [--source-commit COMMIT]
   devnet-evidence --manifest FILE --program-so FILE --idl FILE --source DIR --lock FILE --rpc URL --report FILE --out FILE [--source-commit COMMIT]
   manifest-hash   --manifest FILE
   mainnet-gate    --evidence FILE --manifest FILE --program-so FILE --idl FILE --source DIR --lock FILE --rpc URL --devnet-rpc URL [--source-commit COMMIT]
@@ -130,16 +130,26 @@ async function execute(command: string, args: readonly string[]): Promise<void> 
       return;
     }
     case 'local-validator-evidence': {
-      rejectUnknown(options, ['--program-so', '--idl', '--source', '--lock', '--source-commit', '--out']);
+      rejectUnknown(options, [
+        '--program-so', '--idl',
+        '--source',
+        '--lock',
+        '--operations-evidence-key-file',
+        '--operations-evidence-public-key',
+        '--source-commit',
+        '--out',
+      ]);
       const paths = artifactPaths(options);
       verifyIdlPolicy(await readJson(paths.idl));
-      const receipt = await runLocalValidatorEvidence({
+      const envelope = await runLocalValidatorEvidence({
         sourceCommit: await sourceCommit(options),
         paths,
         integrationSuitePath: 'packages/escrow-integration',
         controlsPath: 'scripts/escrow',
+        operationsEvidenceKeyPath: required(options, '--operations-evidence-key-file'),
+        expectedOperationsPublicKey: required(options, '--operations-evidence-public-key'),
       });
-      await printJson(receipt, required(options, '--out'));
+      await printJson(envelope, required(options, '--out'));
       return;
     }
     case 'devnet-evidence': {
@@ -157,7 +167,7 @@ async function execute(command: string, args: readonly string[]): Promise<void> 
       });
       let report: unknown;
       try {
-        report = JSON.parse(reportBytes.toString('utf8')) as unknown;
+        report = JSON.parse(reportBytes.toString('utf8'));
       } catch {
         throw new EscrowControlError(EXIT.input, `invalid devnet report JSON: ${reportPath}`);
       }

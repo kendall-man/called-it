@@ -66,6 +66,11 @@ interface ArtifactReference {
   readonly sha256: string;
 }
 
+interface MachineEvidenceEnvelope {
+  readonly releaseIdentity: ReleaseIdentity;
+  readonly output: unknown;
+}
+
 interface TrustedEvidenceSigners {
   readonly operations: string;
   readonly independentReview: string;
@@ -150,6 +155,33 @@ class ArtifactStore {
 
 function assertExact(actual: unknown, expected: unknown, label: string): void {
   if (!equalJson(actual, expected)) blocked(`${label} mismatch`);
+}
+
+function machineEvidenceEnvelope(
+  value: unknown,
+  label: string,
+  trustedSigner: string,
+): MachineEvidenceEnvelope {
+  const envelopeLabel = `${label} machine evidence envelope`;
+  const record = asRecord(value, envelopeLabel);
+  rejectExtraKeys(record, [
+    'schemaVersion',
+    'kind',
+    'releaseIdentity',
+    'outputSha256',
+    'output',
+    'signerPublicKey',
+    'signature',
+  ], envelopeLabel);
+  if (asInteger(record.schemaVersion, `${envelopeLabel}.schemaVersion`) !== 1) blocked(`${envelopeLabel}.schemaVersion must be 1`);
+  if (asString(record.kind, `${envelopeLabel}.kind`) !== 'machine-evidence-envelope') blocked(`${envelopeLabel}.kind is invalid`);
+  verifyEvidenceSignature(record, trustedSigner, envelopeLabel);
+  const outputSha256 = asSha256(record.outputSha256, `${envelopeLabel}.outputSha256`);
+  if (outputSha256 !== sha256(stableJson(record.output))) blocked(`${envelopeLabel} output digest mismatch`);
+  return {
+    releaseIdentity: parseReleaseIdentity(record.releaseIdentity, `${envelopeLabel}.releaseIdentity`),
+    output: record.output,
+  };
 }
 
 function signedStatement(
@@ -399,7 +431,13 @@ export async function verifyMainnetEvidence(
   verifyIdlPolicy(context.mainnetIdl);
   const mainnetVerification = await verifyRelease(context.manifest, context.localBuild, context.mainnetRpc, context.mainnetSbf);
 
-  const localReceipt = parseLocalValidatorEvidence(await store.json(scalarReferences.localValidator!, 'local-validator evidence'));
+  const localEnvelope = machineEvidenceEnvelope(
+    await store.json(scalarReferences.localValidator!, 'local-validator evidence'),
+    'local-validator evidence',
+    context.trustedSigners.operations,
+  );
+  const localReceipt = parseLocalValidatorEvidence(localEnvelope.output);
+  assertExact(localEnvelope.releaseIdentity, releaseIdentity(localReceipt.releaseManifest), 'local-validator envelope release identity');
   if (localReceipt.releaseManifest.build.sourceCommit !== expectedIdentity.sourceCommit) blocked('local-validator evidence source commit differs from mainnet');
   if (localReceipt.releaseManifest.build.sourceSha256 !== expectedIdentity.sourceSha256) blocked('local-validator evidence source tree differs from mainnet');
   if (localReceipt.releaseManifest.build.lockSha256 !== expectedIdentity.lockSha256) blocked('local-validator evidence lockfile differs from mainnet');
@@ -425,7 +463,7 @@ export async function verifyMainnetEvidence(
     lock: context.lockPath,
   });
   assertExact(devnetBuild, devnetReceipt.releaseManifest.build, 'recomputed devnet build');
-  await createDevnetEvidence({
+  const verifiedDevnetReceipt = await createDevnetEvidence({
     manifest: devnetReceipt.releaseManifest,
     build: devnetBuild,
     rpc: context.devnetRpc,
@@ -434,6 +472,18 @@ export async function verifyMainnetEvidence(
     reportSha256: scalarReferences.devnetReport!.sha256,
     verifiedAt: now.toISOString(),
   });
+  assertExact(devnetReceipt.verificationChecks, verifiedDevnetReceipt.verificationChecks, 'devnet evidence live verification checks');
+  assertExact({
+    startedAt: devnetReceipt.startedAt,
+    completedAt: devnetReceipt.completedAt,
+    runId: devnetReceipt.runId,
+    scenarios: devnetReceipt.scenarios,
+  }, {
+    startedAt: devnetReport.startedAt,
+    completedAt: devnetReport.completedAt,
+    runId: devnetReport.runId,
+    scenarios: devnetReport.scenarios,
+  }, 'devnet evidence report binding');
 
   const legacyReport = scalarReferences.legacyAuditReport!;
   await store.bytes(legacyReport, 'legacy audit report');
@@ -479,7 +529,13 @@ export async function verifyMainnetEvidence(
     if (entry.clusterGenesisHash !== devnetIdentity.clusterGenesisHash || entry.programId !== devnetIdentity.programId || entry.releaseManifestSha256 !== devnetIdentity.releaseManifestSha256) {
       blocked(`soak sample ${index} devnet identity mismatch`);
     }
-    const sampleValue = await store.json(entry.artifact, `soak sample ${index}`);
+    const sampleEnvelope = machineEvidenceEnvelope(
+      await store.json(entry.artifact, `soak sample ${index}`),
+      `soak sample ${index}`,
+      context.trustedSigners.operations,
+    );
+    assertExact(sampleEnvelope.releaseIdentity, devnetIdentity, `soak sample ${index} envelope release identity`);
+    const sampleValue = sampleEnvelope.output;
     const sampleRecord = asRecord(sampleValue, `soak sample ${index}`);
     if (asString(sampleRecord.cluster, `soak sample ${index}.cluster`) !== 'devnet') blocked(`soak sample ${index} is not devnet`);
     const capturedAt = isoTimestamp(sampleRecord.capturedAt, `soak sample ${index}.capturedAt`);

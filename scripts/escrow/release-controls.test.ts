@@ -49,6 +49,122 @@ function u32(value: number): Buffer {
   return buffer;
 }
 
+function instructionDiscriminator(name: string): Buffer {
+  return createHash('sha256').update(`global:${name}`).digest().subarray(0, 8);
+}
+
+function scenarioMarket(runId: string, scenario: (typeof DEVNET_SCENARIOS)[number], programId: string): {
+  readonly address: string;
+  readonly uuidBytes: Buffer;
+} {
+  const uuidBytes = createHash('sha256')
+    .update('calledit.devnet-e2e.market.v1')
+    .update(runId)
+    .update(scenario)
+    .digest()
+    .subarray(0, 16);
+  uuidBytes[6] = (uuidBytes[6] ?? 0) & 0x0f | 0x40;
+  uuidBytes[8] = (uuidBytes[8] ?? 0) & 0x3f | 0x80;
+  return {
+    address: findProgramAddress([Buffer.from('market'), uuidBytes], programId).address,
+    uuidBytes,
+  };
+}
+
+function scenarioTransaction(
+  manifest: ReleaseManifest,
+  runId: string,
+  scenario: (typeof DEVNET_SCENARIOS)[number],
+  blockTime: number,
+) {
+  const market = scenarioMarket(runId, scenario, manifest.programId);
+  const owner = key(20);
+  const vault = key(21);
+  const payer = key(22);
+  const base = {
+    slot: 100,
+    blockTime,
+    preTokenBalances: [] as Array<{ account: string; mint: string; amount: string }>,
+    postTokenBalances: [] as Array<{ account: string; mint: string; amount: string }>,
+  };
+  if (scenario === 'real-sol-position' || scenario === 'real-usdc-position' || scenario === 'relayer-retry-recovery') {
+    const asset = scenario === 'real-usdc-position' ? 'usdc' : 'sol';
+    const amount = BigInt(asset === 'sol' ? manifest.config.minSolPosition : manifest.config.minUsdcPosition);
+    const data = Buffer.alloc(126);
+    instructionDiscriminator('place_position').copy(data, 0);
+    market.uuidBytes.copy(data, 8);
+    data.writeBigUInt64LE(amount, 25);
+    data[33] = asset === 'sol' ? 0 : 1;
+    const accounts = [
+      manifest.configPda,
+      market.address,
+      payer,
+      owner,
+      key(23),
+      key(24),
+      vault,
+      owner,
+      manifest.config.canonicalUsdcMint,
+      manifest.config.allowedTokenProgram,
+      key(25),
+    ];
+    const accountKeys = [...new Set([manifest.programId, ...accounts])];
+    const preBalances = accountKeys.map(() => 10_000_000);
+    const postBalances = [...preBalances];
+    const vaultIndex = accountKeys.indexOf(vault);
+    const vaultBalance = preBalances[vaultIndex];
+    if (vaultBalance === undefined) throw new Error('vault balance fixture is missing');
+    if (asset === 'sol') {
+      postBalances[vaultIndex] = vaultBalance + Number(amount);
+    } else {
+      base.preTokenBalances.push({ account: vault, mint: manifest.config.canonicalUsdcMint, amount: '10' });
+      base.postTokenBalances.push({ account: vault, mint: manifest.config.canonicalUsdcMint, amount: (10n + amount).toString() });
+    }
+    return {
+      ...base,
+      accountKeys,
+      preBalances,
+      postBalances,
+      instructions: [{ programId: manifest.programId, accounts, data: encodeBase58(data) }],
+    };
+  }
+
+  const direct = scenario === 'direct-claim-engine-down';
+  const timeout = scenario === 'paused-timeout-void';
+  const firstAccounts = timeout ? [market.address] : [market.address, key(23)];
+  const claimAccounts = direct
+    ? [market.address, key(23), owner, vault, key(24), owner, manifest.config.allowedTokenProgram, key(25), key(26)]
+    : [payer, market.address, key(23), owner, vault, key(24), owner, manifest.config.allowedTokenProgram, key(25), key(26)];
+  const accountKeys = [...new Set([manifest.programId, ...firstAccounts, ...claimAccounts])];
+  const preBalances = accountKeys.map(() => 10_000_000);
+  const postBalances = [...preBalances];
+  const vaultIndex = accountKeys.indexOf(vault);
+  const ownerIndex = accountKeys.indexOf(owner);
+  const vaultBalance = preBalances[vaultIndex];
+  const ownerBalance = preBalances[ownerIndex];
+  if (vaultBalance === undefined || ownerBalance === undefined) throw new Error('claim balance fixture is missing');
+  postBalances[vaultIndex] = vaultBalance - 1_000_000;
+  postBalances[ownerIndex] = ownerBalance + 1_000_000;
+  return {
+    ...base,
+    accountKeys,
+    preBalances,
+    postBalances,
+    instructions: [
+      {
+        programId: manifest.programId,
+        accounts: firstAccounts,
+        data: encodeBase58(instructionDiscriminator(timeout ? 'timeout_void' : 'calculate_position_entitlement')),
+      },
+      {
+        programId: manifest.programId,
+        accounts: claimAccounts,
+        data: encodeBase58(instructionDiscriminator(direct ? 'claim_position' : 'claim_position_for')),
+      },
+    ],
+  };
+}
+
 function configData(manifest: ReleaseManifest, bump: number): Buffer {
   const config = manifest.config;
   return Buffer.concat([
@@ -99,6 +215,7 @@ function buildReleaseFixture(options: {
   readonly build?: BuildManifest;
   readonly sbf?: Buffer;
   readonly transactionBlockTime?: number;
+  readonly evidenceRunId?: string;
 } = {}): { readonly manifest: ReleaseManifest; readonly build: BuildManifest; readonly rpc: EvidenceRpcReader; readonly accounts: Map<string, RpcAccount>; readonly sbf: Buffer } {
   const network = options.network ?? 'localnet';
   const programId = options.build?.programId ?? key(1);
@@ -187,7 +304,17 @@ function buildReleaseFixture(options: {
       if (found === undefined) throw new Error('missing fake account');
       return found;
     },
-    async finalizedTransaction() {
+    async finalizedTransaction(signature: string) {
+      if (options.evidenceRunId !== undefined) {
+        const scenario = DEVNET_SCENARIOS[(decodeBase58(signature)[0] ?? 0) - 1];
+        if (scenario === undefined) throw new Error('unknown fake scenario signature');
+        return scenarioTransaction(
+          manifest,
+          options.evidenceRunId,
+          scenario,
+          options.transactionBlockTime ?? 1_786_000_000,
+        );
+      }
       return {
         slot: 100,
         blockTime: options.transactionBlockTime ?? 1_786_000_000,
@@ -222,6 +349,20 @@ function signedStatement(signer: TestSigner, value: Record<string, unknown>): Re
     ...unsigned,
     signature: encodeBase58(sign(null, evidenceSigningPayload(unsigned), signer.privateKey)),
   };
+}
+
+function machineEvidenceEnvelope(
+  signer: TestSigner,
+  identity: ReturnType<typeof releaseIdentity>,
+  output: unknown,
+): Record<string, unknown> {
+  return signedStatement(signer, {
+    schemaVersion: 1,
+    kind: 'machine-evidence-envelope',
+    releaseIdentity: identity,
+    outputSha256: sha256(stableJson(output)),
+    output,
+  });
 }
 
 async function writeArtifact(
@@ -260,7 +401,13 @@ async function evidenceBundleFixture(options: { readonly staleLocal?: boolean } 
   const sbf = await readFile(programSo);
   const transactionBlockTime = Date.parse('2026-07-15T08:45:00Z') / 1_000;
   const mainnet = buildReleaseFixture({ network: 'mainnet-beta', build, sbf });
-  const devnet = buildReleaseFixture({ network: 'devnet', build, sbf, transactionBlockTime });
+  const devnet = buildReleaseFixture({
+    network: 'devnet',
+    build,
+    sbf,
+    transactionBlockTime,
+    evidenceRunId: 'devnet-run-2026-07-15',
+  });
   const local = buildReleaseFixture({ network: 'localnet', build, sbf });
   const localVerification = await verifyRelease(local.manifest, build, local.rpc, sbf);
   const localStart = options.staleLocal ? '2026-07-09T09:00:00Z' : '2026-07-15T09:00:00Z';
@@ -379,7 +526,11 @@ async function evidenceBundleFixture(options: { readonly staleLocal?: boolean } 
   ));
 
   const releaseManifestRef = await writeArtifact(directory, 'mainnet-release.json', mainnet.manifest);
-  const localRef = await writeArtifact(directory, 'local-validator.json', localReceipt);
+  const localRef = await writeArtifact(
+    directory,
+    'local-validator.json',
+    machineEvidenceEnvelope(operations, releaseIdentity(local.manifest), localReceipt),
+  );
   const devnetEvidenceRef = await writeArtifact(directory, 'devnet-evidence.json', devnetReceipt);
   const devnetProgramRef = await writeArtifact(directory, 'devnet.so', sbf);
   const devnetIdlRef = await writeArtifact(directory, 'devnet-idl.json', idl);
@@ -398,7 +549,11 @@ async function evidenceBundleFixture(options: { readonly staleLocal?: boolean } 
       clusterGenesisHash: devnet.manifest.clusterGenesisHash,
       programId: devnet.manifest.programId,
       releaseManifestSha256: releaseIdentity(devnet.manifest).releaseManifestSha256,
-      artifact: await writeArtifact(directory, `soak-${day}.json`, sample),
+      artifact: await writeArtifact(
+        directory,
+        `soak-${day}.json`,
+        machineEvidenceEnvelope(operations, releaseIdentity(devnet.manifest), sample),
+      ),
     });
   }
   const evidence: Record<string, any> = {
@@ -471,6 +626,8 @@ async function evidenceBundleFixture(options: { readonly staleLocal?: boolean } 
     paths: {
       legacyReport: join(directory, legacyReport.path),
       devnetReport: join(directory, devnetReportRef.path),
+      devnetEvidence: join(directory, devnetEvidenceRef.path),
+      localValidator: join(directory, localRef.path),
     },
   };
 }
@@ -534,6 +691,80 @@ test('release manifest rejects an embedded credential-like field', async () => {
   assert.throws(() => parseReleaseManifest(raw), /credential-like field/);
 });
 
+test('devnet evidence rejects synthetic scenario labels without decoded instructions and effects', async () => {
+  const fixtureData = buildReleaseFixture({
+    network: 'devnet',
+    transactionBlockTime: 1_768_465_800,
+  });
+  const report = {
+    schemaVersion: 1,
+    kind: 'devnet-e2e-report',
+    releaseIdentity: releaseIdentity(fixtureData.manifest),
+    startedAt: '2026-01-15T08:00:00Z',
+    completedAt: '2026-01-15T09:00:00Z',
+    runId: 'synthetic-label-run',
+    scenarios: DEVNET_SCENARIOS.map((id, index) => ({
+      id,
+      transactionSignature: encodeBase58(Buffer.alloc(64, index + 1)),
+      observedAt: '2026-01-15T08:30:00Z',
+    })),
+  };
+
+  await assert.rejects(
+    createDevnetEvidence({
+      manifest: fixtureData.manifest,
+      build: fixtureData.build,
+      rpc: fixtureData.rpc,
+      localSbf: fixtureData.sbf,
+      report,
+      reportSha256: sha256(stableJson(report)),
+      verifiedAt: '2026-01-15T09:05:00Z',
+    }),
+    /decoded instructions and balance effects/,
+  );
+});
+
+test('devnet evidence rejects relabeling valid scenario transactions', async () => {
+  const runId = 'relabelled-run';
+  const fixtureData = buildReleaseFixture({
+    network: 'devnet',
+    transactionBlockTime: 1_768_465_800,
+    evidenceRunId: runId,
+  });
+  const signatures = DEVNET_SCENARIOS.map((_, index) => encodeBase58(Buffer.alloc(64, index + 1)));
+  const firstSignature = signatures[0];
+  const secondSignature = signatures[1];
+  if (firstSignature === undefined || secondSignature === undefined) throw new Error('scenario signatures are missing');
+  signatures[0] = secondSignature;
+  signatures[1] = firstSignature;
+  const report = {
+    schemaVersion: 1,
+    kind: 'devnet-e2e-report',
+    releaseIdentity: releaseIdentity(fixtureData.manifest),
+    startedAt: '2026-01-15T08:00:00Z',
+    completedAt: '2026-01-15T09:00:00Z',
+    runId,
+    scenarios: DEVNET_SCENARIOS.map((id, index) => ({
+      id,
+      transactionSignature: signatures[index],
+      observedAt: '2026-01-15T08:30:00Z',
+    })),
+  };
+
+  await assert.rejects(
+    createDevnetEvidence({
+      manifest: fixtureData.manifest,
+      build: fixtureData.build,
+      rpc: fixtureData.rpc,
+      localSbf: fixtureData.sbf,
+      report,
+      reportSha256: sha256(stableJson(report)),
+      verifiedAt: '2026-01-15T09:05:00Z',
+    }),
+    /different deterministic market/,
+  );
+});
+
 test('IDL policy accepts recovery paths and rejects arbitrary vault withdrawal', async () => {
   const good = await fixtureJson('idl-policy-pass.example.json');
   assert.equal(verifyIdlPolicy(good).ok, true);
@@ -561,6 +792,79 @@ test('mainnet gate verifies a live release and artifact-bound local/devnet evide
     assert.equal(result.soakEnd, '2026-07-15T06:00:00Z');
   } finally {
     await rm(fixtureData.directory, { recursive: true, force: true });
+  }
+});
+
+test('mainnet gate rejects unsigned local-validator and soak checklists', async () => {
+  const localFixture = await evidenceBundleFixture();
+  try {
+    const localPath = localFixture.paths.localValidator;
+    if (localPath === undefined) throw new Error('local-validator fixture path is missing');
+    const envelope = JSON.parse(await readFile(localPath, 'utf8')) as { output: unknown };
+    const unsignedRef = await writeArtifact(localFixture.directory, 'unsigned-local-validator.json', envelope.output);
+    localFixture.evidence.artifacts.localValidator = unsignedRef;
+    await assert.rejects(
+      verifyMainnetEvidence(localFixture.evidence, localFixture.context),
+      /machine evidence envelope/,
+    );
+  } finally {
+    await rm(localFixture.directory, { recursive: true, force: true });
+  }
+
+  const soakFixture = await evidenceBundleFixture();
+  try {
+    const soakEntry = soakFixture.evidence.artifacts.soakSamples[0] as {
+      artifact: { path: string; sha256: string };
+    };
+    const soakPath = join(soakFixture.directory, soakEntry.artifact.path);
+    const envelope = JSON.parse(await readFile(soakPath, 'utf8')) as { output: unknown };
+    soakEntry.artifact = await writeArtifact(soakFixture.directory, 'unsigned-soak.json', envelope.output);
+    await assert.rejects(
+      verifyMainnetEvidence(soakFixture.evidence, soakFixture.context),
+      /soak sample 0 machine evidence envelope/,
+    );
+  } finally {
+    await rm(soakFixture.directory, { recursive: true, force: true });
+  }
+});
+
+test('mainnet gate rejects tampered signed checks and synthetic devnet check order', async () => {
+  const localFixture = await evidenceBundleFixture();
+  try {
+    const localPath = localFixture.paths.localValidator;
+    if (localPath === undefined) throw new Error('local-validator fixture path is missing');
+    const envelope = JSON.parse(await readFile(localPath, 'utf8')) as { output: { verificationChecks: string[] } };
+    envelope.output.verificationChecks = [...envelope.output.verificationChecks].reverse();
+    localFixture.evidence.artifacts.localValidator = await writeArtifact(
+      localFixture.directory,
+      'tampered-local-validator.json',
+      envelope,
+    );
+    await assert.rejects(
+      verifyMainnetEvidence(localFixture.evidence, localFixture.context),
+      /signature is invalid/,
+    );
+  } finally {
+    await rm(localFixture.directory, { recursive: true, force: true });
+  }
+
+  const devnetFixture = await evidenceBundleFixture();
+  try {
+    const devnetPath = devnetFixture.paths.devnetEvidence;
+    if (devnetPath === undefined) throw new Error('devnet evidence fixture path is missing');
+    const receipt = JSON.parse(await readFile(devnetPath, 'utf8')) as { verificationChecks: string[] };
+    receipt.verificationChecks = [...receipt.verificationChecks].reverse();
+    devnetFixture.evidence.artifacts.devnetEvidence = await writeArtifact(
+      devnetFixture.directory,
+      'synthetic-devnet-checks.json',
+      receipt,
+    );
+    await assert.rejects(
+      verifyMainnetEvidence(devnetFixture.evidence, devnetFixture.context),
+      /devnet evidence live verification checks mismatch/,
+    );
+  } finally {
+    await rm(devnetFixture.directory, { recursive: true, force: true });
   }
 });
 
