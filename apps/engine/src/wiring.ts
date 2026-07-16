@@ -85,6 +85,7 @@ import {
   type EscrowRuntimeLifecycleLog,
 } from './escrow/runtime-lifecycle.js';
 import type {
+  EscrowFinalizedIndexDb,
   EscrowFinalizedScanWatermark,
   EscrowFinalizedTransactionProjection,
 } from './escrow/finalized-indexer.js';
@@ -438,6 +439,8 @@ export function createEscrowWave4Runtime(options: {
     readonly indexerLimit: number;
     readonly log: EscrowRuntimeLifecycleLog & EscrowPeriodicReconciliationLog;
   };
+  /** A Surfpool fork shares devnet genesis but must not overwrite the remote cursor. */
+  readonly localForkIndexer?: boolean;
 }) {
   assertEscrowWave4DeploymentConsistency({
     marketDeployment: options.marketDeployment,
@@ -450,6 +453,9 @@ export function createEscrowWave4Runtime(options: {
   });
   const db = createEscrowDb(options.supabaseUrl, options.serviceRoleKey);
   const rpc = createEscrowSolanaRpc(options.rpcUrl);
+  const indexerDb = options.localForkIndexer === true
+    ? createForkFinalizedIndexDb(db, async () => BigInt(await rpc.connection.getSlot('finalized')))
+    : db;
   const accounts = new SolanaEscrowAccountReader(rpc.connection);
   const placementChain = new SolanaEscrowPlacementChain(rpc, accounts);
   const recoveryChain = new SolanaEscrowRecoveryChain(rpc, accounts);
@@ -657,7 +663,7 @@ export function createEscrowWave4Runtime(options: {
     log: options.worker.log,
   });
   const indexer = createFinalizedEscrowIndexer({
-    db, source,
+    db: indexerDb, source,
     expected: {
       cluster: options.recoveryDeployment.cluster,
       genesisHash: options.recoveryDeployment.genesisHash,
@@ -665,6 +671,7 @@ export function createEscrowWave4Runtime(options: {
     },
     clock: () => options.clock().iso,
     points: options.pointsProjection,
+    allowSlotOnlyCursor: options.localForkIndexer === true,
     async afterTransaction(transaction) {
       const marketIds = new Set(transaction.projections.map((projection) => projection.marketId));
       for (const marketId of marketIds) {
@@ -705,6 +712,63 @@ export function createEscrowWave4Runtime(options: {
     db, rpc, accounts, initialization, placement, control, recovery, recoveryBuilder,
     activation, activationScheduler, terminal, periodicReconciliation,
     groupRollouts, attestationRequests, attestationWorker, relayer, indexer, reconciler, lifecycle,
+  };
+}
+
+/**
+ * Surfpool devnet forks have the real devnet genesis hash but a lower, private
+ * slot history. Reusing Supabase's devnet cursor would make every local scan
+ * regress. Keep only the cursor in process while retaining durable event and
+ * market-link projections for the local test run.
+ */
+function createForkFinalizedIndexDb(
+  db: ReturnType<typeof createEscrowDb>,
+  readInitialSlot: () => Promise<bigint>,
+): EscrowFinalizedIndexDb {
+  let initialSlot: bigint | null = null;
+  let cursor: {
+    readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
+    readonly genesisHash: string;
+    readonly programId: string;
+    readonly slot: bigint;
+    readonly signature: string | null;
+    readonly updatedAtIso: string;
+  } | null = null;
+  return {
+    upsertMarketLink: (input) => db.upsertMarketLink(input),
+    recordPositionEvent: (input) => db.recordPositionEvent(input),
+    recordSettlementEvent: (input) => db.recordSettlementEvent(input),
+    recordClaimEvent: (input) => db.recordClaimEvent(input),
+    recordMarketClosed: (input) => db.recordMarketClosed(input),
+    async getChainCursor(input) {
+      initialSlot ??= await readInitialSlot();
+      const current = cursor;
+      const initialized = current === null || (current.cluster === input.cluster &&
+        current.genesisHash === input.genesisHash && current.programId === input.programId);
+      return {
+        ok: true as const,
+        initialized,
+        cluster: input.cluster,
+        genesisHash: input.genesisHash,
+        programId: input.programId,
+        confirmedSlot: current?.slot ?? initialSlot,
+        confirmedSignature: current?.signature ?? null,
+        finalizedSlot: current?.slot ?? initialSlot,
+        finalizedSignature: current?.signature ?? null,
+        updatedAtIso: current?.updatedAtIso ?? null,
+      };
+    },
+    async advanceChainCursor(input) {
+      cursor = {
+        cluster: input.cluster,
+        genesisHash: input.genesisHash,
+        programId: input.programId,
+        slot: input.slot,
+        signature: input.signature,
+        updatedAtIso: input.nowIso,
+      };
+      return { ok: true as const, duplicate: false, finalized: true };
+    },
   };
 }
 
@@ -983,6 +1047,7 @@ export async function createProductionEscrowRuntime(options: {
       indexerLimit: 100,
       log: options.log,
     },
+    localForkIndexer: env.ESCROW_LOCAL_FORK_INDEXER,
   });
   runtimeIndexer = runtime.indexer;
   const telegram = createEscrowTelegramPort({

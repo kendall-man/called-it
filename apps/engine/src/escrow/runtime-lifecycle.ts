@@ -27,7 +27,7 @@ function safeWorkerErrorFields(error: unknown): Readonly<Record<string, unknown>
     if (typeof value.op === 'string' && /^[a-z0-9_]{1,80}$/.test(value.op)) {
       fields.operation = value.op;
     }
-    if (typeof value.code === 'string' && /^[A-Z0-9_]{1,32}$/.test(value.code)) {
+    if (typeof value.code === 'string' && /^[a-z0-9_]{1,80}$/i.test(value.code)) {
       fields.errorCode = value.code;
     }
   }

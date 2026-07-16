@@ -213,6 +213,8 @@ export function createFinalizedEscrowIndexer(options: {
   readonly clock: () => string;
   readonly points: EscrowFinalizedPointsProjection;
   readonly afterTransaction?: (transaction: EscrowFinalizedTransactionProjection) => Promise<void>;
+  /** A private fork may begin at a known slot without a global signature cursor. */
+  readonly allowSlotOnlyCursor?: boolean;
 }): {
   runOnce(limit: number): Promise<{
     readonly cursor: EscrowFinalizedCursor;
@@ -238,7 +240,9 @@ export function createFinalizedEscrowIndexer(options: {
       const cursor: EscrowFinalizedCursor = stored.initialized
         ? { slot: stored.finalizedSlot, signature: stored.finalizedSignature }
         : { slot: 0n, signature: null };
-      if (cursor.slot < 0n || (cursor.slot > 0n && cursor.signature === null)) {
+      if (cursor.slot < 0n || (
+        cursor.slot > 0n && cursor.signature === null && options.allowSlotOnlyCursor !== true
+      )) {
         throw new EscrowFinalizedIndexerError('cursor_unavailable');
       }
       const scan = await options.source.scan(cursor, limit);

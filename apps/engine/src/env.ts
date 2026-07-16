@@ -203,6 +203,9 @@ const EnvSchema = z.object({
   ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON: EscrowOracleSignerEndpointsSchema,
   ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON: EscrowOracleLocalKeypairsSchema,
   ESCROW_INDEXER_MAX_LAG_SLOTS: OptionalUnsignedBigIntSchema,
+  /** Development-only: keep a Surfpool fork's finalized cursor in process. */
+  ESCROW_LOCAL_FORK_INDEXER: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
   ESCROW_WORKER_INTERVAL_MS: MillisecondsSchema.min(1_000).max(60_000).default(5_000),
   ESCROW_CONFIG_AUTHORITY: OptionalBase58AddressSchema,
   ESCROW_PAUSE_AUTHORITY: OptionalBase58AddressSchema,
@@ -247,6 +250,9 @@ const EnvSchema = z.object({
   validateWagerRuntimeEnvironment(env, { add: addIssue, addPair: addPairIssue });
   const betaActive = deployed || env.BETA_ALLOWED_GROUP_IDS.length > 0;
   const webUrl = new URL(env.WEB_BASE_URL);
+  if (env.ESCROW_LOCAL_FORK_INDEXER && deployed) {
+    addIssue('ESCROW_LOCAL_FORK_INDEXER', 'is allowed only in development');
+  }
   if (deployed && env.GLM_BASE_URL === undefined) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
