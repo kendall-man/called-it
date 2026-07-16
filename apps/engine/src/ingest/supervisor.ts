@@ -15,6 +15,7 @@ interface ActiveReplay {
   source: EventSourceLike;
   speed: number;
   fixture: FixtureRow;
+  runStartedAtMs: number;
   virtualNowMs: number;
   lastEventVirtualMs: number | null;
   firstEventTsMs: number | null;
@@ -131,6 +132,7 @@ export class IngestSupervisor {
           last_seq: 0,
           score: {},
         },
+        runStartedAtMs: this.deps.now(),
         virtualNowMs: kickoffMs - REPLAY_PRE_KICKOFF_MS,
         lastEventVirtualMs: null,
         firstEventTsMs: null,
@@ -158,7 +160,7 @@ export class IngestSupervisor {
               await this.settler.onReplayEvent(
                 groupId,
                 this.toReplayEvent(active, event),
-                active.wallStartedAtMs,
+                active.runStartedAtMs,
               );
             } catch (error) {
               active.ending = true;
@@ -228,7 +230,7 @@ export class IngestSupervisor {
       groupId,
       fixtureId: replay.fixtureId,
       runId: replay.runId,
-      startedAtMs: replay.wallStartedAtMs,
+      startedAtMs: replay.runStartedAtMs,
     };
   }
 
@@ -358,7 +360,7 @@ export class IngestSupervisor {
           groupId,
           fixtureId: replay.fixtureId,
           runId: replay.runId,
-          startedAtMs: replay.wallStartedAtMs,
+          startedAtMs: replay.runStartedAtMs,
           sourceCompletedAtMs: this.deps.now(),
         };
         if (this.replayConfirmation === null) {

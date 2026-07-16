@@ -55,19 +55,44 @@ describe('replay logging privacy', () => {
     try {
       const runtime = createTelegramFlowRuntime();
       let starts = 0;
+      let nowMs = runtime.deps.now();
+      let replayBoundary: number | undefined;
       runtime.deps.tx.createReplaySource = () => ({
-        start() { starts += 1; },
+        start(handler) {
+          starts += 1;
+          void handler({
+            kind: 'phase_change', fixtureId: FIXTURE_ID, seq: 1,
+            tsMs: Date.parse(FIXTURE.kickoff_at!), receivedAtMs: nowMs,
+            confirmed: true, phase: 'H1', minute: 1,
+            score: {
+              p1: { goals: 0, yellowCards: 0, redCards: 0, corners: 0 },
+              p2: { goals: 0, yellowCards: 0, redCards: 0, corners: 0 },
+              p1Goals90: 0, p2Goals90: 0,
+            },
+          });
+        },
         stop() {},
         currentAsOfMs: () => Date.parse(FIXTURE.kickoff_at!) - 10 * 60_000,
       });
-      const supervisor = new IngestSupervisor(runtime.deps, runtime.settler);
+      const supervisor = new IngestSupervisor(
+        { ...runtime.deps, now: () => nowMs },
+        {
+          onReplayEvent: async (_groupId: number, _event: MatchEvent, startedAtMs: number) => {
+            replayBoundary = startedAtMs;
+          },
+        } as unknown as typeof runtime.settler,
+      );
 
       await supervisor.startReplay(GROUP_ID, FIXTURE, REPLAY_SPEED, 5 * 60_000);
+      const runStartedAtMs = supervisor.replayRun(GROUP_ID)?.startedAtMs;
       expect(starts).toBe(0);
       expect(supervisor.replaySnapshot(GROUP_ID)).toMatchObject({ phase: 'NS', minute: null });
 
+      nowMs += 5 * 60_000;
       await vi.advanceTimersByTimeAsync(5 * 60_000);
       expect(starts).toBe(1);
+      expect(supervisor.replayRun(GROUP_ID)?.startedAtMs).toBe(runStartedAtMs);
+      expect(replayBoundary).toBe(runStartedAtMs);
     } finally {
       vi.useRealTimers();
     }
