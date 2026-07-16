@@ -634,8 +634,7 @@ export function createEscrowWave4Runtime(options: {
   });
   const periodicReconciliation = createEscrowPeriodicReconciliationRunner({
     links: createProductionEscrowReconciliationLinkPort({
-      supabaseUrl: options.supabaseUrl,
-      serviceRoleKey: options.serviceRoleKey,
+      db,
       deployment: {
         cluster: options.recoveryDeployment.cluster,
         genesisHash: options.recoveryDeployment.genesisHash,
@@ -646,8 +645,10 @@ export function createEscrowWave4Runtime(options: {
     reconciler: {
       async reconcile(link) {
         const result = await reconciler.reconcile(link);
-        await activationScheduler.schedulePending(link);
-        await terminal.progress(link);
+        if (result.status === 'in_sync') {
+          await activationScheduler.schedulePending(link);
+          await terminal.progress(link);
+        }
         return result;
       },
     },

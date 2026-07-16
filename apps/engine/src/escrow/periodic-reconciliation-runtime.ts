@@ -1,3 +1,4 @@
+import type { EscrowDb } from '@calledit/db';
 import type {
   EscrowPeriodicReconciliationLink,
   EscrowPeriodicReconciliationLinkPort,
@@ -32,8 +33,9 @@ function link(row: Readonly<Record<string, unknown>>): EscrowPeriodicReconciliat
 }
 
 export function createProductionEscrowReconciliationLinkPort(options: {
-  readonly supabaseUrl: string;
-  readonly serviceRoleKey: string;
+  readonly db?: Pick<EscrowDb, 'listReconciliationLinks'>;
+  readonly supabaseUrl?: string;
+  readonly serviceRoleKey?: string;
   readonly deployment: {
     readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
     readonly genesisHash: string;
@@ -42,6 +44,23 @@ export function createProductionEscrowReconciliationLinkPort(options: {
   };
   readonly fetch?: FetchPort;
 }): EscrowPeriodicReconciliationLinkPort {
+  if (options.db !== undefined) {
+    return {
+      async listReconciliationLinks(input) {
+        return options.db!.listReconciliationLinks({
+          cluster: options.deployment.cluster,
+          genesisHash: options.deployment.genesisHash,
+          programId: options.deployment.programId,
+          custodyVersion: options.deployment.custodyVersion,
+          cursor: input.cursor,
+          limit: input.limit,
+        });
+      },
+    };
+  }
+  if (options.supabaseUrl === undefined || options.serviceRoleKey === undefined) {
+    throw new TypeError('escrow reconciliation database unavailable');
+  }
   const request = options.fetch ?? fetch;
   const headers = {
     apikey: options.serviceRoleKey,

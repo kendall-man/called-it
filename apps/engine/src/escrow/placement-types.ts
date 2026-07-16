@@ -159,6 +159,14 @@ export interface EscrowPlacementDatabase {
   consumeSigningSession(
     input: Parameters<EscrowDb['consumeSigningSession']>[0],
   ): ReturnType<EscrowDb['consumeSigningSession']>;
+  /**
+   * Production uses this atomic handoff. It is optional only so older
+   * in-memory adapters remain structurally compatible; callers fail closed
+   * when it is absent.
+   */
+  consumeSigningSessionAndEnqueuePlacement?(
+    input: Parameters<EscrowDb['consumeSigningSessionAndEnqueuePlacement']>[0],
+  ): ReturnType<EscrowDb['consumeSigningSessionAndEnqueuePlacement']>;
   enqueueRelayerJob(
     input: Omit<Parameters<EscrowDb['enqueueRelayerJob']>[0], 'kind'> & {
       readonly kind: typeof PLACEMENT_RELAYER_STORAGE_KIND;

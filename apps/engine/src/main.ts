@@ -226,7 +226,14 @@ async function main(): Promise<void> {
   const settler = escrowScheduler === null
     ? new Settler(backgroundDeps, poster, say, points, null)
     : new EscrowIntegratedSettler(backgroundDeps, poster, say, points, null, escrowScheduler);
-  const supervisor = new IngestSupervisor(backgroundDeps, settler);
+  const supervisor = new IngestSupervisor(backgroundDeps, settler, {
+    // Escrow event workflows persist their own work as events arrive. At replay
+    // EOF, immediately give those durable queues one pass instead of claiming
+    // settlement before finalized projection confirms it.
+    async scheduleReplayConfirmation() {
+      await escrowRuntime?.lifecycle.runOnce();
+    },
+  });
   const settlementReconciler = createSettlementReconciler(backgroundDeps, log);
 
   const handlerCtx: HandlerCtx = {
@@ -235,11 +242,15 @@ async function main(): Promise<void> {
     ...(escrowRuntime === null ? {} : { escrow: escrowRuntime.telegram }),
   };
 
-  supervisor.onReplayFinished = (groupId, fixtureId) => {
+  supervisor.onReplayConfirmationScheduled = ({ groupId, fixtureId }) => {
     void (async () => {
       const fixture = await deps.db.getFixture(fixtureId);
       const label = fixture ? `${fixture.p1_name} vs ${fixture.p2_name}` : `fixture ${fixtureId}`;
-      poster.post(groupId, await say('replay_finished', { fixture: label }));
+      poster.post(groupId, await say('replay_finished', {
+        fixture: label,
+        custodyMode: env.WAGER_CUSTODY_MODE,
+        network: env.SOLANA_NETWORK,
+      }));
     })();
   };
   supervisor.onReplayFailed = (groupId) => {
@@ -247,6 +258,16 @@ async function main(): Promise<void> {
       poster.post(groupId, await say('replay_failed'));
     })();
   };
+
+  // Active replay sources are process-local. Any replay market present after a
+  // restart belongs to an old run, so lock it before accepting fresh callbacks.
+  await Promise.all(env.ESCROW_ALLOWED_GROUP_IDS.map(async (groupId) => {
+    try {
+      await supervisor.recoverReplayGroup(groupId);
+    } catch {
+      log.warn('replay_recovery_failed', { groupId });
+    }
+  }));
 
   bot.use(async (_context, next) => {
     telegramHeartbeatAtMs = deps.now();

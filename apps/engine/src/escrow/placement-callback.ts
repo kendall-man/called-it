@@ -7,7 +7,6 @@ import { inspectUserSignedTransaction } from './transaction-signatures.js';
 import { hashPlacementToken, restorePlacementAuthorization } from './placement-presentation.js';
 import {
   EscrowPlacementError,
-  PLACEMENT_RELAYER_STORAGE_KIND,
   type AcceptEscrowPlacementInput,
   type AcceptEscrowPlacementResult,
   type EscrowPlacementAuthorization,
@@ -29,7 +28,8 @@ function transactionFromBase64(value: string): VersionedTransaction {
 }
 
 export function createPlacementCallbackAcceptor(
-  db: Pick<EscrowPlacementDatabase, 'getSigningSession' | 'consumeSigningSession' | 'enqueueRelayerJob'>,
+  db: Pick<EscrowPlacementDatabase,
+    'getSigningSession' | 'consumeSigningSessionAndEnqueuePlacement'>,
   dependencies: EscrowPlacementServiceDependencies,
 ): (input: AcceptEscrowPlacementInput) => Promise<AcceptEscrowPlacementResult> {
   return async (input) => {
@@ -91,7 +91,11 @@ export function createPlacementCallbackAcceptor(
     if (readiness.status === 'not_ready') {
       throw new EscrowPlacementError('market_unavailable');
     }
-    const consumed = await db.consumeSigningSession({
+    const enqueue = db.consumeSigningSessionAndEnqueuePlacement;
+    if (enqueue === undefined) {
+      throw new EscrowPlacementError('durable_enqueue_rejected');
+    }
+    const result = await enqueue({
       tokenHashHex,
       userId: input.telegramUserId,
       providerUserId: input.privyUserId,
@@ -100,22 +104,11 @@ export function createPlacementCallbackAcceptor(
       marketId: input.marketId,
       transactionMessageHashHex: verified.messageHashHex,
       transactionSignature: verified.expectedSignature,
-      nowIso: now.iso,
-    });
-    if (!consumed.ok) return { kind: 'rejected', code: consumed.code };
-    if (!('duplicate' in consumed)) {
-      throw new EscrowPlacementError('invalid_signed_transaction');
-    }
-
-    const enqueued = await db.enqueueRelayerJob({
-      kind: PLACEMENT_RELAYER_STORAGE_KIND,
       idempotencyKey: placementIdempotencyKey(authorization.programId, verified.expectedSignature),
       cluster: dependencies.deployment.cluster,
       programId: dependencies.deployment.programId,
       custodyMode: 'escrow',
       custodyVersion: dependencies.deployment.custodyVersion,
-      marketId: input.marketId,
-      ownerPubkey: input.ownerPubkey,
       payload: {
         operation: 'place_position',
         rawTransactionBase64: verified.rawTransactionBase64,
@@ -143,13 +136,11 @@ export function createPlacementCallbackAcceptor(
       maxAttempts: 8,
       nowIso: now.iso,
     });
-    if (!enqueued.ok || !('created' in enqueued)) {
-      throw new EscrowPlacementError('durable_enqueue_rejected');
-    }
+    if (!result.ok) return { kind: 'rejected', code: result.code };
     return {
       kind: 'accepted',
-      duplicate: consumed.duplicate,
-      jobCreated: enqueued.created,
+      duplicate: result.duplicate,
+      jobCreated: result.jobCreated,
       signature: verified.expectedSignature,
     };
   };

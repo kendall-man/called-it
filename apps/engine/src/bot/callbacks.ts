@@ -472,6 +472,14 @@ async function handleStake(
     await answer(ctx, `${statusLine(market.status)}.`);
     return;
   }
+  if (market.is_replay) {
+    const admission = await h.supervisor.admitReplayPosition(market);
+    if (admission.kind === 'stale') {
+      await refreshStakeCard(h, chatId, market.id, { forceLocked: true });
+      await answer(ctx, 'That test call is no longer active. No assets moved.');
+      return;
+    }
+  }
   const lamports = escrowMode
     ? presetStakes(market.currency)[action.presetIndex] ?? null
     : wager?.presetLamports(action.presetIndex, market.currency) ?? null;
