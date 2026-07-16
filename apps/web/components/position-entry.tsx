@@ -70,17 +70,18 @@ export function PositionEntry(props: PositionEntryProps) {
           ) : undefined}
         />
       ) : (
-        <PositionErrorBoundary>
+        <PositionErrorBoundary botUsername={props.botUsername}>
           <PositionApplication {...props} telegramInitData={launch.initData} />
         </PositionErrorBoundary>
       )}
     </>
   );
 }
+type PositionErrorBoundaryProps = { readonly children: ReactNode; readonly botUsername: string };
 type PositionErrorBoundaryState = { readonly failed: boolean };
 
 class PositionErrorBoundary extends Component<
-  { readonly children: ReactNode },
+  PositionErrorBoundaryProps,
   PositionErrorBoundaryState
 > {
   state: PositionErrorBoundaryState = { failed: false };
@@ -95,11 +96,23 @@ class PositionErrorBoundary extends Component<
 
   render(): ReactNode {
     if (!this.state.failed) return this.props.children;
+    // Recover by returning to Telegram for a fresh approval, never by
+    // reloading: a reload reuses the same short-lived link, whose blockhash
+    // and session have almost certainly expired by now, so it dead-ends on
+    // "Approval link expired". A fresh Review and sign is the only path that
+    // can succeed.
     return (
       <WalletState
         title="Position needs attention"
-        text="The approval screen stopped before confirmation. No new position was confirmed. Reload the secure link."
-        action={(
+        text="The approval screen stopped before confirmation. No new position was confirmed. Return to Telegram and tap Review and sign again for a fresh approval."
+        action={this.props.botUsername.length > 0 ? (
+          <a
+            className="mt-5 flex min-h-12 w-full items-center justify-center rounded-lg bg-pitch-400 px-4 text-sm font-bold text-night-950 hover:bg-pitch-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+            href={`https://t.me/${encodeURIComponent(this.props.botUsername)}`}
+          >
+            Return to Telegram
+          </a>
+        ) : (
           <div className="mt-5">
             <WalletButton icon={<RefreshCw size={18} />} onClick={() => window.location.reload()}>
               Reload approval

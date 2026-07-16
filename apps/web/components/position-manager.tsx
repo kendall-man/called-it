@@ -272,7 +272,12 @@ export function PositionManager(props: PositionManagerProps) {
         transaction: preparation.transaction.serialize(),
         wallet: activeWallet,
         chain,
-        options: { uiOptions: { showWalletUIs: true } },
+        // Sign with the embedded wallet directly. Privy's own modal crashes
+        // inside the Telegram Mini App WebView (see bb1997f, which set this
+        // same flag false for the deposit flow); this screen already collects
+        // an explicit approval and shows every transaction detail, so its UI
+        // is redundant as well as unsafe here.
+        options: { uiOptions: { showWalletUIs: false } },
       })).signedTransaction;
       const signed = await verifySignedPosition(
         preparation,
