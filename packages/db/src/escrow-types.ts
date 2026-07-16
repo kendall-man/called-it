@@ -206,6 +206,23 @@ export interface ConsumeEscrowSigningSessionInput {
   readonly nowIso: string;
 }
 
+/**
+ * Atomically consumes a verified signing session and persists its placement
+ * outbox entry. The market and owner are derived from the locked session.
+ */
+export interface ConsumeEscrowSigningSessionAndEnqueuePlacementInput
+  extends ConsumeEscrowSigningSessionInput {
+  readonly idempotencyKey: string;
+  readonly cluster: EscrowCluster;
+  readonly programId: string;
+  readonly custodyMode: 'escrow';
+  readonly custodyVersion: number;
+  readonly payload: Readonly<Record<string, unknown>>;
+  readonly dueAtIso: string;
+  readonly maxAttempts: number;
+  readonly leaseMs?: number;
+}
+
 export type EscrowSigningSessionResult =
   | { readonly ok: true; readonly created: boolean }
   | { readonly ok: true; readonly duplicate: boolean; readonly state: 'consumed' }
@@ -218,6 +235,48 @@ export type EscrowSigningSessionResult =
         | 'session_consumed'
         | 'binding_mismatch';
     };
+
+export type ConsumeEscrowSigningSessionAndEnqueuePlacementResult =
+  | {
+      readonly ok: true;
+      readonly duplicate: boolean;
+      readonly state: 'consumed';
+      readonly jobCreated: boolean;
+      readonly jobId: string;
+    }
+  | {
+      readonly ok: false;
+      readonly code:
+        | 'invalid_input'
+        | 'session_not_found'
+        | 'session_expired'
+        | 'session_consumed'
+        | 'binding_mismatch';
+    };
+
+export interface ListEscrowReconciliationLinksInput {
+  readonly cluster: EscrowCluster;
+  readonly genesisHash: string;
+  readonly programId: string;
+  readonly custodyVersion: number;
+  readonly cursor: string | null;
+  readonly limit: number;
+}
+
+export interface EscrowReconciliationLink {
+  readonly marketId: string;
+  readonly custodyMode: 'escrow';
+  readonly marketPda: string;
+  readonly vaultPda: string;
+  readonly asset: EscrowAsset;
+  /** A finalized snapshot must revalidate this quarantined link before recovery. */
+  readonly revalidationRequired: boolean;
+}
+
+export interface ListEscrowReconciliationLinksResult {
+  readonly links: readonly EscrowReconciliationLink[];
+  readonly nextCursor: string | null;
+}
 
 export interface EnqueueEscrowRelayerJobInput {
   readonly kind: EscrowRelayerJobKind;
@@ -324,6 +383,12 @@ export interface EscrowDb {
   recordReconciliation(input: RecordEscrowReconciliationInput): Promise<EscrowIndexResult>;
   createSigningSession(input: CreateEscrowSigningSessionInput): Promise<EscrowSigningSessionResult>;
   consumeSigningSession(input: ConsumeEscrowSigningSessionInput): Promise<EscrowSigningSessionResult>;
+  consumeSigningSessionAndEnqueuePlacement(
+    input: ConsumeEscrowSigningSessionAndEnqueuePlacementInput,
+  ): Promise<ConsumeEscrowSigningSessionAndEnqueuePlacementResult>;
+  listReconciliationLinks(
+    input: ListEscrowReconciliationLinksInput,
+  ): Promise<ListEscrowReconciliationLinksResult>;
   enqueueRelayerJob(input: EnqueueEscrowRelayerJobInput): Promise<EscrowRelayerMutationResult>;
   leaseRelayerJobs(input: LeaseEscrowRelayerJobsInput): Promise<readonly EscrowRelayerJobRow[]>;
   recordRelayerSignedTransaction(input: RecordEscrowRelayerSignedTransactionInput): Promise<EscrowRelayerMutationResult>;

@@ -37,6 +37,8 @@ export type {
 } from './escrow-release-blockers-types.js';
 export type {
   AdvanceEscrowChainCursorInput,
+  ConsumeEscrowSigningSessionAndEnqueuePlacementInput,
+  ConsumeEscrowSigningSessionAndEnqueuePlacementResult,
   ConsumeEscrowSigningSessionInput,
   CreateEscrowSigningSessionInput,
   DeadLetterEscrowRelayerJobInput,
@@ -52,6 +54,7 @@ export type {
   EscrowPositionAccountInput,
   EscrowPositionEventInput,
   EscrowReconciliationStatus,
+  EscrowReconciliationLink,
   EscrowRelayerBacklog,
   EscrowRelayerJobKind,
   EscrowRelayerJobRow,
@@ -61,6 +64,8 @@ export type {
   EscrowSettlementEventInput,
   EscrowSigningSessionResult,
   LeaseEscrowRelayerJobsInput,
+  ListEscrowReconciliationLinksInput,
+  ListEscrowReconciliationLinksResult,
   MarkEscrowRelayerSubmittedInput,
   RecordEscrowReconciliationInput,
   RecordEscrowRelayerSignedTransactionInput,

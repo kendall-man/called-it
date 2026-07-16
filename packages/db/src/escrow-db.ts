@@ -3,6 +3,8 @@ import { DbError, type PgResult } from './errors.js';
 import { escrowReleaseBlockersDbFromClient } from './escrow-release-blockers-db.js';
 import type {
   AdvanceEscrowChainCursorInput,
+  ConsumeEscrowSigningSessionAndEnqueuePlacementInput,
+  ConsumeEscrowSigningSessionAndEnqueuePlacementResult,
   ConsumeEscrowSigningSessionInput,
   DeadLetterEscrowRelayerJobInput,
   EscrowAsset,
@@ -15,6 +17,7 @@ import type {
   EscrowPositionEventInput,
   EscrowPositionAccountInput,
   EscrowReconciliationStatus,
+  EscrowReconciliationLink,
   EscrowRelayerBacklog,
   EscrowRelayerJobRow,
   EscrowRelayerJobState,
@@ -22,6 +25,8 @@ import type {
   EscrowSettlementEventInput,
   EscrowSigningSessionResult,
   LeaseEscrowRelayerJobsInput,
+  ListEscrowReconciliationLinksInput,
+  ListEscrowReconciliationLinksResult,
   MarkEscrowRelayerSubmittedInput,
   RecordEscrowReconciliationInput,
   RecordEscrowRelayerSignedTransactionInput,
@@ -270,6 +275,42 @@ export function escrowDbFromClient(value: unknown): DurableEscrowDb {
         p_transaction_signature: input.transactionSignature,
         p_now: input.nowIso,
       }, parseSigningSessionResult);
+    },
+
+    consumeSigningSessionAndEnqueuePlacement(input) {
+      validateConsumeAndEnqueuePlacement(input);
+      return rpc(client, 'escrow_consume_signing_session_and_enqueue_placement', {
+        p_token_hash_hex: input.tokenHashHex,
+        p_user_id: input.userId,
+        p_provider_user_id: input.providerUserId,
+        p_provider_wallet_id: input.providerWalletId,
+        p_owner_pubkey: input.ownerPubkey,
+        p_market_id: input.marketId,
+        p_transaction_message_hash_hex: input.transactionMessageHashHex,
+        p_transaction_signature: input.transactionSignature,
+        p_idempotency_key: input.idempotencyKey,
+        p_cluster: input.cluster,
+        p_program_id: input.programId,
+        p_custody_mode: input.custodyMode,
+        p_custody_version: input.custodyVersion,
+        p_payload: input.payload,
+        p_due_at: input.dueAtIso,
+        p_max_attempts: input.maxAttempts,
+        p_lease_ms: input.leaseMs ?? 60_000,
+        p_now: input.nowIso,
+      }, parseConsumeAndEnqueuePlacementResult);
+    },
+
+    listReconciliationLinks(input) {
+      validateListReconciliationLinks(input);
+      return rpc(client, 'escrow_list_reconciliation_links', {
+        p_cluster: input.cluster,
+        p_genesis_hash: input.genesisHash,
+        p_program_id: input.programId,
+        p_custody_version: input.custodyVersion,
+        p_cursor: input.cursor,
+        p_limit: input.limit,
+      }, parseReconciliationLinks);
     },
 
     enqueueRelayerJob(input) {
@@ -602,6 +643,58 @@ function parseSigningSessionResult(operation: string, value: unknown): EscrowSig
     }
   }
   return malformed(operation, 'ok');
+}
+
+function parseConsumeAndEnqueuePlacementResult(
+  operation: string,
+  value: unknown,
+): ConsumeEscrowSigningSessionAndEnqueuePlacementResult {
+  const valueRow = row(operation, value);
+  if (valueRow.ok === true) {
+    if (valueRow.state !== 'consumed') return malformed(operation, 'state');
+    return {
+      ok: true,
+      duplicate: bool(operation, valueRow.duplicate, 'duplicate'),
+      state: 'consumed',
+      jobCreated: bool(operation, valueRow.job_created, 'job_created'),
+      jobId: uuid(operation, valueRow.job_id, 'job_id'),
+    };
+  }
+  if (valueRow.ok === false) {
+    switch (valueRow.code) {
+      case 'invalid_input':
+      case 'session_not_found':
+      case 'session_expired':
+      case 'session_consumed':
+      case 'binding_mismatch':
+        return { ok: false, code: valueRow.code };
+      default:
+        return malformed(operation, 'code');
+    }
+  }
+  return malformed(operation, 'ok');
+}
+
+function parseReconciliationLinks(operation: string, value: unknown): ListEscrowReconciliationLinksResult {
+  const valueRow = row(operation, value);
+  if (!Array.isArray(valueRow.links)) return malformed(operation, 'links');
+  const nextCursor = nullableUuid(operation, valueRow.next_cursor, 'next_cursor');
+  return {
+    links: valueRow.links.map((entry) => parseReconciliationLink(operation, entry)),
+    nextCursor,
+  };
+}
+
+function parseReconciliationLink(operation: string, value: unknown): EscrowReconciliationLink {
+  const valueRow = row(operation, value);
+  return {
+    marketId: uuid(operation, valueRow.market_id, 'market_id'),
+    custodyMode: escrowCustodyMode(operation, valueRow.custody_mode),
+    marketPda: boundedStringValue(operation, valueRow.market_pda, 'market_pda'),
+    vaultPda: boundedStringValue(operation, valueRow.vault_pda, 'vault_pda'),
+    asset: signingAsset(operation, valueRow.asset),
+    revalidationRequired: bool(operation, valueRow.revalidation_required, 'revalidation_required'),
+  };
 }
 
 function parseGetSigningSessionResult(operation: string, value: unknown): GetEscrowSigningSessionResult {
@@ -972,6 +1065,24 @@ function validateConsumeSigningSession(input: ConsumeEscrowSigningSessionInput):
   timestamp(input.nowIso, 'nowIso');
 }
 
+function validateConsumeAndEnqueuePlacement(
+  input: ConsumeEscrowSigningSessionAndEnqueuePlacementInput,
+): void {
+  validateConsumeSigningSession(input);
+  validateEnqueue({ ...input, kind: 'position_placement' });
+  timestamp(input.dueAtIso, 'dueAtIso');
+}
+
+function validateListReconciliationLinks(input: ListEscrowReconciliationLinksInput): void {
+  validateCluster(input.cluster, 'cluster');
+  boundedNonempty(input.genesisHash, 'genesisHash');
+  boundedNonempty(input.programId, 'programId');
+  safeInteger(input.custodyVersion, 'custodyVersion', true);
+  if (input.cursor !== null) uuidInput(input.cursor, 'cursor');
+  safeInteger(input.limit, 'limit', true);
+  if (input.limit > 1_000) invalid('limit');
+}
+
 function validateEnqueue(input: DurableEnqueueEscrowRelayerJobInput): void {
   relayerKind('escrow_relayer_enqueue', input.kind);
   nonempty(input.idempotencyKey, 'idempotencyKey');
@@ -1247,5 +1358,7 @@ export type {
   EscrowRelayerJobRow,
   EscrowRelayerMutationResult,
   EscrowSigningSessionResult,
+  ConsumeEscrowSigningSessionAndEnqueuePlacementResult,
+  ListEscrowReconciliationLinksResult,
   RewindEscrowConfirmedChainResult,
 };
