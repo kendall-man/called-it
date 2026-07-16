@@ -275,20 +275,26 @@ async function handleDecline(h: HandlerCtx, ctx: Context, claimId: string): Prom
 }
 
 /** Re-render the market card tally after a placed tap (collapsed per tunables). */
-async function refreshStakeCard(h: HandlerCtx, chatId: number, marketId: string): Promise<void> {
+async function refreshStakeCard(
+  h: HandlerCtx,
+  chatId: number,
+  marketId: string,
+  options: { readonly forceLocked?: boolean } = {},
+): Promise<void> {
   const fresh = await h.deps.db.getMarket(marketId);
   if (fresh && fresh.card_tg_message_id !== null) {
     const currency = fresh.currency === 'usdc' ? 'usdc' : 'sol';
-    const positionsAvailable = fresh.is_replay
-      || (h.deps.wager !== null && await h.deps.wager.stakesAvailable(currency));
-    const card = await composeClaimCard(h.deps, fresh, { positionsAvailable });
+    const positionsAvailable = !options.forceLocked && (fresh.is_replay
+      || (h.deps.wager !== null && await h.deps.wager.stakesAvailable(currency)));
+    const displayed = options.forceLocked ? { ...fresh, status: 'frozen' as const } : fresh;
+    const card = await composeClaimCard(h.deps, displayed, { positionsAvailable });
     if (card && card.messageId !== null) {
       h.poster.editCard(
         chatId,
         fresh.id,
         card.messageId,
         card.text,
-        positionsAvailable ? marketStakeKeyboard(h.deps, fresh) : undefined,
+        positionsAvailable ? marketStakeKeyboard(h.deps, displayed) : undefined,
       );
     }
   }
@@ -386,6 +392,9 @@ async function handleEscrowStake(
       code: result.code,
       asset: input.asset,
     });
+    if (result.code === 'market_closed') {
+      await refreshStakeCard(h, input.groupId, input.marketId, { forceLocked: true });
+    }
     await answer(ctx, escrowPlacementRejectionText(result.code));
     return;
   }
