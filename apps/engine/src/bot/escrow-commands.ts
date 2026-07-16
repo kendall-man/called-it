@@ -15,6 +15,12 @@ export interface EscrowAccountCommandOptions {
   readonly webBaseUrl: string;
   readonly network: SolanaNetwork;
   readonly escrow: EscrowTelegramPort | undefined;
+  readonly ensureUser: (user: {
+    readonly id: number;
+    readonly first_name: string;
+    readonly last_name?: string;
+    readonly username?: string;
+  }) => Promise<void>;
   readonly now: () => number;
 }
 
@@ -30,6 +36,12 @@ export function registerEscrowAccountCommands(
       return;
     }
     if (options.escrow === undefined) {
+      await ctx.reply('Secure wallet services are temporarily unavailable. Try /wallet again shortly.');
+      return;
+    }
+    try {
+      await options.ensureUser(from);
+    } catch {
       await ctx.reply('Secure wallet services are temporarily unavailable. Try /wallet again shortly.');
       return;
     }

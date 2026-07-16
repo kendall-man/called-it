@@ -51,10 +51,13 @@ function setup(
   persisted: PersistInput[] = [],
   custodyMode: 'legacy' | 'escrow' = 'escrow',
   failOnceAt?: number,
+  loadFailures = 0,
 ) {
   const currentMarket = market(replay, custodyMode);
   const workflow: EscrowEventWorkflowPort = {
     async loadMarket() {
+      loadCalls += 1;
+      if (loadCalls <= loadFailures) throw new Error('transient RPC failure');
       return {
         chainState: 'open', replay,
         oraclePolicy: {
@@ -76,6 +79,7 @@ function setup(
       }];
     },
   };
+  let loadCalls = 0;
   const deps = {
     db: {
       async openMarketsForFixture() { return [currentMarket]; },
@@ -105,7 +109,7 @@ function setup(
     },
     requests, workflow,
   });
-  return { scheduler, persisted };
+  return { scheduler, persisted, loadCalls: () => loadCalls };
 }
 
 describe('escrow TxLINE durable event workflow scheduler', () => {
@@ -194,6 +198,25 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
     expect(fixture.persisted.find((value) => value.request.operation === 'settle_market')).toMatchObject({
       replay: true, request: { operation: 'settle_market' },
     });
+  });
+
+  it('does not read finalized Solana state for replay events with no on-chain effect', async () => {
+    const fixture = setup(true);
+
+    await fixture.scheduler.onReplayEvent(GROUP_ID, event({ kind: 'stat_update' }), 0);
+
+    expect(fixture.loadCalls()).toBe(0);
+    expect(fixture.persisted).toEqual([]);
+  });
+
+  it('retries a transient replay RPC failure without dropping the event', async () => {
+    const fixture = setup(true, [], 'escrow', undefined, 2);
+    await fixture.scheduler.onReplayEvent(GROUP_ID, event(), 0);
+
+    expect(fixture.loadCalls()).toBe(3);
+    expect(fixture.persisted.map((value) => value.request.operation)).toEqual([
+      'freeze_market', 'invalidate_position_lot',
+    ]);
   });
 
   it('maps cancellation to durable void and ignores duplicate or reordered events', async () => {

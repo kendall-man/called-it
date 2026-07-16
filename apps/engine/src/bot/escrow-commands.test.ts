@@ -37,6 +37,7 @@ describe('escrow account commands', () => {
       webBaseUrl: 'https://web.test/base',
       network: 'mainnet-beta',
       escrow: port(),
+      ensureUser: async () => undefined,
       now: () => Date.parse('2026-07-06T18:00:00.000Z'),
     });
     const wallet = handlers.get('wallet');

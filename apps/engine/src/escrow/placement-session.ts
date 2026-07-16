@@ -133,9 +133,13 @@ export function createPlacementSessionCreator(
 
     const now = dependencies.clock();
     const requestedExpiry = now.unix + BigInt(input.ttlSeconds);
-    const expiresAt = requestedExpiry < market.positionCutoffTimestamp
+    // Replay markets use accelerated historical match time. Their authorization must
+    // still expire on wall-clock time, while live markets remain cutoff-bound.
+    const expiresAt = market.replay
       ? requestedExpiry
-      : market.positionCutoffTimestamp;
+      : requestedExpiry < market.positionCutoffTimestamp
+        ? requestedExpiry
+        : market.positionCutoffTimestamp;
     const blockhash = await dependencies.chain.latestBlockhash();
     const built = buildSponsoredPositionTransaction({
       programId: dependencies.deployment.programId,

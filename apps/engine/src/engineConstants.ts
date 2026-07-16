@@ -23,6 +23,8 @@ export const ENGINE = {
   LIVE_LOOKAHEAD_MS: 15 * 60_000,
   /** Replay virtual-clock speed multiplier (PRD: 10–30×). */
   REPLAY_SPEED: 20,
+  /** Give an admin time to create and sign a test call before its virtual clock starts. */
+  REPLAY_SETUP_GRACE_MS: 5 * 60_000,
   /** Wait for the proof publication batch to close before the first fetch. */
   PROOF_FIRST_ATTEMPT_DELAY_MS: 60_000,
   PROOF_RETRY_DELAY_MS: 5 * 60_000,

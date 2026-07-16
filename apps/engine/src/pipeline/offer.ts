@@ -190,7 +190,8 @@ export async function mintOffer(
       fixture: mintFixture,
     });
     await h.deps.db.updateClaim(claim.id, { parse: pricedEnvelope });
-    return { kind: 'minted' as const, market };
+    const escrowReady = await escrowMarketPositionsReady(h.deps, market);
+    return { kind: 'minted' as const, market, escrowReady };
   });
   if (mintResult.kind === 'closed') {
     await h.deps.db.updateClaim(claim.id, { status: 'expired' });
@@ -199,10 +200,9 @@ export async function mintOffer(
     });
     return { minted: false };
   }
-  const { market } = mintResult;
+  const { market, escrowReady } = mintResult;
   const currency = market.currency === 'usdc' ? 'usdc' : 'sol';
 
-  const escrowReady = await escrowMarketPositionsReady(h.deps, market);
   const positionsAvailable = escrowReady && (
     market.is_replay
     || (h.deps.wager !== null && await h.deps.wager.stakesAvailable(currency))

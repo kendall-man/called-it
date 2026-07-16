@@ -346,6 +346,41 @@ describe('escrow placement signing sessions', () => {
     })).rejects.toMatchObject({ code: 'amount_out_of_range' });
   });
 
+  it('uses wall-clock expiry for a replay signing session', async () => {
+    // Completed-match replays advance virtual match time much faster than real time.
+    const fixture = setup('sol', {
+      replay: true,
+      positionCutoffTimestamp: NOW_UNIX + 60n,
+    });
+
+    const result = await fixture.service.create({
+      ...identity(fixture.owner), marketId: MARKET_ID, side: 'back', amountAtomic: 25n, ttlSeconds: 300,
+    });
+
+    expect(result).toMatchObject({
+      kind: 'created',
+      authorization: { expiresAt: NOW_UNIX + 300n },
+    });
+    expect(fixture.sessions[0]?.expiresAtIso).toBe('2023-11-14T22:18:20.000Z');
+  });
+
+  it('keeps a live signing session capped at the market cutoff', async () => {
+    const fixture = setup('sol', {
+      replay: false,
+      positionCutoffTimestamp: NOW_UNIX + 60n,
+    });
+
+    const result = await fixture.service.create({
+      ...identity(fixture.owner), marketId: MARKET_ID, side: 'back', amountAtomic: 25n, ttlSeconds: 300,
+    });
+
+    expect(result).toMatchObject({
+      kind: 'created',
+      authorization: { expiresAt: NOW_UNIX + 60n },
+    });
+    expect(fixture.sessions[0]?.expiresAtIso).toBe('2023-11-14T22:14:20.000Z');
+  });
+
   it('fails closed outside the configured escrow group allowlist', async () => {
     const fixture = setup('sol', { replay: true });
 

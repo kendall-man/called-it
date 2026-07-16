@@ -106,6 +106,13 @@ function iso(milliseconds: number): string {
   return new Date(milliseconds).toISOString();
 }
 
+const REPLAY_EVENT_ATTEMPTS = 5;
+const REPLAY_EVENT_RETRY_BASE_MS = 500;
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => { setTimeout(resolve, milliseconds); });
+}
+
 export function createEscrowEventWorkflowScheduler(options: {
   readonly deps: {
     readonly db: Pick<Deps['db'], 'openMarketsForFixture' | 'positionsForMarket'>;
@@ -242,11 +249,7 @@ export function createEscrowEventWorkflowScheduler(options: {
     context: EscrowWorkflowMarketContext,
     event: MatchEvent,
   ): Promise<void> {
-    if (
-      current === null ||
-      (previous !== null && previous.decidingSeq === current.decidingSeq &&
-        previous.debounceUntilMs === current.debounceUntilMs)
-    ) return;
+    if (!pendingSettlementChanged(previous, current)) return;
     const debounceUntilIso = iso(current.debounceUntilMs);
     if (current.outcome === 'void') {
       const attestation = buildEscrowVoidAttestation({
@@ -268,16 +271,43 @@ export function createEscrowEventWorkflowScheduler(options: {
     );
   }
 
+  function pendingSettlementChanged(
+    previous: MarketState['pendingSettlement'],
+    current: MarketState['pendingSettlement'],
+  ): current is NonNullable<MarketState['pendingSettlement']> {
+    return current !== null && (
+      previous === null || previous.decidingSeq !== current.decidingSeq ||
+      previous.debounceUntilMs !== current.debounceUntilMs
+    );
+  }
+
+  function requiresWorkflowContext(
+    effects: readonly MarketEffect[],
+    event: MatchEvent,
+    previousPending: MarketState['pendingSettlement'],
+    currentPending: MarketState['pendingSettlement'],
+  ): boolean {
+    if (isPriceMoving(event) || pendingSettlementChanged(previousPending, currentPending)) return true;
+    return effects.some((effect) => (
+      effect.kind === 'freeze' || effect.kind === 'unfreeze' ||
+      effect.kind === 'settle' || effect.kind === 'void'
+    ));
+  }
+
   async function reduce(market: MarketRow, event: MatchEvent): Promise<void> {
     if (event.seq <= (eventWatermarks.get(market.id) ?? -1)) return;
-    const context = await options.workflow.loadMarket(market);
-    if (context === null || context.replay !== market.is_replay) return;
     const state = await hydrate(market);
     const result = options.deps.engine.reduceMarket(state, event);
     if (result.state === state && result.effects.length === 0) return;
-    await protectPriceMovingLots(market, context, event);
-    for (const effect of result.effects) await applyEffect(effect, market, context, event);
-    await persistNewPending(state.pendingSettlement, result.state.pendingSettlement, market, context, event);
+    if (requiresWorkflowContext(
+      result.effects, event, state.pendingSettlement, result.state.pendingSettlement,
+    )) {
+      const context = await options.workflow.loadMarket(market);
+      if (context === null || context.replay !== market.is_replay) return;
+      await protectPriceMovingLots(market, context, event);
+      for (const effect of result.effects) await applyEffect(effect, market, context, event);
+      await persistNewPending(state.pendingSettlement, result.state.pendingSettlement, market, context, event);
+    }
     eventWatermarks.set(market.id, event.seq);
     if (result.state.status === 'settled' || result.state.status === 'voided') states.delete(market.id);
     else states.set(market.id, result.state);
@@ -294,12 +324,27 @@ export function createEscrowEventWorkflowScheduler(options: {
 
   async function run(event: MatchEvent, groupId?: number, replayStartedAtMs?: number): Promise<void> {
     for (const market of await matchingMarkets(event, groupId, replayStartedAtMs)) {
-      try {
-        await reduce(market, event);
-      } catch (error) {
-        states.delete(market.id);
-        options.deps.log.error('escrow_event_workflow_failed', { marketId: market.id, seq: event.seq });
-        if (groupId !== undefined) throw error;
+      const attempts = groupId === undefined ? 1 : REPLAY_EVENT_ATTEMPTS;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+          await reduce(market, event);
+          break;
+        } catch (error) {
+          states.delete(market.id);
+          if (attempt < attempts) {
+            options.deps.log.info('escrow_replay_event_retry', {
+              marketId: market.id, seq: event.seq, attempt,
+            });
+            await wait(REPLAY_EVENT_RETRY_BASE_MS * attempt);
+            continue;
+          }
+          options.deps.log.error('escrow_event_workflow_failed', {
+            marketId: market.id,
+            seq: event.seq,
+            reason: error instanceof Error ? error.name : 'unknown_exception',
+          });
+          if (groupId !== undefined) throw error;
+        }
       }
     }
   }

@@ -64,18 +64,19 @@ export function createEscrowMarketProvisioner(options: {
       }
       const now = options.clock();
       const oddsTimestamp = secondsFromMs(market.odds_ts);
+      const marketCreatedTimestamp = secondsFromMs(Date.parse(market.created_at));
       const fixtureKickoff = fixture.kickoff_at === null ? NaN : Date.parse(fixture.kickoff_at);
       const kickoffTimestamp = market.is_replay
-        ? now.unix - 1n
+        ? marketCreatedTimestamp === null ? null : marketCreatedTimestamp - 1n
         : secondsFromMs(fixtureKickoff);
       if (
-        oddsTimestamp === null || kickoffTimestamp === null ||
+        oddsTimestamp === null || marketCreatedTimestamp === null || kickoffTimestamp === null ||
         options.maximumMarketDurationSeconds <= 0n || options.maximumResolutionDelaySeconds <= 0n
       ) throw new EscrowMarketProvisioningError('invalid_timeline');
 
-      const maximumCutoff = now.unix + options.maximumMarketDurationSeconds;
+      const maximumCutoff = marketCreatedTimestamp + options.maximumMarketDurationSeconds;
       const requestedCutoff = market.is_replay
-        ? now.unix + REPLAY_POSITION_WINDOW_SECONDS
+        ? marketCreatedTimestamp + REPLAY_POSITION_WINDOW_SECONDS
         : kickoffTimestamp + LIVE_POSITION_CUTOFF_SECONDS;
       const positionCutoffTimestamp = minimum(requestedCutoff, maximumCutoff);
       const resolutionDelay = minimum(

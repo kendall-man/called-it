@@ -1,5 +1,24 @@
-import { Connection } from '@solana/web3.js';
+import { Connection, type FetchFn } from '@solana/web3.js';
 import type { EscrowRelayChain, EscrowRelaySignatureState } from './relayer-worker.js';
+
+const SOLANA_RPC_TIMEOUT_MS = 10_000;
+
+export function createTimedSolanaFetch(
+  timeoutMs: number = SOLANA_RPC_TIMEOUT_MS,
+  fetchImpl: FetchFn = fetch,
+): FetchFn {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+    throw new TypeError('Solana RPC timeout must be a positive integer');
+  }
+  return async (input, init) => {
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const requestSignal = init?.signal;
+    const signal = requestSignal === undefined || requestSignal === null
+      ? timeoutSignal
+      : AbortSignal.any([requestSignal, timeoutSignal]);
+    return fetchImpl(input, { ...init, signal });
+  };
+}
 
 export class EscrowSolanaRpc implements EscrowRelayChain {
   constructor(readonly connection: Connection) {}
@@ -54,5 +73,8 @@ export class EscrowSolanaRpc implements EscrowRelayChain {
 }
 
 export function createEscrowSolanaRpc(rpcUrl: string): EscrowSolanaRpc {
-  return new EscrowSolanaRpc(new Connection(rpcUrl, 'finalized'));
+  return new EscrowSolanaRpc(new Connection(rpcUrl, {
+    commitment: 'finalized',
+    fetch: createTimedSolanaFetch(),
+  }));
 }

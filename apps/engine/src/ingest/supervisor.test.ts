@@ -50,6 +50,29 @@ describe('replay logging privacy', () => {
     });
   });
 
+  it('holds a test replay clock until its setup window has elapsed', async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = createTelegramFlowRuntime();
+      let starts = 0;
+      runtime.deps.tx.createReplaySource = () => ({
+        start() { starts += 1; },
+        stop() {},
+        currentAsOfMs: () => Date.parse(FIXTURE.kickoff_at!) - 10 * 60_000,
+      });
+      const supervisor = new IngestSupervisor(runtime.deps, runtime.settler);
+
+      await supervisor.startReplay(GROUP_ID, FIXTURE, REPLAY_SPEED, 5 * 60_000);
+      expect(starts).toBe(0);
+      expect(supervisor.replaySnapshot(GROUP_ID)).toMatchObject({ phase: 'NS', minute: null });
+
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(starts).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps virtual fixture state group-scoped and routes shifted events through replay settlement', async () => {
     // Given a completed durable fixture and a controllable historical source
     const runtime = createTelegramFlowRuntime();

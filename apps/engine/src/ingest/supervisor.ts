@@ -19,6 +19,7 @@ interface ActiveReplay {
   lastEventVirtualMs: number | null;
   firstEventTsMs: number | null;
   wallStartedAtMs: number;
+  startDelayTimer: ReturnType<typeof setTimeout> | null;
   ending: boolean;
 }
 
@@ -77,6 +78,7 @@ export class IngestSupervisor {
     groupId: number,
     fixture: FixtureRow,
     speed: number = ENGINE.REPLAY_SPEED,
+    startDelayMs: number = 0,
   ): Promise<ReplayStartResult> {
     return this.runGroupExclusive(groupId, async () => {
       if (this.replays.has(groupId)) return 'already_active';
@@ -103,11 +105,12 @@ export class IngestSupervisor {
         lastEventVirtualMs: null,
         firstEventTsMs: null,
         wallStartedAtMs: this.deps.now(),
+        startDelayTimer: null,
         ending: false,
       };
       this.replays.set(groupId, replay);
       this.deps.log.info('replay_started', { fixtureId, speed });
-      try {
+      const startSource = () => {
         source.start(
           (event) => this.runGroupExclusive(groupId, async () => {
             const active = this.replays.get(groupId);
@@ -136,6 +139,22 @@ export class IngestSupervisor {
             void this.finishReplay(groupId, replay, reason);
           },
         );
+      };
+      try {
+        if (startDelayMs <= 0) {
+          startSource();
+        } else {
+          replay.startDelayTimer = setTimeout(() => {
+            replay.startDelayTimer = null;
+            if (this.replays.get(groupId) !== replay || replay.ending) return;
+            try {
+              replay.wallStartedAtMs = this.deps.now();
+              startSource();
+            } catch {
+              void this.finishReplay(groupId, replay, 'failed');
+            }
+          }, startDelayMs);
+        }
       } catch (error) {
         this.replays.delete(groupId);
         source.stop();
@@ -148,6 +167,7 @@ export class IngestSupervisor {
   stopReplay(groupId: number): boolean {
     const replay = this.replays.get(groupId);
     if (!replay) return false;
+    if (replay.startDelayTimer !== null) clearTimeout(replay.startDelayTimer);
     replay.source.stop();
     this.replays.delete(groupId);
     this.deps.log.info('replay_stopped', { fixtureId: replay.fixtureId });
@@ -250,6 +270,7 @@ export class IngestSupervisor {
     await this.runGroupExclusive(groupId, async () => {
       if (this.replays.get(groupId) !== replay) return;
       replay.ending = true;
+      if (replay.startDelayTimer !== null) clearTimeout(replay.startDelayTimer);
       replay.source.stop();
       this.replays.delete(groupId);
       if (reason === 'completed') {

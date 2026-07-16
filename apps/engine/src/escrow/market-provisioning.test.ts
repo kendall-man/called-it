@@ -10,9 +10,17 @@ const MARKET = {
   odds_ts: Number((NOW - 30n) * 1_000n),
   odds_message_id: 'odds', quote_probability: 0.4, quote_multiplier: 2.5,
   price_provenance: 'market', spec: { z: 2, a: 1 },
+  created_at: new Date(Number(NOW * 1_000n)).toISOString(),
 } as unknown as MarketRow;
 
-function fixture(market: MarketRow = MARKET, initialized = false) {
+function fixture(
+  market: MarketRow = MARKET,
+  initialized = false,
+  clock: () => { readonly unix: bigint; readonly iso: string } = () => ({
+    unix: NOW,
+    iso: '2023-11-14T22:13:20.000Z',
+  }),
+) {
   const documents: ImmutableMarketDocumentInput[] = [];
   const service = createEscrowMarketProvisioner({
     db: {
@@ -28,7 +36,7 @@ function fixture(market: MarketRow = MARKET, initialized = false) {
     allowedGroupIds: [-100], oracleSetEpoch: 9n,
     maximumMarketDurationSeconds: 8n * 60n * 60n,
     maximumResolutionDelaySeconds: 12n * 60n * 60n,
-    clock: () => ({ unix: NOW, iso: '2023-11-14T22:13:20.000Z' }),
+    clock,
   });
   return { service, documents, market };
 }
@@ -48,14 +56,22 @@ describe('escrow market provisioner', () => {
     await expect(fixture(MARKET, true).service.ensure(MARKET)).resolves.toBe(true);
   });
 
-  it('uses a current isolated timeline for completed-match replay accounts', async () => {
-    const replay = fixture({ ...MARKET, is_replay: true });
+  it('uses a stable isolated timeline for completed-match replay accounts', async () => {
+    let current = NOW;
+    const replay = fixture(
+      { ...MARKET, is_replay: true },
+      false,
+      () => ({ unix: current, iso: new Date(Number(current * 1_000n)).toISOString() }),
+    );
+    await replay.service.ensure(replay.market);
+    current += 5n;
     await replay.service.ensure(replay.market);
     expect(replay.documents[0]).toMatchObject({
       kickoffTimestamp: NOW - 1n,
       positionCutoffTimestamp: NOW + 10n * 60n,
       replay: true,
     });
+    expect(replay.documents[1]).toEqual(replay.documents[0]);
   });
 
   it('fails closed outside the rollout or after the live cutoff', async () => {

@@ -109,7 +109,7 @@ export interface WagerCronRegistry {
 /** Structural subset of grammy's CommandContext — fakes stay trivial. */
 export interface WagerCommandCtx {
   chat?: { id: number; type: string };
-  from?: { id: number; first_name: string; last_name?: string };
+  from?: { id: number; first_name: string; last_name?: string; username?: string };
   match?: string | RegExpMatchArray;
   reply(text: string, options?: {
     reply_markup: { inline_keyboard: Array<Array<{

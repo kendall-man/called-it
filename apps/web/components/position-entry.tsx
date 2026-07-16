@@ -1,8 +1,7 @@
 'use client';
 
-import { Component, useCallback, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
+import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
-import Script from 'next/script';
 import { RefreshCw } from 'lucide-react';
 import { telegramInitDataFromWebApp } from '@/lib/telegram-web-app-client';
 import type { PositionManagerProps } from './position-manager';
@@ -28,37 +27,33 @@ type TelegramLaunch =
   | { readonly kind: 'unavailable' };
 
 const TELEGRAM_BRIDGE_TIMEOUT_MS = 4_000;
+const TELEGRAM_BRIDGE_POLL_MS = 50;
 
 export function PositionEntry(props: PositionEntryProps) {
   const [launch, setLaunch] = useState<TelegramLaunch>({ kind: 'checking' });
-  const readBridge = useCallback(() => {
-    const initData = telegramInitDataFromWebApp(window);
-    setLaunch(initData === null
-      ? { kind: 'unavailable' }
-      : { kind: 'ready', initData });
-  }, []);
 
   useEffect(() => {
-    const initData = telegramInitDataFromWebApp(window);
-    if (initData !== null) {
-      setLaunch({ kind: 'ready', initData });
-      return;
-    }
-    const timeout = window.setTimeout(
-      () => setLaunch({ kind: 'unavailable' }),
-      TELEGRAM_BRIDGE_TIMEOUT_MS,
-    );
-    return () => window.clearTimeout(timeout);
+    const deadline = Date.now() + TELEGRAM_BRIDGE_TIMEOUT_MS;
+    const checkBridge = () => {
+      const initData = telegramInitDataFromWebApp(window);
+      if (initData !== null) {
+        setLaunch({ kind: 'ready', initData });
+        return true;
+      }
+      return false;
+    };
+    if (checkBridge()) return;
+    const interval = window.setInterval(() => {
+      if (checkBridge() || Date.now() >= deadline) {
+        window.clearInterval(interval);
+        if (Date.now() >= deadline) setLaunch({ kind: 'unavailable' });
+      }
+    }, TELEGRAM_BRIDGE_POLL_MS);
+    return () => window.clearInterval(interval);
   }, []);
 
   return (
     <>
-      <Script
-        src="https://telegram.org/js/telegram-web-app.js"
-        strategy="afterInteractive"
-        onReady={readBridge}
-        onError={() => setLaunch({ kind: 'unavailable' })}
-      />
       {launch.kind === 'checking' ? (
         <WalletState title="Opening in Telegram" text="Checking the private Telegram approval..." loading />
       ) : launch.kind === 'unavailable' ? (

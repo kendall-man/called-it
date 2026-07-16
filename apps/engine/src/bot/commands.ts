@@ -10,7 +10,8 @@ import { isWagerAsset, TERMINAL_PHASES } from '@calledit/market-engine';
 import type { EngineDb, FixtureRow } from '../ports.js';
 import type { Env } from '../env.js';
 import type { Poster } from './poster.js';
-import { ensureChatContext, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
+import { displayName, ensureChatContext, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
+import { ENGINE } from '../engineConstants.js';
 import { settingsKeyboard, voidReplayBlockerKeyboard } from './keyboards.js';
 import { offerClaim } from '../pipeline/offer.js';
 import type { Say } from './copy.js';
@@ -274,6 +275,13 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
       webBaseUrl: h.deps.env.WEB_BASE_URL,
       network: h.deps.env.SOLANA_NETWORK,
       escrow: h.escrow,
+      ensureUser: async (user) => {
+        await h.deps.db.upsertUser({
+          id: user.id,
+          display_name: displayName(user),
+          username: user.username ?? null,
+        });
+      },
       now: h.deps.now,
     });
   }
@@ -368,7 +376,12 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
     }
 
     try {
-      const result = await h.supervisor.startReplay(group.id, fixture);
+      const result = await h.supervisor.startReplay(
+        group.id,
+        fixture,
+        ENGINE.REPLAY_SPEED,
+        ENGINE.REPLAY_SETUP_GRACE_MS,
+      );
       if (result === 'already_active') {
         h.poster.post(ctx.chat.id, await h.say('replay_blocked_active'), { replyToMessageId });
         return;
