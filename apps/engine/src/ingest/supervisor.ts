@@ -250,7 +250,7 @@ export class IngestSupervisor {
         : !Number.isFinite(createdAtMs) || createdAtMs < run.startedAtMs
           ? 'prior_run'
           : null;
-    if (reason === null) return { kind: 'allowed', run };
+    if (reason === null && run !== null) return { kind: 'allowed', run };
     await this.deps.db.updateMarketStatus(market.id, 'frozen');
     this.deps.log.info('replay_stale_market_locked', { marketId: market.id, reason });
     return { kind: 'stale', reason };
