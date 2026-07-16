@@ -1,5 +1,6 @@
 {
   "name": "calledit",
+  "version": "0.1.1-devnet.0",
   "private": true,
   "packageManager": "pnpm@10.33.0",
   "engines": {
