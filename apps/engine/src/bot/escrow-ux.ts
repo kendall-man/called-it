@@ -53,6 +53,60 @@ export interface EscrowTelegramPort {
   }): Promise<EscrowWalletSessionResult>;
 }
 
+/**
+ * Parent finality wiring must persist this as a unique outbox row before
+ * delivery. The same idempotency key may be enqueued repeatedly after a
+ * restart, but it must result in at most one private DM.
+ */
+export interface EscrowSignerCompletionDmOutbox {
+  enqueue(input: {
+    readonly idempotencyKey: string;
+    readonly telegramUserId: number;
+    readonly text: string;
+    readonly recoveryUrl?: string;
+  }): Promise<void>;
+}
+
+/** Finalized position projection mapped to its original Telegram signer. */
+export interface EscrowSignerCompletionDmInput {
+  /** Stable finalized event identity, such as transaction signature plus lot nonce. */
+  readonly idempotencyKey: string;
+  readonly telegramUserId: number;
+  readonly network: SolanaNetwork;
+  readonly asset: WagerAsset;
+  readonly amountAtomic: bigint;
+  readonly side: 'back' | 'doubt';
+  readonly state: 'finalized' | 'recoverable';
+  /** Optional public recovery route. Private signing tokens are rejected. */
+  readonly recoveryUrl?: string;
+}
+
+/**
+ * Explicit parent integration hook for finalized escrow projections. Telegram
+ * handlers cannot observe finalizer events directly, so the finalized-indexer
+ * bridge must call this after it resolves the signer Telegram user id.
+ */
+export async function enqueueEscrowSignerCompletionDm(
+  outbox: EscrowSignerCompletionDmOutbox,
+  input: EscrowSignerCompletionDmInput,
+): Promise<void> {
+  if (input.idempotencyKey.length === 0 || !Number.isSafeInteger(input.telegramUserId) || input.telegramUserId <= 0) {
+    throw new TypeError('invalid escrow signer completion notification');
+  }
+  const side = input.side === 'back' ? 'It happens' : 'It does not';
+  const prefix = `${side} · ${formatAssetAmount(input.amountAtomic, input.asset)} · On-chain escrow · ${escrowNetworkLabel(input.network)}`;
+  const recoveryUrl = publicEscrowActionUrl(input.recoveryUrl);
+  const text = input.state === 'finalized'
+    ? `${prefix}\nYour position is finalized on-chain. The group card refreshes from finalized chain data.`
+    : `${prefix}\nRecovery is available. Open /wallet in private chat.`;
+  await outbox.enqueue({
+    idempotencyKey: input.idempotencyKey,
+    telegramUserId: input.telegramUserId,
+    text,
+    ...(recoveryUrl === null ? {} : { recoveryUrl }),
+  });
+}
+
 export type EscrowPlacementStatus =
   | { readonly kind: 'awaiting_signature' }
   | { readonly kind: 'confirming' }

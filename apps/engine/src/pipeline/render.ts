@@ -124,6 +124,8 @@ export async function composeClaimCard(
     doubtParticipantCount: identities.doubtCount,
     matchedPct: pots.matchedPct,
     isReplay: market.is_replay,
+    custodyMode: deps.env.WAGER_CUSTODY_MODE,
+    solanaNetwork: deps.env.SOLANA_NETWORK,
     receiptUrl: receiptUrl(deps, market.id),
     ...(options.positionsAvailable !== undefined
       ? { positionsAvailable: options.positionsAvailable }

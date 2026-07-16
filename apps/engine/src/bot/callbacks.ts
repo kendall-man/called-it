@@ -258,6 +258,12 @@ async function handleDecline(h: HandlerCtx, ctx: Context, claimId: string): Prom
       await answer(ctx, await h.say('offer_taken'));
       return;
     }
+    if (h.deps.env.WAGER_CUSTODY_MODE === 'escrow') {
+      stripCallbackKeyboard(h, ctx);
+      await refreshStakeCard(h, market.group_id, market.id, { forceLocked: true });
+      await answer(ctx, await h.say('escrow_void_pending_finality'));
+      return;
+    }
     await voidAbandonedMarket(h.deps, market);
     await answer(ctx, await h.say('confirm_declined'));
     return;
@@ -725,6 +731,19 @@ async function handleVoidReplayBlocker(
   const admin = await isGroupAdmin(h, () => ctx.api.getChatMember(chatId, from.id));
   if (!admin) {
     await answer(ctx, await h.say('admin_only'));
+    return;
+  }
+
+  if (h.deps.env.WAGER_CUSTODY_MODE === 'escrow') {
+    await refreshStakeCard(h, chatId, marketId, { forceLocked: true });
+    const locked = await h.say('escrow_void_pending_finality');
+    try {
+      await ctx.editMessageText(locked, { reply_markup: { inline_keyboard: [] } });
+    } catch {
+      stripCallbackKeyboard(h, ctx);
+      h.poster.post(chatId, locked);
+    }
+    await answer(ctx, locked);
     return;
   }
 

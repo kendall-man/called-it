@@ -65,6 +65,7 @@ export type TemplateKey =
   | 'replay_failed'
   | 'replay_position_recorded'
   | 'replay_position_exists'
+  | 'escrow_void_pending_finality'
   | 'bookit_needs_reply'
   | 'window_closed'
   | 'beta_access_required'
@@ -98,7 +99,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     '• Use /wallet in private chat for funding, claims, refunds, and recovery.',
     '• Legacy /deposit and /withdraw remain available only for older Called It balances.',
     '',
-    'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /help',
+    'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /testmatch · /help',
   ].join('\n') : [
     'How this works:',
     '• Add Called It to a Telegram group.',
@@ -109,8 +110,8 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     '• Correct choices earn 10 points automatically.',
     '',
     isMainnet(vars)
-      ? 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /help. Wallet commands are available in private chat.'
-      : 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /help',
+      ? 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /testmatch · /help. Wallet commands are available in private chat.'
+      : 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /testmatch · /help',
     isMainnet(vars)
       ? 'SOL and native Circle USDC deposits and withdrawals use Solana mainnet.'
       : 'Test SOL and test USDC are devnet-only and have no monetary value.',
@@ -183,10 +184,10 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
       ? `TEST MATCH: ${value(vars, 'fixture')} is replaying at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. Positions use real mainnet SOL and require confirmation. Test results do not change Points.`
       : `TEST MATCH: ${value(vars, 'fixture')} is replaying at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. No test SOL moves and test results do not change Points.`,
   replay_finished: (vars) => isEscrow(vars)
-    ? `COMPLETED-MATCH REPLAY FINISHED: ${value(vars, 'fixture')}. Signed replay positions settled on ${isMainnet(vars) ? 'mainnet' : 'devnet'}; Points did not change.`
+    ? `COMPLETED-MATCH REPLAY FINISHED: ${value(vars, 'fixture')}. Signed replay settlement is confirming on ${isMainnet(vars) ? 'mainnet' : 'devnet'}; the group updates only after on-chain finalization. Points did not change.`
     : isMainnet(vars)
-      ? `TEST MATCH FINISHED: ${value(vars, 'fixture')}. Mainnet SOL positions were settled; Points did not change.`
-      : `TEST MATCH FINISHED: ${value(vars, 'fixture')}. No test SOL moved and Points did not change.`,
+      ? `TEST MATCH FINISHED: ${value(vars, 'fixture')}. Replay settlement is confirming; the group updates only after finalization. Points did not change.`
+      : `TEST MATCH FINISHED: ${value(vars, 'fixture')}. Replay settlement is confirming; the group updates only after finalization. Points did not change.`,
   replay_blocked_live: (vars) => {
     const call = value(vars, 'call');
     if (call.length === 0) return 'Not while live calls are open in here — let those settle first.';
@@ -204,6 +205,8 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   replay_failed: () => 'Test match stopped because its data could not be completed. Run /testmatch to try again.',
   replay_position_recorded: () => 'Test choice recorded. No starter position or real funds were used.',
   replay_position_exists: () => 'Your test choice is already recorded. No starter position or real funds were used.',
+  escrow_void_pending_finality: () =>
+    'Telegram cannot void an on-chain escrow call. This card is locked; it refreshes only after an on-chain close or refund is finalized. No group void was recorded.',
   bookit_needs_reply: () => 'Reply /bookit to the claim you want on the record.',
   window_closed: () => 'Too late for that one — the window is closed.',
   beta_access_required: () =>

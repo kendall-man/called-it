@@ -265,6 +265,10 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
   async function handleDepositCommand(ctx: WagerCommandCtx): Promise<void> {
     const from = ctx.from;
     if (!from) return;
+    if (ctx.chat?.type !== 'private') {
+      await ctx.reply('For privacy, open my private chat and use /deposit there.');
+      return;
+    }
     await rememberGroup(ctx, from.id);
     const link = await deps.db.getWalletLink(from.id);
     const rawAsset = commandArg(ctx).toLowerCase();
@@ -282,6 +286,10 @@ export function createWagerModule(deps: WagerModuleDeps): FundedWagerModule {
   async function handleWithdrawCommand(ctx: WagerCommandCtx): Promise<void> {
     const from = ctx.from;
     if (!from) return;
+    if (ctx.chat?.type !== 'private') {
+      await ctx.reply('For privacy, open my private chat and use /withdraw there.');
+      return;
+    }
     const link = await deps.db.getWalletLink(from.id);
     if (!link) {
       await ctx.reply(copy.withdrawNoWallet());

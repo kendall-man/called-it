@@ -64,6 +64,7 @@ export const GROUP_BOT_COMMANDS = [
   { command: 'table', description: 'Open the group board' },
   { command: 'settings', description: 'Manage group call settings' },
   { command: 'currency', description: 'Choose SOL or USDC for new calls' },
+  { command: 'testmatch', description: 'Run a completed-match replay (admins)' },
   { command: 'help', description: 'How Called It works' },
 ] as const;
 

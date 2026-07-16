@@ -1,5 +1,5 @@
 /**
- * Void an abandoned SOL market — a claim that got minted but never drew a
+ * Void an abandoned legacy market — a claim that got minted but never drew a
  * single bet. Records a 'void' settlement (which refunds every escrowed stake
  * through the wager module) but deliberately does NOT post a receipt: the
  * existing sweepUnpostedSettlements cron owns receipt posting, so leaving
@@ -22,6 +22,9 @@ export async function voidAbandonedMarket(
   deps: VoidAbandonedMarketDeps,
   market: MarketRow,
 ): Promise<void> {
+  if (market.custody_mode === 'escrow') {
+    throw new Error('escrow market void requires finalized on-chain closure');
+  }
   await deps.db.updateMarketStatus(market.id, 'voided');
   await deps.db.insertSettlement({
     market_id: market.id,

@@ -84,9 +84,13 @@ async function postLiveCallBlocker(
         call: claim?.quoted_text ?? 'An open call',
         resolution: hasPositions
           ? 'This call has positions and must settle normally.'
-          : 'No positions are on it. An admin can void it below.',
+          : h.deps.env.WAGER_CUSTODY_MODE === 'escrow'
+            ? 'This on-chain escrow call is locked pending a finalized close or refund; it cannot be voided from Telegram.'
+            : 'No positions are on it. An admin can void it below.',
       });
-      if (!hasPositions) keyboard = voidReplayBlockerKeyboard(market.id);
+      if (!hasPositions && h.deps.env.WAGER_CUSTODY_MODE !== 'escrow') {
+        keyboard = voidReplayBlockerKeyboard(market.id);
+      }
     }
   } catch {
     h.deps.log.warn('replay_blocker_lookup_failed');
