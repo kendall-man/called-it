@@ -45,7 +45,7 @@ export default async function GroupPage({ params }: { params: Promise<{ slug: st
       <div>
         <h1 className="display-type text-4xl text-chalk sm:text-5xl">Group board</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-fog">
-          Public SOL totals for this group. Calls show compiled terms and group-wide amounts only.
+          Public SOL and USDC totals for this group. Calls show compiled terms and group-wide amounts only.
         </p>
       </div>
 

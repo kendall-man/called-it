@@ -1,3 +1,5 @@
+import { explorerTxUrlForNetwork, type SolanaNetwork } from './solana-network.js';
+
 /**
  * Engine-process tunables that are not product economics (those live in
  * @calledit/market-engine TUNABLES). One place, no magic numbers.
@@ -21,6 +23,8 @@ export const ENGINE = {
   LIVE_LOOKAHEAD_MS: 15 * 60_000,
   /** Replay virtual-clock speed multiplier (PRD: 10–30×). */
   REPLAY_SPEED: 20,
+  /** Give an admin time to create and sign a test call before its virtual clock starts. */
+  REPLAY_SETUP_GRACE_MS: 5 * 60_000,
   /** Wait for the proof publication batch to close before the first fetch. */
   PROOF_FIRST_ATTEMPT_DELAY_MS: 60_000,
   PROOF_RETRY_DELAY_MS: 5 * 60_000,
@@ -29,9 +33,6 @@ export const ENGINE = {
   MAX_LLM_CALLS_PER_GROUP_PER_DAY: 300,
 } as const;
 
-export const DEVNET_EXPLORER_TX_BASE = 'https://explorer.solana.com/tx/';
-export const DEVNET_EXPLORER_SUFFIX = '?cluster=devnet';
-
-export function explorerTxUrl(txSig: string): string {
-  return `${DEVNET_EXPLORER_TX_BASE}${txSig}${DEVNET_EXPLORER_SUFFIX}`;
+export function explorerTxUrl(txSig: string, network: SolanaNetwork = 'devnet'): string {
+  return explorerTxUrlForNetwork(txSig, network);
 }

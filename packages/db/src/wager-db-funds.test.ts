@@ -166,10 +166,10 @@ describe('settlement applied marker', () => {
   it('settledSolMarketsMissingApplied anti-joins settled/voided SOL markets', async () => {
     const { db, fake } = makeHarness();
     fake.seed('markets', [
-      { id: 'm-settled', currency: 'sol', status: 'settled' },
-      { id: 'm-voided', currency: 'sol', status: 'voided' },
-      { id: 'm-open', currency: 'sol', status: 'open' },
-      { id: 'm-rep', currency: 'rep', status: 'settled' },
+      { id: 'm-settled', currency: 'sol', status: 'settled', is_replay: false },
+      { id: 'm-voided', currency: 'sol', status: 'voided', is_replay: false },
+      { id: 'm-open', currency: 'sol', status: 'open', is_replay: false },
+      { id: 'm-rep', currency: 'rep', status: 'settled', is_replay: false },
     ]);
     fake.seed('wager_settlements_applied', [{ market_id: 'm-voided', applied_at: NOW_ISO }]);
     expect(await db.settledSolMarketsMissingApplied()).toEqual(['m-settled']);
@@ -180,14 +180,18 @@ describe('settlement applied marker', () => {
 });
 
 describe('circuit breaker', () => {
-  it('reads and flips the persisted wager_status row', async () => {
+  it('reads and flips the persisted per-asset status row', async () => {
     const { db, fake } = makeHarness();
-    fake.seed('wager_status', [{ id: 1, paused: false, reason: null, updated_at: NOW_ISO }]);
+    fake.seed('wager_asset_status', [
+      { asset: 'sol', paused: false, reason: null, updated_at: NOW_ISO },
+      { asset: 'usdc', paused: false, reason: null, updated_at: NOW_ISO },
+    ]);
     expect((await db.getWagerStatus()).paused).toBe(false);
     await db.setWagerStatus(true, 'solvency invariant violated');
     const status = await db.getWagerStatus();
     expect(status.paused).toBe(true);
     expect(status.reason).toBe('solvency invariant violated');
+    expect((await db.getWagerStatus('usdc')).paused).toBe(false);
   });
 
   it('fails loud when the breaker row is missing', async () => {

@@ -14,6 +14,31 @@ describe('verified wallet RPC facade', () => {
   const HASH_HEX = 'a'.repeat(64);
   const PUBKEY = 'PubkeyAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
+  it('creates a one-time wallet session using only hashed token material', async () => {
+    const { db, fake } = makeHarness();
+    const sessionId = '00000000-0000-4000-8000-000000000333';
+    fake.onRpc('wager_create_wallet_link_session', () => ({
+      data: { ok: true, session_id: sessionId },
+      error: null,
+    }));
+
+    await expect(db.createWalletLinkSession({
+      user_id: USER_ID,
+      token_hash_hex: HASH_HEX,
+      expires_at: '2026-07-13T12:10:00.000Z',
+      solana_network: 'devnet',
+    })).resolves.toEqual({ ok: true, session_id: sessionId });
+    expect(fake.rpcCalls[0]).toEqual({
+      fn: 'wager_create_wallet_link_session',
+      args: {
+        p_user_id: USER_ID,
+        p_token_hash_hex: HASH_HEX,
+        p_expires_at: '2026-07-13T12:10:00.000Z',
+        p_solana_network: 'devnet',
+      },
+    });
+  });
+
   it('forwards hashed challenge material and parses typed link outcomes', async () => {
     const { db, fake } = makeHarness();
     fake.onRpc('wager_verify_wallet_link', () => ({
@@ -114,6 +139,7 @@ describe('verified wallet RPC facade', () => {
                 market_id: MARKET_ID,
                 side: 'back',
                 lamports: 50_000_000,
+                asset: 'sol',
                 state: 'ready',
                 expires_at: '2026-07-10T12:10:00.000Z',
                 created_at: '2026-07-10T12:00:00.000Z',

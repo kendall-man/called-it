@@ -44,7 +44,25 @@ test('fails when a lock importer no longer matches its manifest specifier', asyn
   await assert.rejects(result, /specifier mismatch/);
 });
 
-async function createFixture(context, lockfile) {
+test('fails when a tracked override is not bound to package.json', async (context) => {
+  const root = await createFixture(context, validLockfile().replace(
+    'importers:\n',
+    'overrides:\n  example: 2.0.0\nimporters:\n',
+  ), { pnpm: { overrides: { example: '2.0.1' } } });
+
+  await assert.rejects(verifyLockIntegrity({ root }), /lock override example does not match/);
+});
+
+test('fails when a tracked dependency patch is not bound to package.json', async (context) => {
+  const root = await createFixture(context, validLockfile().replace(
+    'importers:\n',
+    `patchedDependencies:\n  example@1.0.0:\n    hash: ${'0'.repeat(64)}\n    path: patches/example.patch\nimporters:\n`,
+  ), { pnpm: { patchedDependencies: { 'example@1.0.0': 'patches/other.patch' } } });
+
+  await assert.rejects(verifyLockIntegrity({ root }), /lock patch example@1.0.0 does not match/);
+});
+
+async function createFixture(context, lockfile, rootFields = {}) {
   const root = await mkdtemp(join(tmpdir(), 'calledit-lock-integrity-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   await Promise.all([
@@ -54,7 +72,7 @@ async function createFixture(context, lockfile) {
   await writeFile(join(root, 'pnpm-lock.yaml'), lockfile, 'utf8');
   await writeFile(
     join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture', private: true, packageManager: 'pnpm@10.33.0' }),
+    JSON.stringify({ name: 'fixture', private: true, packageManager: 'pnpm@10.33.0', ...rootFields }),
     'utf8',
   );
   await writeFile(

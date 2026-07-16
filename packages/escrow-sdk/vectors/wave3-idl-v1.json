@@ -1,0 +1,130 @@
+{
+  "source_commit": "81aedda",
+  "program_id_commit": "666efac",
+  "program_id": "HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL",
+  "anchor_version": "0.31.1",
+  "instructions": {
+    "settle_market": {
+      "discriminator": [193, 153, 95, 216, 166, 6, 144, 217],
+      "accounts": [
+        ["config", false, false],
+        ["oracleSet", false, false],
+        ["market", false, true],
+        ["instructionsSysvar", false, false]
+      ],
+      "data_hex": "c1995fd8a60690d901f60100000000000001000000460102000100010200010020202020202020202020202020202020202020202020202020202020202020202121212121212121212121212121212121212121212121212121212121212121b4bc1d67000000007cbd1d67000000001f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f"
+    },
+    "calculate_position_entitlement": {
+      "discriminator": [68, 120, 118, 224, 91, 52, 41, 225],
+      "accounts": [["market", false, true], ["position", false, true]]
+    },
+    "void_market": {
+      "discriminator": [243, 175, 46, 124, 95, 101, 39, 69],
+      "accounts": [
+        ["config", false, false],
+        ["oracleSet", false, false],
+        ["market", false, true],
+        ["instructionsSysvar", false, false]
+      ],
+      "data_hex": "f3af2e7c5f65274500f701000000000000b4bc1d67000000007cbd1d67000000001f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f"
+    },
+    "timeout_void": {
+      "discriminator": [12, 211, 235, 186, 179, 108, 98, 208],
+      "accounts": [["market", false, true]]
+    },
+    "claim_position": {
+      "discriminator": [168, 90, 89, 44, 203, 246, 210, 46],
+      "accounts": [
+        ["market", false, true],
+        ["position", false, true],
+        ["owner", true, true],
+        ["vault", false, true],
+        ["tokenMint", false, false],
+        ["ownerTokenAccount", false, true],
+        ["tokenProgram", false, false],
+        ["associatedTokenProgram", false, false],
+        ["systemProgram", false, false]
+      ]
+    },
+    "claim_position_for": {
+      "discriminator": [78, 128, 143, 121, 217, 191, 221, 71],
+      "accounts": [
+        ["payer", true, true],
+        ["market", false, true],
+        ["position", false, true],
+        ["owner", false, true],
+        ["vault", false, true],
+        ["tokenMint", false, false],
+        ["ownerTokenAccount", false, true],
+        ["tokenProgram", false, false],
+        ["associatedTokenProgram", false, false],
+        ["systemProgram", false, false]
+      ]
+    },
+    "close_position_lots": {
+      "discriminator": [148, 137, 14, 114, 167, 75, 97, 152],
+      "accounts": [
+        ["config", false, false],
+        ["market", false, false],
+        ["position", false, true],
+        ["rentRecipient", false, true],
+        ["systemProgram", false, false]
+      ]
+    },
+    "close_position": {
+      "discriminator": [123, 134, 81, 0, 49, 68, 98, 98],
+      "accounts": [
+        ["config", false, false],
+        ["market", false, true],
+        ["position", false, true],
+        ["rentRecipient", false, true]
+      ]
+    },
+    "close_market": {
+      "discriminator": [88, 154, 248, 186, 48, 14, 123, 244],
+      "accounts": [
+        ["market", false, true],
+        ["vault", false, true],
+        ["residualRecipient", false, true],
+        ["tokenMint", false, false],
+        ["residualTokenAccount", false, true],
+        ["tokenProgram", false, false],
+        ["systemProgram", false, false]
+      ]
+    }
+  },
+  "events": {
+    "MarketSettlementStarted": {
+      "discriminator": [57, 114, 235, 229, 240, 159, 32, 143],
+      "fields": ["market", "outcome", "matchedBack", "matchedDoubt", "positionCount", "evidenceHash"]
+    },
+    "PositionEntitlementCalculated": {
+      "discriminator": [237, 117, 56, 238, 241, 136, 79, 53],
+      "fields": ["market", "position", "owner", "baseEntitlement", "forfeitedAmount", "processedPositionCount"]
+    },
+    "MarketSettled": {
+      "discriminator": [237, 212, 22, 175, 201, 117, 215, 99],
+      "fields": ["market", "outcome", "matchedBack", "matchedDoubt", "forfeitedTotal", "evidenceHash", "finalPosition", "finalOwner", "finalBaseEntitlement", "finalForfeitedAmount"]
+    },
+    "MarketVoided": {
+      "discriminator": [217, 12, 138, 39, 108, 75, 89, 26],
+      "fields": ["market", "evidenceHash", "timedOut", "reason", "decidingSequence"]
+    },
+    "PositionClaimed": {
+      "discriminator": [149, 250, 141, 45, 210, 198, 94, 148],
+      "fields": ["market", "position", "owner", "amount", "asset", "destination"]
+    },
+    "PositionLotsClosed": {
+      "discriminator": [253, 103, 46, 41, 67, 37, 226, 166],
+      "fields": ["market", "position", "owner", "nonces", "rentRecipient"]
+    },
+    "PositionClosed": {
+      "discriminator": [157, 163, 227, 228, 13, 97, 138, 121],
+      "fields": ["market", "position", "owner", "rentRecipient"]
+    },
+    "MarketClosed": {
+      "discriminator": [86, 91, 119, 43, 94, 0, 217, 113],
+      "fields": ["market", "dustAmount", "asset"]
+    }
+  }
+}

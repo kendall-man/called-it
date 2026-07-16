@@ -1,6 +1,8 @@
 TAP version 13
-ok 1 - fresh 0001-0005 migration applied and cleaned
+ok 1 - fresh wallet migration chain applied through Privy identity and cleaned
 ok 2 - upgraded 0001-0004 plus 0005 applied and cleaned
-ok 3 - challenge race, TTL, wrong-user, relink blockers, accepted relink and permanent pubkey reservation matched typed outcomes and structural constraints
-ok 4 - owner-only active intent resolution, immutable field mismatch, active conflict, funding and single consume were enforced
-1..4
+ok 3 - one-time browser wallet session linked exactly once without storing its raw token
+ok 4 - Privy user and embedded wallet metadata were installed atomically and reserved
+ok 5 - challenge race, TTL, wrong-user, relink blockers, accepted relink and permanent pubkey reservation matched typed outcomes and structural constraints
+ok 6 - owner-only active intent resolution, immutable field mismatch, active conflict, funding and single consume were enforced
+1..6

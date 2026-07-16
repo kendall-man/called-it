@@ -3,8 +3,12 @@ import type {
   WagerDb,
   WagerMarketRow,
   WagerPositionSide,
+  StarterOnlyWagerDb,
+  WagerSettlementDb,
   WagerSettlementOutcome,
 } from './port-db.js';
+import type { SolanaNetwork } from '../solana-network.js';
+import type { WagerAsset } from '@calledit/market-engine';
 
 export type * from './port-db.js';
 
@@ -40,6 +44,8 @@ export type WagerBlockheightCheck =
   | { ok: false; error: string };
 
 export interface WagerIncomingTransfer {
+  asset: WagerAsset;
+  mintPubkey: string | null;
   sig: string;
   /** One tx can carry several transfers to the treasury — each credits separately. */
   ixIndex: number;
@@ -60,24 +66,27 @@ export type WagerDepositScan =
   | { ok: false; error: string };
 
 export type WagerBalanceResult =
-  | { ok: true; lamports: bigint }
+  | { ok: true; amountAtomic: bigint }
   | { ok: false; error: string };
 
 export interface WagerChain {
   /** The dedicated wager treasury address (safe to show in chat). */
   treasuryPubkey(): string;
-  treasuryBalanceLamports(): Promise<WagerBalanceResult>;
+  treasuryBalance(asset: WagerAsset): Promise<WagerBalanceResult>;
   /**
    * Fetch a fresh blockhash, build and locally sign a treasury→dest transfer.
    * The signature is known PRE-broadcast; identical bytes ⇒ identical sig, so
    * rebroadcast is always safe.
    */
-  buildTransfer(args: { to: string; lamports: bigint }): Promise<WagerBuiltTransfer>;
+  buildTransfer(args: { asset: WagerAsset; to: string; amountAtomic: bigint }): Promise<WagerBuiltTransfer>;
   broadcastRawTx(rawTxB64: string): Promise<WagerBroadcastResult>;
   getSigStatus(sig: string): Promise<WagerSigStatus>;
   isBlockheightExceeded(lastValidBlockHeight: number): Promise<WagerBlockheightCheck>;
   /** Incoming system transfers to the treasury newer than the cursor sig. */
-  fetchIncomingTransfers(args: { untilSig: string | null }): Promise<WagerDepositScan>;
+  fetchIncomingTransfers(args: {
+    asset: WagerAsset;
+    untilSig: string | null;
+  }): Promise<WagerDepositScan>;
 }
 
 // ── Engine seams (structural subsets of Poster / Logger / grammy Bot) ─────
@@ -100,9 +109,14 @@ export interface WagerCronRegistry {
 /** Structural subset of grammy's CommandContext — fakes stay trivial. */
 export interface WagerCommandCtx {
   chat?: { id: number; type: string };
-  from?: { id: number; first_name: string; last_name?: string };
+  from?: { id: number; first_name: string; last_name?: string; username?: string };
   match?: string | RegExpMatchArray;
-  reply(text: string): Promise<unknown>;
+  reply(text: string, options?: {
+    reply_markup: { inline_keyboard: Array<Array<{
+      text: string;
+      url: string;
+    }>> };
+  }): Promise<unknown>;
 }
 
 /** Structural subset of grammy's Bot (method bivariance lets Bot satisfy it). */
@@ -125,6 +139,22 @@ export interface WagerStakeTapArgs {
   source: WagerStakeTapSource;
 }
 
+export interface WagerStakeConfirmationArgs extends Omit<WagerStakeTapArgs, 'source'> {
+  /** Telegram callback id used only to deduplicate creation of the prompt. */
+  callbackId: string;
+}
+
+export type WagerStakeConfirmationResult =
+  | { readonly ok: true; readonly intentId: string }
+  | { readonly ok: false; readonly reply: string };
+
+export interface WagerStakeTapResult {
+  readonly reply: string;
+  readonly placed: boolean;
+  /** True for a fresh commit or an idempotent replay of that same commit. */
+  readonly accepted?: true;
+}
+
 /**
  * The source is server-derived, so no Telegram/API client can select starter
  * eligibility. Only a default Telegram card tap can enter the starter branch.
@@ -134,27 +164,97 @@ export type WagerStakeTapSource =
   | { kind: 'telegram_card'; callbackId: string }
   | { kind: 'durable_source'; idempotencyKey: string };
 
-export interface WagerModule {
+export interface WagerModuleCore {
   /** Always 'sol' now — every market is a SOL market. Stamped atomically at mint. */
   currencyForMint(groupId: number): Promise<WagerCurrency>;
+  /** Current global acceptance state used to keep Telegram cards honest. */
+  stakesAvailable(asset?: WagerAsset): Promise<boolean>;
   /** The stake path shared by buttons and the API; reply is the answer text. */
-  handleStakeTap(args: WagerStakeTapArgs): Promise<{ reply: string; placed: boolean }>;
+  handleStakeTap(args: WagerStakeTapArgs): Promise<WagerStakeTapResult>;
   /** Idempotent money movement for a settled/voided sol market. */
-  applySettlement(marketId: string): Promise<void>;
+  applySettlement(
+    marketId: string,
+    options?: WagerSettlementOptions,
+  ): Promise<void>;
   /** Chat receipt line (SOL amounts are chat-only; public_receipts untouched). */
   settlementPayoutsLine(marketId: string, outcome: WagerSettlementOutcome): Promise<string>;
-  cardFooter(): string;
-  presetLabels(): [string, string, string];
+  cardFooter(asset?: WagerAsset): string;
+  presetLabels(asset?: WagerAsset): [string, string, string];
   /** Preset button index → lamports (out-of-range → null). */
-  presetLamports(index: number): bigint | null;
-  /** User-global SOL balance (lamports) + linked wallet, for the API wallet route. */
-  walletSummary(userId: number): Promise<{ balanceLamports: bigint; pubkey: string | null }>;
-  registerCommands(bot: WagerBotLike): void;
-  registerCrons(registry: WagerCronRegistry): void;
+  presetLamports(index: number, asset?: WagerAsset): bigint | null;
+  /** DB-only recovery for ledger effects after settlement crashes. */
+  registerSettlementRecovery(registry: WagerCronRegistry): void;
 }
 
-/** Constructor bundle assembled by wiring.ts (module is null when flag off). */
-export interface WagerModuleDeps {
+export interface StarterOnlyWagerModule extends WagerModuleCore {
+  readonly kind: 'starter_only';
+}
+
+export interface FundedWagerModule extends WagerModuleCore {
+  readonly kind: 'funded';
+  /** User-global available/locked SOL + linked wallet for private account surfaces. */
+  walletSummary(userId: number): Promise<{
+    balances: Readonly<Record<WagerAsset, { availableAtomic: bigint; lockedAtomic: bigint }>>;
+    /** Legacy SOL aliases retained for the existing engine API during rollout. */
+    balanceLamports: bigint;
+    lockedLamports: bigint;
+    pubkey: string | null;
+  }>;
+  setGroupDefaultAsset(groupId: number, asset: WagerAsset, byUserId: number): Promise<void>;
+  groupAssetMessage(asset: WagerAsset, changed: boolean): string;
+  prepareStakeConfirmation(
+    args: WagerStakeConfirmationArgs,
+  ): Promise<WagerStakeConfirmationResult>;
+  getStakeConfirmation(userId: number, intentId: string): Promise<{
+    readonly marketId: string;
+    readonly groupId: number;
+    readonly side: WagerPositionSide;
+    readonly asset: WagerAsset;
+    readonly lamports: bigint;
+  } | null>;
+  confirmStakeConfirmation(args: Omit<WagerStakeConfirmationArgs, 'callbackId'> & {
+    readonly intentId: string;
+  }): Promise<{ reply: string; placed: boolean }>;
+  cancelStakeConfirmation(userId: number, intentId: string): Promise<boolean>;
+  registerCommands(bot: WagerBotLike): void;
+  /** Completes one authoritative solvency pass before funded readiness may succeed. */
+  ensureInitialSolvencyCheck(): Promise<boolean>;
+  /** Legacy custody recovery workers; deposit intake can be disabled after escrow cutover. */
+  registerFundedWorkers(
+    registry: WagerCronRegistry,
+    options?: { readonly legacyDepositIntakeEnabled?: boolean },
+  ): void;
+}
+
+export type WagerModule = StarterOnlyWagerModule | FundedWagerModule;
+
+export interface WagerSettlementDeps {
+  db: WagerSettlementDb;
+  log: WagerLogger;
+  solanaNetwork?: SolanaNetwork;
+}
+
+export interface WagerSettlementOptions {
+  /** Required for mainnet test matches so legacy free replay rows cannot receive SOL. */
+  readonly requireFullyBacked?: boolean;
+}
+
+interface WagerStakeFlags {
+  stakeAcceptanceEnabled: boolean;
+  solanaNetwork?: SolanaNetwork;
+}
+
+export interface StarterOnlyWagerModuleDeps extends WagerStakeFlags {
+  readonly runtimeMode: 'starter_only';
+  /** The starter path is live only while every rollout guard is enabled. */
+  starterGrantsEnabled: boolean;
+  db: StarterOnlyWagerDb;
+  log: WagerLogger;
+}
+
+/** Funded constructor bundle assembled by wiring.ts. */
+export interface WagerModuleDeps extends WagerStakeFlags {
+  readonly runtimeMode: 'funded';
   db: WagerDb;
   chain: WagerChain;
   poster: WagerPoster;
@@ -162,8 +262,8 @@ export interface WagerModuleDeps {
   now(): number;
   /** WAGER_OPS_CHAT_ID — solvency alerts route here when set. */
   opsChatId: number | null;
-  /** The starter path is live only while every rollout guard is enabled. */
-  starterGrantsEnabled: boolean;
   walletMiniappEnabled: boolean;
-  stakeAcceptanceEnabled: boolean;
+  webBaseUrl?: string;
 }
+
+export type WagerStakeDeps = StarterOnlyWagerModuleDeps | WagerModuleDeps;

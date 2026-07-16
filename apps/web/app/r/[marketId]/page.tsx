@@ -2,22 +2,22 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { EvidenceList, type EvidenceState } from '@/components/evidence-list';
+import { EscrowReceiptDetails } from '@/components/escrow-receipt';
 import { AwaitingConfiguration, DataUnavailable } from '@/components/states';
 import { TimelineList } from '@/components/timeline-list';
 import { TrustBadge, type TrustSnapshot } from '@/components/trust-badge';
 import { Badge, Card, PageShell, SectionTitle } from '@/components/ui';
-import { formatLamportsAsSol, formatMultiplier, formatProbabilityPct } from '@/lib/format';
+import { formatAtomicAmount, formatMultiplier, formatProbabilityPct } from '@/lib/format';
 import { fetchEvidence, fetchReceipt } from '@/lib/queries';
-import type { EvidenceFact, PublicReceipt } from '@/lib/receipts';
+import { isPublicMarketId, type EvidenceFact, type PublicReceipt } from '@/lib/receipts';
 import { PROVENANCE_COPY } from '@/lib/spec-terms';
 import { createAnonServerClient } from '@/lib/supabase';
 import { buildTimeline } from '@/lib/timeline';
+import { isMainnet } from '@/lib/solana-network';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Receipt' };
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const OUTCOME_BANNER: Record<
   NonNullable<PublicReceipt['outcome']>,
@@ -34,31 +34,31 @@ function AggregateGrid({ receipt }: { receipt: PublicReceipt }) {
       <div>
         <dt className="text-fog">Happens pot</dt>
         <dd className="mt-1 font-semibold text-chalk">
-          {formatLamportsAsSol(receipt.backPotLamports)}
+          {formatAtomicAmount(receipt.backPotLamports, receipt.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Does not pot</dt>
         <dd className="mt-1 font-semibold text-chalk">
-          {formatLamportsAsSol(receipt.doubtPotLamports)}
+          {formatAtomicAmount(receipt.doubtPotLamports, receipt.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Matched</dt>
         <dd className="mt-1 font-semibold text-chalk">
-          {formatLamportsAsSol(receipt.matchedAmountLamports)}
+          {formatAtomicAmount(receipt.matchedAmountLamports, receipt.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Refunded</dt>
         <dd className="mt-1 font-semibold text-chalk">
-          {formatLamportsAsSol(receipt.refundedAmountLamports)}
+          {formatAtomicAmount(receipt.refundedAmountLamports, receipt.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Payout total</dt>
         <dd className="mt-1 font-semibold text-chalk">
-          {formatLamportsAsSol(receipt.paidAmountLamports)}
+          {formatAtomicAmount(receipt.paidAmountLamports, receipt.currency)}
         </dd>
       </div>
       <div>
@@ -74,8 +74,9 @@ export default async function ReceiptPage({
 }: {
   params: Promise<{ marketId: string }>;
 }) {
+  const mainnet = isMainnet();
   const { marketId } = await params;
-  if (!UUID_PATTERN.test(marketId)) notFound();
+  if (!isPublicMarketId(marketId)) notFound();
 
   const client = createAnonServerClient();
   if (!client) return <AwaitingConfiguration />;
@@ -124,6 +125,12 @@ export default async function ReceiptPage({
 
       <Card>
         <p className="display-type text-xs tracking-[0.25em] text-fog">On the record</p>
+        {receipt.isReplay ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Badge tone="flood">Completed-match replay</Badge>
+            <Badge tone="neutral">No Points</Badge>
+          </div>
+        ) : null}
         <h1 className="mt-2 break-words text-3xl font-bold leading-tight text-chalk sm:text-4xl">
           {receipt.terms.text}
         </h1>
@@ -148,7 +155,10 @@ export default async function ReceiptPage({
           </Badge>
         </div>
         <p className="mt-3 text-sm leading-relaxed text-fog">
-          {provenance.blurb} Amounts below use devnet SOL test tokens only.
+          {provenance.blurb}{' '}
+          {mainnet
+            ? `Amounts below use ${receipt.currency.toUpperCase()} on Solana mainnet.`
+            : `Amounts below use devnet ${receipt.currency.toUpperCase()} test tokens only.`}
         </p>
       </Card>
 
@@ -156,6 +166,13 @@ export default async function ReceiptPage({
         <SectionTitle>Group totals</SectionTitle>
         <AggregateGrid receipt={receipt} />
       </Card>
+
+      {receipt.escrow ? (
+        <Card>
+          <SectionTitle>On-chain escrow</SectionTitle>
+          <EscrowReceiptDetails escrow={receipt.escrow} />
+        </Card>
+      ) : null}
 
       <Card>
         <SectionTitle>Proof status</SectionTitle>
@@ -177,6 +194,7 @@ export default async function ReceiptPage({
               createdAt: receipt.createdAt,
               settledAt: receipt.settledAt,
               outcome: receipt.outcome,
+              currency: receipt.currency,
             })}
           />
         </div>

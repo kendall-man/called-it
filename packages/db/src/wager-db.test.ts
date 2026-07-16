@@ -125,6 +125,18 @@ describe('wager ledger', () => {
     expect(await db.totalLedgerLamports()).toBe(103n);
   });
 
+  it('keeps SOL and USDC balances isolated for the same user', async () => {
+    const { db } = makeHarness();
+    await db.postWagerLedger(ledgerEntry({ lamports: 10_000_000n, idempotency_key: 'sol-1' }));
+    await db.postWagerLedger(ledgerEntry({
+      asset: 'usdc',
+      lamports: 5_000_000n,
+      idempotency_key: 'usdc-1',
+    }));
+    expect(await db.balanceLamports(USER_ID, 'sol')).toBe(10_000_000n);
+    expect(await db.balanceLamports(USER_ID, 'usdc')).toBe(5_000_000n);
+  });
+
   it('sums exceeding 2^53 stay exact in bigint; corrupt rows fail loud', async () => {
     const { db, fake } = makeHarness();
     // Each row is individually safe; the bigint total exceeds 2^53 and must

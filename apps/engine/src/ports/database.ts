@@ -8,20 +8,30 @@ import type {
 } from '@calledit/market-engine';
 import type { Chattiness } from '../localTypes.js';
 import type {
+  ApplyGroupPointsResult,
   ClaimRow,
   BotGroupReadyMarkerResult,
   ClaimStatus,
   FixtureRow,
   FixtureUpsert,
   GroupRow,
+  GroupPlayerStats,
+  LeaderboardEntry,
   LedgerEntry,
   MembershipRow,
   MarketRow,
   PlayerLite,
+  PointResult,
+  PositionParticipant,
   PositionRow,
   SettlementRow,
   UserRow,
 } from './rows.js';
+
+export type ReplayPositionResult =
+  | { readonly ok: true; readonly duplicate: true }
+  | { readonly ok: true; readonly duplicate: false; readonly position_id: string }
+  | { readonly ok: false; readonly code: 'closed' | 'invalid_input' | 'not_replay' | 'wrong_side' };
 
 export interface EngineDb {
   upsertGroup(input: { id: number; title: string }): Promise<GroupRow>;
@@ -37,13 +47,15 @@ export interface EngineDb {
 
   upsertUser(input: { id: number; display_name: string; username: string | null }): Promise<void>;
   getUser(id: number): Promise<UserRow | null>;
+  getUserNames?(ids: readonly number[]): Promise<ReadonlyMap<number, string>>;
   ensureMembership(groupId: number, userId: number): Promise<{ created: boolean }>;
   listMemberships(groupId: number): Promise<MembershipRow[]>;
   balance(groupId: number, userId: number): Promise<number>;
-  leaderboard(
-    groupId: number,
-    limit: number,
-  ): Promise<Array<{ user_id: number; display_name: string; points_cached: number; streak: number }>>;
+  applyGroupPoints(marketId: string): Promise<ApplyGroupPointsResult>;
+  pointResultsForMarket(marketId: string): Promise<readonly PointResult[]>;
+  groupPlayerStats(groupId: number, userId: number): Promise<GroupPlayerStats>;
+  leaderboard(groupId: number, limit: number): Promise<readonly LeaderboardEntry[]>;
+  positionParticipantsForMarket(marketId: string): Promise<readonly PositionParticipant[]>;
 
   postLedger(entry: LedgerEntry): Promise<{ inserted: boolean }>;
   hasLedgerEntry(idempotencyKey: string): Promise<boolean>;
@@ -62,7 +74,10 @@ export interface EngineDb {
     id: string,
     patch: Partial<{ status: ClaimStatus; parse: unknown; expires_at: string | null }>,
   ): Promise<void>;
-  expireOverdueClaims(nowIso: string): Promise<ClaimRow[]>;
+  expireOverdueClaims(
+    nowIso: string,
+    allowedGroupIds?: readonly number[],
+  ): Promise<ClaimRow[]>;
 
   insertMarket(input: {
     claim_id: string;
@@ -76,7 +91,7 @@ export interface EngineDb {
     quote_multiplier: number;
     odds_message_id: string | null;
     odds_ts: number | null;
-    currency?: 'rep' | 'sol';
+    currency?: import('@calledit/market-engine').MarketCurrency;
   }): Promise<MarketRow>;
   getMarket(id: string): Promise<MarketRow | null>;
   updateMarketStatus(id: string, status: MarketStatus): Promise<void>;
@@ -104,6 +119,18 @@ export interface EngineDb {
     state: 'pending' | 'active';
     placed_at_ms: number;
   }): Promise<PositionRow>;
+  placeReplayPosition?(input: {
+    group_id: number;
+    market_id: string;
+    user_id: number;
+    side: PositionSide;
+    stake: number;
+    locked_multiplier: number;
+    locked_odds_message_id: string | null;
+    locked_odds_ts: number | null;
+    state: 'pending' | 'active';
+    placed_at_ms: number;
+  }): Promise<ReplayPositionResult>;
   positionsForMarket(marketId: string): Promise<PositionRow[]>;
   setPositionStates(ids: string[], state: 'pending' | 'active' | 'void'): Promise<void>;
 

@@ -10,6 +10,8 @@ const USER = 7;
 
 function transfer(overrides: Partial<WagerIncomingTransfer>): WagerIncomingTransfer {
   return {
+    asset: overrides.asset ?? 'sol',
+    mintPubkey: overrides.mintPubkey ?? null,
     sig: overrides.sig ?? 'sigA',
     ixIndex: overrides.ixIndex ?? 0,
     sender: overrides.sender ?? SENDER,
@@ -19,7 +21,36 @@ function transfer(overrides: Partial<WagerIncomingTransfer>): WagerIncomingTrans
 }
 
 describe('deposit watcher', () => {
-  it('credits a linked sender at/above the minimum and notifies the last wager group', async () => {
+  it('logs a credited deposit without Telegram user identity', async () => {
+    // Given a linked Telegram user and a collectable structured logger
+    const infoEvents: Array<{
+      readonly event: string;
+      readonly fields: Record<string, unknown> | undefined;
+    }> = [];
+    const { deps, db, chain } = makeFakeDeps({
+      log: {
+        info(event, fields) {
+          infoEvents.push({ event, fields });
+        },
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    });
+    db.seedLink(USER, SENDER, GROUP);
+    chain.setScanTransfers([transfer({ sig: 'privacy-sig', lamports: 5_000_000n })]);
+
+    // When the watcher credits the deposit
+    await createDepositWatcher(deps).tick();
+
+    // Then the credit log retains domain diagnostics without Telegram identity
+    expect(infoEvents.find(({ event }) => event === 'wager_deposit_credited')?.fields).toEqual({
+      txSig: 'privacy-sig',
+      ixIndex: 0,
+      lamports: '5000000',
+    });
+  });
+
+  it('credits a linked sender at/above the minimum and notifies the user privately', async () => {
     const { deps, db, chain, poster } = makeFakeDeps();
     db.seedLink(USER, SENDER, GROUP);
     db.users.set(USER, 'Mika');
@@ -30,7 +61,7 @@ describe('deposit watcher', () => {
     expect(db.ledgerByKey(WAGER_KEYS.deposit('sigA', 0))?.lamports).toBe(5_000_000n);
     expect(db.deposits.get('sigA:0')?.credited_at).not.toBeNull();
     expect(poster.posts).toHaveLength(1);
-    expect(poster.posts[0]?.chatId).toBe(GROUP);
+    expect(poster.posts[0]?.chatId).toBe(USER);
     expect(poster.posts[0]?.text).toContain('Mika');
     expect(db.cursors.get(depositCursorStream(chain.treasuryPubkey()))).toBe('sigA');
   });
@@ -89,7 +120,7 @@ describe('deposit watcher', () => {
     expect(poster.posts).toHaveLength(1);
   });
 
-  it('never notifies without a last wager group (a DM is impossible)', async () => {
+  it('notifies a linked user privately even before their first group position', async () => {
     const { deps, db, chain, poster } = makeFakeDeps();
     db.seedLink(USER, SENDER, null); // linked but never wagered in a group
     chain.setScanTransfers([transfer({ sig: 'sigA' })]);
@@ -97,7 +128,8 @@ describe('deposit watcher', () => {
     await createDepositWatcher(deps).tick();
 
     expect(db.ledgerByKey(WAGER_KEYS.deposit('sigA', 0))).toBeDefined(); // still credited
-    expect(poster.posts).toHaveLength(0);
+    expect(poster.posts).toHaveLength(1);
+    expect(poster.posts[0]?.chatId).toBe(USER);
   });
 
   it('advances the cursor past a transfer-free (dust/spam) scan', async () => {
@@ -110,13 +142,24 @@ describe('deposit watcher', () => {
   });
 
   it('a failed scan moves nothing — cursor stays put', async () => {
-    const { deps, db, chain } = makeFakeDeps();
+    const warnings: Array<{ event: string; fields: Record<string, unknown> | undefined }> = [];
+    const { deps, db, chain } = makeFakeDeps({
+      log: {
+        info: () => undefined,
+        warn: (event, fields) => { warnings.push({ event, fields }); },
+        error: () => undefined,
+      },
+    });
     chain.scan = { ok: false, error: '429' };
 
-    await createDepositWatcher(deps).tick();
+    await createDepositWatcher(deps, 'usdc').tick();
 
     expect(db.cursors.size).toBe(0);
     expect(db.deposits.size).toBe(0);
+    expect(warnings).toContainEqual({
+      event: 'wager_deposit_scan_failed',
+      fields: { asset: 'usdc' },
+    });
   });
 
   it('skips the tick entirely when the singleton lock is held elsewhere', async () => {

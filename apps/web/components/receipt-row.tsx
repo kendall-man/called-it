@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { formatLamportsAsSol, formatMultiplier, formatUtc } from '@/lib/format';
+import { formatAtomicAmount, formatMultiplier, formatUtc } from '@/lib/format';
 import type {
   PublicGroupBoardMarket,
   PublicReceipt,
@@ -7,6 +7,7 @@ import type {
   ReceiptStatus,
 } from '@/lib/receipts';
 import { Badge, type BadgeTone } from './ui';
+import { EscrowBoardSummary } from './escrow-receipt';
 
 const OUTCOME_CHIP: Record<ReceiptOutcome, { tone: BadgeTone; label: string }> = {
   claim_won: { tone: 'pitch', label: 'Called it' },
@@ -48,31 +49,31 @@ function AggregateSummary({ market }: { market: PublicGroupBoardMarket }) {
       <div>
         <dt className="text-fog">Happens pot</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
-          {formatLamportsAsSol(market.backPotLamports)}
+          {formatAtomicAmount(market.backPotLamports, market.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Does not pot</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
-          {formatLamportsAsSol(market.doubtPotLamports)}
+          {formatAtomicAmount(market.doubtPotLamports, market.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Matched</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
-          {formatLamportsAsSol(market.matchedAmountLamports)}
+          {formatAtomicAmount(market.matchedAmountLamports, market.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Refunded</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
-          {formatLamportsAsSol(market.refundedAmountLamports)}
+          {formatAtomicAmount(market.refundedAmountLamports, market.currency)}
         </dd>
       </div>
       <div>
         <dt className="text-fog">Payout total</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
-          {formatLamportsAsSol(market.paidAmountLamports)}
+          {formatAtomicAmount(market.paidAmountLamports, market.currency)}
         </dd>
       </div>
       <div>
@@ -97,10 +98,20 @@ export function ReceiptRow({ receipt }: { receipt: PublicReceipt }) {
           <span className="block break-words text-sm font-semibold text-chalk">
             {receipt.terms.text}
           </span>
+          {receipt.isReplay ? (
+            <span className="mt-0.5 block text-[11px] font-semibold text-flood-300">
+              Completed-match replay · No Points
+            </span>
+          ) : null}
           <span className="block text-[11px] text-fog">
             {formatUtc(receipt.createdAt)} - {receipt.positionCount} positions -{' '}
-            {formatLamportsAsSol(receipt.matchedAmountLamports)} matched
+            {formatAtomicAmount(receipt.matchedAmountLamports, receipt.currency)} matched
           </span>
+          {receipt.escrow ? (
+            <span className="mt-1 block text-[11px] font-semibold text-pitch-300">
+              Finalized escrow record · {receipt.escrow.asset.toUpperCase()}
+            </span>
+          ) : null}
       </span>
       <Badge tone={chip.tone}>{chip.label}</Badge>
     </Link>
@@ -121,6 +132,11 @@ export function BoardMarketRow({ market }: { market: PublicGroupBoardMarket }) {
             {market.terms.text}
           </Link>
           <p className="mt-1 text-xs text-fog">{market.terms.period}</p>
+          {market.isReplay ? (
+            <p className="mt-1 text-xs font-semibold text-flood-300">
+              Completed-match replay · No Points
+            </p>
+          ) : null}
         </div>
         <Badge tone={chip.tone}>{chip.label}</Badge>
       </div>
@@ -128,6 +144,7 @@ export function BoardMarketRow({ market }: { market: PublicGroupBoardMarket }) {
         {formatMultiplier(market.quoteMultiplier)} multiplier - {timingLabel(market)}
       </p>
       <AggregateSummary market={market} />
+      {market.escrow ? <EscrowBoardSummary escrow={market.escrow} /> : null}
     </article>
   );
 }

@@ -46,8 +46,8 @@ export function createDurableSettlementProofRuntime(options: {
           });
         }
       }
-    } catch (error) {
-      options.log.warn('durable_settlement_reconcile_failed', { error: errorMessage(error) });
+    } catch {
+      options.log.warn('durable_settlement_reconcile_failed');
     }
 
     await runWorker(options.settlement, 'durable_settlement_tick_failed', options.log);
@@ -135,11 +135,7 @@ async function runWorker(
 ): Promise<void> {
   try {
     await worker.tick();
-  } catch (error) {
-    log.warn(event, { error: errorMessage(error) });
+  } catch {
+    log.warn(event);
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'non_error_throw';
 }

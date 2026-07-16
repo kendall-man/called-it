@@ -40,7 +40,7 @@ async function sendHttp(
   return await new Promise<RawResponse>((resolve, reject) => {
     const req = httpRequest(
       {
-        host: url.hostname,
+        host: url.hostname.startsWith('[') ? url.hostname.slice(1, -1) : url.hostname,
         port: url.port,
         method: options.method,
         path: `${url.pathname}${url.search}`,
@@ -69,7 +69,10 @@ async function sendRawHttp(base: string, requestText: string): Promise<RawRespon
   const url = new URL(base);
   return await new Promise<RawResponse>((resolve, reject) => {
     const socket = createConnection(
-      { host: url.hostname, port: Number(url.port) },
+      {
+        host: url.hostname.startsWith('[') ? url.hostname.slice(1, -1) : url.hostname,
+        port: Number(url.port),
+      },
       () => socket.end(requestText),
     );
     const chunks: Buffer[] = [];

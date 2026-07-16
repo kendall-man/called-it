@@ -2,6 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { getSolanaConfig, getSupabaseConfig, loadWebEnv } from './env';
 
+const DEVNET_ESCROW_PROGRAM_ID = 'HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL';
+const DISTINCT_MAINNET_TEST_PROGRAM_ID = 'BPFLoaderUpgradeab1e11111111111111111111111';
+const DEVNET_GENESIS_HASH = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
+const MAINNET_GENESIS_HASH = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
+
 const BASE_ENV = {
   NODE_ENV: 'production',
   NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: 'calledit_test_bot',
@@ -13,6 +18,37 @@ const BASE_ENV = {
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function completeEscrowWebEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): NodeJS.ProcessEnv {
+  return {
+    ...BASE_ENV,
+    NEXT_PUBLIC_WAGER_CUSTODY_MODE: 'escrow',
+    NEXT_PUBLIC_ESCROW_PROGRAM_ID: DEVNET_ESCROW_PROGRAM_ID,
+    NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+    NEXT_PUBLIC_ESCROW_GENESIS_HASH: DEVNET_GENESIS_HASH,
+    ESCROW_GENESIS_HASH: DEVNET_GENESIS_HASH,
+    CONCIERGE_WALLET_API_URL: 'https://engine.example.test',
+    WEB_CONCIERGE_TOKEN: 'web-bridge-token-with-at-least-32-bytes',
+    ENGINE_CONCIERGE_TOKEN_SHA256: sha256('concierge-route-token-with-32-bytes'),
+    ENGINE_TELEGRAM_TOKEN_SHA256: sha256('telegram-route-token-with-32-bytes-'),
+    ENGINE_OPS_TOKEN_SHA256: sha256('operations-route-token-with-32-bytes'),
+    SUPABASE_URL: 'https://project.supabase.co',
+    SUPABASE_SERVICE_ROLE_KEY: 'server-only-service-role',
+    SOLANA_RPC_URL: 'https://api.devnet.solana.com',
+    NEXT_PUBLIC_PRIVY_APP_ID: 'clp_123456789012345678901',
+    PRIVY_APP_ID: 'clp_123456789012345678901',
+    PRIVY_APP_SECRET: 'server-only-privy-app-secret',
+    PRIVY_JWT_VERIFICATION_KEY: 'verification-key',
+    WALLET_AUTH_PRIVATE_KEY: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==',
+    WALLET_AUTH_KEY_ID: 'calledit-wallet-v1',
+    TELEGRAM_BOT_TOKEN: '123456789:server-only-bot-token',
+    WALLET_MINIAPP_ENABLED: 'true',
+    WALLET_PROVIDER: 'privy',
+    WEB_BASE_URL: 'https://web.example.test',
+    WALLET_LINK_DOMAIN: 'web.example.test',
+    ...overrides,
+  };
 }
 
 describe('web environment', () => {
@@ -69,6 +105,26 @@ describe('web environment', () => {
     });
   });
 
+  it('accepts an explicit mainnet public profile with an opaque provider URL', () => {
+    const parsed = loadWebEnv({
+      ...BASE_ENV,
+      NEXT_PUBLIC_SOLANA_NETWORK: 'mainnet-beta',
+      NEXT_PUBLIC_SOLANA_RPC_URL: 'https://rpc.provider.example/v1/opaque-key',
+      NEXT_PUBLIC_TXORACLE_PROGRAM_ID: '11111111111111111111111111111111',
+    });
+
+    expect(parsed.NEXT_PUBLIC_SOLANA_NETWORK).toBe('mainnet-beta');
+  });
+
+  it('rejects an explicit devnet RPC in the mainnet public profile', () => {
+    expect(() => loadWebEnv({
+      ...BASE_ENV,
+      NEXT_PUBLIC_SOLANA_NETWORK: 'mainnet-beta',
+      NEXT_PUBLIC_SOLANA_RPC_URL: 'https://api.devnet.solana.com',
+      NEXT_PUBLIC_TXORACLE_PROGRAM_ID: '11111111111111111111111111111111',
+    })).toThrowError('Web environment invalid: NEXT_PUBLIC_SOLANA_RPC_URL');
+  });
+
   it('allows non-secret wallet origin metadata while the Mini App is disabled', () => {
     // Given aligned web origin metadata but no wallet bridge credentials
     const source = {
@@ -104,11 +160,19 @@ describe('web environment', () => {
       name: 'the Mini App without its server-only configuration',
       source: { ...BASE_ENV, WALLET_MINIAPP_ENABLED: 'true' },
       variables: [
-        'ANALYTICS_HMAC_SECRET',
-        'CONCIERGE_WALLET_API_URL',
+        'NEXT_PUBLIC_PRIVY_APP_ID',
+        'NEXT_PUBLIC_WAGER_TREASURY_PUBKEY',
+        'PRIVY_APP_ID',
+        'PRIVY_APP_SECRET',
+        'PRIVY_JWT_VERIFICATION_KEY',
+        'SOLANA_RPC_URL',
+        'SUPABASE_SERVICE_ROLE_KEY',
+        'SUPABASE_URL',
+        'WALLET_AUTH_KEY_ID',
+        'WALLET_AUTH_PRIVATE_KEY',
         'WALLET_LINK_DOMAIN',
+        'WALLET_PROVIDER',
         'WEB_BASE_URL',
-        'WEB_CONCIERGE_TOKEN',
       ].join(', '),
     },
     {
@@ -117,9 +181,34 @@ describe('web environment', () => {
       variables: 'NEXT_PUBLIC_WEB_CONCIERGE_TOKEN',
     },
     {
+      name: 'a Privy app secret exposed with a public prefix',
+      source: { ...BASE_ENV, NEXT_PUBLIC_PRIVY_APP_SECRET: 'do-not-disclose-this-secret' },
+      variables: 'NEXT_PUBLIC_PRIVY_APP_SECRET',
+    },
+    {
+      name: 'a Privy verification key exposed with a public prefix',
+      source: { ...BASE_ENV, NEXT_PUBLIC_PRIVY_JWT_VERIFICATION_KEY: 'do-not-disclose-this-key' },
+      variables: 'NEXT_PUBLIC_PRIVY_JWT_VERIFICATION_KEY',
+    },
+    {
+      name: 'a wallet auth signing key exposed with a public prefix',
+      source: { ...BASE_ENV, NEXT_PUBLIC_WALLET_AUTH_PRIVATE_KEY: 'do-not-disclose-this-key' },
+      variables: 'NEXT_PUBLIC_WALLET_AUTH_PRIVATE_KEY',
+    },
+    {
+      name: 'a Telegram bot token exposed with a public prefix',
+      source: { ...BASE_ENV, NEXT_PUBLIC_TELEGRAM_BOT_TOKEN: 'do-not-disclose-this-token' },
+      variables: 'NEXT_PUBLIC_TELEGRAM_BOT_TOKEN',
+    },
+    {
       name: 'an incomplete Supabase public pair',
       source: { ...BASE_ENV, NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co' },
       variables: 'NEXT_PUBLIC_SUPABASE_ANON_KEY, NEXT_PUBLIC_SUPABASE_URL',
+    },
+    {
+      name: 'an empty web origin',
+      source: { ...BASE_ENV, WEB_BASE_URL: '' },
+      variables: 'WEB_BASE_URL',
     },
   ])('rejects $name with variable names only', ({ source, variables }) => {
     // Given an invalid or incomplete web environment boundary
@@ -137,14 +226,21 @@ describe('web environment', () => {
     const source = {
       ...BASE_ENV,
       WALLET_MINIAPP_ENABLED: 'true',
-      CONCIERGE_WALLET_API_URL: 'https://concierge.example.test',
-      WEB_CONCIERGE_TOKEN: 'web-concierge-token-with-32-bytes-',
-      ENGINE_CONCIERGE_TOKEN_SHA256: sha256('concierge-route-token-with-32-bytes'),
-      ENGINE_TELEGRAM_TOKEN_SHA256: sha256('telegram-route-token-with-32-bytes-'),
-      ENGINE_OPS_TOKEN_SHA256: sha256('operations-route-token-with-32-bytes'),
+      WALLET_PROVIDER: 'privy',
+      SUPABASE_URL: 'https://project.supabase.co',
+      SUPABASE_SERVICE_ROLE_KEY: 'server-only-service-role',
+      SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
+      NEXT_PUBLIC_SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
+      NEXT_PUBLIC_TXORACLE_PROGRAM_ID: '11111111111111111111111111111111',
+      NEXT_PUBLIC_WAGER_TREASURY_PUBKEY: '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
+      NEXT_PUBLIC_PRIVY_APP_ID: 'clp_123456789012345678901',
+      PRIVY_APP_ID: 'clp_123456789012345678901',
+      PRIVY_APP_SECRET: 'server-only-privy-app-secret',
+      PRIVY_JWT_VERIFICATION_KEY: '-----BEGIN PUBLIC KEY-----\npublic-key-material\n-----END PUBLIC KEY-----',
+      WALLET_AUTH_PRIVATE_KEY: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==',
+      WALLET_AUTH_KEY_ID: 'calledit-wallet-v1',
       WEB_BASE_URL: 'https://web.example.test',
       WALLET_LINK_DOMAIN: 'web.example.test',
-      ANALYTICS_HMAC_SECRET: 'YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=',
     };
 
     // When the web parser reads the production environment
@@ -152,8 +248,82 @@ describe('web environment', () => {
 
     // Then the wallet capability is enabled without creating public secret fields
     expect(parsed.WALLET_MINIAPP_ENABLED).toBe(true);
-    expect(parsed.WEB_CONCIERGE_TOKEN).toBe(source.WEB_CONCIERGE_TOKEN);
+    expect(parsed.SUPABASE_SERVICE_ROLE_KEY).toBe(source.SUPABASE_SERVICE_ROLE_KEY);
+    expect(parsed.PRIVY_APP_ID).toBe(source.PRIVY_APP_ID);
     expect(parsed).not.toHaveProperty('NEXT_PUBLIC_WEB_CONCIERGE_TOKEN');
+    expect(parsed).not.toHaveProperty('NEXT_PUBLIC_PRIVY_APP_SECRET');
+  });
+
+  it('requires every pinned escrow and Privy boundary when escrow custody is public', () => {
+    expect(() => loadWebEnv({
+      ...BASE_ENV,
+      NEXT_PUBLIC_WAGER_CUSTODY_MODE: 'escrow',
+    })).toThrowError(
+      /ESCROW_GENESIS_HASH.*NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT.*NEXT_PUBLIC_ESCROW_GENESIS_HASH.*NEXT_PUBLIC_ESCROW_PROGRAM_ID/,
+    );
+  });
+
+  it('accepts escrow custody without a legacy treasury address', () => {
+    const source = completeEscrowWebEnv();
+
+    const parsed = loadWebEnv(source);
+    expect(parsed.NEXT_PUBLIC_WAGER_CUSTODY_MODE).toBe('escrow');
+    expect(parsed.NEXT_PUBLIC_WAGER_TREASURY_PUBKEY).toBeUndefined();
+  });
+
+  it('rejects mainnet escrow position surfaces until a compiled identity is pinned', () => {
+    expect(() => loadWebEnv(completeEscrowWebEnv({
+      NEXT_PUBLIC_SOLANA_NETWORK: 'mainnet-beta',
+      NEXT_PUBLIC_ESCROW_PROGRAM_ID: DISTINCT_MAINNET_TEST_PROGRAM_ID,
+      NEXT_PUBLIC_ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
+      ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
+      SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
+    }))).toThrowError(
+      'Web environment invalid: NEXT_PUBLIC_ESCROW_PROGRAM_ID, NEXT_PUBLIC_WAGER_CUSTODY_MODE',
+    );
+  });
+
+  it.each([
+    ['devnet with mainnet program', { NEXT_PUBLIC_ESCROW_PROGRAM_ID: DISTINCT_MAINNET_TEST_PROGRAM_ID }],
+    ['devnet with mainnet genesis', {
+      NEXT_PUBLIC_ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
+      ESCROW_GENESIS_HASH: MAINNET_GENESIS_HASH,
+    }],
+  ])('rejects crossed devnet escrow deployment identity: %s', (_name, overrides) => {
+    expect(() => loadWebEnv(completeEscrowWebEnv(overrides)))
+      .toThrowError(/NEXT_PUBLIC_SOLANA_NETWORK/);
+  });
+
+  it('requires the browser and server escrow genesis pins to match', () => {
+    expect(() => loadWebEnv({
+      ...BASE_ENV,
+      NEXT_PUBLIC_ESCROW_GENESIS_HASH: 'devnet-genesis',
+      ESCROW_GENESIS_HASH: 'mainnet-genesis',
+    })).toThrowError(/ESCROW_GENESIS_HASH.*NEXT_PUBLIC_ESCROW_GENESIS_HASH/);
+  });
+
+  it('requires the public and server Privy app IDs to match', () => {
+    const source = {
+      ...BASE_ENV,
+      WALLET_MINIAPP_ENABLED: 'true',
+      WALLET_PROVIDER: 'privy',
+      SUPABASE_URL: 'https://project.supabase.co',
+      SUPABASE_SERVICE_ROLE_KEY: 'server-only-service-role',
+      SOLANA_RPC_URL: 'https://api.devnet.solana.com',
+      NEXT_PUBLIC_WAGER_TREASURY_PUBKEY: '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
+      NEXT_PUBLIC_PRIVY_APP_ID: 'clp_123456789012345678901',
+      PRIVY_APP_ID: 'clp_123456789012345678902',
+      PRIVY_APP_SECRET: 'server-only-privy-app-secret',
+      PRIVY_JWT_VERIFICATION_KEY: 'verification-key',
+      WALLET_AUTH_PRIVATE_KEY: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==',
+      WALLET_AUTH_KEY_ID: 'calledit-wallet-v1',
+      WEB_BASE_URL: 'https://web.example.test',
+      WALLET_LINK_DOMAIN: 'web.example.test',
+    };
+
+    expect(() => loadWebEnv(source)).toThrowError(
+      'Web environment invalid: NEXT_PUBLIC_PRIVY_APP_ID, PRIVY_APP_ID',
+    );
   });
 
   it.each([

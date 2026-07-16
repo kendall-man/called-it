@@ -1,6 +1,6 @@
 import type { GamePhase, MatchEvent, OddsInputs, ScoreState } from '@calledit/market-engine';
 import { TXLINE_TUNABLES } from './constants.js';
-import { sleep, type MatchEventSource } from './event-source.js';
+import { sleep, type EventSourceEndReason, type MatchEventSource } from './event-source.js';
 import { consoleLogger, type TxlineLogger } from './logging.js';
 import {
   buildOddsSuspensionEvent,
@@ -58,6 +58,7 @@ export interface ReplayStepResult {
   events: MatchEvent[];
   virtualNowMs: number;
   done: boolean;
+  terminalReached: boolean;
 }
 
 /**
@@ -105,12 +106,29 @@ export class ReplaySource implements MatchEventSource {
     this.logger = options.logger ?? consoleLogger;
   }
 
-  start(onEvent: (event: MatchEvent) => Promise<void>): void {
+  start(
+    onEvent: (event: MatchEvent) => Promise<void>,
+    onEnd?: (reason: EventSourceEndReason) => void,
+  ): void {
     if (this.started) throw new Error('ReplaySource.start() called twice');
     this.started = true;
-    void this.run(onEvent).catch((error) => {
-      this.logger('replay loop crashed', { fixtureId: this.fixtureId, error: String(error) });
-    });
+    void (async () => {
+      let reason: EventSourceEndReason;
+      try {
+        reason = await this.run(onEvent);
+      } catch (error) {
+        this.logger('replay loop crashed', { fixtureId: this.fixtureId, error: String(error) });
+        reason = 'failed';
+      }
+      try {
+        onEnd?.(reason);
+      } catch (error) {
+        this.logger('replay end callback failed', {
+          fixtureId: this.fixtureId,
+          error: String(error),
+        });
+      }
+    })();
   }
 
   stop(): void {
@@ -192,35 +210,50 @@ export class ReplaySource implements MatchEventSource {
         maxVirtualMs: this.maxVirtualMs,
       });
     }
-    return { events, virtualNowMs, done: reachedEndPhase || exhaustedClock };
+    return {
+      events,
+      virtualNowMs,
+      done: reachedEndPhase || exhaustedClock,
+      terminalReached: reachedEndPhase,
+    };
   }
 
-  private async run(onEvent: (event: MatchEvent) => Promise<void>): Promise<void> {
+  private async run(
+    onEvent: (event: MatchEvent) => Promise<void>,
+  ): Promise<EventSourceEndReason> {
     while (!this.stopped) {
       let step: ReplayStepResult;
       try {
         step = await this.stepOnce();
       } catch (error) {
-        if (this.stopped) return;
+        if (this.stopped) return 'stopped';
         if (this.virtualStartMs === null) {
           // Could not even resolve the clock origin — nothing to replay.
           this.logger('replay could not start', { fixtureId: this.fixtureId, error: String(error) });
-          return;
+          return 'failed';
         }
         this.logger('replay tick failed — continuing', {
           fixtureId: this.fixtureId,
           error: String(error),
         });
+        if (
+          this.virtualNowMs !== null &&
+          this.virtualStartMs !== null &&
+          this.virtualNowMs - this.virtualStartMs >= this.maxVirtualMs
+        ) {
+          return 'failed';
+        }
         await sleep(this.tickVirtualMs / this.speed, this.lifecycle.signal);
         continue;
       }
       for (const event of step.events) {
-        if (this.stopped) return;
+        if (this.stopped) return 'stopped';
         await onEvent(event);
       }
-      if (step.done) return;
+      if (step.done) return step.terminalReached ? 'completed' : 'failed';
       await sleep(this.tickVirtualMs / this.speed, this.lifecycle.signal);
     }
+    return 'stopped';
   }
 
   private async resolveVirtualStart(): Promise<number> {

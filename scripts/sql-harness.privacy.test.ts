@@ -21,18 +21,22 @@ const PRIVATE_SENTINELS = [
 ] as const;
 
 const RECEIPT_COLUMNS = [
+  'back_pot_atomic',
   'back_pot_lamports',
   'created_at',
   'currency',
   'deciding_seq',
+  'doubt_pot_atomic',
   'doubt_pot_lamports',
   'evidence_seqs',
   'explorer_url',
   'group_slug',
   'market_id',
+  'matched_amount_atomic',
   'matched_amount_lamports',
   'merkle_proof',
   'outcome',
+  'paid_amount_atomic',
   'paid_amount_lamports',
   'position_count',
   'price_provenance',
@@ -40,6 +44,7 @@ const RECEIPT_COLUMNS = [
   'proof_status',
   'quote_multiplier',
   'quote_probability',
+  'refunded_amount_atomic',
   'refunded_amount_lamports',
   'settled_at',
   'spec',
@@ -50,19 +55,24 @@ const RECEIPT_COLUMNS = [
 ] as const;
 
 const BOARD_COLUMNS = [
+  'back_pot_atomic',
   'back_pot_lamports',
   'created_at',
   'currency',
+  'doubt_pot_atomic',
   'doubt_pot_lamports',
   'group_slug',
   'market_id',
+  'matched_amount_atomic',
   'matched_amount_lamports',
   'outcome',
+  'paid_amount_atomic',
   'paid_amount_lamports',
   'position_count',
   'price_provenance',
   'quote_multiplier',
   'quote_probability',
+  'refunded_amount_atomic',
   'refunded_amount_lamports',
   'settled_at',
   'spec',
@@ -76,7 +86,7 @@ test('privacy-safe public SOL migration applies fresh and as a 0001-0007 upgrade
   await withPrivacyDatabase(migrations, async () => undefined, assertUpgradeBoundary);
 });
 
-test('public product views retain deterministic specs and aggregate SOL facts only', async () => {
+test('public product views retain deterministic specs and aggregate asset facts only', async () => {
   const migrations = await requiredMigrations();
   await withPrivacyDatabase(migrations, async (client, url) => {
     await seedPrivacyFixtures(client);
@@ -314,6 +324,12 @@ async function assertPublicAccessContract(client: Client, url: string): Promise<
     assert.ok(proofs.rows.every((row) => row.market_id === '00000000-0000-4000-8000-000000000401'));
     await assert.rejects(roleClient.query('select * from groups'), /permission denied/);
     await assert.rejects(roleClient.query('select * from onboarding_events'), /permission denied/);
+    await assert.rejects(
+      roleClient.query(
+        "select * from group_market_participants('00000000-0000-4000-8000-000000000401')",
+      ),
+      /permission denied/,
+    );
   });
 }
 

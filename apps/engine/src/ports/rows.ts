@@ -2,6 +2,7 @@ import type {
   GamePhase,
   MarketSpec,
   MarketStatus,
+  MarketCurrency,
   PositionSide,
   SettlementOutcome,
   TrustTier,
@@ -47,6 +48,77 @@ export interface MembershipRow {
   points_cached: number;
   streak: number;
 }
+
+export type GroupPointsApplyErrorCode =
+  | 'market_not_found'
+  | 'settlement_missing'
+  | 'position_conflict';
+
+export type GroupPointsIneligibleReason =
+  | 'pre_activation'
+  | 'replay'
+  | 'unsupported_market';
+
+export type ApplyGroupPointsResult =
+  | {
+      readonly ok: false;
+      readonly code: GroupPointsApplyErrorCode;
+    }
+  | {
+      readonly ok: true;
+      readonly eligible: true;
+      readonly duplicate: boolean;
+      readonly reason: null;
+      readonly group_id: number;
+      readonly scored_count: number;
+      readonly winner_count: number;
+    }
+  | {
+      readonly ok: true;
+      readonly eligible: false;
+      readonly duplicate: boolean;
+      readonly reason: GroupPointsIneligibleReason;
+      readonly group_id: number;
+      readonly scored_count: 0;
+      readonly winner_count: 0;
+    };
+
+export type PointResult = {
+  readonly group_id: number;
+  readonly market_id: string;
+  readonly user_id: number;
+  readonly side: PositionSide;
+  readonly result: 'won' | 'lost';
+  readonly points_delta: 10 | 0;
+  readonly display_name: string;
+  readonly username: string | null;
+};
+
+export type GroupPlayerStats = {
+  readonly group_id: number;
+  readonly user_id: number;
+  readonly points: number;
+  readonly wins: number;
+  readonly losses: number;
+  readonly accuracy: number;
+  readonly current_streak: number;
+  readonly best_streak: number;
+};
+
+export type LeaderboardEntry = GroupPlayerStats & {
+  readonly display_name: string;
+  readonly username: string | null;
+};
+
+export type PositionParticipant = {
+  readonly group_id: number;
+  readonly market_id: string;
+  readonly user_id: number;
+  readonly side: PositionSide;
+  readonly display_name: string;
+  readonly username: string | null;
+  readonly participant_count: number;
+};
 
 export interface FixtureRow {
   fixture_id: number;
@@ -98,7 +170,9 @@ export interface MarketRow {
   odds_ts: number | null;
   card_tg_message_id: number | null;
   created_at: string;
-  currency?: 'rep' | 'sol';
+  currency?: MarketCurrency;
+  /** Immutable accounting route stamped when migration 0024 creates the market. */
+  custody_mode: 'legacy' | 'escrow';
 }
 
 export interface PositionRow {

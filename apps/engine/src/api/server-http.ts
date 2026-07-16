@@ -15,12 +15,14 @@ const CREDENTIAL_FIELD_NAMES = new Set([
   'walletprivatekey',
 ]);
 
-export type RouteScope = 'concierge' | 'telegram' | 'ops';
+export type RouteScope = 'concierge' | 'telegram' | 'ops' | 'escrow_web';
 
 export interface RouteCredentials {
   readonly concierge: string;
   readonly telegram: string;
   readonly ops: string;
+  /** SHA-256 hex digest only; the engine never stores the web bearer plaintext. */
+  readonly escrowWebSha256?: string;
 }
 
 type CredentialDigest = {
@@ -34,7 +36,10 @@ export interface RouteCredentialBoundary {
     allowed: ReadonlySet<RouteScope>,
   ) => AuthorizationResult;
   readonly hasCredentialSearchParam: (url: URL) => boolean;
-  readonly hasCredentialField: (value: unknown) => boolean;
+  readonly hasCredentialField: (
+    value: unknown,
+    allowedTopLevelNames?: ReadonlySet<string>,
+  ) => boolean;
 }
 
 export type AuthorizationResult =
@@ -59,8 +64,8 @@ export function createRouteCredentialBoundary(
       }
       return false;
     },
-    hasCredentialField(value) {
-      return hasCredentialTransportValue(value, digests);
+    hasCredentialField(value, allowedTopLevelNames = new Set()) {
+      return hasCredentialTransportValue(value, digests, allowedTopLevelNames, true);
     },
   };
 }
@@ -130,13 +135,18 @@ function isCredentialName(name: string): boolean {
 function hasCredentialTransportValue(
   value: unknown,
   digests: ReadonlyArray<CredentialDigest>,
+  allowedTopLevelNames: ReadonlySet<string>,
+  topLevel: boolean,
 ): boolean {
   if (typeof value === 'string') return isKnownCredentialValue(value, digests);
-  if (Array.isArray(value)) return value.some((item) => hasCredentialTransportValue(item, digests));
+  if (Array.isArray(value)) {
+    return value.some((item) => hasCredentialTransportValue(item, digests, new Set(), false));
+  }
   if (!isRecord(value)) return false;
   for (const [name, fieldValue] of Object.entries(value)) {
-    if (isCredentialName(name)) return true;
-    if (hasCredentialTransportValue(fieldValue, digests)) return true;
+    const allowedDomainField = topLevel && allowedTopLevelNames.has(name);
+    if (isCredentialName(name) && !allowedDomainField) return true;
+    if (hasCredentialTransportValue(fieldValue, digests, new Set(), false)) return true;
   }
   return false;
 }
@@ -171,8 +181,15 @@ function credentialEntries(
 }
 
 function credentialDigests(credentials: RouteCredentials): ReadonlyArray<CredentialDigest> {
-  return credentialEntries(credentials).map(([scope, token]) => ({
+  const digests = credentialEntries(credentials).map(([scope, token]) => ({
     scope,
     digest: createHash('sha256').update(token).digest(),
   }));
+  if (/^[0-9a-f]{64}$/i.test(credentials.escrowWebSha256 ?? '')) {
+    digests.push({
+      scope: 'escrow_web',
+      digest: Buffer.from(credentials.escrowWebSha256 ?? '', 'hex'),
+    });
+  }
+  return digests;
 }

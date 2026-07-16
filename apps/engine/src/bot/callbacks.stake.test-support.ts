@@ -4,10 +4,18 @@ import { renderFallback } from './copy.js';
 import type { HandlerCtx } from './context.js';
 import type { ClaimRow, EngineDb, FixtureRow, MarketRow, PositionRow } from '../ports.js';
 import { LlmBudget } from './budget.js';
-import { createWagerModule } from '../wager/module.js';
+import {
+  createWagerModule,
+  type WagerModule,
+} from '../wager/module.js';
+import { createStarterOnlyWagerModule } from '../wager/starter-only-module.js';
 import { makeFakeDeps, type FakeWagerDb } from '../wager/fakes.js';
+import { starterOnlyWagerDbFromFake } from '../wager/starter-fake.test-support.js';
+import { createPointMethodStubs, type PointMethodStubs } from '../points/point-methods.test-support.js';
+import { installAtomicStarterRpc } from './callbacks.starter-rpc.test-support.js';
 import { EntityCache } from './entities.js';
 import { SendQueue } from './sendQueue.js';
+import type { EscrowTelegramPort } from './escrow-ux.js';
 
 export const NOW = Date.parse('2026-07-06T18:00:00.000Z');
 export const CHAT_ID = -100999;
@@ -56,6 +64,7 @@ export function stakeMarket(overrides: Partial<MarketRow> = {}): MarketRow {
     card_tg_message_id: null,
     created_at: new Date(NOW).toISOString(),
     currency: 'sol',
+    custody_mode: 'legacy',
     ...overrides,
   };
 }
@@ -64,17 +73,22 @@ export interface StakeHarness {
   h: HandlerCtx;
   wagerDb: FakeWagerDb;
   cardEdits: Array<{ chatId: number; marketId: string; messageId: number }>;
+  posts: Array<{ chatId: number; text: string; options: unknown }>;
 }
 
 export interface StakeHarnessOptions {
   marketRow?: MarketRow;
   fixture?: FixtureRow;
+  replayFixture?: FixtureRow | null;
   balanceLamports?: bigint | null;
   link?: boolean;
   starterGrantsEnabled?: boolean;
   stakeAcceptanceEnabled?: boolean;
   starterBudgetEnabled?: boolean;
   refreshableCard?: boolean;
+  solanaNetwork?: 'devnet' | 'mainnet-beta';
+  custodyMode?: 'legacy' | 'escrow';
+  escrow?: EscrowTelegramPort;
 }
 
 type StakeDb = Pick<
@@ -86,9 +100,10 @@ type StakeDb = Pick<
   | 'ensureMembership'
   | 'getClaim'
   | 'getGroup'
+  | 'placeReplayPosition'
   | 'positionsForMarket'
   | 'setMarketCardMessage'
->;
+> & PointMethodStubs;
 
 interface StakeDeps {
   db: EngineDb;
@@ -96,7 +111,7 @@ interface StakeDeps {
   engine: object;
   tx: object;
   proofSubmitter: object | null;
-  wager: ReturnType<typeof createWagerModule> | null;
+  wager: WagerModule | null;
   readiness: object;
   drains: readonly object[];
   env: object;
@@ -107,7 +122,7 @@ interface StakeDeps {
 interface StakeHandler {
   deps: StakeDeps;
   poster: {
-    post: () => void;
+    post: (chatId: number, text: string, options?: unknown) => void;
     editCard: (chatId: number, marketId: string, messageId: number) => void;
     stripKeyboard: () => void;
   };
@@ -116,6 +131,7 @@ interface StakeHandler {
   budget: LlmBudget;
   queue: SendQueue;
   entities: EntityCache;
+  escrow?: EscrowTelegramPort;
 }
 
 interface StakeCallbackContext {
@@ -125,6 +141,13 @@ interface StakeCallbackContext {
   answerCallbackQuery(
     payload: Parameters<Context['answerCallbackQuery']>[0],
   ): Promise<true>;
+  api: {
+    sendMessage(
+      chatId: number,
+      text: string,
+      options?: unknown,
+    ): Promise<unknown>;
+  };
 }
 
 function asEngineDb(db: StakeDb): EngineDb {
@@ -139,84 +162,25 @@ function asCallbackContext(ctx: StakeCallbackContext): Context {
   return ctx as Context;
 }
 
-function installAtomicStarterRpc(db: FakeWagerDb, starterBudgetEnabled: boolean): void {
-  const standardStake = db.wagerStake.bind(db);
-  const locks = new Map<number, Promise<void>>();
-  db.wagerStake = async (args) => {
-    const prior = locks.get(args.user_id) ?? Promise.resolve();
-    let release = (): void => undefined;
-    const current = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const queued = prior.then(() => current);
-    locks.set(args.user_id, queued);
-    await prior;
-    try {
-      const ledgerKey = `wager:stake:api:${args.idempotency_key ?? ''}`;
-      db.lastStakeArgs = args;
-      if (args.idempotency_key !== undefined && db.ledgerByKey(ledgerKey) !== undefined) {
-        return { ok: true, duplicate: true };
-      }
-      const hasHistory =
-        db.ledger.some((entry) => entry.user_id === args.user_id) ||
-        db.positions.some((position) => position.user_id === args.user_id);
-      if (args.allow_starter && args.lamports === 10_000_000n && !hasHistory) {
-        if (!starterBudgetEnabled) return { ok: false, code: 'starter_unavailable' };
-        const oppositeSide = db.positions.some(
-          (position) =>
-            position.market_id === args.market_id &&
-            position.user_id === args.user_id &&
-            position.side !== args.side &&
-            position.state !== 'void',
-        );
-        if (oppositeSide) return { ok: false, code: 'wrong_side' };
-        const positionId = `starter-position-${db.positions.length + 1}`;
-        db.positions.push({
-          id: positionId,
-          market_id: args.market_id,
-          user_id: args.user_id,
-          side: args.side,
-          stake: Number(args.lamports),
-          locked_multiplier: args.multiplier,
-          state: args.state,
-          placed_at_ms: args.placed_at_ms,
-        });
-        await db.postWagerLedger({
-          user_id: args.user_id,
-          group_id: args.group_id,
-          market_id: args.market_id,
-          kind: 'starter_grant',
-          lamports: args.lamports,
-          idempotency_key: `wager:starter:${args.user_id}`,
-        });
-        await db.postWagerLedger({
-          user_id: args.user_id,
-          group_id: args.group_id,
-          market_id: args.market_id,
-          kind: 'stake',
-          lamports: -args.lamports,
-          idempotency_key: ledgerKey,
-        });
-        return { ok: true, position_id: positionId };
-      }
-      if (!db.links.has(args.user_id)) return { ok: false, code: 'wallet_required' };
-      return standardStake(args);
-    } finally {
-      release();
-      if (locks.get(args.user_id) === queued) locks.delete(args.user_id);
-    }
-  };
-}
-
 export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
   const wagerBundle = makeFakeDeps({
     now: () => NOW,
-    starterGrantsEnabled: opts.starterGrantsEnabled ?? false,
     walletMiniappEnabled: false,
     stakeAcceptanceEnabled: opts.stakeAcceptanceEnabled ?? false,
+    solanaNetwork: opts.solanaNetwork ?? 'devnet',
   });
   installAtomicStarterRpc(wagerBundle.db, opts.starterBudgetEnabled ?? true);
-  const wager = createWagerModule(wagerBundle.deps);
+  const starterOnly =
+    (opts.starterGrantsEnabled ?? false) && (opts.stakeAcceptanceEnabled ?? false);
+  const wager = starterOnly
+    ? createStarterOnlyWagerModule({
+        runtimeMode: 'starter_only',
+        db: starterOnlyWagerDbFromFake(wagerBundle.db),
+        log: wagerBundle.deps.log,
+        starterGrantsEnabled: true,
+        stakeAcceptanceEnabled: true,
+      })
+    : createWagerModule(wagerBundle.deps);
   if (opts.link ?? true) wagerBundle.db.seedLink(USER_A, 'Wa11etPubkey1111111111111111111111111111');
   const balanceLamports =
     opts.balanceLamports === undefined ? 1_000_000_000n : opts.balanceLamports;
@@ -240,7 +204,9 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
       }
     : null;
   const cardEdits: Array<{ chatId: number; marketId: string; messageId: number }> = [];
+  const posts: Array<{ chatId: number; text: string; options: unknown }> = [];
   const db = asEngineDb({
+    ...createPointMethodStubs({ kind: 'empty', groupId: CHAT_ID }),
     getMarket: async (id: string) => (id === market.id ? { ...market } : null),
     getFixture: async () => opts.fixture ?? fixtureAt('NS', null),
     getUser: async (id: number) => ({ id, display_name: `U${id}`, username: null }),
@@ -255,6 +221,24 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
       chattiness: 'nudge' as const,
       is_admin: true,
     }),
+    placeReplayPosition: async (input) => {
+      const duplicate = wagerBundle.db.positions.some(
+        (position) => position.market_id === input.market_id && position.user_id === input.user_id,
+      );
+      if (duplicate) return { ok: true, duplicate: true };
+      const positionId = `replay-position-${wagerBundle.db.positions.length + 1}`;
+      wagerBundle.db.positions.push({
+        id: positionId,
+        market_id: input.market_id,
+        user_id: input.user_id,
+        side: input.side,
+        stake: input.stake,
+        locked_multiplier: input.locked_multiplier,
+        state: input.state,
+        placed_at_ms: input.placed_at_ms,
+      });
+      return { ok: true, duplicate: false, position_id: positionId };
+    },
     positionsForMarket: async (): Promise<PositionRow[]> => wagerBundle.db.positions,
     setMarketCardMessage: async () => undefined,
   });
@@ -275,29 +259,46 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
         STARTER_GRANTS_ENABLED: opts.starterGrantsEnabled ?? false,
         WALLET_MINIAPP_ENABLED: false,
         STAKE_ACCEPTANCE_ENABLED: opts.stakeAcceptanceEnabled ?? false,
+        SOLANA_NETWORK: opts.solanaNetwork ?? 'devnet',
+        WAGER_CUSTODY_MODE: opts.custodyMode ?? 'legacy',
       },
     },
     poster: {
-      post: () => undefined,
+      post: (chatId: number, text: string, options?: unknown) => {
+        posts.push({ chatId, text, options });
+      },
       editCard: (chatId: number, marketId: string, messageId: number) => {
         cardEdits.push({ chatId, marketId, messageId });
       },
       stripKeyboard: () => undefined,
     },
     say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
-    supervisor: { replayFixture: () => null },
+    supervisor: {
+      replayFixture: () => opts.replayFixture?.fixture_id ?? null,
+      replaySnapshot: () => opts.replayFixture ?? null,
+    },
     budget: new LlmBudget(1000, () => NOW),
     queue: new SendQueue({ ratePerMinute: 1, collapseMs: 0, now: () => NOW }),
     entities: new EntityCache(db, () => NOW),
+    ...(opts.escrow === undefined ? {} : { escrow: opts.escrow }),
   });
-  return { h, wagerDb: wagerBundle.db, cardEdits };
+  return { h, wagerDb: wagerBundle.db, cardEdits, posts };
 }
 
 export function makeStakeContext(
   userId: number,
   callbackId = 'callback-1',
-): { ctx: Context; toasts: string[] } {
+): {
+  ctx: Context;
+  toasts: string[];
+  privateMessages: Array<{ readonly chatId: number; readonly text: string; readonly options: unknown }>;
+} {
   const toasts: string[] = [];
+  const privateMessages: Array<{
+    readonly chatId: number;
+    readonly text: string;
+    readonly options: unknown;
+  }> = [];
   const ctx = asCallbackContext({
     chat: { id: CHAT_ID },
     from: { id: userId, first_name: `U${userId}` },
@@ -308,8 +309,14 @@ export function makeStakeContext(
       }
       return true;
     },
+    api: {
+      async sendMessage(chatId, text, options) {
+        privateMessages.push({ chatId, text, options });
+        return true;
+      },
+    },
   });
-  return { ctx, toasts };
+  return { ctx, toasts, privateMessages };
 }
 
 export const stakeAction = (side: 'back' | 'doubt', presetIndex: 0) =>

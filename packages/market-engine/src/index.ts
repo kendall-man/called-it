@@ -4,6 +4,7 @@
  */
 export * from './types.js';
 export * from './constants.js';
+export * from './assets.js';
 export { compileClaim } from './compile.js';
 export {
   priceSpec,

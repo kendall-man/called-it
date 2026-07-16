@@ -8,7 +8,11 @@
 import type { CompileResult, MarketSpec, PriceQuote, RawClaimParse } from '@calledit/market-engine';
 import { TUNABLES } from '@calledit/market-engine';
 import type { ClaimRow, Deps, FixtureRow, GroupRow, MarketRow } from '../ports.js';
-import { buildCompileContext, readGoals } from './context.js';
+import {
+  buildCompileContext,
+  readGoals,
+  type CompileContextOverrides,
+} from './context.js';
 
 /** Stored in claims.parse (jsonb): the raw parse plus compiled candidates. */
 /** A passive or friend-triggered call expires unless its author confirms within two minutes. */
@@ -75,13 +79,18 @@ export async function proveClaim(
   deps: Deps,
   claim: ClaimRow,
   preferredFixtureId?: number,
+  contextOverrides: CompileContextOverrides = {},
 ): Promise<ProveOutcome> {
   let raw: RawClaimParse;
   try {
-    const seedCtx = await buildCompileContext(deps, preferredFixtureId ?? null);
+    const seedCtx = await buildCompileContext(
+      deps,
+      preferredFixtureId ?? null,
+      contextOverrides,
+    );
     raw = await deps.agent.parse(claim.quoted_text, seedCtx);
-  } catch (err) {
-    deps.log.warn('parse_failed', { claimId: claim.id, error: String(err) });
+  } catch {
+    deps.log.warn('parse_failed', { claimId: claim.id });
     return { kind: 'retryable' };
   }
   // Pin the fixture during a replay — any claim in a replaying group is about
@@ -89,15 +98,24 @@ export async function proveClaim(
   if (preferredFixtureId !== undefined) {
     raw = { ...raw, fixtureId: preferredFixtureId };
   }
-  deps.log.info('parse', { claimId: claim.id, raw });
+  deps.log.info('parse', {
+    claimId: claim.id,
+    hasFixtureId: raw.fixtureId !== null,
+    claimType: raw.claimType,
+    entityKind: raw.entityKind,
+    comparator: raw.comparator,
+    period: raw.period,
+    hasEntityName: raw.entityName !== null,
+    hasUnresolved: raw.unresolved !== null,
+  });
 
   let result: CompileResult;
   try {
-    const ctx = await buildCompileContext(deps, raw.fixtureId);
+    const ctx = await buildCompileContext(deps, raw.fixtureId, contextOverrides);
     result = deps.engine.compileClaim(raw, ctx);
-  } catch (err) {
+  } catch {
     // buildCompileContext reads the DB — a one-off blip must not kill the claim.
-    deps.log.warn('compile_context_failed', { claimId: claim.id, error: String(err) });
+    deps.log.warn('compile_context_failed', { claimId: claim.id });
     return { kind: 'retryable' };
   }
   deps.log.info('compile', { claimId: claim.id, resultKind: result.kind });
@@ -152,6 +170,14 @@ export type QuoteOutcome =
   | { kind: 'no_odds' }
   | { kind: 'unpriceable'; reason: string };
 
+const REPLAY_ODDS_LOOKBACK_MS = [
+  30_000,
+  60_000,
+  2 * 60_000,
+  5 * 60_000,
+  10 * 60_000,
+] as const;
+
 /**
  * The market-engine pricer throws a typed MissingOddsInputError when the feed
  * has not published an input a claim type requires. Detected by name (not
@@ -170,9 +196,10 @@ export async function quoteSpec(
   deps: Deps,
   spec: MarketSpec,
   asOfMs?: number,
+  contextOverrides: CompileContextOverrides = {},
 ): Promise<QuoteOutcome> {
-  const fetched = await deps.tx.fetchOdds(spec.fixtureId, asOfMs);
-  if (fetched.kind !== 'ok') {
+  let fetched = await deps.tx.fetchOdds(spec.fixtureId, asOfMs);
+  if (fetched.kind === 'transient') {
     deps.log.info('quote_unavailable', {
       fixtureId: spec.fixtureId,
       claimType: spec.claimType,
@@ -180,35 +207,68 @@ export async function quoteSpec(
     });
     return { kind: fetched.kind };
   }
-  let ctx;
-  try {
-    ctx = await buildCompileContext(deps, spec.fixtureId);
-  } catch (err) {
-    deps.log.warn('price_context_failed', { fixtureId: spec.fixtureId, error: String(err) });
-    return { kind: 'transient' };
-  }
-  try {
-    const quote = deps.engine.priceSpec(spec, fetched.odds, ctx);
-    deps.log.info('price', {
-      fixtureId: spec.fixtureId,
-      claimType: spec.claimType,
-      probability: quote.probability,
-      multiplier: quote.multiplier,
-      provenance: quote.provenance,
-    });
-    return { kind: 'ok', quote };
-  } catch (err) {
-    // priceSpec is pure: a throw means this spec cannot be priced from the
-    // published inputs. A missing required input may still be published
-    // later, so it reads as "no line yet"; anything else is structural.
-    deps.log.warn('price_failed', {
-      fixtureId: spec.fixtureId,
-      claimType: spec.claimType,
-      error: String(err),
-    });
-    return isMissingOddsInput(err)
-      ? { kind: 'no_odds' }
-      : { kind: 'unpriceable', reason: String(err) };
+  let ctx: Awaited<ReturnType<typeof buildCompileContext>> | undefined;
+  let lookbackIndex = 0;
+  let usedLookbackMs: number | null = null;
+
+  while (true) {
+    if (fetched.kind === 'ok') {
+      if (ctx === undefined) {
+        try {
+          ctx = await buildCompileContext(deps, spec.fixtureId, contextOverrides);
+        } catch {
+          deps.log.warn('price_context_failed', { fixtureId: spec.fixtureId });
+          return { kind: 'transient' };
+        }
+      }
+      try {
+        const quote = deps.engine.priceSpec(spec, fetched.odds, ctx);
+        if (usedLookbackMs !== null) {
+          deps.log.info('replay_odds_lookback', {
+            fixtureId: spec.fixtureId,
+            claimType: spec.claimType,
+            lookbackMs: usedLookbackMs,
+          });
+        }
+        deps.log.info('price', {
+          fixtureId: spec.fixtureId,
+          claimType: spec.claimType,
+          probability: quote.probability,
+          multiplier: quote.multiplier,
+          provenance: quote.provenance,
+        });
+        return { kind: 'ok', quote };
+      } catch (err) {
+        if (!isMissingOddsInput(err)) {
+          deps.log.warn('price_failed', {
+            fixtureId: spec.fixtureId,
+            claimType: spec.claimType,
+          });
+          return { kind: 'unpriceable', reason: String(err) };
+        }
+      }
+    }
+
+    const lookbackMs = REPLAY_ODDS_LOOKBACK_MS[lookbackIndex];
+    if (asOfMs === undefined || lookbackMs === undefined) {
+      deps.log.info('quote_unavailable', {
+        fixtureId: spec.fixtureId,
+        claimType: spec.claimType,
+        reason: 'no_odds',
+      });
+      return { kind: 'no_odds' };
+    }
+    lookbackIndex += 1;
+    fetched = await deps.tx.fetchOdds(spec.fixtureId, asOfMs - lookbackMs);
+    if (fetched.kind === 'transient') {
+      deps.log.info('quote_unavailable', {
+        fixtureId: spec.fixtureId,
+        claimType: spec.claimType,
+        reason: fetched.kind,
+      });
+      return { kind: fetched.kind };
+    }
+    usedLookbackMs = lookbackMs;
   }
 }
 
@@ -297,7 +357,6 @@ export async function createMarketFromClaim(deps: Deps, args: CreateMarketArgs):
   deps.log.info('market_minted', {
     marketId: market.id,
     claimId: claim.id,
-    groupId: claim.group_id,
     fixtureId: spec.fixtureId,
     claimType: spec.claimType,
     status: market.status,

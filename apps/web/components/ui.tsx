@@ -5,6 +5,7 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { cx } from '@/lib/cx';
+import { isMainnet } from '@/lib/solana-network';
 
 // ── Card ──────────────────────────────────────────────────────────────────
 
@@ -93,12 +94,17 @@ export function PageShell({
   children: ReactNode;
   width?: 'reading' | 'board';
 }) {
+  const mainnet = isMainnet();
   return (
     <div
       className={cx(
-        'mx-auto flex min-h-dvh w-full flex-col px-4 pb-14 pt-5 sm:px-6',
+        'mx-auto flex min-h-dvh w-full flex-col px-4 sm:px-6',
         width === 'board' ? 'max-w-5xl' : 'max-w-xl',
       )}
+      style={{
+        paddingTop: 'max(1.25rem, calc(1.25rem + var(--tg-content-safe-area-top, 0px)))',
+        paddingBottom: 'max(3.5rem, calc(3.5rem + var(--tg-content-safe-area-bottom, 0px)))',
+      }}
     >
       <header className="mb-6 flex items-center justify-between">
         <Wordmark />
@@ -106,8 +112,12 @@ export function PageShell({
       </header>
       <main className="flex flex-1 flex-col gap-4">{children}</main>
       <footer className="mt-10 space-y-1 text-center text-xs text-fog/80">
-        <p>Played in devnet SOL — test tokens, not real money.</p>
-        <p>Match data by TxLINE · proofs on Solana devnet.</p>
+        <p>
+          {mainnet
+            ? 'SOL and USDC positions settle on Solana mainnet.'
+            : 'Played in devnet SOL or USDC — test tokens, not real money.'}
+        </p>
+        <p>Match data by TxLINE · proofs on Solana {mainnet ? 'mainnet' : 'devnet'}.</p>
       </footer>
     </div>
   );

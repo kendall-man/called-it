@@ -1,18 +1,20 @@
 import type { Metadata } from 'next';
 import { PageShell } from '@/components/ui';
 import { buildTelegramGroupAddUrl } from '@/lib/entry';
+import { isMainnet } from '@/lib/solana-network';
 
 export const metadata: Metadata = {
-  description: 'Add Callie to your Telegram group to put football calls on the record.',
+  description: 'Add Called It to your Telegram group to put football calls on the record.',
 };
 
 const STEPS = [
-  ['1', 'Add', 'Add Callie to your Telegram group.'],
+  ['1', 'Add', 'Add Called It to your Telegram group.'],
   ['2', 'Say it', 'Make a clear football call in the chat.'],
   ['3', 'Take a side', 'Your group chooses whether it happens.'],
 ] as const;
 
 export default function LandingPage() {
+  const mainnet = isMainnet();
   const telegramGroupUrl = buildTelegramGroupAddUrl(
     process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME,
   );
@@ -38,7 +40,7 @@ export default function LandingPage() {
           Called <span className="text-pitch-400">It</span>
         </h1>
         <p className="mt-4 max-w-lg text-base leading-relaxed text-fog">
-          &quot;Arsenal score before half-time.&quot; Add Callie to your Telegram group, say a football
+          &quot;Arsenal score before half-time.&quot; Add Called It to your Telegram group, say a football
           call, and let the group take a side from the live match data.
         </p>
 
@@ -57,7 +59,9 @@ export default function LandingPage() {
         )}
 
         <p className="mt-3 text-sm text-fog">
-          Devnet SOL only. Test tokens have no monetary value.
+          {mainnet
+            ? 'SOL positions use Solana mainnet.'
+            : 'Devnet SOL only. Test tokens have no monetary value.'}
         </p>
       </section>
 

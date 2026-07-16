@@ -21,7 +21,7 @@ describe('security-definer RPCs', () => {
     multiplier: 1.6,
     state: 'pending',
     placed_at_ms: 1_751_630_000_000,
-    allow_starter: false,
+    starterOnly: false,
   };
 
   it('rejects a malformed injected database client at the facade boundary', () => {
@@ -47,21 +47,21 @@ describe('security-definer RPCs', () => {
           p_state: 'pending',
           p_placed_at_ms: 1_751_630_000_000,
           p_idempotency_key: null, // absent on the button path
-          p_allow_starter: false,
+          p_starter_only: false,
         },
       },
     ]);
   });
 
-  it('forwards the client idempotency key, starter flag, and maps a duplicate reply', async () => {
+  it('forwards the client idempotency key, starter-only capability, and maps a duplicate reply', async () => {
     const { db, fake } = makeHarness();
     fake.onRpc('wager_stake', () => ({ data: { ok: true, duplicate: true }, error: null }));
-    expect(await db.wagerStake({ ...stakeInput, idempotency_key: 'call-9', allow_starter: true })).toEqual({
+    expect(await db.wagerStake({ ...stakeInput, idempotency_key: 'call-9', starterOnly: true })).toEqual({
       ok: true,
       duplicate: true,
     });
     expect(fake.rpcCalls[0]?.args.p_idempotency_key).toBe('call-9');
-    expect(fake.rpcCalls[0]?.args.p_allow_starter).toBe(true);
+    expect(fake.rpcCalls[0]?.args.p_starter_only).toBe(true);
   });
 
   it('maps every typed stake rejection code', async () => {
@@ -113,7 +113,7 @@ describe('security-definer RPCs', () => {
   it('requestWithdrawal maps ok and typed rejection codes', async () => {
     const ok = makeHarness();
     ok.fake.onRpc('wager_request_withdrawal', (args) => {
-      expect(args).toEqual({ p_user_id: USER_ID, p_lamports: 10_000_000 });
+      expect(args).toEqual({ p_user_id: USER_ID, p_asset: 'sol', p_lamports: 10_000_000 });
       return { data: { ok: true, withdrawal_id: 'w-1' }, error: null };
     });
     expect(await ok.db.requestWithdrawal({ user_id: USER_ID, lamports: 10_000_000n })).toEqual({

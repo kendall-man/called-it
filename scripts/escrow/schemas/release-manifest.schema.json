@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://called.it/schemas/escrow/release-manifest-v1.json",
+  "title": "Called It escrow deployed release expectation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "network", "clusterGenesisHash", "programId", "upgradeableLoaderProgramId", "programDataAddress", "upgradeAuthority", "configPda", "build", "config", "oracleSet"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "network": { "enum": ["localnet", "devnet", "testnet", "mainnet-beta"] },
+    "clusterGenesisHash": { "$ref": "#/$defs/pubkey" },
+    "programId": { "$ref": "#/$defs/pubkey" },
+    "upgradeableLoaderProgramId": { "$ref": "#/$defs/pubkey" },
+    "programDataAddress": { "$ref": "#/$defs/pubkey" },
+    "upgradeAuthority": { "$ref": "#/$defs/pubkey" },
+    "configPda": { "$ref": "#/$defs/pubkey" },
+    "build": { "$ref": "build-manifest.schema.json" },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["custodyVersion", "paused", "configAuthority", "pauseAuthority", "marketCreationAuthority", "feedOperatorAuthority", "oracleSet", "relayerFeePayer", "residualRecipient", "canonicalUsdcMint", "allowedTokenProgram", "minSolPosition", "maxSolPosition", "minUsdcPosition", "maxUsdcPosition", "maxMarketDurationSeconds", "maxResolutionDelaySeconds"],
+      "properties": {
+        "custodyVersion": { "type": "integer", "minimum": 1, "maximum": 255 },
+        "paused": { "type": "boolean" },
+        "configAuthority": { "$ref": "#/$defs/pubkey" },
+        "pauseAuthority": { "$ref": "#/$defs/pubkey" },
+        "marketCreationAuthority": { "$ref": "#/$defs/pubkey" },
+        "feedOperatorAuthority": { "$ref": "#/$defs/pubkey" },
+        "oracleSet": { "$ref": "#/$defs/pubkey" },
+        "relayerFeePayer": { "$ref": "#/$defs/pubkey" },
+        "residualRecipient": { "$ref": "#/$defs/pubkey" },
+        "canonicalUsdcMint": { "$ref": "#/$defs/pubkey" },
+        "allowedTokenProgram": { "$ref": "#/$defs/pubkey" },
+        "minSolPosition": { "$ref": "#/$defs/atomic" },
+        "maxSolPosition": { "$ref": "#/$defs/atomic" },
+        "minUsdcPosition": { "$ref": "#/$defs/atomic" },
+        "maxUsdcPosition": { "$ref": "#/$defs/atomic" },
+        "maxMarketDurationSeconds": { "$ref": "#/$defs/atomic" },
+        "maxResolutionDelaySeconds": { "$ref": "#/$defs/atomic" }
+      }
+    },
+    "oracleSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address", "custodyVersion", "epoch", "signers", "threshold", "activationSlot", "retirementSlot"],
+      "properties": {
+        "address": { "$ref": "#/$defs/pubkey" },
+        "custodyVersion": { "type": "integer", "minimum": 1, "maximum": 255 },
+        "epoch": { "$ref": "#/$defs/atomic" },
+        "signers": { "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": { "$ref": "#/$defs/pubkey" } },
+        "threshold": { "const": 2 },
+        "activationSlot": { "$ref": "#/$defs/atomic" },
+        "retirementSlot": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/atomic" }] }
+      }
+    }
+  },
+  "$defs": {
+    "pubkey": { "type": "string", "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$" },
+    "atomic": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" }
+  }
+}

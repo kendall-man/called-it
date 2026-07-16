@@ -11,13 +11,167 @@
 
 import type {
   GamePhase,
+  MarketCurrency,
   MarketSpec,
   MarketStatus,
   MatchEventKind,
-  PositionSide,
   SettlementOutcome,
   TrustTier,
 } from '@calledit/market-engine';
+import type {
+  CreateEscrowSigningSessionInput,
+  EnqueueEscrowRelayerJobInput,
+  EscrowDb,
+  EscrowRelayerJobKind,
+  EscrowRelayerJobRow,
+  EscrowRelayerMutationResult,
+  EscrowSigningSessionResult,
+  LeaseEscrowRelayerJobsInput,
+} from './escrow-types.js';
+import type { EscrowReleaseBlockersDb } from './escrow-release-blockers-types.js';
+
+export type { MarketCurrency } from '@calledit/market-engine';
+
+export type * from './group-points-types.js';
+
+/**
+ * JSON-safe representation of the immutable placement authorization. Integer
+ * values remain decimal strings so PostgREST never rounds u64 values.
+ */
+export interface EscrowSigningSessionAuthorizationPayload {
+  readonly schemaVersion: 1;
+  readonly programId: string;
+  readonly relayerFeePayer: string;
+  readonly canonicalUsdcMint: string;
+  readonly marketUuid: string;
+  readonly marketPda: string;
+  readonly marketDocumentHashHex: string;
+  readonly side: 'back' | 'doubt';
+  readonly amount: string;
+  readonly asset: 'sol' | 'usdc';
+  readonly expectedRatioMilli: string;
+  readonly expectedEventEpoch: string;
+  readonly expectedLotNonce: string;
+  readonly expiresAt: string;
+  readonly genesisHash: string;
+  readonly recentBlockhash: string;
+  readonly lastValidBlockHeight: string;
+  readonly messageHashHex: string;
+}
+
+export interface GetEscrowSigningSessionInput {
+  readonly tokenHashHex: string;
+  readonly nowIso: string;
+}
+
+export type GetEscrowSigningSessionResult =
+  | {
+      readonly ok: true;
+      readonly state: 'pending' | 'consumed';
+      readonly userId: number;
+      readonly providerUserId: string;
+      readonly providerWalletId: string;
+      readonly ownerPubkey: string;
+      readonly marketId: string;
+      readonly side: 'back' | 'doubt';
+      readonly asset: 'sol' | 'usdc';
+      readonly amountAtomic: bigint;
+      readonly lotNonce: bigint;
+      readonly eventEpoch: bigint;
+      readonly documentHashHex: string;
+      readonly transactionMessageHashHex: string;
+      readonly rawTransactionBase64: string;
+      readonly authorization: EscrowSigningSessionAuthorizationPayload;
+      readonly transactionSignature: string | null;
+      readonly expiresAtIso: string;
+    }
+  | {
+      readonly ok: false;
+      readonly code: 'invalid_input' | 'session_not_found' | 'session_expired' | 'session_consumed';
+    };
+
+export interface CreateDurableEscrowSigningSessionInput extends CreateEscrowSigningSessionInput {
+  readonly rawTransactionBase64: string;
+  readonly authorization: EscrowSigningSessionAuthorizationPayload;
+}
+
+export type DurableEscrowRelayerJobKind = EscrowRelayerJobKind | 'position_placement';
+
+export interface DurableEnqueueEscrowRelayerJobInput extends Omit<EnqueueEscrowRelayerJobInput, 'kind'> {
+  readonly kind: DurableEscrowRelayerJobKind;
+}
+
+export interface DurableEscrowRelayerJobRow extends Omit<EscrowRelayerJobRow, 'kind'> {
+  readonly kind: DurableEscrowRelayerJobKind;
+}
+
+export interface GetEscrowChainCursorInput {
+  readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
+  readonly genesisHash: string;
+  readonly programId: string;
+}
+
+export type GetEscrowChainCursorResult =
+  | {
+      readonly ok: true;
+      readonly initialized: boolean;
+      readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
+      readonly genesisHash: string;
+      readonly programId: string;
+      readonly confirmedSlot: bigint;
+      readonly confirmedSignature: string | null;
+      readonly finalizedSlot: bigint;
+      readonly finalizedSignature: string | null;
+      readonly updatedAtIso: string | null;
+    }
+  | { readonly ok: false; readonly code: 'invalid_input' | 'genesis_mismatch' };
+
+export interface GetEscrowMarketLinkInput {
+  readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
+  readonly genesisHash: string;
+  readonly programId: string;
+  readonly marketPda: string;
+}
+
+export type GetEscrowMarketLinkResult =
+  | { readonly ok: true; readonly found: false }
+  | {
+      readonly ok: true;
+      readonly found: true;
+      readonly marketId: string;
+      readonly custodyMode: 'escrow';
+      readonly custodyVersion: number;
+      readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
+      readonly genesisHash: string;
+      readonly programId: string;
+      readonly marketPda: string;
+      readonly vaultPda: string;
+      readonly asset: 'sol' | 'usdc';
+      readonly mintPubkey: string | null;
+      readonly documentHashHex: string;
+      readonly oracleEpoch: bigint;
+      readonly eventEpoch: bigint;
+      readonly ratioMilli: bigint;
+      readonly chainState: 'open' | 'frozen' | 'settled' | 'voided' | 'closed';
+      readonly commitment: 'confirmed' | 'finalized';
+      readonly projectionStale: boolean;
+    }
+  | {
+      readonly ok: false;
+      readonly code: 'invalid_input' | 'identity_mismatch' | 'ambiguous' | 'noncanonical' | 'custody_mismatch';
+    };
+
+export interface DurableEscrowDb extends Omit<
+  EscrowDb,
+  'createSigningSession' | 'enqueueRelayerJob' | 'leaseRelayerJobs'
+>, EscrowReleaseBlockersDb {
+  createSigningSession(input: CreateDurableEscrowSigningSessionInput): Promise<EscrowSigningSessionResult>;
+  getSigningSession(input: GetEscrowSigningSessionInput): Promise<GetEscrowSigningSessionResult>;
+  getChainCursor(input: GetEscrowChainCursorInput): Promise<GetEscrowChainCursorResult>;
+  getMarketLink(input: GetEscrowMarketLinkInput): Promise<GetEscrowMarketLinkResult>;
+  enqueueRelayerJob(input: DurableEnqueueEscrowRelayerJobInput): Promise<EscrowRelayerMutationResult>;
+  leaseRelayerJobs(input: LeaseEscrowRelayerJobsInput): Promise<readonly DurableEscrowRelayerJobRow[]>;
+}
 
 // ── Enumerations backed by CHECK constraints in the migration ─────────────
 
@@ -33,11 +187,6 @@ export type ClaimStatus =
   | 'expired';
 
 export type LedgerKind = 'stake' | 'payout' | 'refund' | 'topup' | 'seed';
-
-/** Stake currency for a market (markets.currency, migration 0002). */
-export type MarketCurrency = 'rep' | 'sol';
-
-export type PositionState = 'pending' | 'active' | 'void';
 
 export type PriceProvenance = 'market' | 'modelled';
 
@@ -146,26 +295,14 @@ export interface MarketRow {
    * pre-0002 databases and existing fixtures stay valid; absent means 'rep'.
    */
   currency?: MarketCurrency;
+  /** Immutable accounting route assigned from the exact group rollout at insert. */
+  custody_mode?: 'legacy' | 'escrow';
   price_provenance: PriceProvenance;
   quote_probability: number;
   quote_multiplier: number;
   odds_message_id: string | null;
   odds_ts: number | null;
   card_tg_message_id: number | null;
-  created_at: string;
-}
-
-export interface PositionRow {
-  id: string;
-  market_id: string;
-  user_id: number;
-  side: PositionSide;
-  stake: number;
-  locked_multiplier: number;
-  locked_odds_message_id: string | null;
-  locked_odds_ts: number | null;
-  state: PositionState;
-  placed_at_ms: number;
   created_at: string;
 }
 
@@ -258,6 +395,8 @@ export interface MarketInsert {
   is_replay: boolean;
   /** Omitted = DB default 'rep'; wager groups stamp 'sol' atomically at mint. */
   currency?: MarketCurrency;
+  /** Accepted for compatibility; migration 0026 overwrites it from rollout truth. */
+  custody_mode?: 'legacy' | 'escrow';
   price_provenance: PriceProvenance;
   quote_probability: number;
   quote_multiplier: number;
@@ -270,18 +409,6 @@ export interface MarketQuotePatch {
   quote_multiplier: number;
   odds_message_id: string | null;
   odds_ts: number | null;
-}
-
-export interface PositionInsert {
-  market_id: string;
-  user_id: number;
-  side: PositionSide;
-  stake: number;
-  locked_multiplier: number;
-  locked_odds_message_id: string | null;
-  locked_odds_ts: number | null;
-  state: 'pending' | 'active';
-  placed_at_ms: number;
 }
 
 export interface SettlementInsert {
@@ -304,13 +431,6 @@ export interface ProofUpsert {
 }
 
 // ── Read projections ───────────────────────────────────────────────────────
-
-export interface LeaderboardEntry {
-  user_id: number;
-  display_name: string;
-  points_cached: number;
-  streak: number;
-}
 
 /** Flattened player projection used by the agent's grounded tools. */
 export interface PlayerLite {

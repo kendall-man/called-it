@@ -9,6 +9,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./wager-funded": {
+      "types": "./dist/wager-db.d.ts",
+      "default": "./dist/wager-db.js"
+    },
+    "./wager-starter": {
+      "types": "./dist/wager-db-starter.d.ts",
+      "default": "./dist/wager-db-starter.js"
     }
   },
   "scripts": {

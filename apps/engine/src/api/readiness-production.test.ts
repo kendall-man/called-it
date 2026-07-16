@@ -4,6 +4,163 @@ import { createProductionReadinessPorts } from './readiness-production.js';
 const NOW = Date.parse('2026-07-10T00:00:00.000Z');
 
 describe('production readiness ports', () => {
+  it('reports starter-only ready only when runtime, intake, circuit, and budget agree', async () => {
+    // Given matching starter runtime construction and available authoritative budget
+    const calls: string[] = [];
+    const ports = createProductionReadinessPorts({
+      database: {
+        probe: async () => undefined,
+        liveFixtureIds: async () => [],
+        async wagerStatus() {
+          calls.push('circuit');
+          return { paused: false, reason: null };
+        },
+        async starterBudget() {
+          calls.push('budget');
+          return { enabled: true, available: true };
+        },
+      },
+      odds: { snapshot: async () => ({ kind: 'unavailable' }) },
+      liveLookaheadMs: 60_000,
+      now: () => NOW,
+      wagerRuntimeMode: 'starter_only',
+      wagerModuleKind: 'starter_only',
+      starterGrantsEnabled: true,
+      starterIntakeEnabled: true,
+      proofEnabled: false,
+      settlementEnabled: false,
+    });
+
+    // When the wager readiness snapshot is requested
+    const snapshot = await ports.wager.snapshot(new AbortController().signal);
+
+    // Then every starter-only gate is represented without a treasury dependency
+    expect(snapshot).toEqual({
+      enabled: true,
+      configured: true,
+      runtimeMatches: true,
+      paused: false,
+      covered: true,
+      starterIntakeReady: true,
+    });
+    expect(calls).toEqual(['circuit', 'budget']);
+  });
+
+  it('reports a runtime mismatch without reading wager state', async () => {
+    // Given starter-only was requested but a funded module was constructed
+    const calls: string[] = [];
+    const ports = createProductionReadinessPorts({
+      database: {
+        probe: async () => undefined,
+        liveFixtureIds: async () => [],
+        wagerStatus: async () => {
+          calls.push('circuit');
+          return { paused: false, reason: null };
+        },
+        starterBudget: async () => {
+          calls.push('budget');
+          return { enabled: true, available: true };
+        },
+      },
+      odds: { snapshot: async () => ({ kind: 'unavailable' }) },
+      liveLookaheadMs: 60_000,
+      now: () => NOW,
+      wagerRuntimeMode: 'starter_only',
+      wagerModuleKind: 'funded',
+      starterGrantsEnabled: true,
+      starterIntakeEnabled: true,
+      proofEnabled: false,
+      settlementEnabled: false,
+    });
+
+    // When readiness snapshots the runtime
+    const snapshot = await ports.wager.snapshot(new AbortController().signal);
+
+    // Then construction mismatch is fail-closed before unrelated state reads
+    expect(snapshot).toMatchObject({ configured: false, runtimeMatches: false });
+    expect(calls).toEqual([]);
+  });
+
+  it('reports funded starter intake as unconfigured before reading wager state', async () => {
+    // Given an invalid funded runtime that retained starter intake capability
+    const calls: string[] = [];
+    const ports = createProductionReadinessPorts({
+      database: {
+        probe: async () => undefined,
+        liveFixtureIds: async () => [],
+        wagerStatus: async () => {
+          calls.push('circuit');
+          return { paused: false, reason: null };
+        },
+        starterBudget: async () => ({ enabled: true, available: true }),
+      },
+      odds: { snapshot: async () => ({ kind: 'unavailable' }) },
+      liveLookaheadMs: 60_000,
+      now: () => NOW,
+      wagerRuntimeMode: 'funded',
+      wagerModuleKind: 'funded',
+      starterGrantsEnabled: true,
+      starterIntakeEnabled: false,
+      proofEnabled: false,
+      settlementEnabled: false,
+    });
+
+    // When readiness snapshots the contradictory runtime
+    const snapshot = await ports.wager.snapshot(new AbortController().signal);
+
+    // Then promotion fails before funded state can mask the invalid capability
+    expect(snapshot).toEqual({
+      enabled: true,
+      configured: false,
+      runtimeMatches: true,
+      paused: false,
+      covered: false,
+      starterIntakeReady: false,
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('fails closed until the initial funded solvency pass completes successfully', async () => {
+    let solvencyAttempts = 0;
+    let statusReads = 0;
+    const ports = createProductionReadinessPorts({
+      database: {
+        probe: async () => undefined,
+        liveFixtureIds: async () => [],
+        wagerStatus: async () => {
+          statusReads += 1;
+          return { paused: false, reason: null };
+        },
+        starterBudget: async () => ({ enabled: false, available: false }),
+      },
+      odds: { snapshot: async () => ({ kind: 'unavailable' }) },
+      liveLookaheadMs: 60_000,
+      now: () => NOW,
+      wagerRuntimeMode: 'funded',
+      wagerModuleKind: 'funded',
+      starterGrantsEnabled: false,
+      starterIntakeEnabled: false,
+      proofEnabled: false,
+      settlementEnabled: false,
+      initialSolvencyCheck: async () => {
+        solvencyAttempts += 1;
+        return solvencyAttempts > 1;
+      },
+    });
+    const signal = new AbortController().signal;
+
+    await expect(ports.wager.snapshot(signal)).resolves.toMatchObject({
+      configured: false,
+      covered: false,
+    });
+    expect(statusReads).toBe(0);
+    await expect(ports.wager.snapshot(signal)).resolves.toMatchObject({
+      configured: true,
+      covered: true,
+    });
+    expect(statusReads).toBe(1);
+  });
+
   it('forwards one AbortSignal through database, feed, odds, and wager operations', async () => {
     const calls: Array<{ name: string; signal: AbortSignal }> = [];
     const ports = createProductionReadinessPorts({
@@ -19,6 +176,7 @@ describe('production readiness ports', () => {
           calls.push({ name: 'wager', signal });
           return { paused: false, reason: null };
         },
+        starterBudget: async () => ({ enabled: false, available: false }),
       },
       odds: {
         async snapshot(fixtureId, signal) {
@@ -28,8 +186,10 @@ describe('production readiness ports', () => {
       },
       liveLookaheadMs: 60_000,
       now: () => NOW,
-      wagerEnabled: true,
-      wagerConfigured: true,
+      wagerRuntimeMode: 'funded',
+      wagerModuleKind: 'funded',
+      starterGrantsEnabled: false,
+      starterIntakeEnabled: false,
       proofEnabled: false,
       settlementEnabled: false,
     });
@@ -58,12 +218,15 @@ describe('production readiness ports', () => {
         probe: async () => undefined,
         liveFixtureIds: async () => [],
         wagerStatus: async () => ({ paused: false, reason: null }),
+        starterBudget: async () => ({ enabled: false, available: false }),
       },
       odds: { snapshot: async () => ({ kind: 'unavailable' }) },
       liveLookaheadMs: 60_000,
       now: () => NOW,
-      wagerEnabled: false,
-      wagerConfigured: false,
+      wagerRuntimeMode: 'disabled',
+      wagerModuleKind: null,
+      starterGrantsEnabled: false,
+      starterIntakeEnabled: false,
       proofEnabled: false,
       settlementEnabled: false,
     });
@@ -85,12 +248,15 @@ describe('production readiness ports', () => {
         probe: async () => undefined,
         liveFixtureIds: async () => [],
         wagerStatus: async () => ({ paused: false, reason: null }),
+        starterBudget: async () => ({ enabled: false, available: false }),
       },
       odds: { snapshot: async () => ({ kind: 'unavailable' }) },
       liveLookaheadMs: 60_000,
       now: () => NOW,
-      wagerEnabled: false,
-      wagerConfigured: false,
+      wagerRuntimeMode: 'disabled',
+      wagerModuleKind: null,
+      starterGrantsEnabled: false,
+      starterIntakeEnabled: false,
       proofEnabled: true,
       settlementEnabled: true,
       proofQueue: {

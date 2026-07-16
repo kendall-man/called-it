@@ -10,20 +10,43 @@ import {
 const DISABLED_ENV = loadEnv(BASE_ENV);
 
 describe('wager boot capability', () => {
+  it.each([
+    {
+      name: 'starter-only requested with a funded module',
+      env: { ...DISABLED_ENV, WAGER_RUNTIME_MODE: 'starter_only' as const },
+      constructedKind: 'funded' as const,
+    },
+    {
+      name: 'disabled requested with a funded module',
+      env: DISABLED_ENV,
+      constructedKind: 'funded' as const,
+    },
+  ])('blocks boot when $name', ({ env, constructedKind }) => {
+    // Given the requested capability differs from the constructed runtime
+    // When the boot boundary compares both discriminants
+    const state = evaluateWagerBootState(env, constructedKind);
+
+    // Then startup fails closed
+    expect(state).toEqual({ kind: 'blocked', reason: 'wager_unavailable' });
+    expect(() => assertWagerBootable(env, constructedKind)).toThrowError(
+      new WagerBootError('wager_unavailable'),
+    );
+  });
+
   it('allows a fully disabled engine to boot without wager wiring', () => {
-    const state = evaluateWagerBootState(DISABLED_ENV, false);
+    const state = evaluateWagerBootState(DISABLED_ENV, null);
 
     expect(state).toEqual({
       kind: 'disabled',
       reason: 'wager_disabled',
     });
-    expect(() => assertWagerBootable(DISABLED_ENV, false)).not.toThrow();
+    expect(() => assertWagerBootable(DISABLED_ENV, null)).not.toThrow();
   });
 
   it.each([
     {
-      name: 'wager mode is enabled without a configured module',
-      env: { ...DISABLED_ENV, WAGER_MODE_ENABLED: 'true' as const },
+      name: 'funded runtime is requested without a configured module',
+      env: { ...DISABLED_ENV, WAGER_RUNTIME_MODE: 'funded' as const },
     },
     {
       name: 'wallet miniapp exposure is enabled without a configured module',
@@ -38,21 +61,22 @@ describe('wager boot capability', () => {
       env: { ...DISABLED_ENV, STARTER_GRANTS_ENABLED: true },
     },
   ])('blocks boot when $name', ({ env }) => {
-    const state = evaluateWagerBootState(env, false);
+    const state = evaluateWagerBootState(env, null);
 
     expect(state).toEqual({
       kind: 'blocked',
       reason: 'wager_unavailable',
     });
-    expect(() => assertWagerBootable(env, false)).toThrowError(
+    expect(() => assertWagerBootable(env, null)).toThrowError(
       new WagerBootError('wager_unavailable'),
     );
   });
 
-  it('allows boot once the wager module is configured', () => {
-    expect(evaluateWagerBootState(DISABLED_ENV, true)).toEqual({
+  it('allows boot once the requested starter module is configured', () => {
+    const starterEnv = { ...DISABLED_ENV, WAGER_RUNTIME_MODE: 'starter_only' as const };
+    expect(evaluateWagerBootState(starterEnv, 'starter_only')).toEqual({
       kind: 'configured',
     });
-    expect(() => assertWagerBootable(DISABLED_ENV, true)).not.toThrow();
+    expect(() => assertWagerBootable(starterEnv, 'starter_only')).not.toThrow();
   });
 });

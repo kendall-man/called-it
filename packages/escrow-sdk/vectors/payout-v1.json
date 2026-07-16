@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "ratio_milli": "2000",
+  "outcome": "claim_won",
+  "positions": [
+    { "id": "a", "owner": "1", "side": "back", "active_amount": "1000", "pending_amount": "0", "refundable_amount": "0" },
+    { "id": "b", "owner": "2", "side": "back", "active_amount": "500", "pending_amount": "0", "refundable_amount": "0" },
+    { "id": "c", "owner": "3", "side": "doubt", "active_amount": "1000", "pending_amount": "0", "refundable_amount": "0" },
+    { "id": "d", "owner": "4", "side": "back", "active_amount": "0", "pending_amount": "100", "refundable_amount": "0" }
+  ],
+  "expected": {
+    "matched_back": "500",
+    "matched_doubt": "1000",
+    "refunds": [
+      { "position_id": "d", "owner": "4", "amount": "100" }
+    ],
+    "payouts": [
+      { "owner": "1", "amount": "1666" },
+      { "owner": "2", "amount": "833" }
+    ],
+    "total_deposits": "2600",
+    "total_entitlement": "2599",
+    "dust": "1"
+  }
+}

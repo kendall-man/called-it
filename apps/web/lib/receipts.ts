@@ -7,6 +7,7 @@
  * wallets, replay flags, and private balances never cross this mapper.
  */
 import { describePeriod, describeTerms, parseMarketSpec } from './spec-terms';
+import type { PublicEscrowReceipt } from './escrow-receipts';
 
 export type ReceiptStatus =
   | 'pending_lineup'
@@ -19,7 +20,7 @@ export type ReceiptOutcome = 'claim_won' | 'claim_lost' | 'void';
 export type ReceiptTier = 'chain_proven' | 'oracle_resolved';
 export type ProofStatus = 'pending' | 'verified' | 'failed' | 'unavailable';
 export type PriceProvenance = 'market' | 'modelled';
-export type ReceiptCurrency = 'sol';
+export type ReceiptCurrency = 'sol' | 'usdc';
 
 export interface PublicMarketTerms {
   readonly fixtureId: number;
@@ -64,6 +65,10 @@ export interface PublicReceipt {
   explorerUrl: string | null;
   /** Browser-safe subset of the public proof record; never a transaction or wallet identifier. */
   browserProof: PublicBrowserProof | null;
+  /** Finalized aggregate-only escrow overlay; never includes a participant wallet. */
+  escrow?: PublicEscrowReceipt;
+  /** Present only for completed-match escrow replays; legacy public views exclude replays. */
+  isReplay?: true;
 }
 
 export interface PublicGroupBoardMarket {
@@ -84,6 +89,10 @@ export interface PublicGroupBoardMarket {
   createdAt: string;
   outcome: ReceiptOutcome | null;
   settledAt: string | null;
+  /** Finalized aggregate-only escrow overlay; never includes a participant wallet. */
+  escrow?: PublicEscrowReceipt;
+  /** Present only for completed-match escrow replays; legacy public views exclude replays. */
+  isReplay?: true;
 }
 
 export interface EvidenceFact {
@@ -163,10 +172,14 @@ const OUTCOMES: readonly ReceiptOutcome[] = ['claim_won', 'claim_lost', 'void'];
 const TIERS: readonly ReceiptTier[] = ['chain_proven', 'oracle_resolved'];
 const PROOF_STATUSES: readonly ProofStatus[] = ['pending', 'verified', 'failed', 'unavailable'];
 const PROVENANCES: readonly PriceProvenance[] = ['market', 'modelled'];
-const CURRENCIES: readonly ReceiptCurrency[] = ['sol'];
+const CURRENCIES: readonly ReceiptCurrency[] = ['sol', 'usdc'];
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PUBLIC_GROUP_SLUG = /^[A-Za-z0-9_-]{1,80}$/;
 const PROOF_HASH = /^[A-Za-z0-9+/=_-]{16,256}$/;
+
+export function isPublicMarketId(value: string): boolean {
+  return UUID_PATTERN.test(value);
+}
 
 function timestamp(value: unknown): string | null {
   const text = str(value);
@@ -252,7 +265,7 @@ function publicMarketCoreFromRow(row: unknown): PublicMarketCore | null {
   const createdAt = timestamp(row.created_at);
   if (
     !marketId ||
-    !UUID_PATTERN.test(marketId) ||
+    !isPublicMarketId(marketId) ||
     !groupSlug ||
     !PUBLIC_GROUP_SLUG.test(groupSlug) ||
     !terms ||

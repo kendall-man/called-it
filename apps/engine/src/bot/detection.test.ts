@@ -1,3 +1,4 @@
+// allow: SIZE_OK - one real grammY harness covers consent and logging privacy without duplicate setup.
 import { Bot } from 'grammy';
 import type { Update } from 'grammy/types';
 import { describe, expect, it } from 'vitest';
@@ -6,6 +7,8 @@ import { registerDetection } from './detection.js';
 import { renderFallback } from './copy.js';
 import type { HandlerCtx } from './context.js';
 import type { ClaimRow, Deps, FixtureRow, GroupRow, MarketRow } from '../ports.js';
+import type { LogFields } from '../log.js';
+import { createPointMethodStubs } from '../points/point-methods.test-support.js';
 import { LlmBudget } from './budget.js';
 
 const NOW = Date.parse('2026-07-11T00:00:00.000Z');
@@ -50,6 +53,17 @@ interface DetectionHarness {
   readonly claims: ClaimRow[];
   readonly markets: MarketRow[];
   readonly posts: string[];
+  readonly logs: readonly RecordedLog[];
+}
+
+interface RecordedLog {
+  readonly event: string;
+  readonly fields: LogFields | undefined;
+}
+
+interface DetectionHarnessConfig {
+  readonly classify?: Deps['agent']['classify'];
+  readonly llmBudget?: number;
 }
 
 function messageUpdate(
@@ -83,11 +97,13 @@ function messageUpdate(
   } as unknown as Update;
 }
 
-function makeHarness(): DetectionHarness {
+function makeHarness(config: DetectionHarnessConfig = {}): DetectionHarness {
   const claims: ClaimRow[] = [];
   const markets: MarketRow[] = [];
   const posts: string[] = [];
+  const logs: RecordedLog[] = [];
   const db = {
+    ...createPointMethodStubs({ kind: 'empty', groupId: CHAT_ID }),
     upsertGroup: async () => GROUP,
     upsertUser: async () => undefined,
     ensureMembership: async () => ({ created: false }),
@@ -129,7 +145,9 @@ function makeHarness(): DetectionHarness {
     db,
     agent: {
       prefilter: () => true,
-      classify: async () => ({ isClaim: true, confidence: 0.95, claimTypeGuess: 'match_winner' }),
+      classify:
+        config.classify ??
+        (async () => ({ isClaim: true, confidence: 0.95, claimTypeGuess: 'match_winner' })),
       parse: async () => ({
         claimType: 'match_winner' as const,
         fixtureId: FIXTURE.fixture_id,
@@ -165,6 +183,8 @@ function makeHarness(): DetectionHarness {
     wager: {
       currencyForMint: async () => 'sol' as const,
       cardFooter: () => '',
+      presetLabels: () => ['0.01 SOL', '0.05 SOL', '0.1 SOL'],
+      stakesAvailable: async () => true,
     },
     proofSubmitter: null,
     readiness: {},
@@ -174,7 +194,11 @@ function makeHarness(): DetectionHarness {
       DEPLOYMENT_ENV: 'development',
       BETA_ALLOWED_GROUP_IDS: [],
     },
-    log: { info: () => undefined, warn: () => undefined, error: () => undefined },
+    log: {
+      info: (event: string, fields?: LogFields) => logs.push({ event, fields }),
+      warn: (event: string, fields?: LogFields) => logs.push({ event, fields }),
+      error: (event: string, fields?: LogFields) => logs.push({ event, fields }),
+    },
     now: () => NOW,
   } as unknown as Deps;
   const h = {
@@ -187,9 +211,13 @@ function makeHarness(): DetectionHarness {
       stripKeyboard: () => undefined,
     },
     say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
-    supervisor: { replayFixture: () => null },
+    supervisor: {
+      replayFixture: () => null,
+      replayRunId: () => null,
+      runGroupExclusive: async (_groupId: number, task: () => Promise<unknown>) => task(),
+    },
     entities: { get: async () => ({ teamNames: ['Brazil'], playerNames: [] }) },
-    budget: new LlmBudget(100, () => NOW),
+    budget: new LlmBudget(config.llmBudget ?? 100, () => NOW),
   } as unknown as HandlerCtx;
   const bot = new Bot('123:token', {
     botInfo: {
@@ -209,7 +237,11 @@ function makeHarness(): DetectionHarness {
     },
   });
   registerDetection(bot, h);
-  return { bot, claims, markets, posts };
+  return { bot, claims, markets, posts, logs };
+}
+
+function logsFor(harness: DetectionHarness, event: string): readonly RecordedLog[] {
+  return harness.logs.filter((entry) => entry.event === event);
 }
 
 describe('grammY detection consent', () => {
@@ -246,5 +278,60 @@ describe('grammY detection consent', () => {
       status: 'awaiting_confirm',
     });
     expect(harness.markets).toHaveLength(0);
+  });
+});
+
+describe('detection logging privacy', () => {
+  it('logs budget exhaustion without Telegram group identity', async () => {
+    // Given a passive candidate after the group LLM budget is spent
+    const harness = makeHarness({ llmBudget: 0 });
+
+    // When detection handles the group message
+    await harness.bot.handleUpdate(messageUpdate('Brazil win this', 10));
+
+    // Then the budget event contains no raw Telegram identity
+    const logs = logsFor(harness, 'llm_budget_exhausted');
+    expect(logs).toEqual([{ event: 'llm_budget_exhausted', fields: undefined }]);
+    expect(JSON.stringify(logs)).not.toContain(String(CHAT_ID));
+  });
+
+  it('uses a stable failure reason instead of raw identity-bearing classifier errors', async () => {
+    // Given a classifier failure whose exception interpolates Telegram identity
+    const harness = makeHarness({
+      classify: async () => {
+        throw new Error(`classifier failed for ${GROUP.title} (${CHAT_ID})`);
+      },
+    });
+
+    // When detection handles the group message
+    await harness.bot.handleUpdate(messageUpdate('Brazil win this', 11));
+
+    // Then the event keeps a categorical reason and emits none of the raw exception
+    const logs = logsFor(harness, 'classify_failed');
+    expect(logs).toEqual([
+      { event: 'classify_failed', fields: { reason: 'classifier_exception' } },
+    ]);
+    expect(JSON.stringify(logs)).not.toContain(String(CHAT_ID));
+    expect(JSON.stringify(logs)).not.toContain(GROUP.title);
+  });
+
+  it('retains classification metrics without logging Telegram group identity', async () => {
+    // Given a passive message that the classifier rejects as a claim
+    const harness = makeHarness({
+      classify: async () => ({ isClaim: false, confidence: 0.2, claimTypeGuess: null }),
+    });
+
+    // When detection handles the group message
+    await harness.bot.handleUpdate(messageUpdate('Brazil win this', 12));
+
+    // Then the event contains only safe classifier output
+    const logs = logsFor(harness, 'classified');
+    expect(logs).toEqual([
+      {
+        event: 'classified',
+        fields: { isClaim: false, confidence: 0.2, guess: null },
+      },
+    ]);
+    expect(JSON.stringify(logs)).not.toContain(String(CHAT_ID));
   });
 });

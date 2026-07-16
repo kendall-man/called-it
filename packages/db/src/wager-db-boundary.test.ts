@@ -33,15 +33,15 @@ describe('table query boundary', () => {
     await expect(settlement.db.getSettlementOutcome(MARKET_ID)).rejects.toThrow(DbError);
 
     const status = makeHarness();
-    status.fake.seed('wager_status', [
-      { id: 1, paused: 'false', reason: null, updated_at: NOW_ISO },
+    status.fake.seed('wager_asset_status', [
+      { asset: 'sol', paused: 'false', reason: null, updated_at: NOW_ISO },
     ]);
     await expect(status.db.getWagerStatus()).rejects.toThrow(DbError);
   });
 
   it('rejects malformed market IDs selected from the database', async () => {
     const settled = makeHarness();
-    settled.fake.seed('markets', [{ id: 42, currency: 'sol', status: 'settled' }]);
+    settled.fake.seed('markets', [{ id: 42, currency: 'sol', status: 'settled', is_replay: false }]);
     await expect(settled.db.settledSolMarketsMissingApplied()).rejects.toThrow(DbError);
 
     const open = makeHarness();

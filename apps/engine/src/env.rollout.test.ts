@@ -60,6 +60,7 @@ describe('engine rollout environment', () => {
       name: 'starter grants without stake acceptance',
       source: {
         ...BASE_ENV,
+        WAGER_MODE_ENABLED: 'true',
         STARTER_GRANTS_ENABLED: 'true',
       },
       variables: 'STAKE_ACCEPTANCE_ENABLED, STARTER_GRANTS_ENABLED',
@@ -81,7 +82,7 @@ describe('engine rollout environment', () => {
         TREASURY_COVERAGE_ENFORCED: 'true',
         WAGER_TREASURY_KEYPAIR_B58: 'dedicated-treasury-keypair',
       },
-      variables: 'STAKE_ACCEPTANCE_ENABLED, WAGER_MODE_ENABLED',
+      variables: 'STAKE_ACCEPTANCE_ENABLED, WAGER_RUNTIME_MODE',
     },
   ])('rejects $name', ({ source, variables }) => {
     // Given a rollout configuration with an unsafe capability dependency

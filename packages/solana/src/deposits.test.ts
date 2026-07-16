@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEPOSIT_COMMITMENT,
   fetchIncomingTransfers,
+  fetchIncomingTokenTransfers,
   type DepositScanRpc,
   type ParsedTransactionLike,
   type SignatureInfoLike,
@@ -246,6 +247,86 @@ describe('fetchIncomingTransfers — extraction', () => {
     const result = await fetchIncomingTransfers(rpc, 'definitely-not-base58!!', { retry: instantRetry });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/invalid treasury pubkey/);
+  });
+});
+
+describe('fetchIncomingTokenTransfers — USDC extraction', () => {
+  it('extracts checked transfers into the treasury ATA using the authority as owner', async () => {
+    const sig = fakeSig(210);
+    const tx = parsedTx(sig, 9_100, [{
+      program: 'spl-token',
+      parsed: {
+        type: 'transferChecked',
+        info: {
+          source: BOB,
+          destination: TREASURY,
+          authority: ALICE,
+          mint: MALLORY,
+          tokenAmount: { amount: '5000001', decimals: 6 },
+        },
+      },
+    }]);
+    const rpc = rpcFor([[sigInfo(sig, 9_100), tx]]);
+    const result = await fetchIncomingTokenTransfers(rpc, TREASURY, MALLORY, {
+      retry: instantRetry,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      transfers: [{ sig, ixIndex: 0, sender: ALICE, lamports: 5_000_001n, slot: 9_100 }],
+    });
+  });
+
+  it('accepts plain transfers to the mint-specific ATA and ignores wrong mints', async () => {
+    const plainSig = fakeSig(211);
+    const wrongMintSig = fakeSig(212);
+    const plain = parsedTx(plainSig, 9_101, [{
+      program: 'spl-token',
+      parsed: {
+        type: 'transfer',
+        info: { source: BOB, destination: TREASURY, authority: ALICE, amount: '1000000' },
+      },
+    }]);
+    const wrongMint = parsedTx(wrongMintSig, 9_102, [{
+      program: 'spl-token',
+      parsed: {
+        type: 'transferChecked',
+        info: {
+          source: BOB,
+          destination: TREASURY,
+          authority: ALICE,
+          mint: BOB,
+          tokenAmount: { amount: '9000000', decimals: 6 },
+        },
+      },
+    }]);
+    const rpc = rpcFor([
+      [sigInfo(wrongMintSig, 9_102), wrongMint],
+      [sigInfo(plainSig, 9_101), plain],
+    ]);
+    const result = await fetchIncomingTokenTransfers(rpc, TREASURY, MALLORY, {
+      retry: instantRetry,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.transfers.map((entry) => entry.sig)).toEqual([plainSig]);
+  });
+
+  it('fails without advancing past a malformed token amount', async () => {
+    const sig = fakeSig(213);
+    const tx = parsedTx(sig, 9_103, [{
+      program: 'spl-token',
+      parsed: {
+        type: 'transfer',
+        info: { source: BOB, destination: TREASURY, authority: ALICE, amount: 1_000_000 },
+      },
+    }]);
+    const result = await fetchIncomingTokenTransfers(
+      rpcFor([[sigInfo(sig, 9_103), tx]]),
+      TREASURY,
+      MALLORY,
+      { retry: instantRetry },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('unsafe token amount');
   });
 });
 

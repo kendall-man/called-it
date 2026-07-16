@@ -1,0 +1,23 @@
+{
+  "name": "@calledit/escrow-integration",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run test/recovery.test.ts test/finalization.test.ts test/attestation-fixtures.test.ts",
+    "test:local": "tsx src/local-validator-runner.ts"
+  },
+  "dependencies": {
+    "@calledit/escrow-sdk": "workspace:*",
+    "@solana/spl-token": "0.4.15",
+    "@solana/web3.js": "1.98.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.0",
+    "typescript": "5.9.3",
+    "tsx": "4.22.5",
+    "vitest": "3.2.6"
+  }
+}

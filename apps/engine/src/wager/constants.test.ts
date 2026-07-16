@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { depositCursorStream, WAGER_KEYS, WAGER_TUNABLES } from './constants.js';
-import { WAGER_COPY } from './copy.js';
+import { createWagerCopy, WAGER_COPY } from './copy.js';
 
 describe('WAGER_TUNABLES internal consistency', () => {
   it('presets are three ascending lamport amounts', () => {
@@ -28,8 +28,10 @@ describe('WAGER_TUNABLES internal consistency', () => {
   });
 
   it('cursor stream names are treasury-scoped', () => {
-    expect(depositCursorStream('Abc')).toBe('wager:deposits:Abc');
+    expect(depositCursorStream('Abc')).toBe('wager:deposits:sol:Abc');
+    expect(depositCursorStream('Abc', 'usdc')).toBe('wager:deposits:usdc:Abc');
     expect(depositCursorStream('Abc')).not.toBe(depositCursorStream('Xyz'));
+    expect(depositCursorStream('Abc')).not.toBe(depositCursorStream('Abc', 'usdc'));
   });
 
   it('idempotency keys are namespaced and mutually distinct', () => {
@@ -107,8 +109,11 @@ describe('copy bank hygiene', () => {
   });
 
   it('states that test SOL has no monetary value on onboarding and card fallbacks', () => {
-    expect(WAGER_COPY.unlinkedOnboarding()).toMatch(/test SOL/i);
-    expect(WAGER_COPY.unlinkedOnboarding()).toMatch(/no monetary value/i);
+    const onboarding = WAGER_COPY.unlinkedOnboarding();
+    expect(onboarding).toMatch(/test SOL/i);
+    expect(onboarding).toMatch(/no monetary value/i);
+    expect(onboarding).toMatch(/No SOL moved/i);
+    expect(onboarding).not.toMatch(/\b(?:awarded|credited|funded|placed|recorded|success(?:ful)?)\b/i);
     expect(WAGER_COPY.cardFooter()).toMatch(/test SOL/i);
     expect(WAGER_COPY.cardFooter()).toMatch(/no monetary value/i);
   });
@@ -126,5 +131,28 @@ describe('copy bank hygiene', () => {
     expect(WAGER_COPY.payoutsLineVoid()).toContain('(devnet)');
     expect(WAGER_COPY.payoutsLineNone()).toContain('(devnet)');
     expect(WAGER_COPY.payoutsLine(['x'])).toContain('(devnet)');
+  });
+
+  it('mainnet copy removes test-token language and stamps value movement', () => {
+    const copy = createWagerCopy('mainnet-beta');
+    const samples = [
+      copy.unlinkedOnboarding(),
+      copy.insufficient(1n),
+      copy.stakePlaced('A', 'Backing', 1n, '2'),
+      copy.walletStatus('Pub', 1n),
+      copy.depositInstructions('TreasuryAddr', true),
+      copy.depositCredited('A', 1n, 2n),
+      copy.withdrawUsage(),
+      copy.withdrawQueued(1n),
+      copy.withdrawConfirmed('A', 1n, 'u'),
+      copy.cardFooter(),
+      copy.payoutsLineVoid(),
+      copy.payoutsLineNone(),
+      copy.payoutsLine(['x']),
+      copy.opsSolvencyAlert(1n, 2n),
+    ];
+    expect(samples.join('\n')).not.toMatch(/devnet|test SOL|faucet/i);
+    expect(copy.depositInstructions('TreasuryAddr', true)).toContain('MAINNET ONLY');
+    expect(copy.withdrawConfirmed('A', 1n, 'u')).toContain('(mainnet)');
   });
 });

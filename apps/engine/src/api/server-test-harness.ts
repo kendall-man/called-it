@@ -1,11 +1,17 @@
 import type { Server } from 'node:http';
+import type { Env } from '../env.js';
 import type { Logger } from '../log.js';
 import type { Deps, EngineDb, FixtureRow, MarketRow } from '../ports.js';
 import type { Poster } from '../bot/poster.js';
+import { createPointMethodStubs } from '../points/point-methods.test-support.js';
 import { createWagerModule } from '../wager/module.js';
 import { makeFakeDeps, type FakeWagerDb } from '../wager/fakes.js';
 import { DrainState, createReadinessEvaluator, type ReadinessEvaluator } from './readiness.js';
-import { startEngineApi, type TelegramIngressPort } from './server.js';
+import {
+  startEngineApi,
+  type EscrowPositionAcceptApi,
+  type TelegramIngressPort,
+} from './server.js';
 import { TEST_ENV } from './server-test-env.js';
 
 export const NOW = Date.parse('2026-07-08T12:00:00.000Z');
@@ -15,7 +21,9 @@ export const MARKET_ID = '11111111-2222-4333-8444-555555555555';
 export const CONCIERGE_TOKEN = TEST_ENV.ENGINE_CONCIERGE_TOKEN;
 export const TELEGRAM_TOKEN = TEST_ENV.ENGINE_TELEGRAM_TOKEN;
 export const OPS_TOKEN = TEST_ENV.ENGINE_OPS_TOKEN;
+export const ESCROW_WEB_TOKEN = 'escrow-web-token-000000000000000000';
 export const PUBKEY = 'Wa11etPubkey1111111111111111111111111111';
+export const PRIVATE_DISPLAY_NAME = 'Private Participant Name', PRIVATE_USERNAME = 'private_participant_handle';
 
 export const FIXTURE: FixtureRow = {
   fixture_id: 42,
@@ -52,6 +60,7 @@ export const MARKET: MarketRow = {
   odds_ts: NOW - 1000,
   card_tg_message_id: null,
   currency: 'sol',
+  custody_mode: 'legacy',
   created_at: new Date(NOW).toISOString(),
 };
 
@@ -76,20 +85,18 @@ function createDb(theMarket: MarketRow): EngineDb {
   return {
     upsertGroup: unreachableAsync,
     getGroup: async (id) => id === CHAT_ID
-      ? { id, title: 'Test Group', chattiness: 'nudge', web_enabled: true, slug: 'slug', is_admin: true }
-      : null,
+      ? { id, title: 'Test Group', chattiness: 'nudge', web_enabled: true, slug: 'slug', is_admin: true } : null,
     setGroupChattiness: unreachableAsync,
     setGroupAdmin: unreachableAsync,
     setGroupWebEnabled: unreachableAsync,
     listGroups: unreachableAsync,
     upsertUser: async () => undefined,
     getUser: async (id) => id === USER_ID
-      ? { id, display_name: 'Dee Real Name', username: 'dee' }
-      : null,
+      ? { id, display_name: PRIVATE_DISPLAY_NAME, username: PRIVATE_USERNAME } : null,
     ensureMembership: async () => ({ created: false }),
     listMemberships: unreachableAsync,
     balance: unreachableAsync,
-    leaderboard: unreachableAsync,
+    ...createPointMethodStubs({ kind: 'unreachable', call: unreachableAsync }),
     postLedger: unreachableAsync,
     hasLedgerEntry: unreachableAsync,
     insertClaim: unreachableAsync,
@@ -167,7 +174,7 @@ function createDeps(db: EngineDb, wager: Deps['wager'], log: Logger): Deps {
     readiness: {
       database: { probe: async () => undefined },
       feed: { snapshot: async () => ({ activePricingExpected: false, lastEventAtMs: null }) },
-      wager: { snapshot: async () => ({ enabled: false, configured: false, paused: false, covered: false }) },
+      wager: { snapshot: async () => ({ enabled: false, configured: false, runtimeMatches: true, paused: false, covered: false, starterIntakeReady: false }) },
       proof: { snapshot: async () => ({ enabled: false, heartbeatAtMs: null, backlog: 0, oldestAgeMs: null }) },
       settlement: { snapshot: async () => ({ enabled: false, heartbeatAtMs: null, backlog: 0, oldestAgeMs: null }) },
     },
@@ -194,21 +201,26 @@ export async function closeActiveServer(): Promise<void> {
 
 export async function startHarness(options: {
   balanceLamports?: bigint;
+  balanceUsdcAtomic?: bigint;
   link?: boolean;
   market?: MarketRow;
   readiness?: ReadinessEvaluator;
   drainState?: DrainState;
   log?: Logger;
+  env?: Partial<Env>;
   parse?: Deps['agent']['parse'];
   wager?: Deps['wager'];
   telegramIngress?: TelegramIngressPort;
   handleTelegramUpdate?: (update: Record<string, unknown>) => Promise<void>;
+  escrowPositions?: EscrowPositionAcceptApi;
+  escrowWebTokenSha256?: string;
 } = {}): Promise<ApiHarness> {
   const wagerBundle = makeFakeDeps({ now: () => NOW });
   const wager = options.wager === undefined ? createWagerModule(wagerBundle.deps) : options.wager;
   if (wager !== null) {
     if (options.link ?? true) wagerBundle.db.seedLink(USER_ID, PUBKEY);
     wagerBundle.db.seedBalance(USER_ID, options.balanceLamports ?? 1_000_000_000n);
+    wagerBundle.db.seedBalance(USER_ID, options.balanceUsdcAtomic ?? 0n, 'seed:usdc', 'usdc');
     wagerBundle.db.seedMarketProbability(MARKET_ID, 0.5);
   }
   const log = options.log ?? createLogger();
@@ -223,6 +235,7 @@ export async function startHarness(options: {
   });
   const env = {
     ...TEST_ENV,
+    ...options.env,
     PORT: 0,
   };
   const poster: Poster = {
@@ -243,12 +256,18 @@ export async function startHarness(options: {
     ...(options.handleTelegramUpdate
       ? { telegramIngress: { accept: options.handleTelegramUpdate } }
       : {}),
+    ...(options.escrowPositions === undefined
+      ? {}
+      : { escrowPositions: options.escrowPositions }),
+    ...(options.escrowWebTokenSha256 === undefined
+      ? {}
+      : { escrowWebTokenSha256: options.escrowWebTokenSha256 }),
   });
   activeServer = server;
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('api did not bind a port');
-  return { base: `http://127.0.0.1:${address.port}`, wagerDb: wagerBundle.db };
+  return { base: `http://${address.family === 'IPv6' ? '[::1]' : '127.0.0.1'}:${address.port}`, wagerDb: wagerBundle.db };
 }
 
 export const authed = {

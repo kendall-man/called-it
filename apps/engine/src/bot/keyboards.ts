@@ -48,16 +48,30 @@ export function confirmKeyboard(claimId: string): InlineKeyboard {
 
 /** The beta exposes exactly the two fixed 0.01 SOL choices. */
 export function offerKeyboard(market: MarketRow): InlineKeyboard {
+  const amount = market.currency === 'usdc' ? '1 USDC' : '0.01 SOL';
   return new InlineKeyboard()
     .text(
-      'It happens · 0.01 SOL',
+      `It happens · ${amount}`,
       encodeCallback({ t: 'stake', marketId: market.id, side: 'back', presetIndex: 0 }),
     )
     .row()
     .text(
-      'It does not · 0.01 SOL',
+      `It does not · ${amount}`,
       encodeCallback({ t: 'stake', marketId: market.id, side: 'doubt', presetIndex: 0 }),
     );
+}
+
+export function stakeConfirmationKeyboard(intentId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('Confirm', encodeCallback({ t: 'stake_confirm', intentId }))
+    .text('Cancel', encodeCallback({ t: 'stake_cancel', intentId }));
+}
+
+export function voidReplayBlockerKeyboard(marketId: string): InlineKeyboard {
+  return new InlineKeyboard().text(
+    'Void call',
+    encodeCallback({ t: 'void_replay_blocker', marketId }),
+  );
 }
 
 /** A refresh preserves the same two-action public offer contract. */

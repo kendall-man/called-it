@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BOT_ONBOARDING_VERSION,
   claimGroupReadiness,
   groupBoardUrl,
   groupInstallUrl,
@@ -38,12 +39,12 @@ describe('group onboarding', () => {
     expect(first).toEqual({
       kind: 'post_ready',
       text:
-        'Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Each offer has two fixed 0.01 test-SOL choices: "It happens" or "It does not." Test SOL is devnet-only with no monetary value. Board: https://calledit.example/g/sunday-legends',
+        'Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Choose "It happens" or "It does not," then pick an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test assets are devnet-only with no monetary value. Board: https://calledit.example/g/sunday-legends',
     });
     expect(duplicate).toEqual({ kind: 'already_ready' });
   });
 
-  it('uses the canonical least-privilege group install URL and encodes board slugs', () => {
+  it('uses the canonical group install URL with the required permission and encodes board slugs', () => {
     // Given a bot username and a group alias containing URL-reserved characters
     const username = 'calledit_bot';
 
@@ -51,9 +52,11 @@ describe('group onboarding', () => {
     const install = groupInstallUrl(username);
     const board = groupBoardUrl('https://calledit.example/', 'group / ?');
 
-    // Then neither URL grants extra bot permissions or changes the board path
-    expect(install).toBe('https://t.me/calledit_bot?startgroup=calledit_v1');
-    expect(install).not.toContain('admin=');
+    // Then the bot requests only its required group permission and preserves the board path
+    expect(BOT_ONBOARDING_VERSION).toBe('calledit_v1');
+    expect(install).toBe(
+      'https://t.me/calledit_bot?startgroup=calledit_v1&admin=manage_chat',
+    );
     expect(board).toBe('https://calledit.example/g/group%20%2F%20%3F');
   });
 
@@ -75,5 +78,9 @@ describe('group onboarding', () => {
     // Then it can retain the duplicate fact while reproducing the same outbound payload
     expect(marker).toEqual({ ok: true, created: false, groupId: -100123, onboardingVersion: 'calledit_v1' });
     expect(text).toContain('Board: https://calledit.example/g/sunday-legends');
+    expect(text).toContain('Correct choices earn 10 points automatically.');
+    expect(text).toContain('visible to everyone in this Telegram group');
+    expect(text).not.toContain('\n');
+    expect(text.length).toBeLessThanOrEqual(4096);
   });
 });

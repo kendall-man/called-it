@@ -9,92 +9,169 @@
  * nothing promises more than the mechanics deliver.
  */
 
-import { formatSolAmount, shortPubkey } from './format.js';
-import { WAGER_TUNABLES } from './constants.js';
+import type { WagerAsset } from '@calledit/market-engine';
+import { formatAssetAmount, shortPubkey } from './format.js';
+import { minimumDeposit, minimumWithdrawal } from './constants.js';
+import type { SolanaNetwork } from '../solana-network.js';
 
-export const WAGER_COPY = {
+export function createWagerCopy(network: SolanaNetwork, asset: WagerAsset = 'sol') {
+  const mainnet = network === 'mainnet-beta';
+  const networkStamp = mainnet ? '(mainnet)' : '(devnet)';
+  const code = asset === 'sol' ? 'SOL' : 'USDC';
+  const assetLabel = mainnet ? code : `test ${code}`;
+  const formatSolAmount = (amountAtomic: bigint): string => formatAssetAmount(amountAtomic, asset);
+  return {
   // ── stake gates & results ────────────────────────────────────────────────
   unlinkedOnboarding: (): string =>
-    'This beta only supports its one starter position. No SOL moved. Try a listed 0.01 SOL call.',
+    mainnet
+      ? `No verified wallet is linked. No ${code} moved. Open /wallet in private chat to create or recover your wallet.`
+      : `No verified wallet is linked. Test ${code} has no monetary value. No ${code} moved. Open /wallet in private chat to create or recover your wallet.`,
   paused: (): string =>
-    'Starter positions are temporarily paused. No SOL moved. Try another allowlisted beta group later.',
+    mainnet
+      ? `${code} positions are temporarily paused. No ${code} moved. Try again later.`
+      : `${code} positions are temporarily paused. No ${code} moved. Try again later.`,
   marketClosed: (): string =>
-    'That call is closed for new SOL positions. No SOL moved. Choose another call.',
+    `That call is closed for new ${code} positions. No ${code} moved. Choose another call.`,
   starterUnavailable: (): string =>
-    'The starter position is not available. No SOL moved. Try another allowlisted beta group later.',
+    mainnet
+      ? `That position is not available. No ${code} moved. Try another call.`
+      : `The starter position is not available. No ${code} moved. Try another allowlisted beta group later.`,
   budgetExhausted: (): string =>
-    'The starter position budget is used up. No SOL moved. Try another allowlisted beta group later.',
+    mainnet
+      ? `That position is not available. No ${code} moved. Try another call.`
+      : `The starter position budget is used up. No ${code} moved. Try another allowlisted beta group later.`,
   walletRequired: (): string =>
-    'This beta only supports its one starter position. No SOL moved. Try another allowlisted beta group later.',
+    mainnet
+      ? `A verified wallet is required. No ${code} moved. Open /wallet in private chat to check your status.`
+      : `This beta only supports its one starter position. No ${code} moved. Try another allowlisted beta group later.`,
   insufficient: (balanceLamports: bigint): string =>
-    `Not enough test SOL for that position. No SOL moved. Available balance: ${formatSolAmount(balanceLamports)} (devnet). Use /deposit to add test SOL.`,
-  pickALane: (): string => "You can't back it and doubt it. No SOL moved. Pick a lane.",
+    `Not enough ${assetLabel} for that position. No ${code} moved. Available balance: ${formatSolAmount(balanceLamports)} ${networkStamp}. Use /deposit ${asset} to add ${assetLabel}.`,
+  pickALane: (): string => `You can't back it and doubt it. No ${code} moved. Pick a lane.`,
   capReached: (capLamports: bigint): string =>
-    `You're maxed on this call — ${formatSolAmount(capLamports)} is the ceiling per market. No SOL moved. Choose another call.`,
+    `You're maxed on this call — ${formatSolAmount(capLamports)} is the ceiling per market. No ${code} moved. Choose another call.`,
   stakePlaced: (name: string, sideLabel: string, lamports: bigint, multiplier: string): string =>
-    `${name}'s position is recorded — ${sideLabel} with ${formatSolAmount(lamports)} at up to ×${multiplier}. Test SOL is a devnet token with no monetary value.`,
-  stakeReplayed: (): string => "Already got that one — your SOL's on it.",
+    mainnet
+      ? `${name}'s position is recorded — ${sideLabel} with ${formatSolAmount(lamports)} at up to ×${multiplier}. (mainnet)`
+      : `${name}'s position is recorded — ${sideLabel} with ${formatSolAmount(lamports)} at up to ×${multiplier}. Test ${code} has no monetary value.`,
+  stakeReplayed: (): string => `Already got that one — your ${code} is on it.`,
   staleTap: (): string => 'That ship has sailed.',
+  confirmationPrompt: (
+    name: string,
+    side: string,
+    lamports: bigint,
+    multiplier: string,
+    terms: string,
+  ): string =>
+    `${name}, confirm ${formatSolAmount(lamports)} on "${side}" at up to ×${multiplier}. Call: ${terms}. ${code} moves only after Confirm. This expires in 2 minutes.`,
+  confirmationSent: (): string => `Review the confirmation below. No ${code} has moved yet.`,
+  confirmationCancelled: (): string => `Position cancelled. No ${code} moved.`,
+  confirmationExpired: (): string => `That confirmation expired. No ${code} moved. Tap the call again.`,
 
   // ── /wallet ──────────────────────────────────────────────────────────────
   walletSetupUnavailable: (): string =>
-    'Wallet setup requires signed ownership verification. Pasted wallet addresses are not accepted, and no account state changed. Setup is not available yet; use /me to review your account.',
-  walletStatus: (pubkey: string, balanceLamports: bigint): string =>
-    `Linked wallet: ${shortPubkey(pubkey)}. Available balance: ${formatSolAmount(balanceLamports)} (devnet). Use /deposit to add test SOL or /withdraw to return it.`,
+    'Wallet setup is temporarily unavailable. No account state changed. Try /wallet again shortly.',
+  walletSetupReady: (): string =>
+    `Create a dedicated Solana ${mainnet ? 'mainnet' : 'devnet'} wallet for Called It, or recover one you already made. Your recovery key stays encrypted on your device. This private link expires in 5 minutes.`,
+  walletPrivateOnly: (): string =>
+    'For privacy, open my private chat and use /wallet there.',
+  walletOverview: (
+    pubkey: string,
+    balances: Readonly<Record<WagerAsset, { availableAtomic: bigint; lockedAtomic: bigint }>>,
+  ): string => {
+    const sol = balances['sol'];
+    const usdc = balances['usdc'];
+    return [
+      `Linked wallet: ${shortPubkey(pubkey)}. ${networkStamp}`,
+      `SOL available: ${formatAssetAmount(sol.availableAtomic, 'sol')} · locked: ${formatAssetAmount(sol.lockedAtomic, 'sol')}`,
+      `USDC available: ${formatAssetAmount(usdc.availableAtomic, 'usdc')} · locked: ${formatAssetAmount(usdc.lockedAtomic, 'usdc')}`,
+      'Use /deposit <sol|usdc> or /withdraw <sol|usdc> <amount|all>.',
+    ].join('\n');
+  },
+  walletStatus: (pubkey: string, balanceLamports: bigint, lockedLamports = 0n): string =>
+    `Linked wallet: ${shortPubkey(pubkey)}. Available ${code}: ${formatSolAmount(balanceLamports)}. Locked in open calls: ${formatSolAmount(lockedLamports)}. ${networkStamp} Use /deposit ${asset} to add ${assetLabel} or /withdraw ${asset} <amount> to return available funds.`,
+
+  // ── group asset selection ───────────────────────────────────────────────
+  groupAssetStatus: (): string =>
+    `New calls in this group use ${code}. Existing calls keep their original asset. Admins can change this with /currency sol or /currency usdc.`,
+  groupAssetChanged: (): string =>
+    `New calls in this group will use ${code}. Existing calls are unchanged.`,
 
   // ── /deposit ─────────────────────────────────────────────────────────────
+  depositUsage: (): string =>
+    'Usage: /deposit <sol|usdc>',
   depositInstructions: (treasuryPubkey: string, linked: boolean): string => {
     const lines = [
-      'Add test SOL by sending a devnet transfer to the table treasury —',
+      mainnet
+        ? `Add ${code} from your verified wallet to the Called It treasury —`
+        : `Add test ${code} from your verified devnet wallet to the Called It treasury —`,
       treasuryPubkey,
-      `Minimum ${formatSolAmount(WAGER_TUNABLES.MIN_DEPOSIT_LAMPORTS)}; smaller sends are ignored. Plain transfer from your linked wallet, no memo needed — it credits automatically within a minute or so.`,
-      'DEVNET ONLY. Test SOL has no monetary value. Do not send mainnet SOL; it will not credit and cannot be returned.',
+      `Minimum ${formatSolAmount(minimumDeposit(asset))}; smaller sends are ignored. Send from your linked wallet; it credits automatically within a minute or so.`,
+      mainnet
+        ? asset === 'usdc'
+          ? 'MAINNET ONLY. Send only native Circle USDC from your verified wallet.'
+          : 'MAINNET ONLY. Send only SOL from your verified wallet.'
+        : `DEVNET ONLY. Test ${code} has no monetary value. Do not send mainnet assets; they will not credit.`,
     ];
     if (!linked) {
       lines.push(
-        'No verified wallet is linked. Open /wallet in private chat first; transfers remain pending until verification completes.',
+        mainnet
+          ? `No verified wallet is linked. Do not send ${code} until /wallet shows a verified wallet.`
+          : `No verified wallet is linked. Open /wallet in private chat before sending ${code}.`,
       );
     }
     return lines.join('\n');
   },
   depositCredited: (name: string, lamports: bigint, balanceLamports: bigint): string =>
-    `${name}'s deposit was recorded: ${formatSolAmount(lamports)}. Available balance: ${formatSolAmount(balanceLamports)}. (devnet)`,
+    `${name}'s deposit was recorded: ${formatSolAmount(lamports)}. Available balance: ${formatSolAmount(balanceLamports)}. ${networkStamp}`,
 
   // ── /withdraw ────────────────────────────────────────────────────────────
   withdrawUsage: (): string =>
-    `Usage: /withdraw <amount|all> — sends devnet SOL back to your linked wallet. Minimum ${formatSolAmount(WAGER_TUNABLES.MIN_WITHDRAWAL_LAMPORTS)}.`,
+    `Usage: /withdraw ${asset} <amount|all> — sends ${mainnet ? 'mainnet' : 'devnet'} ${code} back to your linked wallet. Minimum ${formatSolAmount(minimumWithdrawal(asset))}.`,
   withdrawNoWallet: (): string =>
-    'No verified wallet is available. No SOL moved. Open /wallet in private chat first.',
+    `No verified wallet is available. No ${code} moved. Open /wallet in private chat first.`,
   withdrawBelowMin: (): string =>
-    `Withdrawals start at ${formatSolAmount(WAGER_TUNABLES.MIN_WITHDRAWAL_LAMPORTS)}. No SOL moved. Choose a qualifying amount.`,
+    `Withdrawals start at ${formatSolAmount(minimumWithdrawal(asset))}. No ${code} moved. Choose a qualifying amount.`,
   withdrawInsufficient: (balanceLamports: bigint): string =>
-    `Available balance: ${formatSolAmount(balanceLamports)} (devnet). No SOL moved. Choose a smaller amount.`,
+    `Available balance: ${formatSolAmount(balanceLamports)} ${networkStamp}. No ${code} moved. Choose a smaller amount.`,
   withdrawQueued: (lamports: bigint): string =>
-    `Withdrawal queued: ${formatSolAmount(lamports)} to your verified wallet. I'll post the receipt when it confirms. (devnet)`,
+    `Withdrawal queued: ${formatSolAmount(lamports)} to your verified wallet. I'll post the receipt when it confirms. ${networkStamp}`,
   withdrawConfirmed: (name: string, lamports: bigint, explorerUrl: string): string =>
-    `Withdrawal confirmed: ${formatSolAmount(lamports)} sent to ${name}'s verified wallet. Receipt: ${explorerUrl} (devnet)`,
+    `Withdrawal confirmed: ${formatSolAmount(lamports)} sent to ${name}'s verified wallet. Receipt: ${explorerUrl} ${networkStamp}`,
   withdrawFailed: (name: string, lamports: bigint): string =>
-    `${name}'s withdrawal was not submitted. ${formatSolAmount(lamports)} is available again. No SOL left the account. Open /me before trying again.`,
+    `${name}'s withdrawal was not submitted. ${formatSolAmount(lamports)} is available again. No ${code} left the account. Open /wallet in private chat before trying again.`,
 
   // ── card & receipt furniture ─────────────────────────────────────────────
   cardFooter: (): string =>
-    'Test SOL is a devnet token with no monetary value.',
-  payoutsLineVoid: (): string => 'Call off — every SOL stake returned. (devnet)',
-  payoutsLineNone: (): string => 'No SOL changed hands. (devnet)',
+    mainnet ? `${code} positions settle on Solana mainnet.` : `Test ${code} has no monetary value.`,
+  payoutsLineVoid: (): string => `Call off — every ${code} position returned. ${networkStamp}`,
+  payoutsLineNone: (): string => `No ${code} changed hands. ${networkStamp}`,
   payoutPart: (name: string, lamports: bigint): string =>
     `${name} collects ${formatSolAmount(lamports)}`,
-  payoutsLine: (parts: string[]): string => `${parts.join(' · ')}. (devnet)`,
+  payoutsLine: (parts: readonly string[], overflowCount = 0): string => {
+    const overflow = overflowCount > 0
+      ? `and ${overflowCount} more winners collect ${assetLabel}`
+      : null;
+    return `${[...parts, ...(overflow === null ? [] : [overflow])].join(' · ')}. ${networkStamp}`;
+  },
 
   // ── ops alerts (WAGER_OPS_CHAT_ID) ───────────────────────────────────────
   opsSolvencyAlert: (treasuryLamports: bigint, requiredLamports: bigint): string =>
     [
-      'WAGER OPS — solvency breaker tripped. New stakes are paused.',
+      `WAGER OPS — ${code} solvency breaker tripped. New ${code} positions are paused.`,
       `Treasury holds ${formatSolAmount(treasuryLamports)}; covering deposits, open stakes and the fee buffer needs ${formatSolAmount(requiredLamports)}.`,
-      'Top the devnet treasury up from a faucet — the breaker clears itself once covered.',
+      mainnet
+        ? 'Top up the mainnet treasury — the breaker clears itself once covered.'
+        : 'Top the devnet treasury up from a faucet — the breaker clears itself once covered.',
     ].join('\n'),
   opsSolvencyRecovered: (): string =>
-    'WAGER OPS — treasury covers the book again. Breaker cleared, stakes are back on.',
-} as const;
+    `WAGER OPS — treasury covers the ${code} book again. Breaker cleared, positions are back on.`,
+  } as const;
+}
+
+export type WagerCopy = ReturnType<typeof createWagerCopy>;
+
+/** Devnet remains the compatibility default for existing callers and tests. */
+export const WAGER_COPY = createWagerCopy('devnet');
 
 /** Human side label for stake acks. */
 export function sideLabel(side: 'back' | 'doubt'): string {

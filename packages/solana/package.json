@@ -13,6 +13,10 @@
     "./verify": {
       "types": "./dist/verify.d.ts",
       "default": "./dist/verify.js"
+    },
+    "./message-signing": {
+      "types": "./dist/message-signing.d.ts",
+      "default": "./dist/message-signing.js"
     }
   },
   "scripts": {
@@ -24,6 +28,7 @@
     "@coral-xyz/anchor": "^0.31.0",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
+    "@solana/spl-token": "^0.4.15",
     "@solana/web3.js": "^1.95.8"
   },
   "devDependencies": {

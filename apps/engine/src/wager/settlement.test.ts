@@ -11,6 +11,55 @@ import { makeFakeDeps } from './fakes.js';
 const EVEN = 0.5;
 
 describe('applySettlement — peer-matched', () => {
+  it('refuses to credit a replay position that has no matching stake debit', async () => {
+    const errors: Array<{ event: string; fields?: Record<string, unknown> }> = [];
+    const { deps, db } = makeFakeDeps({
+      log: {
+        info() {},
+        warn() {},
+        error(event, fields) { errors.push({ event, fields }); },
+      },
+    });
+    db.settlements.set('legacy-replay', 'claim_won');
+    db.seedMarketProbability('legacy-replay', EVEN);
+    db.seedPosition({ market_id: 'legacy-replay', user_id: 1, side: 'back' });
+
+    await applySettlement(deps, 'legacy-replay', { requireFullyBacked: true });
+
+    expect(db.ledger.filter((entry) => entry.kind === 'payout' || entry.kind === 'refund'))
+      .toHaveLength(0);
+    expect(db.applied.has('legacy-replay')).toBe(false);
+    expect(errors).toContainEqual({
+      event: 'wager_settlement_unbacked_positions',
+      fields: {
+        marketId: 'legacy-replay',
+        positionLamports: '10000000',
+        debitedLamports: '0',
+      },
+    });
+  });
+
+  it('settles a replay after every position lamport is backed by a stake debit', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.settlements.set('funded-replay', 'claim_won');
+    db.seedMarketProbability('funded-replay', EVEN);
+    const winner = db.seedPosition({ market_id: 'funded-replay', user_id: 1, side: 'back' });
+    await db.postWagerLedger({
+      user_id: 1,
+      group_id: -100,
+      market_id: 'funded-replay',
+      kind: 'stake',
+      lamports: -10_000_000n,
+      idempotency_key: 'wager:stake:funded-replay',
+    });
+
+    await applySettlement(deps, 'funded-replay', { requireFullyBacked: true });
+
+    expect(db.ledgerByKey(WAGER_KEYS.payout('funded-replay', winner.user_id))?.lamports)
+      .toBe(10_000_000n);
+    expect(db.applied.has('funded-replay')).toBe(true);
+  });
+
   it('pays the winner stake + matched losing pot, refunds pending, voids pending, stamps marker', async () => {
     const { deps, db } = makeFakeDeps();
     db.settlements.set('m1', 'claim_won');
@@ -33,6 +82,24 @@ describe('applySettlement — peer-matched', () => {
     expect(pending.state).toBe('void');
     expect(winner.state).toBe('active');
     expect(db.applied.has('m1')).toBe(true);
+  });
+
+  it('settles a USDC market entirely in USDC atomic units', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.settlements.set('usdc-market', 'claim_won');
+    db.seedMarketProbability('usdc-market', EVEN);
+    db.seedMarketAsset('usdc-market', 'usdc');
+    db.seedPosition({ market_id: 'usdc-market', user_id: 1, side: 'back', stake: 1_000_000 });
+    db.seedPosition({ market_id: 'usdc-market', user_id: 2, side: 'doubt', stake: 1_000_000 });
+
+    await applySettlement(deps, 'usdc-market');
+
+    expect(db.ledgerByKey(WAGER_KEYS.payout('usdc-market', 1))).toMatchObject({
+      asset: 'usdc',
+      lamports: 2_000_000n,
+    });
+    expect(db.ledger.filter((entry) => entry.market_id === 'usdc-market')
+      .every((entry) => entry.asset === 'usdc')).toBe(true);
   });
 
   it('refunds the unmatched excess on the heavier side', async () => {
@@ -147,6 +214,73 @@ describe('applySettlement — peer-matched', () => {
 });
 
 describe('settlementPayoutsLine', () => {
+  it('projects 100 unique winners through one bounded sanitized bulk read', async () => {
+    // Given 100 winners, 100 losers, and one duplicate winning position
+    const { deps, db } = makeFakeDeps();
+    db.seedMarketProbability('m1', EVEN);
+    const winnerIds = Array.from({ length: 100 }, (_, index) => 10_000 + index);
+    const loserIds = Array.from({ length: 100 }, (_, index) => 20_000 + index);
+    for (const [index, userId] of [...winnerIds].reverse().entries()) {
+      db.users.set(
+        userId,
+        `\u0000\u202e\uD800Winner ${100 - index} ${'🏆'.repeat(80)} @raw_winner_${userId} id:${userId}\n`,
+      );
+      db.seedPosition({ market_id: 'm1', user_id: userId, side: 'back', stake: 1_000_000 });
+    }
+    db.seedPosition({ market_id: 'm1', user_id: 10_000, side: 'back', stake: 1_000_000 });
+    for (const [index, userId] of loserIds.entries()) {
+      db.seedPosition({
+        market_id: 'm1',
+        user_id: userId,
+        side: 'doubt',
+        stake: index === 0 ? 2_000_000 : 1_000_000,
+      });
+    }
+    const bulkQueries: number[][] = [];
+    let sequentialReads = 0;
+    const getUserName = db.getUserName.bind(db);
+    Object.assign(db, {
+      getUserName: async (userId: number) => {
+        sequentialReads += 1;
+        return getUserName(userId);
+      },
+      getUserNames: async (userIds: readonly number[]) => {
+        bulkQueries.push([...userIds]);
+        return new Map(
+          userIds.map((userId) => [userId, db.users.get(userId) ?? 'Missing winner']),
+        );
+      },
+    });
+
+    // When the production payout formatter projects the winning side
+    const line = await settlementPayoutsLine(deps, 'm1', 'claim_won');
+
+    // Then selection is deterministic, duplicate-free, bounded, and presentation-safe
+    expect({
+      bulkQueries,
+      sequentialReads,
+      firstWinnerOccurrences: line.match(/Winner 1 /g)?.length ?? 0,
+      hasAuthoritativeOverflow: line.includes('and 95 more winners'),
+      hidesSixthWinner: !line.includes('Winner 6 '),
+      hidesRawIdentity: !line.includes('@raw_winner_') && !line.includes('id:10000'),
+      controlSafe: !/[\p{Cc}\p{Cf}\p{Cs}]/u.test(line),
+      unicodeSafe: !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(line),
+      bounded: line.length <= 512,
+      devnet: line.endsWith('(devnet)'),
+    }).toEqual({
+      bulkQueries: [winnerIds.slice(0, 5)],
+      sequentialReads: 0,
+      firstWinnerOccurrences: 1,
+      hasAuthoritativeOverflow: true,
+      hidesSixthWinner: true,
+      hidesRawIdentity: true,
+      controlSafe: true,
+      unicodeSafe: true,
+      bounded: true,
+      devnet: true,
+    });
+  });
+
   it('names each winner with exact SOL and a devnet stamp', async () => {
     const { deps, db } = makeFakeDeps();
     db.users.set(1, 'Sana');
@@ -154,19 +288,28 @@ describe('settlementPayoutsLine', () => {
     db.seedPosition({ market_id: 'm1', user_id: 1, side: 'back', stake: 10_000_000 });
     db.seedPosition({ market_id: 'm1', user_id: 2, side: 'doubt', stake: 10_000_000 });
     const line = await settlementPayoutsLine(deps, 'm1', 'claim_won');
-    expect(line).toContain('Sana');
     // 10M stake + 10M matched-and-won = 20M = 0.02 SOL.
-    expect(line).toContain('0.02 SOL');
-    expect(line).toContain('(devnet)');
+    expect(line).toBe('Sana collects 0.02 SOL. (devnet)');
+  });
+
+  it('uses a stable label instead of a missing winner name or id', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.seedMarketProbability('m1', EVEN);
+    db.seedPosition({ market_id: 'm1', user_id: 42, side: 'back', stake: 10_000_000 });
+    db.seedPosition({ market_id: 'm1', user_id: 99, side: 'doubt', stake: 10_000_000 });
+
+    const line = await settlementPayoutsLine(deps, 'm1', 'claim_won');
+
+    expect(line).toBe('Player collects 0.02 SOL. (devnet)');
+    expect(line).not.toContain('42');
   });
 
   it('void and no-winner lines are distinct', async () => {
     const { deps } = makeFakeDeps();
     const voidLine = await settlementPayoutsLine(deps, 'm1', 'void');
     const noneLine = await settlementPayoutsLine(deps, 'm1', 'claim_won');
-    expect(voidLine).not.toBe(noneLine);
-    expect(voidLine).toContain('(devnet)');
-    expect(noneLine).toContain('(devnet)');
+    expect(voidLine).toBe('Call off — every SOL position returned. (devnet)');
+    expect(noneLine).toBe('No SOL changed hands. (devnet)');
   });
 });
 
@@ -187,5 +330,26 @@ describe('settlement sweeper', () => {
     const after = db.ledger.length;
     await sweeper.tick();
     expect(db.ledger.length).toBe(after);
+  });
+
+  it('recovers funded replay settlements with backing validation', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.settlements.set('funded-replay', 'claim_won');
+    db.seedMarketProbability('funded-replay', EVEN);
+    const winner = db.seedPosition({ market_id: 'funded-replay', user_id: 1, side: 'back' });
+    await db.postWagerLedger({
+      user_id: 1,
+      group_id: -100,
+      market_id: 'funded-replay',
+      kind: 'stake',
+      lamports: -10_000_000n,
+      idempotency_key: 'wager:stake:funded-replay',
+    });
+    db.fundedReplayMarkets.push('funded-replay');
+
+    await createSettlementSweeper(deps).tick();
+
+    expect(db.ledgerByKey(WAGER_KEYS.payout('funded-replay', winner.user_id))).toBeDefined();
+    expect(db.applied.has('funded-replay')).toBe(true);
   });
 });

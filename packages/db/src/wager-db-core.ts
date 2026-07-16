@@ -169,6 +169,7 @@ const STAKE_ERROR_CODES: ReadonlySet<unknown> = new Set<WagerStakeErrorCode>([
 const WITHDRAW_ERROR_CODES: ReadonlySet<unknown> = new Set<WagerWithdrawErrorCode>([
   'no_wallet',
   'insufficient',
+  'invalid_asset',
 ]);
 
 /**

@@ -44,7 +44,7 @@ export function createPoster(api: Api, queue: SendQueue, log: Logger): Poster {
           // The message may be old or already keyboard-less — log the rest.
           const detail = String(err);
           if (!detail.includes('message is not modified')) {
-            log.warn('strip_keyboard_failed', { chatId, messageId, error: detail });
+            log.warn('strip_keyboard_failed');
           }
         }
       });
@@ -53,7 +53,9 @@ export function createPoster(api: Api, queue: SendQueue, log: Logger): Poster {
       queue.enqueueCardEdit(chatId, marketId, async () => {
         try {
           await api.editMessageText(chatId, messageId, text, {
-            ...(keyboard ? { reply_markup: keyboard } : {}),
+            // Telegram preserves the old inline keyboard when reply_markup is
+            // omitted. An explicit empty keyboard removes stale money actions.
+            reply_markup: keyboard ?? { inline_keyboard: [] },
             link_preview_options: { is_disabled: true },
           });
         } catch (err) {
@@ -61,7 +63,7 @@ export function createPoster(api: Api, queue: SendQueue, log: Logger): Poster {
           // an intermediate state — anything else is worth a log line.
           const detail = String(err);
           if (!detail.includes('message is not modified')) {
-            log.warn('card_edit_failed', { chatId, marketId, error: detail });
+            log.warn('card_edit_failed', { marketId });
           }
         }
       });

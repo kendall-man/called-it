@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "network": "mainnet-beta",
+  "releaseManifestSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "releaseVerificationArtifactSha256": "1212121212121212121212121212121212121212121212121212121212121212",
+  "releaseVerifiedAt": "2026-07-08T12:00:00Z",
+  "localValidator": { "passed": true, "artifactSha256": "2222222222222222222222222222222222222222222222222222222222222222", "sol": true, "usdc": true, "adversarial": true },
+  "devnetE2e": { "passed": true, "artifactSha256": "3333333333333333333333333333333333333333333333333333333333333333", "realSol": true, "realUsdc": true, "telegramPrivy": true, "settlement": true, "claim": true, "receipt": true, "retryRecovery": true },
+  "directClaimEngineDown": { "passed": true, "artifactSha256": "4444444444444444444444444444444444444444444444444444444444444444", "engineUnavailable": true, "ownerDestinationOnly": true },
+  "pausedTimeoutVoid": { "passed": true, "artifactSha256": "5555555555555555555555555555555555555555555555555555555555555555", "protocolPaused": true, "permissionlessRecovery": true },
+  "relayerRecovery": { "passed": true, "artifactSha256": "6666666666666666666666666666666666666666666666666666666666666666", "idempotent": true, "noLostPositions": true, "noDuplicatePositions": true },
+  "legacyAudit": { "passed": true, "artifactSha256": "7777777777777777777777777777777777777777777777777777777777777777", "withdrawalsAvailable": true, "noAutoMigration": true, "newCustodyIntakeDisabled": true, "liabilityDriftAtomic": "0" },
+  "soakSamples": [
+    { "capturedAt": "2026-07-01T12:00:00Z", "driftAtomic": "0", "signerAgreement": true, "relayerHealthy": true, "indexerHealthy": true, "rpcIdentityMatch": true, "artifactSha256": "8111111111111111111111111111111111111111111111111111111111111111" },
+    { "capturedAt": "2026-07-02T12:00:00Z", "driftAtomic": "0", "signerAgreement": true, "relayerHealthy": true, "indexerHealthy": true, "rpcIdentityMatch": true, "artifactSha256": "8222222222222222222222222222222222222222222222222222222222222222" },
+    { "capturedAt": "2026-07-03T12:00:00Z", "driftAtomic": "0", "signerAgreement": true, "relayerHealthy": true, "indexerHealthy": true, "rpcIdentityMatch": true, "artifactSha256": "8333333333333333333333333333333333333333333333333333333333333333" },
+    { "capturedAt": "2026-07-04T12:00:00Z", "driftAtomic": "0", "signerAgreement": true, "relayerHealthy": true, "indexerHealthy": true, "rpcIdentityMatch": true, "artifactSha256": "8444444444444444444444444444444444444444444444444444444444444444" },
+    { "capturedAt": "2026-07-05T12:00:00Z", "driftAtomic": "0", "signerAgreement": true, "relayerHealthy": true, "indexerHealthy": true, "rpcIdentityMatch": true, "artifactSha256": "8555555555555555555555555555555555555555555555555555555555555555" },
+    { "capturedAt": "2026-07-06T12:00:00Z", "driftAtomic": "0", "signerAgreement": true, "relayerHealthy": true, "indexerHealthy": true, "rpcIdentityMatch": true, "artifactSha256": "8666666666666666666666666666666666666666666666666666666666666666" },
+    { "capturedAt": "2026-07-07T12:00:00Z", "driftAtomic": "0", "signerAgreement": true, "relayerHealthy": true, "indexerHealthy": true, "rpcIdentityMatch": true, "artifactSha256": "8777777777777777777777777777777777777777777777777777777777777777" }
+  ],
+  "independentReview": { "passed": true, "artifactSha256": "9999999999999999999999999999999999999999999999999999999999999999", "criticalOpen": 0, "highOpen": 0 },
+  "externalAudit": { "passed": true, "artifactSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "criticalOpen": 0, "highOpen": 0 },
+  "authorities": [
+    { "role": "upgrade", "address": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi", "multisig": true, "threshold": 2, "signerCount": 3 },
+    { "role": "config", "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR", "multisig": true, "threshold": 2, "signerCount": 3 },
+    { "role": "pause", "address": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8", "multisig": true, "threshold": 2, "signerCount": 3 },
+    { "role": "market_creation", "address": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq", "multisig": true, "threshold": 2, "signerCount": 3 },
+    { "role": "feed_operator", "address": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY", "multisig": true, "threshold": 2, "signerCount": 3 },
+    { "role": "oracle_set", "address": "QWmroo4YnnMqYW3cnxWkFdaTxGD3P7vMSzwMHGbUzwF", "multisig": true, "threshold": 2, "signerCount": 3 }
+  ],
+  "canary": { "allowlistEnabled": true, "groupCount": 1, "minSolPosition": "1000000", "maxSolPosition": "50000000", "minUsdcPosition": "1000000", "maxUsdcPosition": "25000000" },
+  "explicitApproval": { "approved": true, "approvedAt": "2026-07-08T11:55:00Z", "artifactSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "scope": "mainnet escrow canary value enablement" }
+}

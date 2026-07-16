@@ -11,13 +11,21 @@ import { registerCallbacks } from './callbacks.js';
 import { registerDetection } from './detection.js';
 import type { EngineDb } from '../ports.js';
 import type { Env } from '../env.js';
+import type { SolanaNetwork } from '../solana-network.js';
 import type { Poster } from './poster.js';
+import type {
+  FundedWagerModule,
+  StarterOnlyWagerModule,
+  WagerBotLike,
+  WagerModule,
+} from '../wager/module.js';
 import {
   claimGroupReadiness,
   groupReadyMarkerStore,
   readyMessageForGroup,
 } from './onboarding.js';
 import { isBetaGroupAllowed } from './beta-access.js';
+import { renderFallback } from './copy.js';
 
 export interface BotErrorRegistrar {
   catch(handler: (error: { readonly error: unknown }) => unknown): void;
@@ -36,11 +44,27 @@ export function registerBotErrorHandler(bot: BotErrorRegistrar, log: Logger): vo
 export const PRIVATE_BOT_COMMANDS = [
   { command: 'start', description: 'Add Called It to a group' },
   { command: 'help', description: 'How Called It works' },
+  { command: 'wallet', description: 'Create or manage your wallet' },
+  { command: 'deposit', description: 'Add SOL or USDC to your balance' },
+  { command: 'withdraw', description: 'Return SOL or USDC to your wallet' },
+] as const;
+
+export const MAINNET_PRIVATE_BOT_COMMANDS = PRIVATE_BOT_COMMANDS;
+
+export const ESCROW_PRIVATE_BOT_COMMANDS = [
+  { command: 'start', description: 'Add Called It to a group' },
+  { command: 'help', description: 'How Called It works' },
+  { command: 'wallet', description: 'Manage your Privy wallet and claims' },
 ] as const;
 
 export const GROUP_BOT_COMMANDS = [
   { command: 'bookit', description: 'Book an explicit call' },
+  { command: 'leaderboard', description: 'View the group top 10' },
+  { command: 'mystats', description: 'View your group stats' },
   { command: 'table', description: 'Open the group board' },
+  { command: 'settings', description: 'Manage group call settings' },
+  { command: 'currency', description: 'Choose SOL or USDC for new calls' },
+  { command: 'testmatch', description: 'Run a completed-match replay (admins)' },
   { command: 'help', description: 'How Called It works' },
 ] as const;
 
@@ -58,9 +82,44 @@ export interface BotCommandScopeApi {
   ): Promise<unknown>;
 }
 
-export async function configureScopedBotCommands(api: BotCommandScopeApi): Promise<void> {
-  await api.setMyCommands(PRIVATE_BOT_COMMANDS, { scope: { type: 'all_private_chats' } });
+export type WagerCommandModule =
+  | Pick<FundedWagerModule, 'kind' | 'registerCommands'>
+  | Pick<StarterOnlyWagerModule, 'kind'>;
+
+export async function configureScopedBotCommands(
+  api: BotCommandScopeApi,
+  network: SolanaNetwork = 'devnet',
+  custodyMode: 'legacy' | 'escrow' = 'legacy',
+): Promise<void> {
+  await api.setMyCommands(
+    custodyMode === 'escrow'
+      ? ESCROW_PRIVATE_BOT_COMMANDS
+      : network === 'mainnet-beta'
+        ? MAINNET_PRIVATE_BOT_COMMANDS
+        : PRIVATE_BOT_COMMANDS,
+    { scope: { type: 'all_private_chats' } },
+  );
   await api.setMyCommands(GROUP_BOT_COMMANDS, { scope: { type: 'all_group_chats' } });
+}
+
+export function registerWagerCommands(
+  bot: WagerBotLike,
+  wager: WagerCommandModule | null,
+  custodyMode: 'legacy' | 'escrow' = 'legacy',
+): void {
+  if (wager?.kind !== 'funded') return;
+  if (custodyMode === 'legacy') {
+    wager.registerCommands(bot);
+    return;
+  }
+  wager.registerCommands({
+    command(command, handler) {
+      if (command === 'withdraw') {
+        return bot.command(command, handler);
+      }
+      return undefined;
+    },
+  });
 }
 
 export interface GroupLifecycleContext {
@@ -81,7 +140,8 @@ export interface GroupLifecycleBot {
 export interface GroupLifecycleHandlerCtx {
   readonly deps: {
     readonly db: Pick<EngineDb, 'upsertGroup' | 'setGroupAdmin' | 'markGroupReady'>;
-    readonly env: Pick<Env, 'WEB_BASE_URL' | 'DEPLOYMENT_ENV' | 'BETA_ALLOWED_GROUP_IDS'>;
+    readonly env: Pick<Env, 'WEB_BASE_URL' | 'DEPLOYMENT_ENV' | 'BETA_ALLOWED_GROUP_IDS'>
+      & Partial<Pick<Env, 'SOLANA_NETWORK' | 'WAGER_CUSTODY_MODE'>>;
     readonly log: Pick<Logger, 'info' | 'warn'>;
   };
   readonly poster: Pick<Poster, 'post'>;
@@ -96,37 +156,57 @@ export function registerGroupLifecycleHandlers(bot: GroupLifecycleBot, h: GroupL
     const chat = ctx.chat;
     if (!isGroupChat(chat.type)) return;
     if (!isBetaGroupAllowed(h.deps.env, chat.id)) {
-      h.deps.log.info('beta_group_not_allowlisted', { groupId: chat.id });
+      h.deps.log.info('beta_group_not_allowlisted');
+      h.poster.post(chat.id, renderFallback(
+        'beta_access_required',
+        {},
+        h.deps.env.SOLANA_NETWORK ?? 'devnet',
+      ));
       return;
     }
     const next = ctx.myChatMember.new_chat_member.status;
     const previous = ctx.myChatMember.old_chat_member.status;
     const group = await h.deps.db.upsertGroup({ id: chat.id, title: chat.title ?? '' });
-    h.deps.log.info('membership_change', { groupId: chat.id, previous, next });
+    h.deps.log.info('membership_change', { previous, next });
 
     if (next === 'administrator') {
       await h.deps.db.setGroupAdmin(chat.id, true);
     } else if (next === 'member') {
       await h.deps.db.setGroupAdmin(chat.id, false);
+      h.poster.post(chat.id, renderFallback(
+        'admin_permission_required',
+        {},
+        h.deps.env.SOLANA_NETWORK ?? 'devnet',
+      ));
+      return;
     } else {
       return;
     }
 
     const marker = await claimGroupReadiness(groupReadyMarkerStore(h.deps.db), group.id);
     if (!marker.ok) {
-      h.deps.log.warn('group_readiness_rejected', { groupId: chat.id, code: marker.code });
+      h.deps.log.warn('group_readiness_rejected', { code: marker.code });
       return;
     }
 
     if (marker.created) {
-      h.poster.post(chat.id, readyMessageForGroup({ group, webBaseUrl: h.deps.env.WEB_BASE_URL }));
+      h.poster.post(chat.id, readyMessageForGroup({
+        group,
+        webBaseUrl: h.deps.env.WEB_BASE_URL,
+        solanaNetwork: h.deps.env.SOLANA_NETWORK,
+        custodyMode: h.deps.env.WAGER_CUSTODY_MODE,
+      }));
     }
   });
 }
 
 export function registerBotHandlers(bot: Bot, h: HandlerCtx): void {
   registerBotErrorHandler(bot, h.deps.log);
-  void configureScopedBotCommands(bot.api).catch((error: unknown) => {
+  void configureScopedBotCommands(
+    bot.api,
+    h.deps.env.SOLANA_NETWORK,
+    h.deps.env.WAGER_CUSTODY_MODE,
+  ).catch((error: unknown) => {
     h.deps.log.warn('set_scoped_commands_failed', {
       reason: error instanceof Error ? 'bot_api_error' : 'unknown_error',
     });
@@ -135,6 +215,7 @@ export function registerBotHandlers(bot: Bot, h: HandlerCtx): void {
   registerGroupLifecycleHandlers(bot, h);
 
   registerCommands(bot, h);
+  registerWagerCommands(bot, h.deps.wager, h.deps.env.WAGER_CUSTODY_MODE);
   registerCallbacks(bot, h);
   registerDetection(bot, h);
 }

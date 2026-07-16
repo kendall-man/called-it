@@ -33,6 +33,7 @@ data must not be copied into staging.
 | Supabase service role | required | forbidden | forbidden | database operator |
 | Supabase anon values | forbidden | forbidden | optional public pair | database operator |
 | wager treasury keypair | required when stake intake is on | forbidden | forbidden | treasury operator |
+| escrow signer/provider set | required in escrow mode | forbidden | forbidden | program and settlement operators |
 | public Telegram username/start payload | forbidden | forbidden | required in production | web release owner |
 
 `NEXT_PUBLIC_TELEGRAM_STARTGROUP` is exactly `calledit_v1`. Changing the
@@ -52,6 +53,12 @@ uniqueness checks. Engine receives only `WEB_CONCIERGE_TOKEN_SHA256`, concierge
 receives only `ENGINE_OPS_TOKEN_SHA256`, and web receives only the three
 `ENGINE_*_TOKEN_SHA256` values. These fingerprints are not bearer credentials
 and must never replace the raw token in an Authorization header.
+
+The app-local inventories include the fingerprint inputs at the service that
+audits them: engine has `WEB_CONCIERGE_TOKEN_SHA256`; web has
+`ENGINE_CONCIERGE_TOKEN_SHA256`, `ENGINE_TELEGRAM_TOKEN_SHA256`, and
+`ENGINE_OPS_TOKEN_SHA256`. Fingerprints are lowercase SHA-256 hex and contain
+no raw route credential.
 
 For the initial split, provision all route credentials with intake disabled,
 deploy the accepting engine, then deploy the concierge callers. Verify a
@@ -116,10 +123,34 @@ The switches are independent and parse only the literal strings `true` and
 | `STARTER_GRANTS_ENABLED` | `false` | permits the database starter path after stake intake is safe |
 
 Starter grants cannot be enabled while stake acceptance is disabled. Stake
-acceptance requires wager mode, a dedicated treasury keypair, and
-`TREASURY_COVERAGE_ENFORCED=true`. The grant amount, total cap, grant count,
-used budget, and remaining budget are database state and must never be env
-variables.
+acceptance requires wager mode. Legacy custody additionally requires a
+dedicated treasury keypair and `TREASURY_COVERAGE_ENFORCED=true`. Escrow
+custody requires at least one negative Telegram group ID in
+`ESCROW_ALLOWED_GROUP_IDS`. To stop new escrow intake while preserving boot and
+recovery workers, set `STAKE_ACCEPTANCE_ENABLED=false` and leave the escrow
+allowlist empty. The grant amount, total cap, grant count, used budget, and
+remaining budget are database state and must never be env variables.
+
+## Escrow signer and provider inventory
+
+Escrow custody always requires the pinned program, cluster, canonical mint,
+classic token program, oracle-set PDA and epoch, authority addresses, residual
+recipient, and indexer lag bound listed in the engine `.env.example`. Its
+runtime signer/provider contract is:
+
+| Role | Required configuration |
+| --- | --- |
+| Solana provider | `SOLANA_RPC_URL`; deployed environments must set it explicitly and mainnet must not use a devnet endpoint |
+| Settlement oracle identities | `ESCROW_ORACLE_SIGNERS` contains three unique public keys and `ESCROW_ORACLE_THRESHOLD=2` |
+| Settlement oracle signer provider | Exactly one of `ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON` or devnet-only `ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON`; remote mode is three independent HTTPS origins |
+| Market-creation signer provider | Exactly one of `ESCROW_MARKET_AUTHORITY_SIGNER_ENDPOINT_JSON` or devnet-only `ESCROW_MARKET_AUTHORITY_KEYPAIR_B58`; the mainnet endpoint requires a bearer token |
+| Transaction fee payer | `ESCROW_RELAYER_KEYPAIR_B58`; fee payment never authorizes a user position |
+| Bounded feed freeze signer | `ESCROW_FEED_OPERATOR_KEYPAIR_B58`; distinct from relayer, market authority, and oracle key material |
+
+Signer endpoint JSON and all keypair values are secrets when they contain
+bearer tokens or private key material. Store them only in the engine secret
+manager. Public keys and authority addresses are identifiers, not signer
+credentials.
 
 ## Readiness and queue bounds
 
@@ -133,6 +164,7 @@ The example values are the initial beta contract, not permissive fallbacks:
 | `QUEUE_MAX_ATTEMPTS` | 8 | integer from 1 through 100 |
 | `QUEUE_RETRY_BASE_MS` | 500 | no greater than retry maximum |
 | `QUEUE_RETRY_MAX_MS` | 30000 | bounded retry ceiling |
+| `ESCROW_WORKER_INTERVAL_MS` | 5000 | escrow relayer, attestation, and finalized-indexer cadence; 1000 through 60000 |
 | `READINESS_FEED_MAX_AGE_MS` | 60000 | active-pricing feed age |
 | `READINESS_WORKER_MAX_AGE_MS` | 30000 | Telegram, proof, and settlement worker heartbeat age |
 | `READINESS_INGRESS_MAX_AGE_MS` | 30000 | oldest ingress work age |

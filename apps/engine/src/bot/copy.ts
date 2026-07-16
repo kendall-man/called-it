@@ -1,5 +1,6 @@
 import type { AgentPort } from '../ports.js';
 import type { Logger } from '../log.js';
+import type { SolanaNetwork } from '../solana-network.js';
 import {
   FALLBACK_TEMPLATES,
   type CopyVars,
@@ -15,8 +16,12 @@ function v(vars: CopyVars, key: string, fallback = ''): string {
 
 export type Say = (key: TemplateKey, vars?: CopyVars) => Promise<string>;
 
-export function renderFallback(key: TemplateKey, vars: CopyVars = {}): string {
-  return FALLBACK_TEMPLATES[key](vars);
+export function renderFallback(
+  key: TemplateKey,
+  vars: CopyVars = {},
+  network: SolanaNetwork = 'devnet',
+): string {
+  return FALLBACK_TEMPLATES[key]({ ...vars, __solanaNetwork: network });
 }
 
 /**
@@ -34,8 +39,13 @@ function has(vars: CopyVars, keys: string[]): boolean {
   return keys.every((key) => vars[key] !== undefined && String(vars[key]).length > 0);
 }
 
+const FIXED_PRODUCT_CONTRACT_KEYS: ReadonlySet<TemplateKey> = new Set([
+  'intro',
+  'help',
+  'group_ready',
+]);
+
 const AGENT_TEMPLATE_MAP: Partial<Record<TemplateKey, (vars: CopyVars) => AgentMapping | null>> = {
-  intro: () => ({ agentKey: 'intro_disclosure', agentVars: { botName: 'Called It' } }),
   nudge_priced: (vars) =>
     has(vars, ['claimer', 'quote', 'multiplier'])
       ? {
@@ -129,18 +139,27 @@ const AGENT_TEMPLATE_MAP: Partial<Record<TemplateKey, (vars: CopyVars) => AgentM
       : null,
 };
 
-export function createSay(agent: AgentPort, log: Logger): Say {
+export function createSay(
+  agent: AgentPort,
+  log: Logger,
+  network: SolanaNetwork = 'devnet',
+  custodyMode: 'legacy' | 'escrow' = 'legacy',
+): Say {
   return async (key, vars = {}) => {
+    const productVars = { ...vars, custodyMode };
+    if (FIXED_PRODUCT_CONTRACT_KEYS.has(key)) return renderFallback(key, productVars, network);
     const mapping = AGENT_TEMPLATE_MAP[key]?.(vars) ?? null;
     if (mapping) {
       try {
         const line = await agent.persona(mapping.agentKey, mapping.agentVars);
         if (typeof line === 'string' && line.trim().length > 0) return line;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        log.warn('persona_fallback', { templateKey: key, error: message });
+        log.warn('persona_fallback', {
+          templateKey: key,
+          reason: error instanceof Error ? 'persona_exception' : 'unknown_exception',
+        });
       }
     }
-    return renderFallback(key, vars);
+    return renderFallback(key, productVars, network);
   };
 }

@@ -1,3 +1,10 @@
+import {
+  formatAtomicAmount,
+  formatWagerAmount,
+  parseAtomicAmount,
+  type WagerAsset,
+} from '@calledit/market-engine';
+
 /**
  * Lamports↔SOL display and parsing helpers. All arithmetic is bigint; the
  * only float anywhere in wager money math is the locked multiplier, which is
@@ -5,7 +12,6 @@
  */
 
 export const LAMPORTS_PER_SOL = 1_000_000_000n;
-const SOL_DECIMALS = 9;
 
 /** Boundary assert for lamports arriving as JS numbers (shared tables/RPC). */
 export function assertSafeLamports(value: number, context: string): bigint {
@@ -17,29 +23,25 @@ export function assertSafeLamports(value: number, context: string): bigint {
 
 /** "0.01", "1.5", "0.000000123" — exact, trailing zeros trimmed. */
 export function formatSol(lamports: bigint): string {
-  const negative = lamports < 0n;
-  const magnitude = negative ? -lamports : lamports;
-  const whole = magnitude / LAMPORTS_PER_SOL;
-  const frac = magnitude % LAMPORTS_PER_SOL;
-  const fracText = frac.toString().padStart(SOL_DECIMALS, '0').replace(/0+$/, '');
-  const body = fracText.length > 0 ? `${whole}.${fracText}` : whole.toString();
-  return negative ? `-${body}` : body;
+  return formatAtomicAmount(lamports, 'sol');
 }
 
 /** "0.05 SOL" — the standard user-facing amount rendering. */
 export function formatSolAmount(lamports: bigint): string {
-  return `${formatSol(lamports)} SOL`;
+  return formatWagerAmount(lamports, 'sol');
 }
 
-const SOL_AMOUNT_PATTERN = /^(\d+)(?:\.(\d{1,9}))?$/;
+export function formatAssetAmount(amountAtomic: bigint, asset: WagerAsset): string {
+  return formatWagerAmount(amountAtomic, asset);
+}
 
 /** Parse a user-typed SOL amount ("0.05") into lamports; null when invalid. */
 export function parseSolToLamports(text: string): bigint | null {
-  const match = SOL_AMOUNT_PATTERN.exec(text.trim());
-  if (!match) return null;
-  const whole = BigInt(match[1] ?? '0');
-  const fracDigits = (match[2] ?? '').padEnd(SOL_DECIMALS, '0');
-  return whole * LAMPORTS_PER_SOL + BigInt(fracDigits === '' ? '0' : fracDigits);
+  return parseAtomicAmount(text, 'sol');
+}
+
+export function parseAssetAmount(text: string, asset: WagerAsset): bigint | null {
+  return parseAtomicAmount(text, asset);
 }
 
 const PUBKEY_DISPLAY_EDGE = 4;

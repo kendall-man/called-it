@@ -6,20 +6,33 @@
  * "that ship has sailed" (PRD story 17).
  */
 
+import { createHash } from 'node:crypto';
 import type { Bot, Context } from 'grammy';
 import { TUNABLES } from '@calledit/market-engine';
 import type { ClaimRow, GroupRow, MarketRow } from '../ports.js';
 import { decodeCallback, type CallbackAction } from './callbackData.js';
 import { displayName, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
-import { marketStakeKeyboard, settingsKeyboard } from './keyboards.js';
-import { statusLine } from './cards.js';
+import {
+  marketStakeKeyboard,
+  settingsKeyboard,
+  stakeConfirmationKeyboard,
+} from './keyboards.js';
+import { describeTerms, statusLine } from './cards.js';
 import { readEnvelope } from '../pipeline/claims.js';
 import { mintOffer, retryOffer } from '../pipeline/offer.js';
 import { voidAbandonedMarket } from '../pipeline/void.js';
 import { composeClaimCard } from '../pipeline/render.js';
 import { renderFallback } from './copy.js';
-import { WAGER_TUNABLES } from '../wager/constants.js';
+import { WAGER_TUNABLES, presetStakes } from '../wager/constants.js';
+import { multiplierLabel, wagerDoubtMultiplier } from '../wager/stake.js';
 import { isBetaGroupAllowed } from './beta-access.js';
+import { createWagerCopy } from '../wager/copy.js';
+import {
+  escrowPlacementRejectionText,
+  escrowSigningPrompt,
+  privateEscrowUrl,
+  type EscrowPlacementSessionInput,
+} from './escrow-ux.js';
 
 async function answer(ctx: Context, text: string): Promise<void> {
   try {
@@ -115,7 +128,7 @@ async function handleProve(h: HandlerCtx, ctx: Context, claimId: string): Promis
   }
   // The parse is a full LLM call — meter it like the passive path.
   if (!h.budget.allow(group.id)) {
-    h.deps.log.info('llm_budget_exhausted', { groupId: group.id, claimId: claim.id });
+    h.deps.log.info('llm_budget_exhausted', { claimId: claim.id });
     await answer(ctx, await h.say('budget_spent'));
     return;
   }
@@ -156,7 +169,7 @@ async function handleConfirm(h: HandlerCtx, ctx: Context, claimId: string): Prom
     return;
   }
   if (!h.budget.allow(group.id)) {
-    h.deps.log.info('llm_budget_exhausted', { groupId: group.id, claimId: claim.id });
+    h.deps.log.info('llm_budget_exhausted', { claimId: claim.id });
     await answer(ctx, await h.say('budget_spent'));
     return;
   }
@@ -245,6 +258,12 @@ async function handleDecline(h: HandlerCtx, ctx: Context, claimId: string): Prom
       await answer(ctx, await h.say('offer_taken'));
       return;
     }
+    if (h.deps.env.WAGER_CUSTODY_MODE === 'escrow') {
+      stripCallbackKeyboard(h, ctx);
+      await refreshStakeCard(h, market.group_id, market.id, { forceLocked: true });
+      await answer(ctx, await h.say('escrow_void_pending_finality'));
+      return;
+    }
     await voidAbandonedMarket(h.deps, market);
     await answer(ctx, await h.say('confirm_declined'));
     return;
@@ -262,14 +281,164 @@ async function handleDecline(h: HandlerCtx, ctx: Context, claimId: string): Prom
 }
 
 /** Re-render the market card tally after a placed tap (collapsed per tunables). */
-async function refreshStakeCard(h: HandlerCtx, chatId: number, marketId: string): Promise<void> {
+async function refreshStakeCard(
+  h: HandlerCtx,
+  chatId: number,
+  marketId: string,
+  options: { readonly forceLocked?: boolean } = {},
+): Promise<void> {
   const fresh = await h.deps.db.getMarket(marketId);
   if (fresh && fresh.card_tg_message_id !== null) {
-    const card = await composeClaimCard(h.deps, fresh);
+    const currency = fresh.currency === 'usdc' ? 'usdc' : 'sol';
+    const positionsAvailable = !options.forceLocked && (fresh.is_replay
+      || (h.deps.wager !== null && await h.deps.wager.stakesAvailable(currency)));
+    const displayed = options.forceLocked ? { ...fresh, status: 'frozen' as const } : fresh;
+    const card = await composeClaimCard(h.deps, displayed, { positionsAvailable });
     if (card && card.messageId !== null) {
-      h.poster.editCard(chatId, fresh.id, card.messageId, card.text, marketStakeKeyboard(h.deps, fresh));
+      h.poster.editCard(
+        chatId,
+        fresh.id,
+        card.messageId,
+        card.text,
+        positionsAvailable ? marketStakeKeyboard(h.deps, displayed) : undefined,
+      );
     }
   }
+}
+
+const replayStakeLocks = new Set<string>();
+
+async function handleReplayStake(
+  h: HandlerCtx,
+  ctx: Context,
+  market: MarketRow,
+  userId: number,
+  side: 'back' | 'doubt',
+  lamports: bigint,
+  inPlay: boolean,
+): Promise<void> {
+  const key = `${market.id}:${userId}`;
+  if (replayStakeLocks.has(key)) {
+    await answer(ctx, await h.say('hold_on'));
+    return;
+  }
+  replayStakeLocks.add(key);
+  try {
+    const placeReplayPosition = h.deps.db.placeReplayPosition;
+    if (placeReplayPosition === undefined) {
+      h.deps.log.warn('replay_position_unavailable', { marketId: market.id });
+      await answer(ctx, await h.say('hiccup'));
+      return;
+    }
+    const multiplier = side === 'back'
+      ? market.quote_multiplier
+      : wagerDoubtMultiplier(market.quote_probability);
+    const result = await placeReplayPosition.call(h.deps.db, {
+      group_id: market.group_id,
+      market_id: market.id,
+      user_id: userId,
+      side,
+      stake: Number(lamports),
+      locked_multiplier: multiplier,
+      locked_odds_message_id: market.odds_message_id,
+      locked_odds_ts: market.odds_ts,
+      state: inPlay ? 'pending' : 'active',
+      placed_at_ms: h.deps.now(),
+    });
+    if (!result.ok) {
+      await answer(ctx, await h.say(result.code === 'closed' ? 'window_closed' : 'stale'));
+      return;
+    }
+    if (result.duplicate) {
+      await answer(ctx, await h.say('replay_position_exists'));
+      return;
+    }
+    h.deps.log.info('replay_position_placed', { marketId: market.id, side });
+    await answer(ctx, await h.say('replay_position_recorded'));
+    await refreshStakeCard(h, market.group_id, market.id);
+  } catch {
+    h.deps.log.warn('replay_position_failed', { marketId: market.id });
+    await answer(ctx, await h.say('hiccup'));
+  } finally {
+    replayStakeLocks.delete(key);
+  }
+}
+
+function escrowPlacementIdempotencyKey(callbackId: string): string {
+  return createHash('sha256')
+    .update(`telegram:escrow-position:${callbackId}`)
+    .digest('hex');
+}
+
+async function handleEscrowStake(
+  h: HandlerCtx,
+  ctx: Context,
+  input: Omit<EscrowPlacementSessionInput, 'idempotencyKey'> & {
+    readonly callbackId: string;
+  },
+): Promise<void> {
+  const escrow = h.escrow;
+  if (escrow === undefined) {
+    await answer(ctx, escrowPlacementRejectionText('temporarily_unavailable'));
+    return;
+  }
+  const result = await escrow.createPlacementSession({
+    telegramUserId: input.telegramUserId,
+    groupId: input.groupId,
+    marketId: input.marketId,
+    side: input.side,
+    asset: input.asset,
+    amountAtomic: input.amountAtomic,
+    network: input.network,
+    replay: input.replay,
+    idempotencyKey: escrowPlacementIdempotencyKey(input.callbackId),
+  });
+  if (result.kind === 'rejected') {
+    h.deps.log.info('escrow_signing_session_rejected', {
+      code: result.code,
+      asset: input.asset,
+    });
+    if (result.code === 'market_closed') {
+      await refreshStakeCard(h, input.groupId, input.marketId, { forceLocked: true });
+    }
+    await answer(ctx, escrowPlacementRejectionText(result.code));
+    return;
+  }
+  const url = privateEscrowUrl(h.deps.env.WEB_BASE_URL, 'position', result.token);
+  const expiresAtMs = Date.parse(result.expiresAt);
+  if (url === null || !Number.isFinite(expiresAtMs) || expiresAtMs <= h.deps.now()) {
+    await answer(ctx, escrowPlacementRejectionText('callback_expired'));
+    return;
+  }
+  const prompt = escrowSigningPrompt({
+    network: h.deps.env.SOLANA_NETWORK,
+    side: input.side,
+    asset: input.asset,
+    amountAtomic: input.amountAtomic,
+    expiresAt: result.expiresAt,
+    replay: input.replay,
+  });
+  try {
+    await ctx.api.sendMessage(input.telegramUserId, prompt, {
+      reply_markup: {
+        inline_keyboard: [[{ text: 'Review and sign', web_app: { url } }]],
+      },
+    });
+  } catch (error) {
+    h.deps.log.warn('escrow_private_link_delivery_failed', {
+      reason: error instanceof Error ? 'telegram_api_exception' : 'unknown_exception',
+    });
+    await answer(ctx, 'Open my private chat, run /wallet, then tap your choice again. No assets moved.');
+    return;
+  }
+  h.deps.log.info('escrow_signing_link_issued', {
+    asset: input.asset,
+    side: input.side,
+    duplicate: result.duplicate,
+  });
+  await answer(ctx, result.duplicate
+    ? 'Your existing private signing link was sent again.'
+    : 'Private signing link sent. The group updates only after finalization.');
 }
 
 /**
@@ -285,20 +454,35 @@ async function handleStake(
   const chatId = ctx.chat?.id;
   const from = ctx.from;
   const wager = h.deps.wager;
-  if (chatId === undefined || !from || !wager) {
+  const escrowMode = h.deps.env.WAGER_CUSTODY_MODE === 'escrow';
+  if (chatId === undefined || !from || (!escrowMode && !wager)) {
     await stale(h, ctx);
     return;
   }
   const market: MarketRow | null = await h.deps.db.getMarket(action.marketId);
-  if (!market || market.group_id !== chatId || market.currency !== 'sol') {
+  if (
+    !market || market.group_id !== chatId
+    || (market.currency !== 'sol' && market.currency !== 'usdc')
+  ) {
     await stale(h, ctx);
     return;
   }
+  const wagerMarket = { ...market, currency: market.currency };
   if (market.status !== 'open' && market.status !== 'pending_lineup') {
     await answer(ctx, `${statusLine(market.status)}.`);
     return;
   }
-  const lamports = wager.presetLamports(action.presetIndex);
+  if (market.is_replay) {
+    const admission = await h.supervisor.admitReplayPosition(market);
+    if (admission.kind === 'stale') {
+      await refreshStakeCard(h, chatId, market.id, { forceLocked: true });
+      await answer(ctx, 'That test call is no longer active. No assets moved.');
+      return;
+    }
+  }
+  const lamports = escrowMode
+    ? presetStakes(market.currency)[action.presetIndex] ?? null
+    : wager?.presetLamports(action.presetIndex, market.currency) ?? null;
   if (lamports === null) {
     await stale(h, ctx);
     return;
@@ -308,17 +492,83 @@ async function handleStake(
     await stale(h, ctx);
     return;
   }
-  // In-play cutoff — no new bets once a match is deep enough that a stake would
-  // be a near-certain snipe.
-  const fixture = await h.deps.db.getFixture(market.fixture_id);
+  // In-play cutoff — no new positions once a match is deep enough that a tap
+  // would be a near-certain snipe.
+  const replayFixture = market.is_replay
+    ? h.supervisor.replaySnapshot(chatId)
+    : null;
+  const fixture = replayFixture?.fixture_id === market.fixture_id
+    ? replayFixture
+    : await h.deps.db.getFixture(market.fixture_id);
   const inPlay = fixture !== null && fixture.phase !== 'NS';
   if (inPlay && fixture.minute !== null && fixture.minute >= TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE) {
     await answer(ctx, await h.say('window_closed'));
     return;
   }
   await ensureUserSeen(h, chatId, from);
+  if (escrowMode) {
+    await handleEscrowStake(h, ctx, {
+      callbackId,
+      telegramUserId: from.id,
+      groupId: chatId,
+      marketId: market.id,
+      side: action.side,
+      asset: market.currency,
+      amountAtomic: lamports,
+      network: h.deps.env.SOLANA_NETWORK,
+      replay: market.is_replay,
+    });
+    return;
+  }
+  if (wager === null) {
+    await stale(h, ctx);
+    return;
+  }
+  const fundedReplay = market.is_replay
+    && wager.kind === 'funded'
+    && h.deps.env.SOLANA_NETWORK === 'mainnet-beta';
+  if (market.is_replay && !fundedReplay) {
+    await handleReplayStake(h, ctx, market, from.id, action.side, lamports, inPlay);
+    return;
+  }
+  if (h.deps.env.SOLANA_NETWORK === 'mainnet-beta' && wager.kind === 'funded') {
+    const prepared = await wager.prepareStakeConfirmation({
+      market: wagerMarket,
+      userId: from.id,
+      userName: displayName(from),
+      side: action.side,
+      lamports,
+      inPlay,
+      nowMs: h.deps.now(),
+      callbackId,
+    });
+    if (!prepared.ok) {
+      await answer(ctx, prepared.reply);
+      if (!(await wager.stakesAvailable(market.currency))) {
+        await refreshStakeCard(h, chatId, market.id);
+      }
+      return;
+    }
+    const multiplier = action.side === 'back'
+      ? market.quote_multiplier
+      : wagerDoubtMultiplier(market.quote_probability);
+    const copy = createWagerCopy('mainnet-beta', market.currency);
+    const sourceMessageId = callbackMessageId(ctx);
+    h.poster.post(chatId, copy.confirmationPrompt(
+      displayName(from),
+      action.side === 'back' ? 'It happens' : 'It does not',
+      lamports,
+      multiplierLabel(multiplier),
+      describeTerms(market.spec),
+    ), {
+      ...(sourceMessageId !== null ? { replyToMessageId: sourceMessageId } : {}),
+      keyboard: stakeConfirmationKeyboard(prepared.intentId),
+    });
+    await answer(ctx, copy.confirmationSent());
+    return;
+  }
   const result = await wager.handleStakeTap({
-    market,
+    market: wagerMarket,
     userId: from.id,
     userName: displayName(from),
     side: action.side,
@@ -326,13 +576,90 @@ async function handleStake(
     inPlay,
     nowMs: h.deps.now(),
     source:
-      lamports === WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0] &&
+      market.currency === 'sol'
+      && lamports === WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0] &&
       h.deps.env.STARTER_GRANTS_ENABLED && h.deps.env.STAKE_ACCEPTANCE_ENABLED
         ? { kind: 'telegram_default_card', callbackId }
         : { kind: 'telegram_card', callbackId },
   });
   await answer(ctx, result.reply);
-  if (result.placed) await refreshStakeCard(h, chatId, market.id);
+  if (result.placed || !(await wager.stakesAvailable(market.currency))) {
+    await refreshStakeCard(h, chatId, market.id);
+  }
+}
+
+async function finishStakeConfirmationMessage(ctx: Context, text: string): Promise<void> {
+  try {
+    await ctx.editMessageText(text, { reply_markup: { inline_keyboard: [] } });
+  } catch {
+    // The callback answer still carries the result if the prompt is too old to edit.
+  }
+}
+
+async function handleStakeConfirmation(
+  h: HandlerCtx,
+  ctx: Context,
+  intentId: string,
+  confirm: boolean,
+): Promise<void> {
+  const from = ctx.from;
+  const wager = h.deps.wager;
+  if (!from || wager?.kind !== 'funded') {
+    await stale(h, ctx);
+    return;
+  }
+  const intent = await wager.getStakeConfirmation(from.id, intentId);
+  const copy = createWagerCopy(h.deps.env.SOLANA_NETWORK, intent?.asset ?? 'sol');
+  if (intent === null || ctx.chat?.id !== intent.groupId) {
+    await answer(ctx, copy.confirmationExpired());
+    return;
+  }
+  if (!confirm) {
+    await wager.cancelStakeConfirmation(from.id, intentId);
+    const cancelled = copy.confirmationCancelled();
+    await finishStakeConfirmationMessage(ctx, cancelled);
+    await answer(ctx, cancelled);
+    return;
+  }
+  const market = await h.deps.db.getMarket(intent.marketId);
+  if (
+    market === null || market.group_id !== intent.groupId || market.currency !== intent.asset
+    || (market.status !== 'open' && market.status !== 'pending_lineup')
+  ) {
+    await wager.cancelStakeConfirmation(from.id, intentId);
+    const expired = copy.confirmationExpired();
+    await finishStakeConfirmationMessage(ctx, expired);
+    await answer(ctx, expired);
+    return;
+  }
+  const replayFixture = market.is_replay
+    ? h.supervisor.replaySnapshot(intent.groupId)
+    : null;
+  const fixture = replayFixture?.fixture_id === market.fixture_id
+    ? replayFixture
+    : await h.deps.db.getFixture(market.fixture_id);
+  const inPlay = fixture !== null && fixture.phase !== 'NS';
+  if (inPlay && fixture.minute !== null && fixture.minute >= TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE) {
+    await wager.cancelStakeConfirmation(from.id, intentId);
+    const closed = await h.say('window_closed');
+    await finishStakeConfirmationMessage(ctx, closed);
+    await answer(ctx, closed);
+    return;
+  }
+  await ensureUserSeen(h, intent.groupId, from);
+  const result = await wager.confirmStakeConfirmation({
+    intentId,
+    market: { ...market, currency: intent.asset },
+    userId: from.id,
+    userName: displayName(from),
+    side: intent.side,
+    lamports: intent.lamports,
+    inPlay,
+    nowMs: h.deps.now(),
+  });
+  await finishStakeConfirmationMessage(ctx, result.reply);
+  await answer(ctx, result.reply);
+  await refreshStakeCard(h, intent.groupId, market.id);
 }
 
 async function handleChattiness(
@@ -398,6 +725,84 @@ async function handleWeb(h: HandlerCtx, ctx: Context, enabled: boolean): Promise
   }
 }
 
+async function handleVoidReplayBlocker(
+  h: HandlerCtx,
+  ctx: Context,
+  marketId: string,
+): Promise<void> {
+  const chatId = ctx.chat?.id;
+  const from = ctx.from;
+  if (chatId === undefined || !from) {
+    await stale(h, ctx);
+    return;
+  }
+  const admin = await isGroupAdmin(h, () => ctx.api.getChatMember(chatId, from.id));
+  if (!admin) {
+    await answer(ctx, await h.say('admin_only'));
+    return;
+  }
+
+  if (h.deps.env.WAGER_CUSTODY_MODE === 'escrow') {
+    await refreshStakeCard(h, chatId, marketId, { forceLocked: true });
+    const locked = await h.say('escrow_void_pending_finality');
+    try {
+      await ctx.editMessageText(locked, { reply_markup: { inline_keyboard: [] } });
+    } catch {
+      stripCallbackKeyboard(h, ctx);
+      h.poster.post(chatId, locked);
+    }
+    await answer(ctx, locked);
+    return;
+  }
+
+  const result = await h.supervisor.runGroupExclusive(chatId, async () => {
+    const market = await h.deps.db.getMarket(marketId);
+    if (
+      market === null ||
+      market.group_id !== chatId ||
+      market.is_replay ||
+      market.status === 'settled' ||
+      market.status === 'voided'
+    ) return { kind: 'stale' } as const;
+    const positions = await h.deps.db.positionsForMarket(market.id);
+    if (positions.some((position) => position.state !== 'void')) {
+      return { kind: 'has_positions' } as const;
+    }
+    const claim = await h.deps.db.getClaim(market.claim_id);
+    await voidAbandonedMarket(h.deps, market);
+    return {
+      kind: 'voided',
+      market,
+      call: claim?.quoted_text ?? 'the blocking call',
+    } as const;
+  });
+
+  if (result.kind === 'stale') {
+    await stale(h, ctx);
+    return;
+  }
+  if (result.kind === 'has_positions') {
+    await answer(ctx, await h.say('offer_taken'));
+    return;
+  }
+
+  const { market, call } = result;
+  if (market.card_tg_message_id !== null) {
+    const card = await composeClaimCard(h.deps, { ...market, status: 'voided' });
+    if (card?.messageId !== null && card?.messageId !== undefined) {
+      h.poster.editCard(card.chatId, market.id, card.messageId, card.text);
+    }
+  }
+  const confirmation = await h.say('replay_blocking_call_voided', { call });
+  try {
+    await ctx.editMessageText(confirmation, { reply_markup: { inline_keyboard: [] } });
+  } catch {
+    stripCallbackKeyboard(h, ctx);
+    h.poster.post(chatId, confirmation);
+  }
+  await answer(ctx, confirmation);
+}
+
 /**
  * Exported for tests: routes one decoded action through the per-claim lock.
  * Claim-lifecycle taps (prove/option/decline) share the lock so a double-tap —
@@ -427,6 +832,15 @@ export async function dispatchCallback(
       // SOL stakes are serialized by the wager module's DB advisory locks.
       await handleStake(h, ctx, action);
       break;
+    case 'stake_confirm':
+      await handleStakeConfirmation(h, ctx, action.intentId, true);
+      break;
+    case 'stake_cancel':
+      await handleStakeConfirmation(h, ctx, action.intentId, false);
+      break;
+    case 'void_replay_blocker':
+      await handleVoidReplayBlocker(h, ctx, action.marketId);
+      break;
     case 'chattiness':
       await handleChattiness(h, ctx, action.mode);
       break;
@@ -451,7 +865,7 @@ export function registerCallbacks(bot: Bot, h: HandlerCtx): void {
     try {
       await dispatchCallback(h, ctx, action);
     } catch (err) {
-      h.deps.log.error('callback_failed', { action: action.t, error: String(err) });
+      h.deps.log.error('callback_failed', { action: action.t, reason: err instanceof Error ? 'callback_exception' : 'unknown_exception' });
       // An internal error is NOT a stale button — invite the retry honestly.
       await answer(ctx, renderFallback('hiccup'));
     }

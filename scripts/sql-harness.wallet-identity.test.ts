@@ -43,7 +43,7 @@ test.after(async () => {
 test('wallet identity migrations apply fresh and as 0001-0004 upgrade', async () => {
   const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
   await withMigratedDb(migrations, async () => undefined);
-  record('fresh 0001-0005 migration applied and cleaned');
+  record('fresh wallet migration chain applied through Privy identity and cleaned');
   await withMigratedDb(migrations.filter((migration) => migration.name <= '0004_starter_grant.sql'), async (client) => {
     const fifth = migrations.find((migration) => migration.name === '0005_wallet_identity.sql');
     assert.ok(fifth);
@@ -55,6 +55,225 @@ test('wallet identity migrations apply fresh and as 0001-0004 upgrade', async ()
     });
   });
   record('upgraded 0001-0004 plus 0005 applied and cleaned');
+});
+
+test('browser wallet link sessions are private, single-use, and owner-bound', async () => {
+  const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
+  await withMigratedDb(migrations, async (client, url) => {
+    await seedWalletFixtures(client);
+    const challengeId = 'f4f99fac-3cd6-46f5-abf6-c5f7b20c6238';
+    const pubkey = '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk';
+    const session = await rpc(client, 'wager_create_wallet_link_session($1,$2,$3,$4)', [
+      USER_ID,
+      HASH_A,
+      new Date(Date.now() + 10 * 60_000).toISOString(),
+      'devnet',
+    ]);
+    assert.equal(session.ok, true);
+
+    const challenge = await rpc(
+      client,
+      'wager_create_wallet_link_challenge($1,$2,$3,$4,$5)',
+      [
+        HASH_A,
+        challengeId,
+        pubkey,
+        HASH_B,
+        new Date(Date.now() + 5 * 60_000).toISOString(),
+      ],
+    );
+    assert.equal(challenge.ok, true);
+    assert.equal(challenge.user_id, USER_ID);
+    assert.deepEqual(
+      await rpc(client, 'wager_get_wallet_link_challenge($1,$2)', [HASH_A, challengeId]),
+      {
+        ok: true,
+        user_id: USER_ID,
+        pubkey,
+        issued_at: challenge.issued_at,
+        expires_at: challenge.expires_at,
+        challenge_hash_hex: HASH_B,
+      },
+    );
+
+    const verified = await rpc(
+      client,
+      'wager_verify_wallet_link_session($1,$2,$3,$4)',
+      [HASH_A, challengeId, pubkey, HASH_B],
+    );
+    assert.equal(verified.ok, true);
+    assert.deepEqual(
+      await rpc(client, 'wager_verify_wallet_link_session($1,$2,$3,$4)', [
+        HASH_A,
+        challengeId,
+        pubkey,
+        HASH_B,
+      ]),
+      { ok: false, code: 'session_invalid' },
+    );
+
+    const secretColumns = await client.query<{ count: string }>(
+      `select count(*)::text as count
+       from information_schema.columns
+       where table_name = 'wager_wallet_link_sessions'
+         and column_name in ('token', 'raw_token', 'secret')`,
+    );
+    assert.equal(secretColumns.rows[0]?.count, '0');
+    await assertWalletFunctionPrivileges(client, url);
+  });
+  record('one-time browser wallet session linked exactly once without storing its raw token');
+});
+
+test('Privy wallet links atomically reserve the provider identity and wallet', async () => {
+  const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
+  await withMigratedDb(migrations, async (client) => {
+    await seedWalletFixtures(client);
+    const challengeId = '1f3250a0-8868-43a1-8842-c8164d72f177';
+    const pubkey = '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk';
+    await rpc(client, 'wager_create_wallet_link_session($1,$2,$3,$4)', [
+      USER_ID,
+      HASH_A,
+      new Date(Date.now() + 5 * 60_000).toISOString(),
+      'devnet',
+    ]);
+    await rpc(client, 'wager_create_wallet_link_challenge($1,$2,$3,$4,$5)', [
+      HASH_A,
+      challengeId,
+      pubkey,
+      HASH_B,
+      new Date(Date.now() + 4 * 60_000).toISOString(),
+    ]);
+
+    const linked = await rpc(
+      client,
+      'wager_verify_privy_wallet_link_session($1,$2,$3,$4,$5,$6,$7)',
+      [HASH_A, challengeId, pubkey, HASH_B, 'did:privy:user-a', 'wallet-a', 'devnet'],
+    );
+    assert.equal(linked.ok, true);
+    const stored = await client.query<{
+      wallet_provider: string;
+      provider_user_id: string;
+      provider_wallet_id: string;
+      solana_network: string;
+    }>(
+      `select wallet_provider, provider_user_id, provider_wallet_id, solana_network
+       from wager_wallet_links where user_id = $1`,
+      [USER_ID],
+    );
+    assert.deepEqual(stored.rows[0], {
+      wallet_provider: 'privy',
+      provider_user_id: 'did:privy:user-a',
+      provider_wallet_id: 'wallet-a',
+      solana_network: 'devnet',
+    });
+
+    const otherChallengeId = 'b87ce271-cbb4-439e-97d1-d5c37f108aaf';
+    await rpc(client, 'wager_create_wallet_link_session($1,$2,$3,$4)', [
+      OTHER_USER_ID,
+      HASH_B,
+      new Date(Date.now() + 5 * 60_000).toISOString(),
+      'devnet',
+    ]);
+    await rpc(client, 'wager_create_wallet_link_challenge($1,$2,$3,$4,$5)', [
+      HASH_B,
+      otherChallengeId,
+      PUBKEY_B,
+      HASH_A,
+      new Date(Date.now() + 4 * 60_000).toISOString(),
+    ]);
+    assert.deepEqual(
+      await rpc(
+        client,
+        'wager_verify_privy_wallet_link_session($1,$2,$3,$4,$5,$6,$7)',
+        [HASH_B, otherChallengeId, PUBKEY_B, HASH_A, 'did:privy:user-a', 'wallet-b', 'devnet'],
+      ),
+      { ok: false, code: 'privy_identity_reserved' },
+    );
+  });
+  record('Privy user and embedded wallet metadata were installed atomically and reserved');
+});
+
+test('escrow Privy links retain independent devnet and mainnet wallets', async () => {
+  const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
+  await withMigratedDb(migrations, async (client, url) => {
+    await seedWalletFixtures(client);
+    const links = [
+      {
+        network: 'devnet',
+        tokenHash: HASH_A,
+        challengeHash: HASH_B,
+        challengeId: '3890630e-972e-4693-ad7f-a2211bac75ed',
+        pubkey: '38yotsncGgsKd7TDm7iusvAtQXib7iCykdouuzjvFxnk',
+        providerUserId: 'did:privy:devnet-user',
+        providerWalletId: 'devnet-wallet',
+      },
+      {
+        network: 'mainnet-beta',
+        tokenHash: HASH_B,
+        challengeHash: HASH_A,
+        challengeId: '52e79ebc-7b8f-4214-9dad-661bd143652c',
+        pubkey: 'CQno4PgrUidMPUsWjo4P5nYARHR2mofCvZXL6nJHAssp',
+        providerUserId: 'did:privy:mainnet-user',
+        providerWalletId: 'mainnet-wallet',
+      },
+    ] as const;
+
+    for (const link of links) {
+      assert.equal((await rpc(client, 'wager_create_wallet_link_session($1,$2,$3,$4)', [
+        USER_ID,
+        link.tokenHash,
+        new Date(Date.now() + 5 * 60_000).toISOString(),
+        link.network,
+      ])).ok, true);
+      assert.equal((await rpc(client, 'wager_create_wallet_link_challenge($1,$2,$3,$4,$5)', [
+        link.tokenHash,
+        link.challengeId,
+        link.pubkey,
+        link.challengeHash,
+        new Date(Date.now() + 4 * 60_000).toISOString(),
+      ])).ok, true);
+      assert.deepEqual(
+        await rpc(client, 'escrow_verify_privy_wallet_link_session($1,$2,$3,$4,$5,$6,$7)', [
+          link.tokenHash,
+          link.challengeId,
+          link.pubkey,
+          link.challengeHash,
+          link.providerUserId,
+          link.providerWalletId,
+          link.network,
+        ]),
+        { ok: true, relinked: false },
+      );
+    }
+
+    const stored = await client.query(
+      `select solana_network, pubkey, provider_user_id, provider_wallet_id
+       from escrow_wallet_links where user_id = $1 order by solana_network`,
+      [USER_ID],
+    );
+    assert.deepEqual(stored.rows, [
+      {
+        solana_network: 'devnet',
+        pubkey: links[0].pubkey,
+        provider_user_id: links[0].providerUserId,
+        provider_wallet_id: links[0].providerWalletId,
+      },
+      {
+        solana_network: 'mainnet-beta',
+        pubkey: links[1].pubkey,
+        provider_user_id: links[1].providerUserId,
+        provider_wallet_id: links[1].providerWalletId,
+      },
+    ]);
+
+    const rls = await client.query(
+      `select relrowsecurity as enabled
+       from pg_class where oid = 'public.escrow_wallet_links'::regclass`,
+    );
+    assert.equal(rls.rows[0]?.enabled, true);
+    await assertWalletFunctionPrivileges(client, url);
+  });
+  record('escrow wallet ownership remained network-scoped in one database');
 });
 
 test('verified wallet challenges are single-use, private, and relink guarded', async () => {

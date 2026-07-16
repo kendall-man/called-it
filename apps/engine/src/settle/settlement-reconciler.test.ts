@@ -43,6 +43,7 @@ const market: MarketRow = {
   card_tg_message_id: 100,
   created_at: '2026-07-11T10:03:15.000Z',
   currency: 'sol',
+  custody_mode: 'legacy',
 };
 
 const position: PositionRow = {
@@ -74,14 +75,16 @@ const finalEvent: MatchEvent = {
 };
 
 describe('SettlementReconciler', () => {
-  it('settles and financially applies a terminal TxLINE snapshot once', async () => {
+  it.each(['sol', 'usdc'] as const)(
+    'settles and financially applies a terminal %s snapshot once',
+    async (currency) => {
     const statuses: string[] = [];
     const settlements: Array<{ readonly outcome: string; readonly deciding_seq: number | null }> = [];
     const applied: string[] = [];
     const reconciler = new SettlementReconciler({
       db: {
         liveFixtures: async () => [fixture],
-        openMarketsForFixture: async () => [market],
+        openMarketsForFixture: async () => [{ ...market, currency }],
         positionsForMarket: async () => [position],
         insertFeedEvent: async () => ({ inserted: false }),
         updateFixtureFromEvent: async () => undefined,
@@ -118,7 +121,8 @@ describe('SettlementReconciler', () => {
       backlog: 0,
       oldestAgeMs: null,
     });
-  });
+    },
+  );
 
   it('advances the fixture from a non-terminal score snapshot without settling', async () => {
     const liveEvent: MatchEvent = {

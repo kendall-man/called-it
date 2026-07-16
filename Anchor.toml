@@ -1,0 +1,17 @@
+[toolchain]
+anchor_version = "0.31.1"
+package_manager = "pnpm"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+calledit_escrow = "HrKUo8Bue31kU9sobzQGK5qDxVxBu5nBLXP3aGeKCDFL"
+
+[provider]
+cluster = "Localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "cargo test --workspace --all-targets"

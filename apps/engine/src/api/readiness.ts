@@ -15,7 +15,10 @@ export const ENGINE_READINESS_REASONS = defineReasonCodes({
   wagerUnavailable: 'wager_unavailable',
   wagerTimeout: 'wager_timeout',
   wagerPaused: 'wager_paused',
+  starterIntakeUnavailable: 'starter_intake_unavailable',
   solvencyUncovered: 'solvency_uncovered',
+  escrowRuntimeUnavailable: 'escrow_runtime_unavailable',
+  escrowRuntimeTimeout: 'escrow_runtime_timeout',
   telegramWorkerUnavailable: 'telegram_worker_unavailable',
   telegramWorkerTimeout: 'telegram_worker_timeout',
   telegramWorkerStale: 'telegram_worker_stale',
@@ -50,6 +53,7 @@ export type ReadinessCheckName =
   | 'database'
   | 'feed'
   | 'wager'
+  | 'escrow'
   | 'telegram'
   | 'proof'
   | 'settlement';

@@ -12,7 +12,7 @@
  * a balance.
  */
 
-import type { PositionSide } from '@calledit/market-engine';
+import type { PositionSide, WagerAsset } from '@calledit/market-engine';
 import type { PositionState } from './types.js';
 
 // ── Enumerations backed by CHECK constraints in migration 0002 ─────────────
@@ -40,13 +40,14 @@ export type WagerStakeErrorCode =
   | 'wallet_required';
 
 /** Typed rejection codes returned by the wager_request_withdrawal RPC. */
-export type WagerWithdrawErrorCode = 'no_wallet' | 'insufficient';
+export type WagerWithdrawErrorCode = 'no_wallet' | 'insufficient' | 'invalid_asset';
 
 // ── Table rows (as surfaced by the façade: lamports already bigint) ────────
 
 export interface WagerGroupRow {
   group_id: number;
   enabled: boolean;
+  default_asset: WagerAsset;
   /** Admin who last toggled wager mode for this group. */
   enabled_by: number;
   updated_at: string;
@@ -68,7 +69,8 @@ export interface WagerLedgerRow {
   group_id: number | null;
   market_id: string | null;
   kind: WagerLedgerKind;
-  /** Signed lamports delta; balance is user-global (sum by user_id). */
+  asset: WagerAsset;
+  /** Signed atomic-unit delta; balance is user-global per asset. */
   lamports: bigint;
   idempotency_key: string;
   created_at: string;
@@ -80,6 +82,8 @@ export interface WagerDepositRow {
   /** Instruction index — one tx can carry several transfers to the treasury. */
   ix_index: number;
   sender_pubkey: string;
+  asset: WagerAsset;
+  mint_pubkey: string | null;
   lamports: bigint;
   slot: number;
   /** null = orphan: sender pubkey was not linked when the deposit landed. */
@@ -94,6 +98,7 @@ export interface WagerWithdrawalRow {
   user_id: number;
   /** Copied from the wallet link inside the RPC — never caller-supplied. */
   dest_pubkey: string;
+  asset: WagerAsset;
   lamports: bigint;
   state: WagerWithdrawalState;
   /** Deterministic signature, persisted BEFORE broadcast. */
@@ -112,6 +117,7 @@ export interface WagerSettlementAppliedRow {
 }
 
 export interface WagerStatusRow {
+  asset?: WagerAsset;
   /** Persisted circuit breaker: blocks NEW stakes only, never payouts/withdrawals. */
   paused: boolean;
   reason: string | null;
@@ -145,16 +151,24 @@ export interface WagerLedgerEntry {
   group_id: number | null;
   market_id: string | null;
   kind: WagerLedgerKind;
-  /** Signed lamports delta. */
+  /** Omitted only by legacy SOL callers; new financial paths set it explicitly. */
+  asset?: WagerAsset;
+  /** Signed atomic-unit delta. */
   lamports: bigint;
   idempotency_key: string;
 }
+
+export type WagerSettlementLedgerEntry = Omit<WagerLedgerEntry, 'kind'> & {
+  readonly kind: 'payout' | 'refund';
+};
 
 /** Deposits are always recorded as observed; attribution happens via markDepositCredited. */
 export interface WagerDepositInsert {
   tx_sig: string;
   ix_index: number;
   sender_pubkey: string;
+  asset?: WagerAsset;
+  mint_pubkey?: string | null;
   lamports: bigint;
   slot: number;
 }
@@ -174,6 +188,17 @@ export interface VerifiedWalletLinkInput {
   challenge_hash_hex: string;
 }
 
+export interface WalletLinkSessionInput {
+  user_id: number;
+  token_hash_hex: string;
+  expires_at: string;
+  solana_network: 'devnet' | 'mainnet-beta';
+}
+
+export type WalletLinkSessionResult =
+  | { ok: true; session_id: string }
+  | { ok: false; code: 'session_invalid' | 'user_not_found' };
+
 export type VerifiedWalletLinkResult =
   | { ok: true; relinked: boolean; link_id: number }
   | { ok: false; code: VerifiedWalletLinkErrorCode };
@@ -192,6 +217,7 @@ export interface PendingStakeIntentRow {
   group_id: number;
   market_id: string;
   side: PositionSide;
+  asset: WagerAsset;
   lamports: bigint;
   state: PendingStakeIntentState;
   expires_at: string;
@@ -242,8 +268,14 @@ export interface WagerStakeInput {
   placed_at_ms: number;
   /** Client idempotency key for at-least-once callers (concierge/API). */
   idempotency_key?: string;
-  allow_starter: boolean;
+  /** True only for the fixed first-position starter path. */
+  starterOnly: boolean;
 }
+
+/** Starter callers cannot select the funded branch, including through a widened full input. */
+export type WagerStarterStakeInput = Omit<WagerStakeInput, 'starterOnly'> & {
+  readonly starterOnly?: never;
+};
 
 export type WagerStakeResult =
   | { ok: true; position_id: string }

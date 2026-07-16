@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://called.it/schemas/escrow/payout-differential-evidence-v1.json",
+  "title": "Called It payout differential evidence receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "generatedBy",
+    "sourceCommit",
+    "seed",
+    "caseCount",
+    "corpusPath",
+    "corpusSha256",
+    "rustResultSha256",
+    "typescriptResultSha256",
+    "receiptSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "payout-differential-evidence" },
+    "generatedBy": { "const": "scripts/escrow/payout-differential-evidence.ts" },
+    "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{7,64}$" },
+    "seed": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "caseCount": { "type": "integer", "minimum": 4096 },
+    "corpusPath": { "const": "programs/calledit-escrow/vectors/payout-differential-v1.json" },
+    "corpusSha256": { "$ref": "#/$defs/sha256" },
+    "rustResultSha256": { "$ref": "#/$defs/sha256" },
+    "typescriptResultSha256": { "$ref": "#/$defs/sha256" },
+    "receiptSha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

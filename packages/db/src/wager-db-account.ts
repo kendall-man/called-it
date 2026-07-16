@@ -7,10 +7,12 @@ import {
   nowIso,
 } from './wager-db-core.js';
 import type { WagerDb, WagerDbClient } from './wager-db-contract.js';
+import { ledgerDbMethods } from './wager-db-ledger.js';
 import {
   manyRows,
   maybeRow,
   parseDepositRow,
+  parseDefaultAssetRow,
   parseEnabledRow,
   parseLamportsRow,
   parseNumericIdRow,
@@ -21,10 +23,13 @@ type AccountDb = Pick<
   WagerDb,
   | 'setGroupEnabled'
   | 'isGroupEnabled'
+  | 'setGroupDefaultAsset'
+  | 'groupDefaultAsset'
   | 'getWalletLink'
   | 'getWalletLinkByPubkey'
   | 'setLastWagerGroup'
   | 'postWagerLedger'
+  | 'stakeDebitedLamportsForMarket'
   | 'balanceLamports'
   | 'totalLedgerLamports'
   | 'upsertDeposit'
@@ -34,6 +39,8 @@ type AccountDb = Pick<
 
 export function accountDbMethods(client: WagerDbClient): AccountDb {
   return {
+    ...ledgerDbMethods(client),
+
     async setGroupEnabled(groupId, enabled, byUserId) {
       assertOk(
         'setGroupEnabled',
@@ -51,6 +58,31 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
         parseEnabledRow,
       );
       return row?.enabled ?? false;
+    },
+
+    async setGroupDefaultAsset(groupId, asset, byUserId) {
+      assertOk(
+        'setGroupDefaultAsset',
+        await client.from('wager_groups').upsert(
+          {
+            group_id: groupId,
+            enabled: true,
+            enabled_by: byUserId,
+            default_asset: asset,
+            updated_at: nowIso(),
+          },
+          { onConflict: 'group_id' },
+        ),
+      );
+    },
+
+    async groupDefaultAsset(groupId) {
+      const row = await maybeRow(
+        'groupDefaultAsset',
+        client.from('wager_groups').select('default_asset').eq('group_id', groupId).maybeSingle(),
+        parseDefaultAssetRow,
+      );
+      return row?.default_asset ?? 'sol';
     },
 
     // ── wallet links ───────────────────────────────────────────────────────
@@ -81,36 +113,25 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
       );
     },
 
-    // ── ledger ─────────────────────────────────────────────────────────────
-
-    async postWagerLedger(entry) {
-      const rows = await manyRows(
-        'postWagerLedger',
-        client
-          .from('wager_ledger_entries')
-          .upsert(
-            { ...entry, lamports: lamportsToDb('postWagerLedger.lamports', entry.lamports) },
-            { onConflict: 'idempotency_key', ignoreDuplicates: true },
-          )
-          .select('id'),
-        parseNumericIdRow,
-      );
-      return { inserted: rows.length > 0 };
-    },
-
-    async balanceLamports(userId) {
+    async balanceLamports(userId, asset) {
+      const selectedAsset = asset ?? 'sol';
       const rows = await manyRows(
         'balanceLamports',
-        client.from('wager_ledger_entries').select('lamports').eq('user_id', userId),
+        client
+          .from('wager_ledger_entries')
+          .select('lamports')
+          .eq('user_id', userId)
+          .eq('asset', selectedAsset),
         parseLamportsRow,
       );
       return rows.reduce((sum, row) => sum + lamportsFromDb('balanceLamports', row.lamports), 0n);
     },
 
-    async totalLedgerLamports() {
+    async totalLedgerLamports(asset) {
+      const selectedAsset = asset ?? 'sol';
       const rows = await manyRows(
         'totalLedgerLamports',
-        client.from('wager_ledger_entries').select('lamports'),
+        client.from('wager_ledger_entries').select('lamports').eq('asset', selectedAsset),
         parseLamportsRow,
       );
       return rows.reduce(
@@ -128,7 +149,12 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
         client
           .from('wager_deposits')
           .upsert(
-            { ...row, lamports: lamportsToDb('upsertDeposit.lamports', row.lamports) },
+            {
+              ...row,
+              asset: row.asset ?? 'sol',
+              mint_pubkey: row.mint_pubkey ?? null,
+              lamports: lamportsToDb('upsertDeposit.lamports', row.lamports),
+            },
             { onConflict: 'tx_sig,ix_index', ignoreDuplicates: true },
           )
           .select('id'),

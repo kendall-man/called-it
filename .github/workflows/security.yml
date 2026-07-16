@@ -43,16 +43,15 @@ jobs:
       - name: Verify lock integrity
         run: node scripts/security/lock-integrity.mjs
 
+      - name: Verify dependency security controls
+        run: node --test scripts/security/*.test.mjs
+
       - name: Evaluate production dependency advisories
         run: |
           set -euo pipefail
+          list_file="$(mktemp)"
           audit_file="$(mktemp)"
-          set +e
-          npx -y pnpm@10.33.0 audit --prod --json > "$audit_file"
-          audit_exit=$?
-          set -e
-          if [ "$audit_exit" -ne 0 ] && [ "$audit_exit" -ne 1 ]; then
-            cat "$audit_file" >&2
-            exit "$audit_exit"
-          fi
+          trap 'rm -f "$list_file" "$audit_file"' EXIT
+          npx -y pnpm@10.33.0 list --prod --recursive --json --depth Infinity > "$list_file"
+          node scripts/security/bulk-audit.mjs "$list_file" > "$audit_file"
           node scripts/security/dependency-policy.mjs --audit "$audit_file"

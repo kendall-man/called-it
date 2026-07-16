@@ -46,7 +46,7 @@ describe('withdrawal executor — happy path', () => {
     await executor.tick();
     expect(bundle.row.state).toBe('confirmed');
     expect(bundle.poster.posts).toHaveLength(1);
-    expect(bundle.poster.posts[0]?.chatId).toBe(GROUP);
+    expect(bundle.poster.posts[0]?.chatId).toBe(USER);
     expect(bundle.poster.posts[0]?.text).toContain('sig-1'); // explorer link
     expect(bundle.db.ledgerByKey(WAGER_KEYS.withdrawalRefund(bundle.row.id))).toBeUndefined();
   });
@@ -201,7 +201,8 @@ describe('withdrawal executor — crash-at-every-arrow table', () => {
         const failIndex = b.trace.indexOf(`db.markWithdrawalFailed:${b.row.id}`);
         expect(refundIndex).toBeGreaterThanOrEqual(0);
         expect(failIndex).toBeGreaterThan(refundIndex);
-        expect(b.poster.posts).toHaveLength(1); // failure note to the group
+        expect(b.poster.posts).toHaveLength(1); // private failure note
+        expect(b.poster.posts[0]?.chatId).toBe(USER);
       },
     },
     {

@@ -16,8 +16,10 @@ export interface FeedReadinessPort {
 export interface WagerReadinessSnapshot {
   readonly enabled: boolean;
   readonly configured: boolean;
+  readonly runtimeMatches: boolean;
   readonly paused: boolean;
   readonly covered: boolean;
+  readonly starterIntakeReady: boolean;
 }
 
 export interface WagerReadinessPort {
@@ -30,6 +32,10 @@ export interface WorkerReadinessSnapshot {
 
 export interface WorkerReadinessPort {
   snapshot(signal: AbortSignal): Promise<WorkerReadinessSnapshot>;
+}
+
+export interface EscrowRuntimeReadinessPort {
+  check(signal: AbortSignal): Promise<boolean>;
 }
 
 export interface QueueReadinessSnapshot extends WorkerReadinessSnapshot {
@@ -46,6 +52,7 @@ export interface EngineReadinessPorts {
   readonly database: DatabaseReadinessPort;
   readonly feed: FeedReadinessPort;
   readonly wager: WagerReadinessPort;
+  readonly escrow?: EscrowRuntimeReadinessPort;
   readonly telegram: WorkerReadinessPort;
   readonly proof: QueueReadinessPort;
   readonly settlement: QueueReadinessPort;
@@ -111,11 +118,20 @@ export function createEngineReadinessChecks(
     timeoutReason: ENGINE_READINESS_REASONS.wagerTimeout,
     async check(signal: AbortSignal) {
       const snapshot = await ports.wager.snapshot(signal);
+      if (!snapshot.runtimeMatches) {
+        return { kind: 'not_ready', reason: ENGINE_READINESS_REASONS.wagerUnavailable };
+      }
       if (!snapshot.enabled) {
         return { kind: 'disabled', reason: ENGINE_READINESS_REASONS.wagerDisabled };
       }
       if (!snapshot.configured) {
         return { kind: 'not_ready', reason: ENGINE_READINESS_REASONS.wagerUnavailable };
+      }
+      if (!snapshot.starterIntakeReady) {
+        return {
+          kind: 'not_ready',
+          reason: ENGINE_READINESS_REASONS.starterIntakeUnavailable,
+        };
       }
       if (!snapshot.covered) {
         return { kind: 'not_ready', reason: ENGINE_READINESS_REASONS.solvencyUncovered };
@@ -126,6 +142,20 @@ export function createEngineReadinessChecks(
       return { kind: 'ready' };
     },
   } satisfies ReadinessCheckPort;
+  const escrowPort = ports.escrow;
+  const escrow = escrowPort === undefined ? [] : [{
+    name: 'escrow',
+    unavailableReason: ENGINE_READINESS_REASONS.escrowRuntimeUnavailable,
+    timeoutReason: ENGINE_READINESS_REASONS.escrowRuntimeTimeout,
+    async check(signal: AbortSignal) {
+      return await escrowPort.check(signal)
+        ? { kind: 'ready' }
+        : {
+            kind: 'not_ready',
+            reason: ENGINE_READINESS_REASONS.escrowRuntimeUnavailable,
+          };
+    },
+  } satisfies ReadinessCheckPort];
   const telegram = {
     name: 'telegram',
     unavailableReason: ENGINE_READINESS_REASONS.telegramWorkerUnavailable,
@@ -213,5 +243,5 @@ export function createEngineReadinessChecks(
       return { kind: 'ready' };
     },
   } satisfies ReadinessCheckPort;
-  return [database, feed, wager, telegram, proof, settlement];
+  return [database, feed, wager, ...escrow, telegram, proof, settlement];
 }

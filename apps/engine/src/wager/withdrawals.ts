@@ -22,7 +22,7 @@
  */
 
 import { WAGER_CRON_LOCKS, WAGER_KEYS } from './constants.js';
-import { WAGER_COPY } from './copy.js';
+import { createWagerCopy } from './copy.js';
 import { explorerTxUrl } from '../engineConstants.js';
 import type { WagerModuleDeps, WagerWithdrawalRow } from './port.js';
 
@@ -30,13 +30,17 @@ async function signPersistBroadcast(
   deps: WagerModuleDeps,
   row: WagerWithdrawalRow,
 ): Promise<void> {
-  const built = await deps.chain.buildTransfer({ to: row.dest_pubkey, lamports: row.lamports });
+  const built = await deps.chain.buildTransfer({
+    asset: row.asset,
+    to: row.dest_pubkey,
+    amountAtomic: row.lamports,
+  });
   if (!built.ok) {
     if (built.permanent) {
       await refundAndFail(deps, row, `build: ${built.error}`);
       return;
     }
-    deps.log.warn('wager_withdrawal_build_failed', { id: row.id, error: built.error });
+    deps.log.warn('wager_withdrawal_build_failed', { id: row.id });
     return; // stays in its current state — retried next tick
   }
   // Persist the signed bytes BEFORE broadcast: if we die during the send we
@@ -49,7 +53,7 @@ async function signPersistBroadcast(
   const sent = await deps.chain.broadcastRawTx(built.rawTxB64);
   if (!sent.ok) {
     // Row is 'submitted' with its bytes on file — the rebroadcast path owns it.
-    deps.log.warn('wager_withdrawal_broadcast_failed', { id: row.id, error: sent.error });
+    deps.log.warn('wager_withdrawal_broadcast_failed', { id: row.id });
     return;
   }
   deps.log.info('wager_withdrawal_submitted', { id: row.id, txSig: built.sig });
@@ -68,32 +72,40 @@ async function refundAndFail(
     group_id: null,
     market_id: null,
     kind: 'withdrawal_refund',
+    asset: row.asset,
     lamports: row.lamports,
     idempotency_key: WAGER_KEYS.withdrawalRefund(row.id),
   });
   await deps.db.markWithdrawalFailed(row.id, error);
-  deps.log.warn('wager_withdrawal_failed', { id: row.id, error });
-  await notify(deps, row.user_id, async (name) => WAGER_COPY.withdrawFailed(name, row.lamports));
+  deps.log.warn('wager_withdrawal_failed', { id: row.id });
+  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet', row.asset);
+  await notify(deps, row.user_id, async (name) => copy.withdrawFailed(name, row.lamports));
 }
 
 async function confirm(deps: WagerModuleDeps, row: WagerWithdrawalRow): Promise<void> {
   await deps.db.markWithdrawalConfirmed(row.id);
   deps.log.info('wager_withdrawal_confirmed', { id: row.id, txSig: row.tx_sig });
+  const network = deps.solanaNetwork ?? 'devnet';
+  const copy = createWagerCopy(network, row.asset);
   await notify(deps, row.user_id, async (name) =>
-    WAGER_COPY.withdrawConfirmed(name, row.lamports, explorerTxUrl(row.tx_sig ?? '')),
+    copy.withdrawConfirmed(
+      name,
+      row.lamports,
+      explorerTxUrl(row.tx_sig ?? '', network),
+    ),
   );
 }
 
-/** Group post to the user's last wager group — never a DM. */
+/** Financial receipts stay in the user's private Telegram chat. */
 async function notify(
   deps: WagerModuleDeps,
   userId: number,
   line: (name: string) => Promise<string>,
 ): Promise<void> {
   const link = await deps.db.getWalletLink(userId);
-  if (!link || link.last_wager_group_id === null) return;
+  if (!link) return;
   const name = (await deps.db.getUserName(userId)) ?? 'A player';
-  deps.poster.post(link.last_wager_group_id, await line(name));
+  deps.poster.post(userId, await line(name));
 }
 
 async function processSubmitted(deps: WagerModuleDeps, row: WagerWithdrawalRow): Promise<void> {
@@ -104,7 +116,7 @@ async function processSubmitted(deps: WagerModuleDeps, row: WagerWithdrawalRow):
   }
   const status = await deps.chain.getSigStatus(row.tx_sig);
   if (!status.ok) {
-    deps.log.warn('wager_withdrawal_status_failed', { id: row.id, error: status.error });
+    deps.log.warn('wager_withdrawal_status_failed', { id: row.id });
     return; // status unknown because RPC failed — take no action at all
   }
   if (status.found) {
@@ -122,7 +134,7 @@ async function processSubmitted(deps: WagerModuleDeps, row: WagerWithdrawalRow):
   // window makes a fresh signature safe.
   const expiry = await deps.chain.isBlockheightExceeded(row.last_valid_block_height);
   if (!expiry.ok) {
-    deps.log.warn('wager_withdrawal_expiry_check_failed', { id: row.id, error: expiry.error });
+    deps.log.warn('wager_withdrawal_expiry_check_failed', { id: row.id });
     return;
   }
   if (expiry.exceeded) {
@@ -132,7 +144,7 @@ async function processSubmitted(deps: WagerModuleDeps, row: WagerWithdrawalRow):
   }
   const resent = await deps.chain.broadcastRawTx(row.raw_tx_b64); // identical bytes = same sig
   if (!resent.ok) {
-    deps.log.warn('wager_withdrawal_rebroadcast_failed', { id: row.id, error: resent.error });
+    deps.log.warn('wager_withdrawal_rebroadcast_failed', { id: row.id });
   }
 }
 
@@ -159,8 +171,8 @@ export function createWithdrawalExecutor(deps: WagerModuleDeps): WithdrawalExecu
       if (!(await deps.db.tryCronLock(WAGER_CRON_LOCKS.outbox))) return;
       try {
         await run();
-      } catch (err) {
-        deps.log.error('wager_withdrawal_executor_failed', { error: String(err) });
+      } catch {
+        deps.log.error('wager_withdrawal_executor_failed');
       } finally {
         await deps.db.releaseCronLock(WAGER_CRON_LOCKS.outbox);
       }

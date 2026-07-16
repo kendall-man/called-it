@@ -27,6 +27,7 @@ const MARKET: MarketRow = {
   card_tg_message_id: 99,
   created_at: '2026-07-11T00:00:00.000Z',
   currency: 'sol',
+  custody_mode: 'legacy',
 };
 
 function labels(keyboard: ReturnType<typeof offerKeyboard>): string[][] {

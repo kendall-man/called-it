@@ -10,7 +10,7 @@
 
 import type { User } from 'grammy/types';
 import { TUNABLES } from '@calledit/market-engine';
-import type { ClaimRow, Deps, GroupRow } from '../ports.js';
+import type { ClaimRow, Deps, FixtureRow, GroupRow } from '../ports.js';
 import type { HandlerCtx } from '../bot/context.js';
 import { describeTerms } from '../bot/cards.js';
 import {
@@ -21,7 +21,10 @@ import {
   retryQuoteKeyboard,
 } from '../bot/keyboards.js';
 import type { TemplateKey } from '../bot/copy.js';
+import { composeTelegramMessage } from '../bot/message-budget.js';
+import type { CompileContextOverrides } from './context.js';
 import { composeClaimCard } from './render.js';
+import { escrowMarketPositionsReady } from './escrow-market-provisioning.js';
 import {
   checkMintWindow,
   createMarketFromClaim,
@@ -59,9 +62,27 @@ function quoteFailureCopyKey(kind: 'transient' | 'no_odds' | 'unpriceable'): Tem
  * clock — so pricing pins the point-in-time odds book instead of the empty
  * post-match live snapshot. Undefined for live claims (latest book).
  */
-function replayAsOfMs(h: HandlerCtx, groupId: number, fixtureId: number): number | undefined {
+interface ReplayCompileContext extends CompileContextOverrides {
+  runId: number;
+  fixture: FixtureRow;
+  nowMs: number;
+}
+
+function replayContext(
+  h: HandlerCtx,
+  groupId: number,
+  fixtureId: number,
+): ReplayCompileContext | undefined {
+  const runId = h.supervisor.replayRunId(groupId);
+  if (runId === null) return undefined;
   if (h.supervisor.replayFixture(groupId) !== fixtureId) return undefined;
-  return h.supervisor.replayAsOf(fixtureId) ?? undefined;
+  const fixture = h.supervisor.replaySnapshot(groupId);
+  if (fixture?.fixture_id !== fixtureId) return undefined;
+  return {
+    runId,
+    fixture,
+    nowMs: h.supervisor.replayAsOfForGroup(groupId) ?? h.deps.now(),
+  };
 }
 
 /**
@@ -79,9 +100,10 @@ export async function mintOffer(
   const option = envelope.options.find((candidate) => candidate.key === optionKey);
   if (!option) return { minted: false };
   const spec = option.spec;
+  const replay = replayContext(h, claim.group_id, spec.fixtureId);
 
   // This quote LOCKS the settlement ratio — never mint on a failed/degenerate price.
-  const outcome = await quoteSpec(h.deps, spec, replayAsOfMs(h, claim.group_id, spec.fixtureId));
+  const outcome = await quoteSpec(h.deps, spec, replay?.nowMs, replay);
   if (outcome.kind !== 'ok') {
     await h.deps.db.updateClaim(claim.id, { expires_at: extendedClaimExpiry(h.deps) });
     const retryCanHelp = outcome.kind !== 'unpriceable';
@@ -102,7 +124,7 @@ export async function mintOffer(
     return { minted: false };
   }
 
-  const fixture = await h.deps.db.getFixture(spec.fixtureId);
+  const fixture = replay?.fixture ?? await h.deps.db.getFixture(spec.fixtureId);
   if (!fixture) {
     // A fixture-lookup miss is transient (cache mid-sync) — offer a retry.
     await h.deps.db.updateClaim(claim.id, { expires_at: extendedClaimExpiry(h.deps) });
@@ -112,7 +134,7 @@ export async function mintOffer(
     });
     return { minted: false };
   }
-  const window = checkMintWindow(spec, fixture, h.deps.now());
+  const window = checkMintWindow(spec, fixture, replay?.nowMs ?? h.deps.now());
   if (!window.open) {
     await h.deps.db.updateClaim(claim.id, { status: 'expired' });
     h.poster.post(claim.group_id, await h.say('window_closed'), {
@@ -129,7 +151,6 @@ export async function mintOffer(
     return { minted: false };
   }
 
-  const isReplay = h.supervisor.replayFixture(group.id) === spec.fixtureId;
   const pricedEnvelope: ParseEnvelope = {
     ...envelope,
     chosen: spec,
@@ -141,31 +162,67 @@ export async function mintOffer(
       oddsTsMs: quote.oddsTsMs,
     },
   };
-  const market = await createMarketFromClaim(h.deps, {
-    claim,
-    group,
-    spec,
-    quote: {
-      probability: quote.probability,
-      multiplier: quote.multiplier,
-      provenance: quote.provenance,
-      oddsMessageId: quote.oddsMessageId,
-      oddsTsMs: quote.oddsTsMs,
-    },
-    isReplay,
-    fixture,
-  });
-  await h.deps.db.updateClaim(claim.id, { parse: pricedEnvelope });
+  const mintResult = await h.supervisor.runGroupExclusive(group.id, async () => {
+    let mintFixture = fixture;
+    if (replay !== undefined) {
+      const currentReplay = replayContext(h, group.id, spec.fixtureId);
+      if (currentReplay?.runId !== replay.runId) return { kind: 'closed' as const };
+      if (!checkMintWindow(spec, currentReplay.fixture, currentReplay.nowMs).open) {
+        return { kind: 'closed' as const };
+      }
+      mintFixture = currentReplay.fixture;
+    } else if (h.supervisor.replayRunId(group.id) !== null) {
+      return { kind: 'closed' as const };
+    }
 
-  const card = await composeClaimCard(h.deps, market);
+    const market = await createMarketFromClaim(h.deps, {
+      claim,
+      group,
+      spec,
+      quote: {
+        probability: quote.probability,
+        multiplier: quote.multiplier,
+        provenance: quote.provenance,
+        oddsMessageId: quote.oddsMessageId,
+        oddsTsMs: quote.oddsTsMs,
+      },
+      isReplay: replay !== undefined,
+      fixture: mintFixture,
+    });
+    await h.deps.db.updateClaim(claim.id, { parse: pricedEnvelope });
+    const escrowReady = await escrowMarketPositionsReady(h.deps, market);
+    return { kind: 'minted' as const, market, escrowReady };
+  });
+  if (mintResult.kind === 'closed') {
+    await h.deps.db.updateClaim(claim.id, { status: 'expired' });
+    h.poster.post(claim.group_id, await h.say('window_closed'), {
+      replyToMessageId: claim.tg_message_id,
+    });
+    return { minted: false };
+  }
+  const { market, escrowReady } = mintResult;
+  const currency = market.currency === 'usdc' ? 'usdc' : 'sol';
+
+  const positionsAvailable = escrowReady && (
+    market.is_replay
+    || (h.deps.wager !== null && await h.deps.wager.stakesAvailable(currency))
+  );
+  const card = await composeClaimCard(h.deps, market, { positionsAvailable });
   if (!card) return { minted: true };
   const claimer = await h.deps.db.getUser(claim.claimer_user_id);
-  const garnish = await h.say('offer_live', { claimer: claimer?.display_name ?? 'legend' });
-  const pendingNote =
-    market.status === 'pending_lineup' ? `\n${await h.say('pending_lineup_note')}` : '';
-  h.poster.post(claim.group_id, `${garnish}${pendingNote}\n\n${card.text}`, {
+  const garnish = await h.say('offer_live', {
+    claimer: claimer?.display_name ?? 'legend',
+    amount: h.deps.wager?.presetLabels(currency)[0]
+      ?? (currency === 'usdc' ? '1 USDC' : '0.01 SOL'),
+  });
+  const pendingNote = market.status === 'pending_lineup' ? await h.say('pending_lineup_note') : '';
+  h.poster.post(claim.group_id, composeTelegramMessage({
+    body: card.text,
+    garnish,
+    note: pendingNote,
+  }), {
     replyToMessageId: claim.tg_message_id,
-    keyboard: offerKeyboard(market),
+    ...(positionsAvailable ? { keyboard: offerKeyboard(market) } : {}),
     onSent: async (messageId) => {
       await h.deps.db.setMarketCardMessage(market.id, messageId);
     },
@@ -281,7 +338,7 @@ async function postConfirmationGate(h: HandlerCtx, claim: ClaimRow): Promise<voi
 export async function offerClaim(h: HandlerCtx, args: OfferArgs): Promise<void> {
   const consent = args.consent ?? 'awaiting_confirm';
   if (consent === 'explicit' && !h.budget.allow(args.group.id)) {
-    h.deps.log.info('llm_budget_exhausted', { groupId: args.group.id });
+    h.deps.log.info('llm_budget_exhausted');
     if (args.announce) {
       h.poster.post(args.chatId, await h.say('budget_spent'), {
         replyToMessageId: args.sourceMessageId,
@@ -300,7 +357,6 @@ export async function offerClaim(h: HandlerCtx, args: OfferArgs): Promise<void> 
   });
   h.deps.log.info('offer_claim', {
     claimId: claim.id,
-    groupId: args.chatId,
     confidence: args.confidence,
     consent,
   });
@@ -311,13 +367,19 @@ export async function offerClaim(h: HandlerCtx, args: OfferArgs): Promise<void> 
   // In a replaying group, pin the parse to the replayed fixture (else ambiguous
   // team names — several active fixtures for one team — reject and go silent).
   const replayFixtureId = h.supervisor.replayFixture(args.chatId) ?? undefined;
-  const outcome = await proveClaim(h.deps, claim, replayFixtureId);
+  const replay = replayFixtureId === undefined
+    ? undefined
+    : replayContext(h, args.chatId, replayFixtureId);
+  const outcome = await proveClaim(h.deps, claim, replayFixtureId, replay);
   await routeProveOutcome(h, claim, args.group, outcome, args.announce);
 }
 
 /** Exposed for the "Run it back" retry: re-parse and re-route under the claim lock. */
 export async function retryOffer(h: HandlerCtx, claim: ClaimRow, group: GroupRow): Promise<void> {
   const replayFixtureId = h.supervisor.replayFixture(group.id) ?? undefined;
-  const outcome = await proveClaim(h.deps, claim, replayFixtureId);
+  const replay = replayFixtureId === undefined
+    ? undefined
+    : replayContext(h, group.id, replayFixtureId);
+  const outcome = await proveClaim(h.deps, claim, replayFixtureId, replay);
   await routeProveOutcome(h, claim, group, outcome, true);
 }

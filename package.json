@@ -1,5 +1,6 @@
 {
   "name": "calledit",
+  "version": "0.1.1-devnet.0",
   "private": true,
   "packageManager": "pnpm@10.33.0",
   "engines": {
@@ -8,17 +9,24 @@
   "pnpm": {
     "overrides": {
       "postcss": "8.5.16",
-      "uuid": "11.1.1"
+      "uuid": "11.1.1",
+      "viem>ws": "8.21.0"
+    },
+    "patchedDependencies": {
+      "bigint-buffer@1.1.5": "patches/bigint-buffer@1.1.5.patch"
     }
   },
   "scripts": {
     "build": "turbo run build",
     "build:concierge": "pnpm --filter callie eve:build",
+    "escrow:devnet": "tsx scripts/escrow/devnet-bootstrap-cli.ts",
+    "escrow:recovery": "node apps/escrow-recovery/dist/main.js",
     "dev": "turbo run dev",
     "test": "turbo run test",
     "test:e2e": "tsx scripts/run-browser-tests.ts",
-    "test:dependency-policy": "set -e; audit_file=$(mktemp); trap 'rm -f \"$audit_file\"' EXIT; set +e; npx -y pnpm@10.33.0 audit --prod --json > \"$audit_file\"; audit_exit=$?; set -e; if [ \"$audit_exit\" -ne 0 ] && [ \"$audit_exit\" -ne 1 ]; then cat \"$audit_file\" >&2; exit \"$audit_exit\"; fi; node scripts/security/dependency-policy.mjs --audit \"$audit_file\"",
-    "test:sql": "pnpm run typecheck:scripts && tsx --test --test-concurrency=1 scripts/sql-harness.test.ts scripts/sql-harness.integration.test.ts scripts/sql-harness.starter-grant.test.ts scripts/sql-harness.wallet-identity.test.ts scripts/sql-harness.wallet-identity-races.test.ts scripts/sql-harness.telegram-ingress.test.ts scripts/sql-harness.telegram-ingress-recovery.test.ts scripts/sql-harness.settlement-proof-jobs.test.ts scripts/sql-harness.privacy.test.ts && tsx scripts/sql-harness.ts",
+    "test:dependency-policy": "set -e; list_file=$(mktemp); audit_file=$(mktemp); trap 'rm -f \"$list_file\" \"$audit_file\"' EXIT; npx -y pnpm@10.33.0 list --prod --recursive --json --depth Infinity > \"$list_file\"; node scripts/security/bulk-audit.mjs \"$list_file\" > \"$audit_file\"; node scripts/security/dependency-policy.mjs --audit \"$audit_file\"",
+    "test:escrow:devnet": "tsc -p scripts/escrow/tsconfig.json --noEmit && tsx --test scripts/escrow/devnet-bootstrap.test.ts",
+    "test:sql": "pnpm run typecheck:scripts && tsx --test --test-concurrency=1 scripts/sql-harness.test.ts scripts/sql-harness.integration.test.ts scripts/sql-harness.starter-grant.test.ts scripts/sql-harness.wallet-identity.test.ts scripts/sql-harness.wallet-identity-races.test.ts scripts/sql-harness.telegram-ingress.test.ts scripts/sql-harness.telegram-ingress-recovery.test.ts scripts/sql-harness.settlement-proof-jobs.test.ts scripts/sql-harness.privacy.test.ts scripts/sql-harness.group-points.test.ts scripts/sql-harness.usdc-assets.test.ts && tsx scripts/sql-harness.ts",
     "test:workflow": "pnpm run typecheck:scripts && tsx --test scripts/check-workflow.test.ts && tsx scripts/check-workflow.ts",
     "test:telegram-durability": "pnpm run typecheck:scripts && tsx --test --test-concurrency=1 scripts/task-9/telegram-restart.test.ts",
     "typecheck": "turbo run typecheck",
@@ -30,6 +38,7 @@
     "bootstrap:txline": "tsx scripts/bootstrap-txline.ts"
   },
   "devDependencies": {
+    "@solana/web3.js": "1.98.4",
     "@types/node": "^24.13.3",
     "@types/pg": "^8.20.0",
     "pg": "^8.22.0",

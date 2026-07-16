@@ -4,13 +4,35 @@ import { bindAbortSignalToFetch, cancelUnusedResponse } from './readiness-http.j
 const LIVE_PRICING_PHASES = ['H1', 'HT', 'H2', 'ET1', 'HTET', 'ET2', 'PE', 'INT'];
 const FixtureRows = z.array(z.object({ fixture_id: z.number().int() }));
 const ProbeRows = z.array(z.object({ last_event_id: z.string().nullable() }));
-const WagerStatusRows = z.array(
-  z.object({ paused: z.boolean(), reason: z.string().nullable() }),
+const WagerAssetStatusRows = z.array(
+  z.object({
+    asset: z.enum(['sol', 'usdc']),
+    paused: z.boolean(),
+    reason: z.string().nullable(),
+  }),
 );
+const DatabaseInteger = z.union([
+  z.bigint(),
+  z.number().int().nonnegative(),
+  z.string().regex(/^\d+$/),
+]).transform((value) => BigInt(value));
+const StarterBudgetRows = z.array(z.object({
+  enabled: z.boolean(),
+  grant_lamports: DatabaseInteger,
+  total_cap_lamports: DatabaseInteger,
+  max_grants: DatabaseInteger,
+  granted_lamports: DatabaseInteger,
+  granted_count: DatabaseInteger,
+}));
 
 export interface SupabaseReadinessStatus {
   readonly paused: boolean;
   readonly reason: string | null;
+}
+
+export interface SupabaseStarterBudgetStatus {
+  readonly enabled: boolean;
+  readonly available: boolean;
 }
 
 export interface SupabaseReadinessClient {
@@ -21,6 +43,7 @@ export interface SupabaseReadinessClient {
     signal: AbortSignal,
   ): Promise<readonly number[]>;
   wagerStatus(signal: AbortSignal): Promise<SupabaseReadinessStatus>;
+  starterBudget(signal: AbortSignal): Promise<SupabaseStarterBudgetStatus>;
 }
 
 export interface SupabaseReadinessClientOptions {
@@ -99,17 +122,44 @@ export function createSupabaseReadinessClient(
     async wagerStatus(signal) {
       const body = await requestJson(
         options,
-        tableUrl(options.baseUrl, 'wager_status', {
-          select: 'paused,reason',
+        tableUrl(options.baseUrl, 'wager_asset_status', {
+          select: 'asset,paused,reason',
+          order: 'asset.asc',
+        }),
+        signal,
+      );
+      const rows = WagerAssetStatusRows.parse(body);
+      signal.throwIfAborted();
+      const byAsset = new Map(rows.map((row) => [row.asset, row]));
+      if (byAsset.size !== 2 || !byAsset.has('sol') || !byAsset.has('usdc')) {
+        throw new Error('wager readiness status missing');
+      }
+      const paused = rows.find((row) => row.paused);
+      return paused === undefined
+        ? { paused: false, reason: null }
+        : { paused: true, reason: paused.reason };
+    },
+    async starterBudget(signal) {
+      const body = await requestJson(
+        options,
+        tableUrl(options.baseUrl, 'wager_starter_budget', {
+          select:
+            'enabled,grant_lamports,total_cap_lamports,max_grants,granted_lamports,granted_count',
           id: 'eq.1',
           limit: '1',
         }),
         signal,
       );
-      const row = WagerStatusRows.parse(body)[0];
+      const row = StarterBudgetRows.parse(body)[0];
       signal.throwIfAborted();
-      if (row === undefined) throw new Error('wager readiness status missing');
-      return row;
+      if (row === undefined) throw new Error('starter budget readiness row missing');
+      return {
+        enabled: row.enabled,
+        available:
+          row.enabled
+          && row.granted_count < row.max_grants
+          && row.granted_lamports + row.grant_lamports <= row.total_cap_lamports,
+      };
     },
   };
 }

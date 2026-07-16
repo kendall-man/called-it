@@ -18,6 +18,18 @@ describe('engine readiness checks', () => {
     });
   });
 
+  it('fails the engine readiness composite when escrow intake is not ready', async () => {
+    const result = await evaluateReadinessPorts({
+      ...healthyReadinessPorts(),
+      escrow: { check: async () => false },
+    });
+
+    expect(result).toEqual({
+      status: 'not_ready',
+      reasons: [ENGINE_READINESS_REASONS.escrowRuntimeUnavailable],
+    });
+  });
+
   it('exposes stable unavailable and timeout reasons for every injected check port', () => {
     const checks = createEngineReadinessChecks(
       healthyReadinessPorts(),
@@ -139,8 +151,10 @@ describe('engine readiness checks', () => {
         snapshot: async () => ({
           enabled: false,
           configured: false,
+          runtimeMatches: true,
           paused: false,
           covered: false,
+          starterIntakeReady: false,
         }),
       },
     });
@@ -159,8 +173,10 @@ describe('engine readiness checks', () => {
         snapshot: async () => ({
           enabled: true,
           configured: false,
+          runtimeMatches: false,
           paused: false,
           covered: false,
+          starterIntakeReady: false,
         }),
       },
     });
@@ -179,8 +195,10 @@ describe('engine readiness checks', () => {
         snapshot: async () => ({
           enabled: true,
           configured: true,
+          runtimeMatches: true,
           paused: true,
           covered: true,
+          starterIntakeReady: true,
         }),
       },
     });
@@ -199,8 +217,10 @@ describe('engine readiness checks', () => {
         snapshot: async () => ({
           enabled: true,
           configured: true,
+          runtimeMatches: true,
           paused: true,
           covered: false,
+          starterIntakeReady: true,
         }),
       },
     });
