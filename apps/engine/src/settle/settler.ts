@@ -44,6 +44,11 @@ function toEnginePosition(row: PositionRow): Position {
   };
 }
 
+/** Escrow markets are driven exclusively by finalized chain projections. */
+function isLegacyCustody(market: MarketRow): boolean {
+  return market.custody_mode !== 'escrow';
+}
+
 export class Settler {
   private readonly states = new Map<string, MarketState>();
 
@@ -65,7 +70,7 @@ export class Settler {
     }
     await this.deps.db.updateFixtureFromEvent(event);
     const markets = (await this.deps.db.openMarketsForFixture(event.fixtureId))
-      .filter((market) => !market.is_replay);
+      .filter((market) => !market.is_replay && isLegacyCustody(market));
     await this.reduceMarkets(event, markets);
   }
 
@@ -82,6 +87,7 @@ export class Settler {
     const markets = (await this.deps.db.openMarketsForFixture(event.fixtureId))
       .filter((market) =>
         market.is_replay &&
+        isLegacyCustody(market) &&
         market.group_id === groupId &&
         Date.parse(market.created_at) >= replayStartedAtMs
       );
@@ -120,7 +126,7 @@ export class Settler {
     for (const [marketId, state] of [...this.states]) {
       if (!state.pendingSettlement) continue;
       const market = await this.deps.db.getMarket(marketId);
-      if (!market || market.status === 'settled' || market.status === 'voided') {
+      if (!market || !isLegacyCustody(market) || market.status === 'settled' || market.status === 'voided') {
         this.states.delete(marketId);
         continue;
       }
@@ -163,6 +169,12 @@ export class Settler {
     effects: MarketEffect[],
     event: MatchEvent | null,
   ): Promise<void> {
+    if (!isLegacyCustody(market)) {
+      if (effects.length > 0) {
+        this.deps.log.warn('legacy_effects_skipped_escrow_market', { marketId: market.id });
+      }
+      return;
+    }
     for (const effect of effects) {
       this.deps.log.info('market_effect', { marketId: market.id, effect: effect.kind, seq: event?.seq });
       switch (effect.kind) {
@@ -220,6 +232,10 @@ export class Settler {
     evidenceSeqs: number[],
     voidReason?: string,
   ): Promise<void> {
+    if (!isLegacyCustody(market)) {
+      this.deps.log.warn('legacy_settlement_skipped_escrow_market', { marketId: market.id });
+      return;
+    }
     const tier = market.spec.trustTier;
     if (this.settlementJournal) {
       // The Task 10 RPC writes the immutable terminal fact and settlement job
@@ -290,6 +306,10 @@ export class Settler {
     outcome: SettlementOutcome,
     voidReason?: string,
   ): Promise<void> {
+    if (!isLegacyCustody(market)) {
+      this.deps.log.warn('legacy_receipt_skipped_escrow_market', { marketId: market.id });
+      return;
+    }
     const receipt = await prepareGroupPointsReceipt(
       this.points,
       { deps: this.deps, market, outcome, voidReason, say: this.say },

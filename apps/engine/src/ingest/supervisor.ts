@@ -5,7 +5,7 @@
  */
 
 import type { MatchEvent } from '@calledit/market-engine';
-import type { Deps, EventSourceLike, FixtureRow } from '../ports.js';
+import type { Deps, EventSourceLike, FixtureRow, MarketRow } from '../ports.js';
 import { ENGINE } from '../engineConstants.js';
 import type { Settler } from '../settle/settler.js';
 
@@ -23,6 +23,29 @@ interface ActiveReplay {
   ending: boolean;
 }
 
+export interface ReplayRunIdentity {
+  readonly groupId: number;
+  readonly fixtureId: number;
+  readonly runId: number;
+  /** Persisted replay markets must have been created at or after this boundary. */
+  readonly startedAtMs: number;
+}
+
+export type ReplayPositionAdmission =
+  | { readonly kind: 'allowed'; readonly run: ReplayRunIdentity }
+  | { readonly kind: 'not_replay' }
+  | { readonly kind: 'stale'; readonly reason: 'no_active_run' | 'fixture_mismatch' | 'prior_run' };
+
+/**
+ * Parent wiring must persist this request before it reports a replay complete.
+ * A source reaching EOF is only evidence that confirmation should be attempted.
+ */
+export interface ReplayConfirmationScheduler {
+  scheduleReplayConfirmation(input: ReplayRunIdentity & {
+    readonly sourceCompletedAtMs: number;
+  }): Promise<void>;
+}
+
 const REPLAY_PRE_KICKOFF_MS = 10 * 60_000;
 const ACTIVE_PHASE_MINUTE_CEILING: Partial<Record<FixtureRow['phase'], number>> = {
   H1: 45,
@@ -38,14 +61,20 @@ export class IngestSupervisor {
   private readonly replays = new Map<number, ActiveReplay>();
   private readonly groupLocks = new Map<number, Promise<void>>();
   private nextReplayRunId = 1;
-  /** Called when a replay's fixture reaches a terminal phase. */
+  /**
+   * Deprecated: source completion is not terminal settlement. Parent wiring
+   * must report user-facing completion from the durable confirmation path.
+   */
   onReplayFinished: ((groupId: number, fixtureId: number) => void) | null = null;
   /** Called when the replay source or its strict settlement path fails. */
   onReplayFailed: ((groupId: number, fixtureId: number) => void) | null = null;
+  /** Called only after a durable replay-confirmation request has been scheduled. */
+  onReplayConfirmationScheduled: ((input: ReplayRunIdentity) => void) | null = null;
 
   constructor(
     private readonly deps: Deps,
     private readonly settler: Settler,
+    private readonly replayConfirmation: ReplayConfirmationScheduler | null = null,
   ) {}
 
   /** Reconcile running live sources against the fixtures table. */
@@ -84,6 +113,7 @@ export class IngestSupervisor {
       if (this.replays.has(groupId)) return 'already_active';
       const openMarkets = await this.deps.db.openMarketsForGroup(groupId);
       if (openMarkets.some((market) => !market.is_replay)) return 'live_markets';
+      await this.lockReplayMarkets(openMarkets);
 
       const fixtureId = fixture.fixture_id;
       const source = this.deps.tx.createReplaySource(fixtureId, speed);
@@ -167,10 +197,16 @@ export class IngestSupervisor {
   stopReplay(groupId: number): boolean {
     const replay = this.replays.get(groupId);
     if (!replay) return false;
+    replay.ending = true;
     if (replay.startDelayTimer !== null) clearTimeout(replay.startDelayTimer);
     replay.source.stop();
     this.replays.delete(groupId);
-    this.deps.log.info('replay_stopped', { fixtureId: replay.fixtureId });
+    void this.runGroupExclusive(groupId, async () => {
+      await this.lockReplayMarkets(await this.deps.db.openMarketsForGroup(groupId));
+      this.deps.log.info('replay_stopped', { fixtureId: replay.fixtureId });
+    }).catch(() => {
+      this.deps.log.error('replay_stop_lock_failed', { fixtureId: replay.fixtureId });
+    });
     return true;
   }
 
@@ -183,6 +219,46 @@ export class IngestSupervisor {
   replayRunId(groupId: number): number | null {
     const replay = this.replays.get(groupId);
     return replay === undefined || replay.ending ? null : replay.runId;
+  }
+
+  replayRun(groupId: number): ReplayRunIdentity | null {
+    const replay = this.replays.get(groupId);
+    if (replay === undefined || replay.ending) return null;
+    return {
+      groupId,
+      fixtureId: replay.fixtureId,
+      runId: replay.runId,
+      startedAtMs: replay.wallStartedAtMs,
+    };
+  }
+
+  /**
+   * Callback handlers must call this before accepting a replay position. It
+   * fails closed after a restart and freezes the stale persisted market.
+   */
+  async admitReplayPosition(market: Pick<
+    MarketRow,
+    'id' | 'group_id' | 'fixture_id' | 'is_replay' | 'created_at'
+  >): Promise<ReplayPositionAdmission> {
+    if (!market.is_replay) return { kind: 'not_replay' };
+    const run = this.replayRun(market.group_id);
+    const createdAtMs = Date.parse(market.created_at);
+    const reason = run === null
+      ? 'no_active_run'
+      : run.fixtureId !== market.fixture_id
+        ? 'fixture_mismatch'
+        : !Number.isFinite(createdAtMs) || createdAtMs < run.startedAtMs
+          ? 'prior_run'
+          : null;
+    if (reason === null) return { kind: 'allowed', run };
+    await this.deps.db.updateMarketStatus(market.id, 'frozen');
+    this.deps.log.info('replay_stale_market_locked', { marketId: market.id, reason });
+    return { kind: 'stale', reason };
+  }
+
+  /** Lock all open replay markets for a group after an unclean restart. */
+  async recoverReplayGroup(groupId: number): Promise<number> {
+    return this.lockReplayMarkets(await this.deps.db.openMarketsForGroup(groupId));
   }
 
   /** Group-scoped virtual fixture state. The durable fixture row is never regressed. */
@@ -273,14 +349,37 @@ export class IngestSupervisor {
       if (replay.startDelayTimer !== null) clearTimeout(replay.startDelayTimer);
       replay.source.stop();
       this.replays.delete(groupId);
+      await this.lockReplayMarkets(await this.deps.db.openMarketsForGroup(groupId));
       if (reason === 'completed') {
-        this.deps.log.info('replay_completed', { fixtureId: replay.fixtureId });
-        this.onReplayFinished?.(groupId, replay.fixtureId);
+        const confirmation = {
+          groupId,
+          fixtureId: replay.fixtureId,
+          runId: replay.runId,
+          startedAtMs: replay.wallStartedAtMs,
+          sourceCompletedAtMs: this.deps.now(),
+        };
+        if (this.replayConfirmation === null) {
+          this.deps.log.warn('replay_confirmation_scheduler_unwired', { fixtureId: replay.fixtureId });
+          return;
+        }
+        await this.replayConfirmation.scheduleReplayConfirmation(confirmation);
+        this.deps.log.info('replay_confirmation_scheduled', { fixtureId: replay.fixtureId });
+        this.onReplayConfirmationScheduled?.(confirmation);
+        return;
+      }
+      if (reason === 'stopped') {
+        this.deps.log.info('replay_stopped', { fixtureId: replay.fixtureId });
         return;
       }
       this.deps.log.error('replay_failed', { fixtureId: replay.fixtureId });
       this.onReplayFailed?.(groupId, replay.fixtureId);
     });
+  }
+
+  private async lockReplayMarkets(markets: readonly MarketRow[]): Promise<number> {
+    const stale = markets.filter((market) => market.is_replay);
+    for (const market of stale) await this.deps.db.updateMarketStatus(market.id, 'frozen');
+    return stale.length;
   }
 
   private syncVirtualNow(replay: ActiveReplay, fallback?: number): number {

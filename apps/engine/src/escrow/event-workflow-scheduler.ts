@@ -5,6 +5,10 @@ import type { Deps, MarketRow, PositionRow } from '../ports.js';
 import type { EscrowOracleAttestationPolicy } from './attestation-signers.js';
 import type { EscrowUnsignedWorkflowRequest } from './attestation-request-payload.js';
 import type { EscrowAttestationRequestService } from './attestation-request-service.js';
+import type {
+  EscrowFinalizedProjection,
+  EscrowFinalizedTransactionProjection,
+} from './finalized-indexer.js';
 import type { createEscrowRecoveryService } from './recovery-workflows.js';
 import {
   buildEscrowFeedEventAttestation,
@@ -55,6 +59,21 @@ export interface EscrowSettlementEntitlementScheduler {
     readonly marketPda: string;
     readonly positionCount: bigint;
   }): Promise<void>;
+}
+
+/** A terminal escrow state is authoritative only after the finalized indexer emits it. */
+export type EscrowFinalizedTerminalProjection = Extract<
+  EscrowFinalizedProjection,
+  { readonly kind: 'settlement' }
+>;
+
+/**
+ * Parent wiring uses this after the finalized projection is durably recorded
+ * and before its cursor advances. It is the only path permitted to update
+ * terminal market status, receipts, or cards for escrow custody.
+ */
+export interface EscrowFinalizedTerminalProjectionSink {
+  afterFinalizedTransaction(transaction: EscrowFinalizedTransactionProjection): Promise<void>;
 }
 
 export function createEscrowSettlementEntitlementScheduler(options: {
