@@ -9,7 +9,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const result = await createPositionAuthSession(body);
     return response(result.status, result.body);
-  } catch {
+  } catch (cause) {
+    console.error('position_session_unavailable', {
+      message: cause instanceof Error ? cause.message : 'unknown_error',
+    });
     return response(503, { error: 'sponsor_unavailable' });
   }
 }

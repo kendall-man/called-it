@@ -112,10 +112,10 @@ export interface WagerCommandCtx {
   from?: { id: number; first_name: string; last_name?: string; username?: string };
   match?: string | RegExpMatchArray;
   reply(text: string, options?: {
-    reply_markup: { inline_keyboard: Array<Array<{
-      text: string;
-      url: string;
-    }>> };
+    reply_markup: { inline_keyboard: Array<Array<
+      | { text: string; url: string }
+      | { text: string; web_app: { url: string } }
+    >> };
   }): Promise<unknown>;
 }
 

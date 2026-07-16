@@ -26,6 +26,9 @@ wallet.json
 .output
 .workflow-data
 
+# Persistent local validation runtime (contains test-only secrets)
+.calledit-local/
+
 # Anchor/Rust local build artifacts
 target/
 .anchor/

@@ -56,6 +56,20 @@ describe('escrow account commands', () => {
     expect(replies[0]?.text).toContain('On-chain escrow · MAINNET');
     expect(replies[0]?.text).not.toContain(TOKEN);
     expect(JSON.stringify(replies[0]?.options)).toContain(`/base/wallet/${TOKEN}`);
+    expect(replies[0]?.options).toEqual({
+      reply_markup: {
+        inline_keyboard: [
+          [{
+            text: 'Open Privy wallet',
+            web_app: { url: `https://web.test/base/wallet/${TOKEN}` },
+          }],
+          [{
+            text: 'Legacy balance recovery',
+            url: 'https://web.test/legacy/recovery',
+          }],
+        ],
+      },
+    });
     expect(JSON.stringify(replies[0]?.options)).toContain('Legacy balance recovery');
   });
 });

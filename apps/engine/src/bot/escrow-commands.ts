@@ -62,9 +62,12 @@ export function registerEscrowAccountCommands(
       return;
     }
     const legacyRecoveryUrl = privateEscrowRecoveryUrl(result.legacyRecoveryUrl);
-    const rows: Array<Array<{ readonly text: string; readonly url: string }>> = [[{
+    const rows: Array<Array<
+      | { readonly text: string; readonly url: string }
+      | { readonly text: string; readonly web_app: { readonly url: string } }
+    >> = [[{
       text: 'Open Privy wallet',
-      url: walletUrl,
+      web_app: { url: walletUrl },
     }]];
     if (legacyRecoveryUrl !== null) {
       rows.push([{ text: 'Legacy balance recovery', url: legacyRecoveryUrl }]);

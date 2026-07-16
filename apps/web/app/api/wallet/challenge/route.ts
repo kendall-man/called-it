@@ -25,7 +25,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       status: result.status,
       headers: { 'cache-control': 'no-store' },
     });
-  } catch {
+  } catch (cause) {
+    console.error('wallet_challenge_unavailable', {
+      message: cause instanceof Error ? cause.message : 'unknown_error',
+    });
     return NextResponse.json(
       { error: 'wallet_service_unavailable' },
       { status: 503, headers: { 'cache-control': 'no-store' } },

@@ -72,6 +72,7 @@ import { createEscrowReadinessHealthCheck } from './escrow/readiness-health.js';
  * already present in the environment win, so platform overrides are respected.
  */
 function loadDotEnv(): void {
+  if (process.env.CALLEDIT_ENV_PRELOADED === 'true') return;
   let dir = dirname(fileURLToPath(import.meta.url));
   for (let depth = 0; depth < 6; depth += 1) {
     const candidate = resolve(dir, '.env');
