@@ -2,8 +2,8 @@
 
 import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
-import { RefreshCw } from 'lucide-react';
-import { telegramInitDataFromWebApp } from '@/lib/telegram-web-app-client';
+import { ArrowLeft } from 'lucide-react';
+import { initializeTelegramWebApp, telegramInitDataFromWebApp } from '@/lib/telegram-web-app-client';
 import type { PositionManagerProps } from './position-manager';
 import { WalletButton, WalletState } from './wallet-ui';
 
@@ -33,8 +33,10 @@ export function PositionEntry(props: PositionEntryProps) {
   const [launch, setLaunch] = useState<TelegramLaunch>({ kind: 'checking' });
 
   useEffect(() => {
+    let dispose: (() => void) | null = null;
     const deadline = Date.now() + TELEGRAM_BRIDGE_TIMEOUT_MS;
     const checkBridge = () => {
+      dispose ??= initializeTelegramWebApp(window);
       const initData = telegramInitDataFromWebApp(window);
       if (initData !== null) {
         setLaunch({ kind: 'ready', initData });
@@ -42,14 +44,17 @@ export function PositionEntry(props: PositionEntryProps) {
       }
       return false;
     };
-    if (checkBridge()) return;
+    if (checkBridge()) return () => dispose?.();
     const interval = window.setInterval(() => {
       if (checkBridge() || Date.now() >= deadline) {
         window.clearInterval(interval);
         if (Date.now() >= deadline) setLaunch({ kind: 'unavailable' });
       }
     }, TELEGRAM_BRIDGE_POLL_MS);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearInterval(interval);
+      dispose?.();
+    };
   }, []);
 
   return (
@@ -114,8 +119,8 @@ class PositionErrorBoundary extends Component<
           </a>
         ) : (
           <div className="mt-5">
-            <WalletButton icon={<RefreshCw size={18} />} onClick={() => window.location.reload()}>
-              Reload approval
+            <WalletButton icon={<ArrowLeft size={18} />} onClick={() => window.history.back()}>
+              Return to Telegram
             </WalletButton>
           </div>
         )}

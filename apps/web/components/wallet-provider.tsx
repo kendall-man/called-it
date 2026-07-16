@@ -19,7 +19,7 @@ const PRIVY_CONFIG = {
   },
   embeddedWallets: {
     solana: { createOnLogin: 'users-without-wallets' },
-    showWalletUIs: true,
+    showWalletUIs: false,
   },
   externalWallets: {
     walletConnect: { enabled: false },

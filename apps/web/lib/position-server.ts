@@ -106,7 +106,6 @@ export async function createPositionAuthSession(
   );
   if (lookup.kind === 'rejected') return lookupRefusal(lookup);
   if (telegramUserId !== lookup.session.userId) return refusal(403, 'identity_mismatch');
-  if (lookup.session.state !== 'pending') return refusal(409, 'session_consumed');
   const expiresAt = Date.parse(lookup.session.expiresAt);
   if (!Number.isFinite(expiresAt)) return refusal(410, 'session_expired');
   if (expiresAt - now.getTime() < MIN_SESSION_LIFETIME_MS) {

@@ -45,15 +45,16 @@ export class WalletClientError extends Error {
   }
 }
 
-export async function requestWalletAuthSession(sessionToken: string): Promise<{
+export async function requestWalletAuthSession(sessionToken: string, initData = ''): Promise<{
   readonly jwt: string;
   readonly expiresAt: string;
 }> {
+  if (initData.length === 0) throw new WalletClientError('telegram_auth_required');
   const response = await walletFetch('/api/wallet/session', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     cache: 'no-store',
-    body: JSON.stringify({ token: sessionToken }),
+    body: JSON.stringify({ token: sessionToken, initData }),
   });
   const body = await responseJson(response);
   const parsed = AuthSessionSchema.safeParse(body);
@@ -158,6 +159,10 @@ export function walletClientErrorMessage(cause: unknown): string {
       return 'This wallet link is for a different Solana network. Return to Telegram and open /wallet again.';
     case 'privy_auth_required':
       return 'Your secure wallet session expired. Return to Telegram and open /wallet again.';
+    case 'telegram_auth_required':
+      return 'Open this private wallet link from Telegram, then try again.';
+    case 'identity_mismatch':
+      return 'This private wallet link belongs to a different Telegram account.';
     case 'privy_identity_invalid':
     case 'privy_identity_reserved':
     case 'privy_wallet_reserved':

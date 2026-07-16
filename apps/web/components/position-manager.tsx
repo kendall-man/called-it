@@ -328,10 +328,43 @@ export function PositionManager(props: PositionManagerProps) {
     window.location.assign(`https://t.me/${encodeURIComponent(props.botUsername)}`);
   }, [props.botUsername]);
 
+  const recoverStatus = useCallback(async () => {
+    if (activeWallet === null) {
+      fail('unknown_confirmation');
+      return;
+    }
+    try {
+      const accessToken = await getAccessToken();
+      if (accessToken === null) throw new PositionClientError('privy_auth_required');
+      const status = await requestPositionStatus({
+        token: props.token,
+        accessToken,
+        pubkey: activeWallet.address,
+      });
+      if (status.stage === 'finalized' && status.signature !== null) {
+        setFlow({
+          kind: 'finalized',
+          signature: status.signature,
+          positionState: status.positionState,
+        });
+        return;
+      }
+      if (status.stage === 'confirming') {
+        setFlow({
+          kind: 'confirming',
+          signature: status.signature,
+          positionState: status.positionState,
+        });
+        return;
+      }
+      fail('unknown_confirmation');
+    } catch (cause) {
+      fail(clientErrorCode(cause));
+    }
+  }, [activeWallet, fail, getAccessToken, props.token]);
+
   if (flow.kind === 'failed') {
-    const action = flow.failure.action === 'return' || flow.failure.action === 'fund'
-      ? returnToTelegram
-      : () => window.location.reload();
+    const action = flow.failure.action === 'status' ? recoverStatus : returnToTelegram;
     return (
       <WalletState
         title={flow.failure.title}
@@ -339,9 +372,7 @@ export function PositionManager(props: PositionManagerProps) {
         action={(
           <div className="mt-5">
             <WalletButton
-              icon={flow.failure.action === 'return' || flow.failure.action === 'fund'
-                ? <ArrowLeft size={18} />
-                : <RefreshCw size={18} />}
+              icon={flow.failure.action === 'status' ? <RefreshCw size={18} /> : <ArrowLeft size={18} />}
               onClick={action}
             >
               {flow.failure.actionLabel}

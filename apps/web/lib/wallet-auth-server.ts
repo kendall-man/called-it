@@ -10,12 +10,14 @@ import { z } from 'zod';
 import { loadWebEnv } from './env';
 import { walletAuthSubject, type WalletAuthNetwork } from './wallet-auth-subject';
 import { walletSessionTokenHash } from './wallet-link-server';
+import { verifyTelegramInitData as verifyTelegramWebAppInitData } from './telegram-init-data-server';
 
 const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const MIN_SESSION_LIFETIME_MS = 10_000;
 
 const WalletAuthRequestSchema = z.object({
   token: z.string().regex(SESSION_TOKEN_PATTERN),
+  initData: z.string().min(1).max(8_192),
 }).strict();
 
 export interface WalletAuthApiResult {
@@ -23,7 +25,7 @@ export interface WalletAuthApiResult {
   readonly body: Readonly<Record<string, unknown>>;
 }
 
-type WalletAuthConfig = {
+export type WalletAuthConfig = {
   readonly appId: string;
   readonly issuer: string;
   readonly keyId: string;
@@ -31,29 +33,57 @@ type WalletAuthConfig = {
   readonly privateKeyBase64: string;
   readonly supabaseServiceRoleKey: string;
   readonly supabaseUrl: string;
+  readonly telegramBotToken: string;
 };
 
-type WalletLinkSession = {
+export type WalletLinkSession = {
   readonly expiresAt: number;
   readonly userId: number;
   readonly network: WalletAuthNetwork;
 };
 
-export async function createWalletAuthSession(raw: unknown): Promise<WalletAuthApiResult> {
+export type WalletAuthDependencies = {
+  readonly config?: WalletAuthConfig;
+  readonly lookupSession?: (tokenHashHex: string) => Promise<WalletLinkSession | null>;
+  readonly now?: () => Date;
+  readonly signAuthJwt?: (session: WalletLinkSession) => Promise<string>;
+  readonly verifyTelegramInitData?: (
+    initData: string,
+    now: Date,
+  ) => { readonly telegramUserId: number };
+};
+
+export async function createWalletAuthSession(
+  raw: unknown,
+  dependencies: WalletAuthDependencies = {},
+): Promise<WalletAuthApiResult> {
   const input = WalletAuthRequestSchema.safeParse(raw);
   if (!input.success) return refusal(400, 'invalid_request');
 
-  const config = walletAuthConfig();
-  const session = await lookupWalletLinkSession(
-    config,
-    walletSessionTokenHash(input.data.token),
-  );
-  if (session === null || session.expiresAt - Date.now() < MIN_SESSION_LIFETIME_MS) {
+  const config = dependencies.config ?? walletAuthConfig();
+  const now = (dependencies.now ?? (() => new Date()))();
+  let telegramUserId: number;
+  try {
+    const verifier = dependencies.verifyTelegramInitData ?? ((initData: string, verifiedAt: Date) => (
+      verifyTelegramWebAppInitData(initData, {
+        botToken: config.telegramBotToken,
+        now: verifiedAt,
+      })
+    ));
+    telegramUserId = verifier(input.data.initData, now).telegramUserId;
+  } catch {
+    return refusal(401, 'telegram_auth_required');
+  }
+  const session = await (dependencies.lookupSession ?? ((tokenHashHex: string) => (
+    lookupWalletLinkSession(config, tokenHashHex)
+  )))(walletSessionTokenHash(input.data.token));
+  if (session === null || session.expiresAt - now.getTime() < MIN_SESSION_LIFETIME_MS) {
     return refusal(410, 'wallet_link_expired');
   }
   if (session.network !== config.network) return refusal(409, 'wallet_network_mismatch');
+  if (telegramUserId !== session.userId) return refusal(403, 'identity_mismatch');
 
-  const jwt = await signWalletAuthJwt(config, session);
+  const jwt = await (dependencies.signAuthJwt ?? ((current) => signWalletAuthJwt(config, current)))(session);
   return {
     status: 201,
     body: { jwt, expiresAt: new Date(session.expiresAt).toISOString() },
@@ -128,6 +158,7 @@ function walletAuthConfig(): WalletAuthConfig {
     env.PRIVY_APP_ID === undefined || env.WEB_BASE_URL === undefined ||
     env.SUPABASE_URL === undefined || env.SUPABASE_SERVICE_ROLE_KEY === undefined ||
     env.WALLET_AUTH_PRIVATE_KEY === undefined || env.WALLET_AUTH_KEY_ID === undefined
+    || env.TELEGRAM_BOT_TOKEN === undefined
   ) {
     throw new Error('wallet auth unavailable');
   }
@@ -139,6 +170,7 @@ function walletAuthConfig(): WalletAuthConfig {
     privateKeyBase64: env.WALLET_AUTH_PRIVATE_KEY,
     supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
     supabaseUrl: env.SUPABASE_URL,
+    telegramBotToken: env.TELEGRAM_BOT_TOKEN,
   };
 }
 

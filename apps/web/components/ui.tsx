@@ -98,9 +98,13 @@ export function PageShell({
   return (
     <div
       className={cx(
-        'mx-auto flex min-h-dvh w-full flex-col px-4 pb-14 pt-5 sm:px-6',
+        'mx-auto flex min-h-dvh w-full flex-col px-4 sm:px-6',
         width === 'board' ? 'max-w-5xl' : 'max-w-xl',
       )}
+      style={{
+        paddingTop: 'max(1.25rem, calc(1.25rem + var(--tg-content-safe-area-top, 0px)))',
+        paddingBottom: 'max(3.5rem, calc(3.5rem + var(--tg-content-safe-area-bottom, 0px)))',
+      }}
     >
       <header className="mb-6 flex items-center justify-between">
         <Wordmark />

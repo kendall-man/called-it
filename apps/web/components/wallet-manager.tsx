@@ -33,6 +33,7 @@ type WalletManagerProps = {
   readonly escrowProgramId?: string;
   readonly canonicalUsdcMint?: string;
   readonly escrowGenesisHash?: string;
+  readonly telegramInitData: string;
 };
 
 type SessionState =
@@ -90,7 +91,7 @@ export function WalletManager(props: WalletManagerProps) {
       setSession({ kind: 'invalid' });
       return;
     }
-    void requestWalletAuthSession(token).then((authSession) => {
+    void requestWalletAuthSession(token, props.telegramInitData).then((authSession) => {
       if (cancelled) return;
       jwt.current = authSession.jwt;
       setSession({ kind: 'valid', token });
@@ -101,7 +102,7 @@ export function WalletManager(props: WalletManagerProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [props.telegramInitData]);
 
   useEffect(() => {
     if (session.kind !== 'valid' || operation === 'failed' || operation === 'ready') return;
@@ -159,7 +160,7 @@ export function WalletManager(props: WalletManagerProps) {
           await signMessage({
             message,
             wallet,
-            options: { uiOptions: { showWalletUIs: true } },
+            options: { uiOptions: { showWalletUIs: false } },
           })
         ).signature,
       });

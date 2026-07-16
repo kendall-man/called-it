@@ -1,4 +1,4 @@
-export type PositionFailureAction = 'return' | 'retry' | 'refresh' | 'fund';
+export type PositionFailureAction = 'return' | 'status' | 'fund';
 
 export const ESCROW_PUBLIC_ACTIVITY_NOTICE =
   'Wallet addresses, position amounts, and transaction history are public on Solana. Group members may connect this activity to your Telegram profile.';
@@ -27,8 +27,14 @@ export function positionFailure(code: string): PositionFailurePresentation {
         action: 'return',
         actionLabel: 'Return to Telegram',
       };
-    case 'market_closed':
     case 'session_consumed':
+      return {
+        title: 'Position already submitted',
+        text: 'This position was already submitted. Its final result may still be pending. Do not approve it again; check its status.',
+        action: 'status',
+        actionLabel: 'Check status',
+      };
+    case 'market_closed':
       return {
         title: 'Call is closed',
         text: 'This call no longer accepts positions. No assets moved in this attempt. Return to Telegram to choose another call.',
@@ -73,17 +79,17 @@ export function positionFailure(code: string): PositionFailurePresentation {
     case 'unknown_confirmation':
       return {
         title: 'Confirmation is taking longer',
-        text: 'The signed position was submitted, but its final result is not known yet. Do not approve it again. Refresh the status.',
-        action: 'refresh',
-        actionLabel: 'Refresh status',
+        text: 'The signed position may have been submitted, but its final result is not known yet. Do not approve it again; check its status.',
+        action: 'status',
+        actionLabel: 'Check status',
       };
     case 'wallet_rejected':
     case 'cancelled':
       return {
         title: 'Approval cancelled',
-        text: 'You cancelled the wallet approval. No assets moved and no position was created. Return to Telegram or retry this approval.',
-        action: 'retry',
-        actionLabel: 'Retry approval',
+        text: 'You cancelled the wallet approval. No assets moved and no position was created. Return to Telegram for a fresh approval.',
+        action: 'return',
+        actionLabel: 'Return to Telegram',
       };
     case 'on_chain_failure':
       return {
@@ -95,9 +101,9 @@ export function positionFailure(code: string): PositionFailurePresentation {
     case 'rpc_unavailable':
       return {
         title: 'Solana is unavailable',
-        text: 'The call could not be checked safely. No assets moved and no position was created. Retry the check in a moment.',
-        action: 'retry',
-        actionLabel: 'Retry check',
+        text: 'The call could not be checked safely. No assets moved and no position was created. Return to Telegram for a fresh approval.',
+        action: 'return',
+        actionLabel: 'Return to Telegram',
       };
     default:
       return {
@@ -115,8 +121,8 @@ export function positionStatusCopy(
 ): { readonly title: string; readonly text: string } {
   if (stage === 'confirming') {
     return {
-      title: 'Recording position',
-      text: 'Your wallet approved the exact position. Waiting for Solana finality before showing it as recorded.',
+      title: 'Position submitted',
+      text: 'Your signed position was submitted. Waiting for Solana finality before showing it as recorded.',
     };
   }
   if (state === 'pending') {

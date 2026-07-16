@@ -13,6 +13,7 @@ export type WalletApplicationProps = {
   readonly escrowProgramId?: string;
   readonly canonicalUsdcMint?: string;
   readonly escrowGenesisHash?: string;
+  readonly telegramInitData: string;
 };
 
 export function WalletApplication(props: WalletApplicationProps) {
@@ -27,6 +28,7 @@ export function WalletApplication(props: WalletApplicationProps) {
         escrowProgramId={props.escrowProgramId}
         canonicalUsdcMint={props.canonicalUsdcMint}
         escrowGenesisHash={props.escrowGenesisHash}
+        telegramInitData={props.telegramInitData}
       />
     </WalletProvider>
   );
