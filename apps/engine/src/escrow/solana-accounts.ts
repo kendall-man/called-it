@@ -183,34 +183,36 @@ export class SolanaMarketRelayerChain implements EscrowMarketRelayerChain {
     readonly marketPda: string;
     readonly vaultPda: string;
   }): Promise<EscrowMarketInitializationObservation> {
-    const [genesisHash, program, config, oracle, market] = await Promise.all([
-      this.rpc.genesisHash(),
-      this.accounts.raw(input.programId),
-      this.accounts.config(input.protocolConfigPda),
-      this.accounts.oracleSet(input.oracleSetPda),
-      this.accounts.raw(input.marketPda),
-    ]);
-    if (program === null || config === null || oracle === null) {
+    // Public devnet aggressively rate-limits bursts. Keep genesis separate,
+    // then load every initialization account in one consistent finalized RPC
+    // snapshot instead of issuing six concurrent account requests.
+    const genesisHash = await this.rpc.genesisHash();
+    const [program, configAccount, oracleAccount, market] =
+      await this.accounts.connection.getMultipleAccountsInfo([
+        new PublicKey(input.programId),
+        new PublicKey(input.protocolConfigPda),
+        new PublicKey(input.oracleSetPda),
+        new PublicKey(input.marketPda),
+      ], 'finalized');
+    if (program == null || configAccount == null || oracleAccount == null) {
       throw new TypeError('escrow initialization account unavailable');
     }
-    const programInfo = await this.accounts.connection.getAccountInfo(
-      new PublicKey(input.programId),
-      'finalized',
-    );
+    const config = decodeProtocolConfigAccount(Uint8Array.from(configAccount.data));
+    const oracle = decodeOracleSetAccount(Uint8Array.from(oracleAccount.data));
     return {
       genesisHash,
-      programExecutable: programInfo?.executable === true,
+      programExecutable: program.executable,
       programId: input.programId,
       configPda: input.protocolConfigPda,
-      configOwnerProgramId: config.ownerProgramId,
-      paused: config.value.paused,
-      configGenesisHashHex: bytesToHex(config.value.clusterGenesisHash),
-      canonicalUsdcMint: config.value.canonicalUsdcMint,
-      marketCreationAuthority: config.value.marketCreationAuthority,
-      relayerFeePayer: config.value.relayerFeePayer,
-      oracleSetPda: config.value.oracleSet,
-      oracleOwnerProgramId: oracle.ownerProgramId,
-      oracleSetEpoch: oracle.value.epoch,
+      configOwnerProgramId: configAccount.owner.toBase58(),
+      paused: config.paused,
+      configGenesisHashHex: bytesToHex(config.clusterGenesisHash),
+      canonicalUsdcMint: config.canonicalUsdcMint,
+      marketCreationAuthority: config.marketCreationAuthority,
+      relayerFeePayer: config.relayerFeePayer,
+      oracleSetPda: config.oracleSet,
+      oracleOwnerProgramId: oracleAccount.owner.toBase58(),
+      oracleSetEpoch: oracle.epoch,
       marketExists: market !== null,
     };
   }
