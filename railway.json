@@ -2,10 +2,10 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "case \"$RAILWAY_SERVICE_NAME\" in escrow-oracle-*) pnpm exec turbo run build --filter=@calledit/oracle-signer... ;; *) pnpm exec turbo run build --filter=@calledit/engine... ;; esac"
+    "buildCommand": "case \"$RAILWAY_SERVICE_NAME\" in concierge) pnpm --filter callie eve:build ;; escrow-oracle-*) pnpm exec turbo run build --filter=@calledit/oracle-signer... ;; *) pnpm exec turbo run build --filter=@calledit/engine... ;; esac"
   },
   "deploy": {
-    "startCommand": "case \"$RAILWAY_SERVICE_NAME\" in escrow-oracle-*) pnpm --filter @calledit/oracle-signer start ;; *) pnpm --filter @calledit/engine start ;; esac",
+    "startCommand": "case \"$RAILWAY_SERVICE_NAME\" in concierge) pnpm --filter callie eve:start ;; escrow-oracle-*) pnpm --filter @calledit/oracle-signer start ;; *) pnpm --filter @calledit/engine start ;; esac",
     "healthcheckPath": "/api/live",
     "healthcheckTimeout": 120,
     "drainingSeconds": 15,
