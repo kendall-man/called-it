@@ -4,11 +4,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { defaultJourneyProfilePath, loadJourneyProfile } from './local-journey-profile.mjs';
+import {
+  defaultJourneyProfilePath,
+  loadJourneyProfile,
+  localWebPublicEnvironment,
+} from './local-journey-profile.mjs';
 
 test('one profile resolves a tunnel origin for web, wallet, and webhook', () => {
   const workspace = mkdtempSync(join(tmpdir(), 'calledit-profile-'));
-  writeFileSync(join(workspace, 'runtime.env'), 'TELEGRAM_BOT_TOKEN=test-only\n', { mode: 0o600 });
+  writeFileSync(join(workspace, 'runtime.env'), [
+    'TELEGRAM_BOT_TOKEN=test-only',
+    'TXORACLE_PROGRAM_ID=txoracle-public-id',
+    'ESCROW_PROGRAM_ID=escrow-public-id',
+    'ESCROW_GENESIS_HASH=devnet-public-genesis',
+    'ESCROW_CANONICAL_USDC_MINT=devnet-public-usdc',
+    '',
+  ].join('\n'), { mode: 0o600 });
   writeFileSync(join(workspace, 'tunnel-url'), 'https://fresh.example.test\n', { mode: 0o600 });
   writeFileSync(join(workspace, 'journey.json'), JSON.stringify({
     version: 1,
@@ -16,7 +27,7 @@ test('one profile resolves a tunnel origin for web, wallet, and webhook', () => 
     publicOrigin: { source: 'file', path: 'tunnel-url' },
     services: {
       engine: { host: '127.0.0.1', port: 8790 },
-      web: { host: '127.0.0.1', port: 3020 },
+      web: { host: '127.0.0.1', port: 3020, publicDataUrl: 'http://127.0.0.1:3002/' },
     },
     tunnel: { target: 'http://127.0.0.1:3020' },
     telegram: {
@@ -36,6 +47,7 @@ test('one profile resolves a tunnel origin for web, wallet, and webhook', () => 
   const resolved = loadJourneyProfile(join(workspace, 'journey.json'), workspace);
 
   assert.equal(resolved.publicOrigin, 'https://fresh.example.test');
+  assert.equal(resolved.services.web.publicDataUrl, 'http://127.0.0.1:3002');
   assert.equal(resolved.runtime.WEB_BASE_URL, 'https://fresh.example.test');
   assert.equal(resolved.runtime.WALLET_LINK_DOMAIN, 'fresh.example.test');
   assert.equal(resolved.runtime.SOLANA_RPC_URL, 'http://127.0.0.1:8899');
@@ -43,6 +55,17 @@ test('one profile resolves a tunnel origin for web, wallet, and webhook', () => 
   assert.equal(resolved.runtime.CALLEDIT_REPLAY_SPEED, '8');
   assert.equal(resolved.runtime.TELEGRAM_INGRESS, 'webhook');
   assert.equal(resolved.webhookUrl, 'https://fresh.example.test/api/telegram-webhook');
+
+  assert.deepEqual(localWebPublicEnvironment(resolved), {
+    NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:3002',
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: 'calledit-local-read-proxy',
+    NEXT_PUBLIC_SOLANA_NETWORK: 'devnet',
+    NEXT_PUBLIC_SOLANA_RPC_URL: 'http://127.0.0.1:8899',
+    NEXT_PUBLIC_TXORACLE_PROGRAM_ID: 'txoracle-public-id',
+    NEXT_PUBLIC_ESCROW_PROGRAM_ID: 'escrow-public-id',
+    NEXT_PUBLIC_ESCROW_GENESIS_HASH: 'devnet-public-genesis',
+    NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT: 'devnet-public-usdc',
+  });
 });
 
 test('profile rejects credential-like settings', () => {
@@ -54,7 +77,7 @@ test('profile rejects credential-like settings', () => {
       version: 1,
       runtimeEnv: 'runtime.env',
       publicOrigin: { source: 'url', url: 'https://safe.example.test' },
-      services: { engine: { host: '127.0.0.1', port: 8790 }, web: { host: '127.0.0.1', port: 3020 } },
+      services: { engine: { host: '127.0.0.1', port: 8790 }, web: { host: '127.0.0.1', port: 3020, publicDataUrl: 'http://127.0.0.1:3002' } },
       tunnel: { target: 'http://127.0.0.1:3020' },
       telegram: { webhookPath: '/api/telegram-webhook', allowedUpdates: ['message'], dropPendingUpdates: false },
       chain: { rpcUrl: 'http://127.0.0.1:8899', network: 'devnet', localForkIndexer: true },
@@ -75,7 +98,7 @@ test('profile rejects webhook paths that are not clean origin-relative paths', (
       version: 1,
       runtimeEnv: 'runtime.env',
       publicOrigin: { source: 'url', url: 'https://safe.example.test' },
-      services: { engine: { host: '127.0.0.1', port: 8790 }, web: { host: '127.0.0.1', port: 3020 } },
+      services: { engine: { host: '127.0.0.1', port: 8790 }, web: { host: '127.0.0.1', port: 3020, publicDataUrl: 'http://127.0.0.1:3002' } },
       tunnel: { target: 'http://127.0.0.1:3020' },
       telegram: { webhookPath, allowedUpdates: ['message'], dropPendingUpdates: false },
       chain: { rpcUrl: 'http://127.0.0.1:8899', network: 'devnet', localForkIndexer: true },
@@ -94,7 +117,7 @@ test('profile allows only documented non-secret environment overrides', () => {
     version: 1,
     runtimeEnv: 'runtime.env',
     publicOrigin: { source: 'url', url: 'https://safe.example.test' },
-    services: { engine: { host: '127.0.0.1', port: 8790 }, web: { host: '127.0.0.1', port: 3020 } },
+    services: { engine: { host: '127.0.0.1', port: 8790 }, web: { host: '127.0.0.1', port: 3020, publicDataUrl: 'http://127.0.0.1:3002' } },
     tunnel: { target: 'http://127.0.0.1:3020' },
     telegram: { webhookPath: '/api/telegram-webhook', allowedUpdates: ['message'], dropPendingUpdates: false },
     chain: { rpcUrl: 'http://127.0.0.1:8899', network: 'devnet', localForkIndexer: true },
@@ -126,7 +149,7 @@ test('profile rejects an unsupported Solana network', () => {
     version: 1,
     runtimeEnv: 'runtime.env',
     publicOrigin: { source: 'url', url: 'https://safe.example.test' },
-    services: { engine: { host: '127.0.0.1', port: 8790 }, web: { host: '127.0.0.1', port: 3020 } },
+    services: { engine: { host: '127.0.0.1', port: 8790 }, web: { host: '127.0.0.1', port: 3020, publicDataUrl: 'http://127.0.0.1:3002' } },
     tunnel: { target: 'http://127.0.0.1:3020' },
     telegram: { webhookPath: '/api/telegram-webhook', allowedUpdates: ['message'], dropPendingUpdates: false },
     chain: { rpcUrl: 'http://127.0.0.1:8899', network: 'testnet', localForkIndexer: true },

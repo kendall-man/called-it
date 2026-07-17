@@ -51,6 +51,21 @@ export const defaultJourneyProfilePath = (workspace) => {
     : localPath(workspace, configured, 'CALLEDIT_LOCAL_PROFILE');
 };
 
+export const localWebPublicEnvironment = (profile) => Object.freeze({
+  NEXT_PUBLIC_SUPABASE_URL: profile.services.web.publicDataUrl,
+  // The local compatibility proxy intentionally ignores auth headers. This is
+  // a non-secret marker, never a hosted Supabase credential.
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: 'calledit-local-read-proxy',
+  NEXT_PUBLIC_SOLANA_NETWORK: profile.chain.network,
+  NEXT_PUBLIC_SOLANA_RPC_URL: profile.chain.rpcUrl,
+  NEXT_PUBLIC_TXORACLE_PROGRAM_ID: profile.runtime.TXORACLE_PROGRAM_ID,
+  NEXT_PUBLIC_ESCROW_PROGRAM_ID: profile.runtime.ESCROW_PROGRAM_ID,
+  NEXT_PUBLIC_ESCROW_GENESIS_HASH: profile.runtime.ESCROW_GENESIS_HASH,
+  ...(profile.runtime.ESCROW_CANONICAL_USDC_MINT === undefined
+    ? {}
+    : { NEXT_PUBLIC_ESCROW_CANONICAL_USDC_MINT: profile.runtime.ESCROW_CANONICAL_USDC_MINT }),
+});
+
 export const loadJourneyProfile = (profilePath, workspace, options = {}) => {
   if (!existsSync(profilePath)) fail(`profile does not exist: ${profilePath}`);
   const raw = object(JSON.parse(readFileSync(profilePath, 'utf8')), 'root');
@@ -84,6 +99,9 @@ export const loadJourneyProfile = (profilePath, workspace, options = {}) => {
   const services = object(raw.services, 'services');
   const engine = object(services.engine, 'services.engine');
   const web = object(services.web, 'services.web');
+  const publicDataUrl = url(web.publicDataUrl, 'services.web.publicDataUrl', ['http:', 'https:'])
+    .toString()
+    .replace(/\/$/, '');
   const tunnel = object(raw.tunnel, 'tunnel');
   const telegram = object(raw.telegram, 'telegram');
   const chain = object(raw.chain, 'chain');
@@ -132,7 +150,11 @@ export const loadJourneyProfile = (profilePath, workspace, options = {}) => {
     runtime: Object.freeze(resolvedRuntime),
     services: Object.freeze({
       engine: Object.freeze({ host: string(engine.host, 'services.engine.host'), port: integer(engine.port, 'services.engine.port') }),
-      web: Object.freeze({ host: string(web.host, 'services.web.host'), port: integer(web.port, 'services.web.port') }),
+      web: Object.freeze({
+        host: string(web.host, 'services.web.host'),
+        port: integer(web.port, 'services.web.port'),
+        publicDataUrl,
+      }),
     }),
     tunnel: Object.freeze({ target: url(tunnel.target, 'tunnel.target', ['http:', 'https:']).toString().replace(/\/$/, '') }),
     telegram: Object.freeze({

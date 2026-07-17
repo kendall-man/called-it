@@ -1,5 +1,9 @@
 import { spawn } from 'node:child_process';
-import { defaultJourneyProfilePath, loadJourneyProfile } from './local-journey-profile.mjs';
+import {
+  defaultJourneyProfilePath,
+  loadJourneyProfile,
+  localWebPublicEnvironment,
+} from './local-journey-profile.mjs';
 import { superviseStack } from './local-stack-supervisor.mjs';
 
 const workspace = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
@@ -21,6 +25,7 @@ if (runtime.PRIVY_APP_SECRET.length < 16) {
 }
 
 const common = { ...process.env, ...runtime, CALLEDIT_ENV_PRELOADED: 'true' };
+const webPublicEnvironment = localWebPublicEnvironment(profile);
 const engine = spawn('npx', [
   '-y', 'pnpm@10.33.0', '--filter', '@calledit/engine', 'exec', 'tsx', 'src/main.ts',
 ], {
@@ -33,7 +38,12 @@ const web = spawn('npx', [
   '--hostname', profile.services.web.host, '--port', String(profile.services.web.port),
 ], {
   cwd: workspace,
-  env: { ...common, PORT: String(profile.services.web.port), HOSTNAME: profile.services.web.host },
+  env: {
+    ...common,
+    ...webPublicEnvironment,
+    PORT: String(profile.services.web.port),
+    HOSTNAME: profile.services.web.host,
+  },
   stdio: 'inherit',
 });
 
