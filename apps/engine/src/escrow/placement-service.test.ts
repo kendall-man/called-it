@@ -104,9 +104,18 @@ function setup(
       return { ok: true, duplicate: false, state: 'consumed' };
     },
     async consumeSigningSessionAndEnqueuePlacement(input) {
-      const consumedResult = await db.consumeSigningSession(input);
-      if (!consumedResult.ok) return consumedResult;
-      if (consumedResult.duplicate) {
+      consumed.push(input);
+      const expected = sessions[0];
+      if (expected === undefined || input.transactionMessageHashHex !== expected.transactionMessageHashHex) {
+        return { ok: false, code: 'binding_mismatch' };
+      }
+      if (input.nowIso > expected.expiresAtIso) {
+        return { ok: false, code: 'session_expired' };
+      }
+      if (consumedSignature !== null) {
+        if (consumedSignature !== input.transactionSignature) {
+          return { ok: false, code: 'session_consumed' };
+        }
         return {
           ok: true,
           duplicate: true,
@@ -115,17 +124,20 @@ function setup(
           jobId: 'job-a',
         };
       }
-      const enqueued = await db.enqueueRelayerJob({
+      consumedSignature = input.transactionSignature;
+      const job = {
         kind: 'position_placement',
         ...input,
-      });
-      if (!enqueued.ok) return enqueued;
+      } as const;
+      jobs.push(job);
+      const created = !jobKeys.has(input.idempotencyKey);
+      jobKeys.add(input.idempotencyKey);
       return {
         ok: true,
         duplicate: false,
         state: 'consumed',
-        jobCreated: enqueued.created,
-        jobId: enqueued.jobId,
+        jobCreated: created,
+        jobId: 'job-a',
       };
     },
     async enqueueRelayerJob(input) {

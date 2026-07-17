@@ -8,7 +8,7 @@
     "dev": "next dev",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --exclude 'e2e/**'"
   },
   "dependencies": {
     "@calledit/escrow-sdk": "workspace:*",

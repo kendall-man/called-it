@@ -24,7 +24,7 @@ describe('position recovery copy', () => {
   it('does not tell an unknown-confirmation user to sign again', () => {
     const copy = positionFailure('unknown_confirmation');
     expect(copy.text).toContain('Do not approve it again');
-    expect(copy.action).toBe('refresh');
+    expect(copy.action).toBe('status');
   });
 
   it('discloses public wallet activity before approval', () => {

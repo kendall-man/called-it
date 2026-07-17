@@ -7,6 +7,8 @@ import {
 } from './wallet-client';
 
 describe('wallet auth client', () => {
+  const initData = 'query_id=test&user=%7B%22id%22%3A42%7D&auth_date=1&hash=test';
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -18,14 +20,14 @@ describe('wallet auth client', () => {
     }), { status: 201, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(requestWalletAuthSession('A'.repeat(43))).resolves.toEqual({
+    await expect(requestWalletAuthSession('A'.repeat(43), initData)).resolves.toEqual({
       jwt: 'signed-external-wallet-jwt',
       expiresAt: '2026-07-14T12:00:00.000Z',
     });
     expect(fetchMock).toHaveBeenCalledWith('/api/wallet/session', expect.objectContaining({
       method: 'POST',
       cache: 'no-store',
-      body: JSON.stringify({ token: 'A'.repeat(43) }),
+      body: JSON.stringify({ token: 'A'.repeat(43), initData }),
     }));
   });
 
@@ -35,7 +37,7 @@ describe('wallet auth client', () => {
       { status: 410, headers: { 'content-type': 'application/json' } },
     )));
 
-    const request = requestWalletAuthSession('A'.repeat(43));
+    const request = requestWalletAuthSession('A'.repeat(43), initData);
     await expect(request).rejects.toEqual(new WalletClientError('wallet_link_expired'));
     await request.catch((error: unknown) => {
       expect(walletClientErrorMessage(error)).toBe(
