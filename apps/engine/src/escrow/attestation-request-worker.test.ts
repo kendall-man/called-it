@@ -259,6 +259,22 @@ describe('durable attestation request worker', () => {
     expect(db.retries).toEqual([]);
   });
 
+  it('accepts a legacy request after JSONB reorders its object keys', async () => {
+    const { db } = await seededDb();
+    if (db.input === null) throw new TypeError('missing request fixture');
+    const reorder = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(reorder);
+      if (value !== null && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).reverse().map(([key, item]) => [key, reorder(item)]));
+      }
+      return value;
+    };
+    db.input = { ...db.input, unsignedPayload: reorder(db.input.unsignedPayload) as typeof db.input.unsignedPayload };
+
+    await expect(worker({ db, oracle: oracle({ value: 0 }), queue: new Map() }).runOnce(LATER, 1))
+      .resolves.toEqual([expect.objectContaining({ kind: 'enqueued' })]);
+  });
+
   it('recovers every persisted crash handoff without changing canonical signatures', async () => {
     const { db } = await seededDb();
     const payload = db.input?.unsignedPayload;

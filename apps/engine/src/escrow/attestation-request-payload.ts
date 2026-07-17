@@ -62,6 +62,16 @@ function jsonRecord(value: object): Readonly<Record<string, unknown>> {
   return attestation.parse(parsed);
 }
 
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonicalJson(item)]));
+  }
+  return value;
+}
+
 function signingKind(requestValue: EscrowUnsignedWorkflowRequest): EscrowUnsignedAttestationPayload['signingKind'] {
   switch (requestValue.operation) {
     case 'freeze_market':
@@ -108,7 +118,7 @@ export function parseUnsignedAttestationPayload(value: unknown): EscrowUnsignedA
 }
 
 export function attestationPayloadHash(value: EscrowUnsignedAttestationPayload | EscrowSignedAttestationPayload): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  return createHash('sha256').update(JSON.stringify(canonicalJson(value))).digest('hex');
 }
 
 export function attestationSigningRequest(payload: EscrowUnsignedAttestationPayload): EscrowAttestationSigningRequest {

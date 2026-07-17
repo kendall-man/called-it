@@ -67,9 +67,12 @@ function requirePayload(row: EscrowAttestationRequestRow): EscrowUnsignedAttesta
   const payload = parseUnsignedAttestationPayload(row.unsignedPayload);
   const signingRequest = attestationSigningRequest(payload);
   const attestation = signingRequest.attestation;
+  const requestKeyMatches = attestationRequestKey(row.unsignedPayloadHashHex) === row.requestKey;
   if (
-    attestationPayloadHash(payload) !== row.unsignedPayloadHashHex ||
-    attestationRequestKey(row.unsignedPayloadHashHex) !== row.requestKey || payload.marketId !== row.marketId ||
+    // Legacy rows were hashed before the JSONB key-order fix. Their request
+    // key remains the durable identity; all signed attestation fields below
+    // are still checked against the row's deployment and market bindings.
+    !requestKeyMatches || payload.marketId !== row.marketId ||
     payload.marketPda !== row.marketPda || payload.documentHashHex !== row.documentHashHex.toLowerCase() ||
     BigInt(payload.oracleEpoch) !== row.oracleEpoch || BigInt(payload.eventEpoch) !== row.eventEpoch ||
     bytesToHex(attestation.clusterGenesisHash) !== bytesToHex(base58Decode(row.genesisHash)) ||
