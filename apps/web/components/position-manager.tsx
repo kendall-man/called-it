@@ -87,13 +87,16 @@ export function PositionManager(props: PositionManagerProps) {
   const fail = useCallback((code: string) => {
     setFlow({ kind: 'failed', failure: positionFailure(code) });
   }, []);
+  const handleJwtAuthError = useCallback(() => {
+    fail('privy_auth_required');
+  }, [fail]);
   const getExternalJwt = useCallback(async () => jwt.current, []);
   const jwtAuth = useSubscribeToJwtAuthWithFlag({
     enabled: session !== null,
     isAuthenticated: session !== null,
     isLoading: session === null,
     getExternalJwt,
-    onError: () => fail('privy_auth_required'),
+    onError: handleJwtAuthError,
   });
 
   const embeddedWalletAddress = user?.linkedAccounts.find((account): account is WalletWithMetadata => (

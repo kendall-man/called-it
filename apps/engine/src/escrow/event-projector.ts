@@ -40,6 +40,7 @@ export class SolanaEscrowEventProjector implements EscrowEventProjector {
   constructor(
     private readonly accounts: EscrowEventAccountReader,
     private readonly history: {
+      hasMarket(marketId: string): Promise<boolean>;
       getMarketLink(input: {
         readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
         readonly genesisHash: string;
@@ -116,6 +117,7 @@ export class SolanaEscrowEventProjector implements EscrowEventProjector {
           };
         }
         if (!historical.ok) throw new EscrowEventProjectionError('history_unavailable');
+        if (!await this.history.hasMarket(event.marketUuid)) return null;
         const market = await this.market(event.market);
         if (
           market.value.marketUuid !== event.marketUuid ||

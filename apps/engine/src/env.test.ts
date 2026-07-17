@@ -65,6 +65,7 @@ describe('loadEnv', () => {
       WAGER_RUNTIME_MODE: 'disabled',
       WAGER_CUSTODY_MODE: 'legacy',
       WAGER_MODE_ENABLED: 'false',
+      ESCROW_INDEXER_PAGE_SIZE: 1,
       ESCROW_WORKER_INTERVAL_MS: 5_000,
       ESCROW_MAINNET_ENABLED: false,
       ESCROW_ALLOWED_GROUP_IDS: [],
@@ -84,6 +85,7 @@ describe('loadEnv', () => {
   it('parses a complete devnet escrow deployment contract', () => {
     const parsed = loadEnv(completeEscrowEnv({
       ESCROW_ALLOWED_GROUP_IDS: '-100123,-100456',
+      ESCROW_INDEXER_PAGE_SIZE: '7',
       ESCROW_WORKER_INTERVAL_MS: '7500',
     }));
 
@@ -93,6 +95,7 @@ describe('loadEnv', () => {
       ESCROW_ORACLE_SET_EPOCH: 7n,
       ESCROW_ORACLE_THRESHOLD: 2,
       ESCROW_INDEXER_MAX_LAG_SLOTS: 32n,
+      ESCROW_INDEXER_PAGE_SIZE: 7,
       ESCROW_WORKER_INTERVAL_MS: 7_500,
       ESCROW_MAINNET_ENABLED: false,
       ESCROW_MARKET_AUTHORITY_KEYPAIR_B58: 'devnet-market-authority-secret',

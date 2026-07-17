@@ -211,6 +211,17 @@ export function createEscrowRelayerWorker(options: {
     const payload = placementRelayPayload(job);
     const builder = options.builders?.[job.kind];
     if (payload === null && builder === undefined) return dead(job, 'builder_unavailable', nowIso);
+    if (payload === null && builder !== undefined) {
+      const verifier = options.finalityVerifiers?.[job.kind];
+      if (verifier !== undefined) {
+        const effect = await verifier.confirm(job, { signature: '', slot: 0n });
+        if (effect === 'confirmed') {
+          requireMutation(await options.db.completeRelayerJob({ jobId: job.id, ...lease(job), nowIso }));
+          return { kind: 'complete', jobId: job.id, signature: '' };
+        }
+        if (effect === 'mismatch') return dead(job, 'finalized_effect_mismatch', nowIso);
+      }
+    }
     let prepared: EscrowRelayerPreparedTransaction;
     if (payload !== null) {
       try {

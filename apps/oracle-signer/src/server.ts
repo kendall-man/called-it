@@ -68,6 +68,10 @@ export function createOracleSignerServer(options: {
 }) {
   const log = options.log ?? (() => undefined);
   return createServer(async (request, response) => {
+    if (request.url === '/api/live' && request.method === 'GET') {
+      reply(response, 200, { status: 'live' });
+      return;
+    }
     if (request.url === '/api/ready' && request.method === 'GET') {
       try {
         const reasons = await options.readiness.check();

@@ -87,6 +87,7 @@ function setup(
   chainOverrides: Partial<EscrowRelayChain> = {},
   finalityVerifiers?: Parameters<typeof createEscrowRelayerWorker>[0]['finalityVerifiers'],
   placementReady = true,
+  builders?: Parameters<typeof createEscrowRelayerWorker>[0]['builders'],
 ) {
   const calls: string[] = [];
   const broadcasts: string[] = [];
@@ -110,7 +111,7 @@ function setup(
     ...chainOverrides,
   };
   const worker = createEscrowRelayerWorker({
-    db, chain, workerId: 'worker-a', retryAt: () => LATER, finalityVerifiers,
+    db, chain, workerId: 'worker-a', retryAt: () => LATER, finalityVerifiers, builders,
     positionPlacementReadiness: async () => {
       readinessChecks += 1;
       return placementReady
@@ -122,6 +123,21 @@ function setup(
 }
 
 describe('sponsored escrow relayer recovery', () => {
+  it('completes a server-built job that landed before its signed bytes were persisted', async () => {
+    const payload = signedPlacementPayload();
+    const job = { ...leasedJob(payload, null), kind: 'market_initialization' as const };
+    const fixture = setup(job, {}, {
+      market_initialization: { confirm: async () => 'confirmed' },
+    }, true, {
+      market_initialization: { build: async () => { throw new Error('must not rebuild'); } },
+    });
+
+    await expect(fixture.worker.runOnce(NOW, 1)).resolves.toEqual([{
+      kind: 'complete', jobId: job.id, signature: '',
+    }]);
+    expect(fixture.calls).toEqual(['lease', 'complete']);
+  });
+
   it('persists fully signed user bytes before first broadcast', async () => {
     // Given a newly leased durable placement payload
     const payload = signedPlacementPayload();

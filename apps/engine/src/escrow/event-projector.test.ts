@@ -14,6 +14,7 @@ function projector(chainState: 'settled' | 'voided') {
       async position() { accountReads += 1; return null; },
     },
     {
+      async hasMarket() { return true; },
       async getMarketLink() {
         return {
           ok: true as const, found: true as const, marketId: MARKET_ID,
@@ -43,6 +44,7 @@ describe('Wave 3 escrow event projection', () => {
         async position() { throw new Error('must not read an untracked position'); },
       },
       {
+        async hasMarket() { return false; },
         async getMarketLink() { return { ok: true as const, found: false as const }; },
       },
       {
@@ -58,6 +60,35 @@ describe('Wave 3 escrow event projection', () => {
     };
 
     await expect(value.project(event, context)).resolves.toBeNull();
+  });
+
+  it('ignores market roots owned by another public-cluster deployment', async () => {
+    let accountReads = 0;
+    const value = new SolanaEscrowEventProjector(
+      {
+        async market() { accountReads += 1; return null; },
+        async position() { accountReads += 1; return null; },
+      },
+      {
+        async hasMarket() { return false; },
+        async getMarketLink() { return { ok: true as const, found: false as const }; },
+      },
+      {
+        cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID,
+        canonicalUsdcMint: 'mint-pubkey', custodyVersion: 1,
+      },
+    );
+    const event: EscrowProgramEvent = {
+      kind: 'MarketInitialized', marketUuid: '123e4567-e89b-12d3-a456-426614174099',
+      market: 'foreign-market', vault: 'foreign-vault', asset: 'sol', ratioMilli: 1_000,
+      marketDocumentHash: new Uint8Array(32), fixtureId: 1n,
+      residualRecipient: 'foreign-residual', oracleSet: 'foreign-oracle-set',
+      inPlayStartTimestamp: 1n, activationDelaySeconds: 1n,
+      positionCutoffTimestamp: 2n, resolutionDeadline: 3n,
+    };
+
+    await expect(value.project(event, context)).resolves.toBeNull();
+    expect(accountReads).toBe(0);
   });
 
   it.each([

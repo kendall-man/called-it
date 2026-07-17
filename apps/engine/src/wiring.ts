@@ -63,7 +63,7 @@ import {
 import { createEscrowRecoveryTransactionBuilder } from './escrow/recovery-relayer.js';
 import { createEscrowRecoveryFinalityVerifier } from './escrow/recovery-finality.js';
 import { createEscrowRelayerWorker } from './escrow/relayer-worker.js';
-import { SolanaEscrowEventProjector } from './escrow/event-projector.js';
+import { EscrowEventProjectionError, SolanaEscrowEventProjector } from './escrow/event-projector.js';
 import { SolanaFinalizedEscrowEventSource } from './escrow/solana-finalized-source.js';
 import { createFinalizedEscrowIndexer } from './escrow/finalized-indexer.js';
 import type { EscrowReadinessReport } from './escrow/readiness.js';
@@ -597,7 +597,24 @@ export function createEscrowWave4Runtime(options: {
     positionPlacementReadiness: options.intakeReadiness,
     builders, finalityVerifiers,
   });
-  const projector = new SolanaEscrowEventProjector(accounts, db, {
+  const projector = new SolanaEscrowEventProjector(accounts, {
+    getMarketLink: (input) => db.getMarketLink(input),
+    async hasMarket(marketId) {
+      const response = await fetch(
+        `${options.supabaseUrl}/rest/v1/markets?id=eq.${encodeURIComponent(marketId)}&select=id&limit=1`,
+        {
+          headers: {
+            apikey: options.serviceRoleKey,
+            authorization: `Bearer ${options.serviceRoleKey}`,
+          },
+        },
+      );
+      if (!response.ok) throw new EscrowEventProjectionError('history_unavailable');
+      const rows: unknown = await response.json();
+      if (!Array.isArray(rows)) throw new EscrowEventProjectionError('history_unavailable');
+      return rows.length > 0;
+    },
+  }, {
     cluster: options.recoveryDeployment.cluster,
     genesisHash: options.recoveryDeployment.genesisHash,
     programId: options.recoveryDeployment.programId,
@@ -673,26 +690,6 @@ export function createEscrowWave4Runtime(options: {
     points: options.pointsProjection,
     allowSlotOnlyCursor: options.localForkIndexer === true,
     async afterTransaction(transaction) {
-      const marketIds = new Set(transaction.projections.map((projection) => projection.marketId));
-      for (const marketId of marketIds) {
-        if (transaction.projections.some((projection) =>
-          projection.marketId === marketId && projection.kind === 'market_closed')) continue;
-        const marketPda = deriveMarketPda(options.recoveryDeployment.programId, marketId).address;
-        const link = await db.getMarketLink({
-          cluster: options.recoveryDeployment.cluster,
-          genesisHash: options.recoveryDeployment.genesisHash,
-          programId: options.recoveryDeployment.programId,
-          marketPda,
-        });
-        if (!link.ok || !link.found || link.chainState === 'closed') continue;
-        await reconciler.reconcile({
-          marketId,
-          custodyMode: 'escrow',
-          marketPda: link.marketPda,
-          vaultPda: link.vaultPda,
-          asset: link.asset,
-        });
-      }
       await options.projectionSink.afterFinalizedTransaction(transaction);
     },
   });
@@ -1044,7 +1041,7 @@ export async function createProductionEscrowRuntime(options: {
       relayerLimit: 25,
       attestationLimit: 25,
       attestationLeaseMs: env.QUEUE_LEASE_MS,
-      indexerLimit: 100,
+      indexerLimit: env.ESCROW_INDEXER_PAGE_SIZE,
       log: options.log,
     },
     localForkIndexer: env.ESCROW_LOCAL_FORK_INDEXER,

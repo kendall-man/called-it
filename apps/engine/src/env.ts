@@ -203,6 +203,8 @@ const EnvSchema = z.object({
   ESCROW_ORACLE_SIGNER_ENDPOINTS_JSON: EscrowOracleSignerEndpointsSchema,
   ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON: EscrowOracleLocalKeypairsSchema,
   ESCROW_INDEXER_MAX_LAG_SLOTS: OptionalUnsignedBigIntSchema,
+  /** Bound transaction-history reads so public RPC rate limits cannot starve cursor progress. */
+  ESCROW_INDEXER_PAGE_SIZE: z.coerce.number().int().min(1).max(100).default(1),
   /** Development-only: keep a Surfpool fork's finalized cursor in process. */
   ESCROW_LOCAL_FORK_INDEXER: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),

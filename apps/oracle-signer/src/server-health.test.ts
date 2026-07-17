@@ -128,6 +128,25 @@ async function reasons(fixture: HealthyFixture): Promise<readonly OracleReadines
 }
 
 describe('oracle signer readiness', () => {
+  it('keeps liveness independent from external readiness dependencies', async () => {
+    const signer = Keypair.generate();
+    const server = createOracleSignerServer({
+      bearerToken: 'not-returned', signer,
+      verifier: { verify: async () => undefined },
+      journal: { record: async () => undefined },
+      readiness: { check: async () => ['rpc_unavailable'] },
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('test server did not bind');
+
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/live`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 'live' });
+  });
+
   it('returns 200 only after the live capability probe succeeds', async () => {
     const fixture = healthyFixture();
     const server = createOracleSignerServer({
