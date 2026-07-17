@@ -175,6 +175,24 @@ describe('finalized escrow indexer', () => {
     expect(fixture.cursors).toHaveLength(0);
   });
 
+  it('keeps a private-fork watermark monotonic when its reported head briefly lags', async () => {
+    const fixture = setup([], { slot: 42n, signature: 'signature-a' }, 41n);
+    const indexer = createFinalizedEscrowIndexer({
+      db: fixture.db,
+      source: { scan: async () => ({ transactions: [], scannedThroughSlot: 41n }) },
+      expected: { cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID },
+      clock: () => NOW,
+      points: { async afterEconomicProjection() { return { kind: 'replay_skipped' }; } },
+      allowSlotOnlyCursor: true,
+    });
+
+    await expect(indexer.runOnce(100)).resolves.toMatchObject({
+      cursor: { slot: 42n, signature: 'signature-a' },
+      transactions: 0,
+    });
+    expect(indexer.scanWatermark()).toEqual({ slot: 42n, scannedAtIso: NOW });
+  });
+
   it('records exact MarketClosed identity before advancing the finalized cursor', async () => {
     const closed: EscrowFinalizedTransaction = {
       ...transaction(),

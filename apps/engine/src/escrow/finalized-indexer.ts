@@ -256,9 +256,12 @@ export function createFinalizedEscrowIndexer(options: {
         if (transaction.slot < pageSlot) throw new EscrowFinalizedIndexerError('cursor_regression');
         pageSlot = transaction.slot;
       }
-      if (scan.scannedThroughSlot < pageSlot) {
+      if (scan.scannedThroughSlot < pageSlot && options.allowSlotOnlyCursor !== true) {
         throw new EscrowFinalizedIndexerError('cursor_regression');
       }
+      const scannedThroughSlot = scan.scannedThroughSlot < pageSlot
+        ? pageSlot
+        : scan.scannedThroughSlot;
       let nextCursor = cursor;
       let eventCount = 0;
       let duplicates = 0;
@@ -316,7 +319,7 @@ export function createFinalizedEscrowIndexer(options: {
         nextCursor = { slot: transaction.slot, signature: transaction.signature };
       }
       scanWatermark = {
-        slot: scan.scannedThroughSlot,
+        slot: scannedThroughSlot,
         scannedAtIso: options.clock(),
       };
       return { cursor: nextCursor, transactions: transactions.length, events: eventCount, duplicates };
