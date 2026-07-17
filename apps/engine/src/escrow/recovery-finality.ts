@@ -21,7 +21,8 @@ export function createEscrowRecoveryFinalityVerifier(options: {
       const payload = parseRecoveryPayload(job);
       const market = await options.chain.market(payload.marketPda);
       if (payload.operation === 'close_market') return market === null ? 'confirmed' : 'pending';
-      if (market === null || market.ownerProgramId !== options.programId) return 'pending';
+      if (market === null) return 'confirmed';
+      if (market.ownerProgramId !== options.programId) return 'pending';
       if (payload.operation === 'settle_market') {
         const attestation = restoreSettlement(payload.attestation);
         if (

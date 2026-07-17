@@ -325,6 +325,22 @@ describe('durable escrow recovery workflows', () => {
       .resolves.toBe('mismatch');
   });
 
+  it('confirms a finalized recovery when the market was subsequently closed', async () => {
+    const fixture = setup('sol');
+    await fixture.service.enqueue({
+      operation: 'timeout_void', marketPda: fixture.link.marketPda,
+    });
+    const input = fixture.jobs[0];
+    if (input === undefined) throw new Error('expected recovery job');
+    const verifier = createEscrowRecoveryFinalityVerifier({
+      programId: PROGRAM_ID,
+      chain: { ...fixture.chain, async market() { return null; } },
+    });
+
+    await expect(verifier.confirm(leasedJob(input), { signature: 'sig-a', slot: 42n }))
+      .resolves.toBe('confirmed');
+  });
+
   it('keeps finalized settlement retryable until entitlement jobs are durably enqueued', async () => {
     const fixture = setup('sol', 'settling', {
       settlementOutcome: 'claim_won',

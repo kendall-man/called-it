@@ -88,6 +88,7 @@ function setup(
   finalityVerifiers?: Parameters<typeof createEscrowRelayerWorker>[0]['finalityVerifiers'],
   placementReady = true,
   builders?: Parameters<typeof createEscrowRelayerWorker>[0]['builders'],
+  additionalJobs: readonly DurableEscrowRelayerJobRow[] = [],
 ) {
   const calls: string[] = [];
   const broadcasts: string[] = [];
@@ -95,7 +96,7 @@ function setup(
   const payloadSignature = job.payload.expectedSignature;
   if (typeof payloadSignature !== 'string') throw new Error('expected placement signature');
   const db: EscrowRelayerWorkerDatabase = {
-      async leaseRelayerJobs() { calls.push('lease'); return [job]; },
+      async leaseRelayerJobs() { calls.push('lease'); return [job, ...additionalJobs]; },
       async recordRelayerSignedTransaction() { calls.push('record_signed'); return { ok: true, created: false, jobId: job.id }; },
       async markRelayerSubmitted() { calls.push('submitted'); return { ok: true, duplicate: false, state: 'submitted' }; },
       async retryRelayerJob(input) { calls.push(`retry:${input.confirmationUnknown}`); return { ok: true, duplicate: false, state: input.confirmationUnknown ? 'unknown' : 'retry_wait' }; },
@@ -239,6 +240,31 @@ describe('sponsored escrow relayer recovery', () => {
 
     await expect(fixture.worker.runOnce(NOW, 1)).resolves.toMatchObject([{ kind: 'retrying' }]);
     expect(fixture.calls).toEqual(['lease', 'retry:true']);
+  });
+
+  it('processes leased jobs sequentially to bound public RPC pressure', async () => {
+    const payload = signedPlacementPayload();
+    const first = leasedJob(payload, payload.rawTransactionBase64);
+    const second = {
+      ...first,
+      id: '123e4567-e89b-12d3-a456-426614174333',
+      idempotencyKey: 'placement-b',
+    };
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fixture = setup(first, {
+      async signatureState() {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight -= 1;
+        return { kind: 'finalized', slot: 42n };
+      },
+    }, undefined, true, undefined, [second]);
+
+    await expect(fixture.worker.runOnce(NOW, 2)).resolves.toHaveLength(2);
+    expect(maxInFlight).toBe(1);
+    expect(fixture.calls).toEqual(['lease', 'complete', 'complete']);
   });
 
   it('still completes finalized placements while readiness is blocked', async () => {

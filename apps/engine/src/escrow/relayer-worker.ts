@@ -280,7 +280,9 @@ export function createEscrowRelayerWorker(options: {
   return {
     async runOnce(nowIso, limit) {
       const jobs = await options.db.leaseRelayerJobs({ workerId: options.workerId, nowIso, limit });
-      return Promise.all(jobs.map((job) => process(job, nowIso)));
+      const results: EscrowRelayerRunResult[] = [];
+      for (const job of jobs) results.push(await process(job, nowIso));
+      return results;
     },
   };
 }
