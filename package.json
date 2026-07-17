@@ -1,25 +1,58 @@
 {
   "name": "calledit",
+  "version": "0.1.1-devnet.0",
   "private": true,
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=22"
   },
+  "pnpm": {
+    "overrides": {
+      "postcss": "8.5.16",
+      "uuid": "11.1.1",
+      "viem>ws": "8.21.0"
+    },
+    "patchedDependencies": {
+      "bigint-buffer@1.1.5": "patches/bigint-buffer@1.1.5.patch"
+    }
+  },
   "scripts": {
     "build": "turbo run build",
+    "build:concierge": "pnpm --filter callie eve:build",
+    "escrow:devnet": "tsx scripts/escrow/devnet-bootstrap-cli.ts",
+    "escrow:recovery": "node apps/escrow-recovery/dist/main.js",
     "dev": "turbo run dev",
-    "local:preflight": "node .agents/skills/calledit-local-telegram/scripts/preflight.mjs",
-    "local:stack": "node .agents/skills/calledit-local-telegram/scripts/stack.mjs",
-    "local:tunnel": "node .agents/skills/calledit-local-telegram/scripts/tunnel.mjs",
-    "local:webhook": "node .agents/skills/calledit-local-telegram/scripts/webhook.mjs",
+    "local:journey": "node scripts/local-journey.mjs",
+    "local:preflight": "node scripts/local-journey.mjs preflight",
+    "local:stack": "node scripts/launch-calledit-local.mjs",
+    "local:tunnel": "node scripts/local-journey.mjs tunnel",
+    "local:webhook": "node scripts/local-journey.mjs webhook",
+    "production:webhook": "railway run --service engine -- node scripts/production-telegram-webhook.mjs",
     "recovery": "node .agents/skills/calledit-recovery-checkpoint/scripts/recovery.mjs",
     "test": "turbo run test",
+    "test:e2e": "tsx scripts/run-browser-tests.ts",
+    "test:dependency-policy": "set -e; list_file=$(mktemp); audit_file=$(mktemp); trap 'rm -f \"$list_file\" \"$audit_file\"' EXIT; npx -y pnpm@10.33.0 list --prod --recursive --json --depth Infinity > \"$list_file\"; node scripts/security/bulk-audit.mjs \"$list_file\" > \"$audit_file\"; node scripts/security/dependency-policy.mjs --audit \"$audit_file\"",
+    "test:escrow:devnet": "tsc -p scripts/escrow/tsconfig.json --noEmit && tsx --test scripts/escrow/devnet-bootstrap.test.ts",
+    "test:local-journey": "node --test scripts/local-journey-profile.test.mjs scripts/local-stack-supervisor.test.mjs scripts/local-journey-package.test.mjs scripts/production-telegram-webhook.test.mjs",
+    "test:sql": "pnpm run typecheck:scripts && tsx --test --test-concurrency=1 scripts/sql-harness.test.ts scripts/sql-harness.integration.test.ts scripts/sql-harness.starter-grant.test.ts scripts/sql-harness.wallet-identity.test.ts scripts/sql-harness.wallet-identity-races.test.ts scripts/sql-harness.telegram-ingress.test.ts scripts/sql-harness.telegram-ingress-recovery.test.ts scripts/sql-harness.settlement-proof-jobs.test.ts scripts/sql-harness.privacy.test.ts scripts/sql-harness.group-points.test.ts scripts/sql-harness.usdc-assets.test.ts && tsx scripts/sql-harness.ts",
+    "test:workflow": "pnpm run typecheck:scripts && tsx --test scripts/check-workflow.test.ts && tsx scripts/check-workflow.ts",
+    "test:telegram-durability": "pnpm run typecheck:scripts && tsx --test --test-concurrency=1 scripts/task-9/telegram-restart.test.ts",
     "typecheck": "turbo run typecheck",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit",
+    "typecheck:product-copy": "tsc -p tsconfig.product-copy.json",
+    "verify": "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=calledit_test_bot NEXT_PUBLIC_TELEGRAM_STARTGROUP=calledit_v1 turbo run typecheck test build --force && pnpm run build:concierge && pnpm run verify:product-copy && pnpm run test:dependency-policy && pnpm run test:workflow && pnpm run test:sql && pnpm run test:telegram-durability && pnpm run test:local-journey && pnpm run verify:telegram-evidence",
+    "verify:telegram-evidence": "pnpm run typecheck:scripts && tsx --test scripts/check-telegram-evidence.test.ts && tsx scripts/check-telegram-evidence.ts",
+    "verify:product-copy": "pnpm run typecheck:product-copy && tsx --test scripts/check-product-copy.test.ts && tsx scripts/check-product-copy.ts",
     "bootstrap:txline": "tsx scripts/bootstrap-txline.ts"
   },
   "devDependencies": {
+    "@solana/web3.js": "1.98.4",
+    "@types/node": "^24.13.3",
+    "@types/pg": "^8.20.0",
+    "pg": "^8.22.0",
     "tsx": "^4.19.2",
     "turbo": "^2.3.3",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "yaml": "^2.9.0"
   }
 }

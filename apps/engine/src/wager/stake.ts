@@ -6,12 +6,14 @@
  */
 
 import { TUNABLES } from '@calledit/market-engine';
-import { WAGER_TUNABLES } from './constants.js';
-import { WAGER_COPY, sideLabel } from './copy.js';
+import { perMarketStakeCap, presetStakes } from './constants.js';
+import { createWagerCopy, sideLabel, type WagerCopy } from './copy.js';
 import type {
-  WagerModuleDeps,
+  WagerStakeDeps,
   WagerStakeErrorCode,
+  WagerStakeResult,
   WagerStakeTapArgs,
+  WagerStakeTapResult,
 } from './port.js';
 
 /**
@@ -33,43 +35,85 @@ export function multiplierLabel(multiplier: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
-function copyForStakeError(code: WagerStakeErrorCode, balanceLamports: bigint): string {
+function copyForStakeError(
+  copy: WagerCopy,
+  code: WagerStakeErrorCode,
+  balanceLamports: bigint,
+  cap: bigint,
+): string {
   switch (code) {
     case 'insufficient':
-      return WAGER_COPY.insufficient(balanceLamports);
+      return copy.insufficient(balanceLamports);
     case 'wrong_side':
-      return WAGER_COPY.pickALane();
+      return copy.pickALane();
     case 'cap':
-      return WAGER_COPY.capReached(WAGER_TUNABLES.PER_MARKET_STAKE_CAP_LAMPORTS);
+      return copy.capReached(cap);
     case 'paused':
-      return WAGER_COPY.paused();
+      return copy.paused();
+    case 'closed':
+      return copy.marketClosed();
+    case 'starter_unavailable':
+      return copy.starterUnavailable();
+    case 'budget_exhausted':
+      return copy.budgetExhausted();
+    case 'wallet_required':
+      return copy.walletRequired();
   }
 }
 
+function assertNeverRuntimeMode(mode: never): never {
+  throw new TypeError(`unsupported wager runtime mode: ${String(mode)}`);
+}
+
 export async function handleStakeTap(
-  deps: WagerModuleDeps,
+  deps: WagerStakeDeps,
   args: WagerStakeTapArgs,
-): Promise<{ reply: string; placed: boolean }> {
-  const { market, userId, userName, side, lamports, inPlay, nowMs, idempotencyKey } = args;
+): Promise<WagerStakeTapResult> {
+  const { market, userId, userName, side, lamports, inPlay, nowMs, source } = args;
+  const asset = market.currency ?? 'sol';
+  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet', asset);
 
-  if (lamports <= 0n) return { reply: WAGER_COPY.staleTap(), placed: false };
+  if (lamports <= 0n) return { reply: copy.staleTap(), placed: false };
+  if (!deps.stakeAcceptanceEnabled) return { reply: copy.paused(), placed: false };
 
-  // Gate 1: a linked wallet is the onboarding handle — without it the user has
-  // no way to have funded (or to ever cash out) a stack.
-  const link = await deps.db.getWalletLink(userId);
-  if (!link) return { reply: WAGER_COPY.unlinkedOnboarding(), placed: false };
+  const idempotencyKey =
+    source.kind === 'durable_source'
+      ? source.idempotencyKey
+      : `telegram:callback:${source.callbackId}`;
+
+  switch (deps.runtimeMode) {
+    case 'starter_only':
+      if (
+        source.kind !== 'telegram_default_card'
+        || asset !== 'sol'
+        || lamports !== presetStakes('sol')[0]
+        || !deps.starterGrantsEnabled
+      ) {
+        return { reply: copy.starterUnavailable(), placed: false };
+      }
+      break;
+    case 'funded': {
+      const link = await deps.db.getWalletLink(userId);
+      if (!link) {
+        return { reply: copy.unlinkedOnboarding(), placed: false };
+      }
+      break;
+    }
+    default:
+      return assertNeverRuntimeMode(deps);
+  }
 
   // Gate 2: persisted circuit breaker. The wager_stake RPC re-checks this
   // atomically; the pre-check just answers fast without burning the advisory
   // lock round-trip while the desk is paused.
-  const status = await deps.db.getWagerStatus();
-  if (status.paused) return { reply: WAGER_COPY.paused(), placed: false };
+  const status = await deps.db.getWagerStatus(asset);
+  if (status.paused) return { reply: copy.paused(), placed: false };
 
   // Multiplier lock — back gets the quoted multiplier, doubt its complement.
   const lockedMultiplier =
     side === 'back' ? market.quote_multiplier : wagerDoubtMultiplier(market.quote_probability);
 
-  const result = await deps.db.wagerStake({
+  const stakeInput = {
     user_id: userId,
     group_id: market.group_id,
     market_id: market.id,
@@ -80,47 +124,79 @@ export async function handleStakeTap(
     // delay-arbitrage pending window (reducer sees the shared row).
     state: inPlay ? 'pending' : 'active',
     placed_at_ms: nowMs,
-    ...(idempotencyKey !== undefined ? { idempotency_key: idempotencyKey } : {}),
-  });
+    idempotency_key: idempotencyKey,
+  } as const;
+  let result: WagerStakeResult;
+  switch (deps.runtimeMode) {
+    case 'starter_only':
+      result = await deps.db.wagerStarterStake(stakeInput);
+      break;
+    case 'funded':
+      result = await deps.db.wagerStake({ ...stakeInput, starterOnly: false });
+      break;
+    default:
+      return assertNeverRuntimeMode(deps);
+  }
 
   if (!result.ok) {
     // Balance is only fetched on the one error whose copy needs it.
     const balance =
-      result.code === 'insufficient' ? await deps.db.balanceLamports(userId) : 0n;
+      result.code === 'insufficient' && deps.runtimeMode === 'funded'
+        ? await deps.db.balanceLamports(userId, asset)
+        : 0n;
     deps.log.info('wager_stake_refused', {
       marketId: market.id,
-      userId,
       side,
       lamports: lamports.toString(),
       code: result.code,
     });
-    return { reply: copyForStakeError(result.code, balance), placed: false };
+    return {
+      reply: copyForStakeError(copy, result.code, balance, perMarketStakeCap(asset)),
+      placed: false,
+    };
   }
 
   if ('duplicate' in result) {
-    // At-least-once replay of the same client key — the original stake stands.
-    deps.log.info('wager_stake_duplicate', { marketId: market.id, userId, side });
-    return { reply: WAGER_COPY.stakeReplayed(), placed: false };
+    // The original commit is authoritative; do not refresh a card on replay.
+    deps.log.info('wager_stake_duplicate', { marketId: market.id, side });
+    return {
+      reply: copy.stakePlaced(
+        userName,
+        sideLabel(side),
+        lamports,
+        multiplierLabel(lockedMultiplier),
+      ),
+      placed: false,
+      accepted: true,
+    };
   }
 
   // Deposit-credited and cashout notifications route to the last group the
   // user wagered in (the bot cannot DM users who never started it).
-  await deps.db.setLastWagerGroup(userId, market.group_id);
+  switch (deps.runtimeMode) {
+    case 'starter_only':
+      break;
+    case 'funded':
+      await deps.db.setLastWagerGroup(userId, market.group_id);
+      break;
+    default:
+      return assertNeverRuntimeMode(deps);
+  }
   deps.log.info('wager_position_placed', {
     marketId: market.id,
     positionId: result.position_id,
-    userId,
     side,
     lamports: lamports.toString(),
     state: inPlay ? 'pending' : 'active',
   });
   return {
-    reply: WAGER_COPY.stakePlaced(
+    reply: copy.stakePlaced(
       userName,
       sideLabel(side),
       lamports,
       multiplierLabel(lockedMultiplier),
     ),
     placed: true,
+    accepted: true,
   };
 }

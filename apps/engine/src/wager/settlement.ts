@@ -8,12 +8,28 @@
  */
 
 import { WAGER_KEYS } from './constants.js';
-import { WAGER_COPY } from './copy.js';
+import { createWagerCopy } from './copy.js';
 import { settlementCredits } from './pot.js';
-import type { WagerModuleDeps, WagerSettlementOutcome } from './port.js';
+import type {
+  WagerSettlementDeps,
+  WagerSettlementOptions,
+  WagerSettlementOutcome,
+} from './port.js';
+import { participantLabel } from '../points/presentation.js';
 
-export async function applySettlement(deps: WagerModuleDeps, marketId: string): Promise<void> {
+const PAYOUT_IDENTITY_LIMIT = 5;
+
+export async function applySettlement(
+  deps: WagerSettlementDeps,
+  marketId: string,
+  options: WagerSettlementOptions = {},
+): Promise<void> {
   if (await deps.db.hasSettlementApplied(marketId)) return;
+  const asset = await deps.db.getMarketAsset(marketId);
+  if (asset === null) {
+    deps.log.error('wager_settlement_no_asset', { marketId });
+    return;
+  }
   const outcome = await deps.db.getSettlementOutcome(marketId);
   if (outcome === null) return; // not settled yet — the sweeper will be back
 
@@ -25,6 +41,24 @@ export async function applySettlement(deps: WagerModuleDeps, marketId: string): 
   }
 
   const positions = await deps.db.positionsForMarket(marketId);
+  if (options.requireFullyBacked) {
+    const stakeDebitedLamportsForMarket = deps.db.stakeDebitedLamportsForMarket;
+    const positionLamports = positions.reduce(
+      (sum, position) => sum + BigInt(position.stake),
+      0n,
+    );
+    const debitedLamports = stakeDebitedLamportsForMarket === undefined
+      ? 0n
+      : await stakeDebitedLamportsForMarket.call(deps.db, marketId);
+    if (debitedLamports !== positionLamports) {
+      deps.log.error('wager_settlement_unbacked_positions', {
+        marketId,
+        positionLamports: positionLamports.toString(),
+        debitedLamports: debitedLamports.toString(),
+      });
+      return;
+    }
+  }
   const { refunds, payouts, voidedPendingIds, pots } = settlementCredits(
     positions,
     outcome,
@@ -39,6 +73,7 @@ export async function applySettlement(deps: WagerModuleDeps, marketId: string): 
       group_id: null,
       market_id: marketId,
       kind: 'refund',
+      asset,
       lamports: refund.lamports,
       idempotency_key: WAGER_KEYS.refund(refund.positionId),
     });
@@ -52,6 +87,7 @@ export async function applySettlement(deps: WagerModuleDeps, marketId: string): 
       group_id: null,
       market_id: marketId,
       kind: 'payout',
+      asset,
       lamports,
       idempotency_key: WAGER_KEYS.payout(marketId, userId),
     });
@@ -69,23 +105,30 @@ export async function applySettlement(deps: WagerModuleDeps, marketId: string): 
 
 /** Chat receipt line — SOL amounts are chat-only, public receipts untouched. */
 export async function settlementPayoutsLine(
-  deps: WagerModuleDeps,
+  deps: WagerSettlementDeps,
   marketId: string,
   outcome: WagerSettlementOutcome,
 ): Promise<string> {
-  if (outcome === 'void') return WAGER_COPY.payoutsLineVoid();
+  const asset = await deps.db.getMarketAsset(marketId);
+  if (asset === null) return createWagerCopy(deps.solanaNetwork ?? 'devnet').payoutsLineNone();
+  const copy = createWagerCopy(deps.solanaNetwork ?? 'devnet', asset);
+  if (outcome === 'void') return copy.payoutsLineVoid();
   const probability = await deps.db.getMarketProbability(marketId);
-  if (probability === null) return WAGER_COPY.payoutsLineNone();
+  if (probability === null) return copy.payoutsLineNone();
   const positions = await deps.db.positionsForMarket(marketId);
   const { payouts, pots } = settlementCredits(positions, outcome, probability);
   // Nothing matched (one side empty) ⇒ everyone got their SOL back, no winners.
-  if (pots.matchedFor === 0n || payouts.size === 0) return WAGER_COPY.payoutsLineNone();
-  const parts: string[] = [];
-  for (const [userId, lamports] of payouts) {
-    const name = (await deps.db.getUserName(userId)) ?? 'A winner';
-    parts.push(WAGER_COPY.payoutPart(name, lamports));
-  }
-  return WAGER_COPY.payoutsLine(parts);
+  if (pots.matchedFor === 0n || payouts.size === 0) return copy.payoutsLineNone();
+  const winners = [...payouts].sort(([leftUserId], [rightUserId]) => leftUserId - rightUserId);
+  const projectedWinners = winners.slice(0, PAYOUT_IDENTITY_LIMIT);
+  const names = await deps.db.getUserNames(projectedWinners.map(([userId]) => userId));
+  const parts = projectedWinners.map(([userId, lamports]) =>
+    copy.payoutPart(
+      participantLabel({ username: null, displayName: names.get(userId) ?? null }),
+      lamports,
+    ),
+  );
+  return copy.payoutsLine(parts, winners.length - projectedWinners.length);
 }
 
 export interface SettlementSweeper {
@@ -93,17 +136,22 @@ export interface SettlementSweeper {
 }
 
 /** Re-runs applySettlement for settled/voided sol markets missing the marker. */
-export function createSettlementSweeper(deps: WagerModuleDeps): SettlementSweeper {
+export function createSettlementSweeper(deps: WagerSettlementDeps): SettlementSweeper {
   return {
     async tick(): Promise<void> {
       try {
-        const marketIds = await deps.db.settledSolMarketsMissingApplied();
+        const marketIds = await deps.db.settledWagerMarketsMissingApplied();
         for (const marketId of marketIds) {
           deps.log.info('wager_settlement_sweep', { marketId });
           await applySettlement(deps, marketId);
         }
-      } catch (err) {
-        deps.log.error('wager_settlement_sweeper_failed', { error: String(err) });
+        const replayMarketIds = await deps.db.settledFundedReplayMarketsMissingApplied?.() ?? [];
+        for (const marketId of replayMarketIds) {
+          deps.log.info('wager_replay_settlement_sweep', { marketId });
+          await applySettlement(deps, marketId, { requireFullyBacked: true });
+        }
+      } catch {
+        deps.log.error('wager_settlement_sweeper_failed');
       }
     },
   };

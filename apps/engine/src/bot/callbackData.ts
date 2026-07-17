@@ -14,10 +14,17 @@ export type CallbackAction =
   | { t: 'prove'; claimId: string }
   /** Clarify / counter-offer option pick; key indexes the stored candidates. */
   | { t: 'option'; claimId: string; key: string }
+  /** The original speaker accepts a passive or friend-triggered call. */
+  | { t: 'confirm'; claimId: string }
   /** Claimer walks away from an unbet offer. */
   | { t: 'decline'; claimId: string }
-  /** Back/Doubt stake tap with a preset index into the SOL presets. */
-  | { t: 'stake'; marketId: string; side: 'back' | 'doubt'; presetIndex: number }
+  /** The beta exposes one literal 0.01 test-SOL amount on either outcome. */
+  | { t: 'stake'; marketId: string; side: 'back' | 'doubt'; presetIndex: 0 }
+  /** Mainnet second-tap confirmation backed by a durable stake intent. */
+  | { t: 'stake_confirm'; intentId: string }
+  | { t: 'stake_cancel'; intentId: string }
+  /** Admin closes an empty live call that is blocking /testmatch. */
+  | { t: 'void_replay_blocker'; marketId: string }
   /** /settings chattiness pick. */
   | { t: 'chattiness'; mode: Chattiness }
   /** /settings web-pages toggle. */
@@ -35,7 +42,6 @@ const CODE_TO_MODE: Record<string, Chattiness> = {
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export function encodeCallback(action: CallbackAction): string {
   let data: string;
   switch (action.t) {
@@ -45,11 +51,23 @@ export function encodeCallback(action: CallbackAction): string {
     case 'option':
       data = `op:${action.claimId}:${action.key}`;
       break;
+    case 'confirm':
+      data = `cf:${action.claimId}`;
+      break;
     case 'decline':
       data = `nx:${action.claimId}`;
       break;
     case 'stake':
       data = `st:${action.marketId}:${action.side === 'back' ? 'b' : 'd'}:${action.presetIndex}`;
+      break;
+    case 'stake_confirm':
+      data = `sc:${action.intentId}`;
+      break;
+    case 'stake_cancel':
+      data = `sx:${action.intentId}`;
+      break;
+    case 'void_replay_blocker':
+      data = `vr:${action.marketId}`;
       break;
     case 'chattiness':
       data = `sg:${MODE_TO_CODE[action.mode]}`;
@@ -81,6 +99,12 @@ export function decodeCallback(data: string): CallbackAction | null {
         ? { t: 'decline', claimId }
         : null;
     }
+    case 'cf': {
+      const claimId = parts[1];
+      return parts.length === 2 && claimId !== undefined && UUID_RE.test(claimId)
+        ? { t: 'confirm', claimId }
+        : null;
+    }
     case 'op': {
       const claimId = parts[1];
       const key = parts[2];
@@ -99,13 +123,31 @@ export function decodeCallback(data: string): CallbackAction | null {
       const idxRaw = parts[3];
       if (parts.length !== 4 || marketId === undefined || !UUID_RE.test(marketId)) return null;
       if (sideCode !== 'b' && sideCode !== 'd') return null;
-      if (idxRaw === undefined || !/^\d$/.test(idxRaw)) return null;
+      if (idxRaw !== '0') return null;
       return {
         t: 'stake',
         marketId,
         side: sideCode === 'b' ? 'back' : 'doubt',
-        presetIndex: Number(idxRaw),
+        presetIndex: 0,
       };
+    }
+    case 'sc': {
+      const intentId = parts[1];
+      return parts.length === 2 && intentId !== undefined && UUID_RE.test(intentId)
+        ? { t: 'stake_confirm', intentId }
+        : null;
+    }
+    case 'sx': {
+      const intentId = parts[1];
+      return parts.length === 2 && intentId !== undefined && UUID_RE.test(intentId)
+        ? { t: 'stake_cancel', intentId }
+        : null;
+    }
+    case 'vr': {
+      const marketId = parts[1];
+      return parts.length === 2 && marketId !== undefined && UUID_RE.test(marketId)
+        ? { t: 'void_replay_blocker', marketId }
+        : null;
     }
     case 'sg': {
       const code = parts[1];

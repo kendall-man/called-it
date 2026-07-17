@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "cluster": "devnet",
+  "capturedAt": "2026-07-08T12:00:00Z",
+  "assets": {
+    "sol": { "vaultBalanceAtomic": "10000000", "calculatedLiabilityAtomic": "9999999", "expectedResidualAtomic": "1" },
+    "usdc": { "vaultBalanceAtomic": "25000000", "calculatedLiabilityAtomic": "25000000", "expectedResidualAtomic": "0" }
+  },
+  "signers": { "configured": 3, "required": 2, "agreeing": 3, "disagreement": false, "outage": false },
+  "relayer": { "deadJobs": 0, "unknownJobs": 0, "oldestUnknownAgeSeconds": 0, "maxUnknownAgeSeconds": 120, "feeBalanceLamports": "100000000", "minFeeReserveLamports": "50000000" },
+  "indexer": { "cursorLagSlots": 2, "maxCursorLagSlots": 20 },
+  "rpc": { "genesisMatch": true, "programMatch": true, "configMatch": true, "providerAgreement": true },
+  "claims": { "backlogCount": 0, "maxBacklogCount": 20, "oldestAgeSeconds": 0, "maxOldestAgeSeconds": 300 },
+  "legacy": { "recordedLiabilityAtomic": "30000000", "reconciledLiabilityAtomic": "30000000", "availableTreasuryAtomic": "31000000", "withdrawalsAvailable": true, "newIntakeDisabled": true }
+}

@@ -4,7 +4,11 @@ import { handleStakeTap, multiplierLabel, wagerDoubtMultiplier } from './stake.j
 import { WAGER_TUNABLES } from './constants.js';
 import { WAGER_COPY } from './copy.js';
 import { makeFakeDeps } from './fakes.js';
-import type { WagerMarketRow, WagerStakeErrorCode, WagerStakeTapArgs } from './port.js';
+import type {
+  WagerMarketRow,
+  WagerStakeErrorCode,
+  WagerStakeTapArgs,
+} from './port.js';
 
 const USER = 5;
 const WALLET = 'WalletPubkey11111111111111111111111111111111';
@@ -29,7 +33,7 @@ function tap(overrides: Partial<WagerStakeTapArgs> = {}): WagerStakeTapArgs {
     lamports: overrides.lamports ?? PRESET_SMALL,
     inPlay: overrides.inPlay ?? false,
     nowMs: overrides.nowMs ?? 1_000,
-    ...(overrides.idempotencyKey !== undefined ? { idempotencyKey: overrides.idempotencyKey } : {}),
+    source: overrides.source ?? { kind: 'durable_source', idempotencyKey: 'stake-test' },
   };
 }
 
@@ -71,6 +75,14 @@ describe('handleStakeTap gates', () => {
     expect(result.reply).toBe(WAGER_COPY.paused());
     expect(db.lastStakeArgs).toBeNull();
   });
+
+  it('disabled acceptance switch → paused copy, no funded RPC call', async () => {
+    const { deps, db } = makeFakeDeps({ stakeAcceptanceEnabled: false });
+    db.seedLink(USER, WALLET);
+    const result = await handleStakeTap(deps, tap());
+    expect(result).toEqual({ reply: WAGER_COPY.paused(), placed: false });
+    expect(db.lastStakeArgs).toBeNull();
+  });
 });
 
 describe('handleStakeTap placement', () => {
@@ -86,6 +98,7 @@ describe('handleStakeTap placement', () => {
     expect(db.lastStakeArgs?.multiplier).toBe(2.2); // quote_multiplier as-is
     expect(db.lastStakeArgs?.state).toBe('active'); // pre-kickoff
     expect(db.lastStakeArgs?.placed_at_ms).toBe(1_000);
+    expect(db.lastStakeArgs?.starterOnly).toBe(false);
     expect(result.reply).toContain('0.05 SOL');
     expect(result.reply).toContain('Nia');
   });
@@ -106,19 +119,23 @@ describe('handleStakeTap placement', () => {
     expect(db.lastStakeArgs?.state).toBe('pending');
   });
 
-  it('forwards the client idempotency key and reports a replay without re-staking', async () => {
+  it('forwards the durable source key and reports a replay without re-staking', async () => {
     const { deps, db } = makeFakeDeps();
     db.seedLink(USER, WALLET);
     db.seedBalance(USER, 1_000_000_000n);
 
-    const first = await handleStakeTap(deps, tap({ idempotencyKey: 'call-abc' }));
+    const first = await handleStakeTap(deps, tap({
+      source: { kind: 'durable_source', idempotencyKey: 'call-abc' },
+    }));
     expect(first.placed).toBe(true);
     expect(db.lastStakeArgs?.idempotency_key).toBe('call-abc');
 
     const positionsAfterFirst = db.positions.length;
-    const replay = await handleStakeTap(deps, tap({ idempotencyKey: 'call-abc' }));
+    const replay = await handleStakeTap(deps, tap({
+      source: { kind: 'durable_source', idempotencyKey: 'call-abc' },
+    }));
     expect(replay.placed).toBe(false);
-    expect(replay.reply).toBe(WAGER_COPY.stakeReplayed());
+    expect(replay.reply).toBe(first.reply);
     expect(db.positions.length).toBe(positionsAfterFirst); // no second position
   });
 
@@ -137,6 +154,10 @@ describe('typed RPC errors map to distinct copy', () => {
     ['wrong_side', WAGER_COPY.pickALane()],
     ['cap', WAGER_COPY.capReached(WAGER_TUNABLES.PER_MARKET_STAKE_CAP_LAMPORTS)],
     ['paused', WAGER_COPY.paused()],
+    ['closed', WAGER_COPY.marketClosed()],
+    ['starter_unavailable', WAGER_COPY.starterUnavailable()],
+    ['budget_exhausted', WAGER_COPY.budgetExhausted()],
+    ['wallet_required', WAGER_COPY.walletRequired()],
   ];
 
   it.each(cases)('%s', async (code, expected) => {
@@ -151,6 +172,13 @@ describe('typed RPC errors map to distinct copy', () => {
   it('every error line is distinct — no two failures read the same', () => {
     const lines = cases.map(([, line]) => line);
     expect(new Set(lines).size).toBe(lines.length);
+  });
+
+  it('every refusal says that no SOL moved and gives one recovery action', () => {
+    for (const [, line] of cases) {
+      expect(line).toMatch(/no SOL moved|unchanged/i);
+      expect(line).toMatch(/try again later|try another allowlisted beta group|pick a lane|choose another call|check \/me|use \/deposit|open \/wallet/i);
+    }
   });
 });
 

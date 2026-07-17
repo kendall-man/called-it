@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "network": "localnet",
+  "clusterGenesisHash": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+  "programId": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+  "upgradeableLoaderProgramId": "BPFLoaderUpgradeab1e11111111111111111111111",
+  "programDataAddress": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+  "upgradeAuthority": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+  "configPda": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+  "build": {
+    "schemaVersion": 1,
+    "sourceCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "programId": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+    "sbfSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "idlSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "sourceSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "lockSha256": "4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "config": {
+    "custodyVersion": 1,
+    "paused": false,
+    "configAuthority": "QWmroo4YnnMqYW3cnxWkFdaTxGD3P7vMSzwMHGbUzwF",
+    "pauseAuthority": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "marketCreationAuthority": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+    "feedOperatorAuthority": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+    "oracleSet": "gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5",
+    "relayerFeePayer": "k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn",
+    "residualRecipient": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV",
+    "canonicalUsdcMint": "swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC",
+    "allowedTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "minSolPosition": "1000000",
+    "maxSolPosition": "50000000",
+    "minUsdcPosition": "1000000",
+    "maxUsdcPosition": "25000000",
+    "maxMarketDurationSeconds": "86400",
+    "maxResolutionDelaySeconds": "21600"
+  },
+  "oracleSet": {
+    "address": "gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5",
+    "custodyVersion": 1,
+    "epoch": "1",
+    "signers": [
+      "ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu",
+      "21nS9Wz9sUTQ6MkcYUtnN8aSfPA26xJJP7zqshfzCzqc",
+      "25hjHpTATmkdET17ynDhf1MCuYNDn1z7wXfVw5iaxLAK"
+    ],
+    "threshold": 2,
+    "activationSlot": "10",
+    "retirementSlot": null
+  }
+}

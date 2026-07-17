@@ -34,6 +34,7 @@ export const DEFAULT_FORBIDDEN_TELEGRAM_EVIDENCE_PATTERNS = [
   /\b(?:chat|message|callback)(?:[_ -]?id|id)\s*[:=]\s*\S+/iu,
   /\b(?:text|callback_data)\s*[:=]\s*\S+/iu,
   /["'](?:chat|message_id|callback_query|text)["']\s*:/u,
+  /fixture_restart_source/u,
 ] as const;
 
 export function scanTelegramEvidence(

@@ -1,0 +1,57 @@
+name: security
+
+on:
+  push:
+    branches:
+      - main
+      - codex/direct-onboarding
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Scan committed history for secrets
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
+  dependency-policy:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.11.1
+
+      - name: Install from the tracked lockfile
+        run: npx -y pnpm@10.33.0 install --frozen-lockfile
+
+      - name: Verify lock integrity
+        run: node scripts/security/lock-integrity.mjs
+
+      - name: Verify dependency security controls
+        run: node --test scripts/security/*.test.mjs
+
+      - name: Evaluate production dependency advisories
+        run: |
+          set -euo pipefail
+          list_file="$(mktemp)"
+          audit_file="$(mktemp)"
+          trap 'rm -f "$list_file" "$audit_file"' EXIT
+          npx -y pnpm@10.33.0 list --prod --recursive --json --depth Infinity > "$list_file"
+          node scripts/security/bulk-audit.mjs "$list_file" > "$audit_file"
+          node scripts/security/dependency-policy.mjs --audit "$audit_file"

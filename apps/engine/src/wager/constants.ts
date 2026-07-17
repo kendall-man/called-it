@@ -1,3 +1,5 @@
+import type { WagerAsset } from '@calledit/market-engine';
+
 /**
  * Wager-mode tunables — every money number in one place, all lamports as
  * bigint. Timing tunables that shape market mechanics (PENDING_TAP_WINDOW_MS
@@ -7,11 +9,14 @@
 export const WAGER_TUNABLES = {
   /** Stake preset buttons: 0.01 / 0.05 / 0.1 SOL. */
   PRESET_STAKES_LAMPORTS: [10_000_000n, 50_000_000n, 100_000_000n] as const,
+  PRESET_STAKES_USDC_ATOMIC: [1_000_000n, 5_000_000n, 10_000_000n] as const,
   /** Per-user, per-market total stake ceiling (matches the largest preset). */
   PER_MARKET_STAKE_CAP_LAMPORTS: 100_000_000n,
   /** Transfers below this are stored but never credited (dust defense). */
   MIN_DEPOSIT_LAMPORTS: 1_000_000n,
+  MIN_DEPOSIT_USDC_ATOMIC: 100_000n,
   MIN_WITHDRAWAL_LAMPORTS: 10_000_000n,
+  MIN_WITHDRAWAL_USDC_ATOMIC: 1_000_000n,
   /**
    * Fixed-point scale for the peer-matched ratio: R_milli = round((1−p)/p ×
    * MULT_SCALE), all pot math floor-divided in bigint (see wager/pot.ts).
@@ -26,6 +31,30 @@ export const WAGER_TUNABLES = {
   DEPOSIT_COMMITMENT: 'finalized',
 } as const;
 
+export function presetStakes(asset: WagerAsset): readonly [bigint, bigint, bigint] {
+  return asset === 'sol'
+    ? WAGER_TUNABLES.PRESET_STAKES_LAMPORTS
+    : WAGER_TUNABLES.PRESET_STAKES_USDC_ATOMIC;
+}
+
+export function perMarketStakeCap(asset: WagerAsset): bigint {
+  return asset === 'sol'
+    ? WAGER_TUNABLES.PER_MARKET_STAKE_CAP_LAMPORTS
+    : WAGER_TUNABLES.PRESET_STAKES_USDC_ATOMIC[2];
+}
+
+export function minimumDeposit(asset: WagerAsset): bigint {
+  return asset === 'sol'
+    ? WAGER_TUNABLES.MIN_DEPOSIT_LAMPORTS
+    : WAGER_TUNABLES.MIN_DEPOSIT_USDC_ATOMIC;
+}
+
+export function minimumWithdrawal(asset: WagerAsset): bigint {
+  return asset === 'sol'
+    ? WAGER_TUNABLES.MIN_WITHDRAWAL_LAMPORTS
+    : WAGER_TUNABLES.MIN_WITHDRAWAL_USDC_ATOMIC;
+}
+
 /**
  * Ledger idempotency keys — single source so a key never drifts between the
  * writer and the crash-recovery sweeper that re-derives it. The stake key is
@@ -34,6 +63,7 @@ export const WAGER_TUNABLES = {
  */
 export const WAGER_KEYS = {
   stake: (positionId: string) => `wager:stake:${positionId}`,
+  starterGrant: (userId: number) => `wager:starter:${userId}`,
   /** Client-supplied idempotency key for API/concierge stakes (at-least-once). */
   apiStake: (key: string) => `wager:stake:api:${key}`,
   deposit: (txSig: string, ixIndex: number) => `wager:deposit:${txSig}:${ixIndex}`,
@@ -48,13 +78,13 @@ export const WAGER_KEYS = {
  * the treasury restarts scanning from genesis instead of resuming a cursor
  * that belongs to the old address.
  */
-export function depositCursorStream(treasuryPubkey: string): string {
-  return `wager:deposits:${treasuryPubkey}`;
+export function depositCursorStream(treasuryPubkey: string, asset: WagerAsset = 'sol'): string {
+  return `wager:deposits:${asset}:${treasuryPubkey}`;
 }
 
 /** Advisory-lock names for the singleton crons (rolling-deploy overlap guard). */
 export const WAGER_CRON_LOCKS = {
-  deposits: 'wager:cron:deposits',
+  deposits: (asset: WagerAsset) => `wager:cron:deposits:${asset}`,
   outbox: 'wager:cron:outbox',
 } as const;
 

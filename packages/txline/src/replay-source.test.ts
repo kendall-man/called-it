@@ -106,6 +106,35 @@ describe('ReplaySource.stepOnce — snapshot diffing', () => {
     expect(oddsSeen).toEqual(['m1', 'm2']);
   });
 
+  it('drains canonical records published after the first terminal record', async () => {
+    const postWhistle = scoresRecord({
+      seq: 7,
+      ts: KICKOFF_MS + 96 * MINUTE_MS,
+      statusSoccerId: 'F',
+      scoreSoccer: scoreSoccer({ Total: period(1) }, { Total: period(0) }),
+    });
+    const source = new ReplaySource({
+      client: snapshotClient([...SCORES_HISTORY, postWhistle], []),
+      fixtureId: FIXTURE_ID,
+      speed: 30,
+      startMs: KICKOFF_MS - 10 * MINUTE_MS,
+      tickVirtualMs: 10 * MINUTE_MS,
+      logger: silentLogger,
+    });
+
+    const emitted: MatchEvent[] = [];
+    let done = false;
+    for (let step = 0; step < 30 && !done; step += 1) {
+      const result = await source.stepOnce();
+      emitted.push(...result.events);
+      done = result.done;
+    }
+
+    expect(done).toBe(true);
+    expect(emitted.map((event) => event.seq)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(emitted.at(-1)?.phase).toBe('F');
+  });
+
   it('probes kickoff from the scores snapshot when startMs is omitted', async () => {
     const source = new ReplaySource({
       client: snapshotClient(),
@@ -128,6 +157,26 @@ describe('ReplaySource.stepOnce — snapshot diffing', () => {
       logger: silentLogger,
     });
     await expect(source.stepOnce()).rejects.toThrow(/cannot resolve kickoff/);
+  });
+
+  it('logs one rejection and emits no event for one unsupported odds period', async () => {
+    const logger = vi.fn();
+    const source = new ReplaySource({
+      client: snapshotClient([], [oddsRecord({ MarketPeriod: 'period=FT', Ts: KICKOFF_MS })]),
+      fixtureId: FIXTURE_ID,
+      speed: 30,
+      startMs: KICKOFF_MS,
+      logger,
+    });
+
+    const result = await source.stepOnce();
+
+    expect(result.events).toEqual([]);
+    expect(logger).toHaveBeenCalledOnce();
+    expect(logger).toHaveBeenCalledWith(
+      'odds period rejected',
+      expect.objectContaining({ reason: 'unsupported_period' }),
+    );
   });
 
   it('stops at the max virtual duration when no terminal phase arrives', async () => {
@@ -193,19 +242,40 @@ describe('ReplaySource.start — virtual clock pacing', () => {
       logger: silentLogger,
     });
     const emitted: MatchEvent[] = [];
+    let endReason: string | null = null;
     source.start(async (event) => {
       emitted.push(event);
-    });
+    }, (reason) => { endReason = reason; });
     try {
       await vi.waitFor(() => expect(emitted.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6]), {
         timeout: 3_000,
       });
+      await vi.waitFor(() => expect(endReason).toBe('completed'));
       const count = emitted.length;
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(emitted.length).toBe(count); // loop ended at the terminal phase
     } finally {
       source.stop();
     }
+  });
+
+  it('reports a callback failure instead of silently completing', async () => {
+    const source = new ReplaySource({
+      client: snapshotClient(),
+      fixtureId: FIXTURE_ID,
+      speed: 60_000,
+      startMs: KICKOFF_MS - 10 * MINUTE_MS,
+      tickVirtualMs: 10 * MINUTE_MS,
+      logger: silentLogger,
+    });
+    let endReason: string | null = null;
+
+    source.start(
+      async () => { throw new Error('settlement failed'); },
+      (reason) => { endReason = reason; },
+    );
+
+    await vi.waitFor(() => expect(endReason).toBe('failed'));
   });
 
   it('rejects a non-positive speed and a second start()', () => {

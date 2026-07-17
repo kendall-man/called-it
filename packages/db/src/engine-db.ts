@@ -11,7 +11,10 @@
 import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import type { GamePhase, MarketStatus, MatchEvent } from '@calledit/market-engine';
+import { botOnboardingDbFromClient } from './bot-onboarding-db.js';
+import type { BotGroupReadyResult, BotOnboardingVersion } from './bot-onboarding-types.js';
 import { assertOk, unwrapMaybe, unwrapRows, type PgResult } from './errors.js';
+import { groupPointsDbFromClient, type GroupPointsDb } from './group-points.js';
 import type {
   Chattiness,
   ClaimInsert,
@@ -22,7 +25,6 @@ import type {
   FixtureRow,
   FixtureUpsert,
   GroupRow,
-  LeaderboardEntry,
   LedgerEntry,
   MarketInsert,
   MarketQuotePatch,
@@ -65,6 +67,11 @@ const PLAYER_SEARCH_LIMIT = 20;
 /** 72 bits of entropy → 12-char base64url slug; unguessable per the PRD. */
 const SLUG_ENTROPY_BYTES = 9;
 
+export type ReplayPositionResult =
+  | { readonly ok: true; readonly duplicate: true }
+  | { readonly ok: true; readonly duplicate: false; readonly position_id: string }
+  | { readonly ok: false; readonly code: 'closed' | 'invalid_input' | 'not_replay' | 'wrong_side' };
+
 function generateSlug(): string {
   return randomBytes(SLUG_ENTROPY_BYTES).toString('base64url');
 }
@@ -80,10 +87,14 @@ function sanitizeOrFilterValue(value: string): string {
 
 // ── Façade interface (the engine's EngineDb port, re-declared here) ────────
 
-export interface EngineDb {
+export interface EngineDb extends GroupPointsDb {
   // groups
   upsertGroup(input: { id: number; title: string }): Promise<GroupRow>;
   getGroup(id: number): Promise<GroupRow | null>;
+  markGroupReady(input: {
+    groupId: number;
+    onboardingVersion: BotOnboardingVersion;
+  }): Promise<BotGroupReadyResult>;
   setGroupChattiness(id: number, chattiness: Chattiness): Promise<void>;
   setGroupAdmin(id: number, isAdmin: boolean): Promise<void>;
   setGroupWebEnabled(id: number, enabled: boolean): Promise<void>;
@@ -92,13 +103,12 @@ export interface EngineDb {
   // users & memberships
   upsertUser(input: { id: number; display_name: string; username: string | null }): Promise<void>;
   getUser(id: number): Promise<UserRow | null>;
+  getUserNames(ids: readonly number[]): Promise<ReadonlyMap<number, string>>;
   /** Creates the membership row if missing; created=true on first interaction. */
   ensureMembership(groupId: number, userId: number): Promise<{ created: boolean }>;
   listMemberships(groupId: number): Promise<MembershipRow[]>;
   /** Ledger-derived balance (source of truth, not the display cache). */
   balance(groupId: number, userId: number): Promise<number>;
-  leaderboard(groupId: number, limit: number): Promise<LeaderboardEntry[]>;
-
   // ledger
   /** Idempotent append; inserted=false when the idempotency key already exists. */
   postLedger(entry: LedgerEntry): Promise<{ inserted: boolean }>;
@@ -110,7 +120,10 @@ export interface EngineDb {
   getClaim(id: string): Promise<ClaimRow | null>;
   updateClaim(id: string, patch: ClaimPatch): Promise<void>;
   /** Flip overdue non-terminal claims to 'expired'; returns the rows expired. */
-  expireOverdueClaims(nowIso: string): Promise<ClaimRow[]>;
+  expireOverdueClaims(
+    nowIso: string,
+    allowedGroupIds?: readonly number[],
+  ): Promise<ClaimRow[]>;
 
   // markets
   insertMarket(input: MarketInsert): Promise<MarketRow>;
@@ -124,6 +137,7 @@ export interface EngineDb {
 
   // positions
   insertPosition(input: PositionInsert): Promise<PositionRow>;
+  placeReplayPosition(input: PositionInsert & { group_id: number }): Promise<ReplayPositionResult>;
   positionsForMarket(marketId: string): Promise<PositionRow[]>;
   setPositionStates(ids: string[], state: PositionState): Promise<void>;
 
@@ -169,8 +183,11 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
   const client = createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  const onboarding = botOnboardingDbFromClient(client);
+  const groupPoints = groupPointsDbFromClient(client);
 
   return {
+    ...groupPoints,
     // ── groups ─────────────────────────────────────────────────────────────
 
     async upsertGroup(input) {
@@ -206,6 +223,10 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
         'getGroup',
         await client.from('groups').select('*').eq('id', id).maybeSingle(),
       );
+    },
+
+    markGroupReady(input) {
+      return onboarding.markGroupReady(input);
     },
 
     async setGroupChattiness(id, chattiness) {
@@ -248,6 +269,16 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
       );
     },
 
+    async getUserNames(ids) {
+      const uniqueIds = [...new Set(ids)];
+      if (uniqueIds.length === 0) return new Map();
+      const rows = unwrapRows<Array<Pick<UserRow, 'id' | 'display_name'>>>(
+        'getUserNames',
+        await client.from('users').select('id,display_name').in('id', uniqueIds),
+      );
+      return new Map(rows.map((row) => [row.id, row.display_name]));
+    },
+
     async ensureMembership(groupId, userId) {
       // ON CONFLICT DO NOTHING returns the row only when it was inserted,
       // which is exactly the created flag. Caller must have upserted the
@@ -282,31 +313,6 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
           .eq('user_id', userId),
       );
       return rows.reduce((sum, row) => sum + row.amount, 0);
-    },
-
-    async leaderboard(groupId, limit) {
-      type JoinedRow = {
-        user_id: number;
-        points_cached: number;
-        streak: number;
-        users: { display_name: string } | null;
-      };
-      // Cast: memberships.user_id → users.id is many-to-one, so PostgREST
-      // embeds `users` as an object; untyped supabase-js infers an array.
-      const result = (await client
-        .from('memberships')
-        .select('user_id, points_cached, streak, users(display_name)')
-        .eq('group_id', groupId)
-        .order('points_cached', { ascending: false })
-        .order('user_id', { ascending: true })
-        .limit(limit)) as unknown as PgResult<JoinedRow[]>;
-      const rows = unwrapRows('leaderboard', result);
-      return rows.map((row) => ({
-        user_id: row.user_id,
-        display_name: row.users?.display_name ?? '',
-        points_cached: row.points_cached,
-        streak: row.streak,
-      }));
     },
 
     // ── ledger ─────────────────────────────────────────────────────────────
@@ -360,15 +366,19 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
       assertOk('updateClaim', await client.from('claims').update(changes).eq('id', id));
     },
 
-    async expireOverdueClaims(nowIso) {
+    async expireOverdueClaims(nowIso, allowedGroupIds) {
+      if (allowedGroupIds !== undefined && allowedGroupIds.length === 0) return [];
+      let query = client
+        .from('claims')
+        .update({ status: 'expired' satisfies ClaimStatus })
+        .in('status', [...NON_TERMINAL_CLAIM_STATUSES])
+        .lte('expires_at', nowIso);
+      if (allowedGroupIds !== undefined) {
+        query = query.in('group_id', [...allowedGroupIds]);
+      }
       return unwrapRows<ClaimRow[]>(
         'expireOverdueClaims',
-        await client
-          .from('claims')
-          .update({ status: 'expired' satisfies ClaimStatus })
-          .in('status', [...NON_TERMINAL_CLAIM_STATUSES])
-          .lte('expires_at', nowIso)
-          .select(),
+        await query.select(),
       );
     },
 
@@ -431,6 +441,22 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
       return unwrapRows<PositionRow>(
         'insertPosition',
         await client.from('positions').insert(input).select().single(),
+      );
+    },
+
+    async placeReplayPosition(input) {
+      return unwrapRows<ReplayPositionResult>(
+        'placeReplayPosition',
+        await client.rpc('place_replay_position', {
+          p_user_id: input.user_id,
+          p_group_id: input.group_id,
+          p_market_id: input.market_id,
+          p_side: input.side,
+          p_stake: input.stake,
+          p_multiplier: input.locked_multiplier,
+          p_state: input.state,
+          p_placed_at_ms: input.placed_at_ms,
+        }).single(),
       );
     },
 

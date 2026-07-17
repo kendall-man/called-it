@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatMultiplier, formatProbabilityPct, formatRep, formatUtc } from './format';
+import { formatMultiplier, formatProbabilityPct, formatUtc } from './format';
 
 describe('formatMultiplier', () => {
   it('renders whole multipliers without decimals', () => {
@@ -25,13 +25,6 @@ describe('formatProbabilityPct', () => {
     expect(formatProbabilityPct(0)).toBe('0%');
     expect(formatProbabilityPct(1.7)).toBe('100%');
     expect(formatProbabilityPct(-0.2)).toBe('0%');
-  });
-});
-
-describe('formatRep', () => {
-  it('adds thousands separators and no currency symbol', () => {
-    expect(formatRep(1250)).toBe('1,250');
-    expect(formatRep(1250)).not.toMatch(/[$£€]/);
   });
 });
 

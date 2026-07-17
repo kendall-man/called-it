@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "scripts/check-workflow.ts",
+    "scripts/check-workflow.test.ts",
+    "scripts/run-concierge-build.ts",
+    "scripts/run-browser-tests.ts",
+    "scripts/sql-harness.ts",
+    "scripts/sql-harness.test.ts",
+    "scripts/sql-harness.integration.test.ts",
+    "scripts/sql-harness.telegram-ingress.test.ts",
+    "scripts/sql-harness.telegram-ingress-recovery.test.ts",
+    "scripts/sql-harness.settlement-proof-jobs.test.ts",
+    "scripts/sql-harness.privacy.test.ts",
+    "scripts/check-telegram-evidence.ts",
+    "scripts/check-telegram-evidence.test.ts",
+    "scripts/task-9/**/*.ts",
+    "scripts/sql-harness/**/*.ts"
+  ]
+}

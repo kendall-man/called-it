@@ -5,6 +5,7 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { cx } from '@/lib/cx';
+import { isMainnet } from '@/lib/solana-network';
 
 // ── Card ──────────────────────────────────────────────────────────────────
 
@@ -72,7 +73,10 @@ export function Badge({
 
 export function Wordmark() {
   return (
-    <Link href="/" className="display-type text-lg tracking-tight text-chalk">
+    <Link
+      href="/"
+      className="display-type text-lg tracking-tight text-chalk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+    >
       Called&nbsp;<span className="text-pitch-400">It</span>
       <span aria-hidden className="ml-1 text-pitch-400">
         ✓
@@ -84,20 +88,36 @@ export function Wordmark() {
 export function PageShell({
   topRight,
   children,
+  width = 'reading',
 }: {
   topRight?: ReactNode;
   children: ReactNode;
+  width?: 'reading' | 'board';
 }) {
+  const mainnet = isMainnet();
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-xl flex-col px-4 pb-14 pt-5 sm:px-6">
+    <div
+      className={cx(
+        'mx-auto flex min-h-dvh w-full flex-col px-4 sm:px-6',
+        width === 'board' ? 'max-w-5xl' : 'max-w-xl',
+      )}
+      style={{
+        paddingTop: 'max(1.25rem, calc(1.25rem + var(--tg-content-safe-area-top, 0px)))',
+        paddingBottom: 'max(3.5rem, calc(3.5rem + var(--tg-content-safe-area-bottom, 0px)))',
+      }}
+    >
       <header className="mb-6 flex items-center justify-between">
         <Wordmark />
         {topRight}
       </header>
       <main className="flex flex-1 flex-col gap-4">{children}</main>
       <footer className="mt-10 space-y-1 text-center text-xs text-fog/80">
-        <p>Played in devnet SOL — test tokens, not real money.</p>
-        <p>Match data by TxLINE · proofs on Solana devnet.</p>
+        <p>
+          {mainnet
+            ? 'SOL and USDC positions settle on Solana mainnet.'
+            : 'Played in devnet SOL or USDC — test tokens, not real money.'}
+        </p>
+        <p>Match data by TxLINE · proofs on Solana {mainnet ? 'mainnet' : 'devnet'}.</p>
       </footer>
     </div>
   );

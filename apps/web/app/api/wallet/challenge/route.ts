@@ -1,0 +1,37 @@
+import { NextResponse } from 'next/server';
+import { createWalletChallenge } from '@/lib/wallet-link-server';
+import { readPrivyBearerToken } from '@/lib/privy-server';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+export async function POST(request: Request): Promise<NextResponse> {
+  const accessToken = readPrivyBearerToken(request.headers.get('authorization'));
+  if (accessToken === null) {
+    return NextResponse.json(
+      { error: 'privy_auth_required' },
+      { status: 401, headers: { 'cache-control': 'no-store' } },
+    );
+  }
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    body = null;
+  }
+  try {
+    const result = await createWalletChallenge(body, accessToken);
+    return NextResponse.json(result.body, {
+      status: result.status,
+      headers: { 'cache-control': 'no-store' },
+    });
+  } catch (cause) {
+    console.error('wallet_challenge_unavailable', {
+      message: cause instanceof Error ? cause.message : 'unknown_error',
+    });
+    return NextResponse.json(
+      { error: 'wallet_service_unavailable' },
+      { status: 503, headers: { 'cache-control': 'no-store' } },
+    );
+  }
+}

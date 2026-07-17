@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://called.it/schemas/escrow/mainnet-evidence-v2.json",
+  "title": "Called It escrow mainnet artifact-bound verification evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "network", "releaseIdentity", "artifacts", "canary"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "network": { "const": "mainnet-beta" },
+    "releaseIdentity": { "$ref": "#/$defs/releaseIdentity" },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "releaseManifest",
+        "localValidator",
+        "devnetEvidence",
+        "devnetReport",
+        "devnetProgramSo",
+        "devnetIdl",
+        "legacyAuditStatement",
+        "legacyAuditReport",
+        "independentReviewStatement",
+        "independentReviewReport",
+        "externalAuditStatement",
+        "externalAuditReport",
+        "authorityStatement",
+        "authorityReport",
+        "soakSamples",
+        "approvalStatement"
+      ],
+      "properties": {
+        "releaseManifest": { "$ref": "#/$defs/artifact" },
+        "localValidator": { "$ref": "#/$defs/artifact" },
+        "devnetEvidence": { "$ref": "#/$defs/artifact" },
+        "devnetReport": { "$ref": "#/$defs/artifact" },
+        "devnetProgramSo": { "$ref": "#/$defs/artifact" },
+        "devnetIdl": { "$ref": "#/$defs/artifact" },
+        "legacyAuditStatement": { "$ref": "#/$defs/artifact" },
+        "legacyAuditReport": { "$ref": "#/$defs/artifact" },
+        "independentReviewStatement": { "$ref": "#/$defs/artifact" },
+        "independentReviewReport": { "$ref": "#/$defs/artifact" },
+        "externalAuditStatement": { "$ref": "#/$defs/artifact" },
+        "externalAuditReport": { "$ref": "#/$defs/artifact" },
+        "authorityStatement": { "$ref": "#/$defs/artifact" },
+        "authorityReport": { "$ref": "#/$defs/artifact" },
+        "soakSamples": {
+          "type": "array",
+          "minItems": 7,
+          "items": { "$ref": "#/$defs/soakSample" }
+        },
+        "approvalStatement": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "canary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowlistEnabled", "groupCount", "minSolPosition", "maxSolPosition", "minUsdcPosition", "maxUsdcPosition"],
+      "properties": {
+        "allowlistEnabled": { "const": true },
+        "groupCount": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "minSolPosition": { "$ref": "#/$defs/atomic" },
+        "maxSolPosition": { "$ref": "#/$defs/atomic" },
+        "minUsdcPosition": { "$ref": "#/$defs/atomic" },
+        "maxUsdcPosition": { "$ref": "#/$defs/atomic" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "atomic": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "publicKey": { "type": "string", "minLength": 32, "maxLength": 44 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^[^/\\\\](?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "releaseIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["network", "clusterGenesisHash", "programId", "sourceCommit", "sbfSha256", "idlSha256", "sourceSha256", "lockSha256", "buildManifestSha256", "releaseManifestSha256"],
+      "properties": {
+        "network": { "const": "mainnet-beta" },
+        "clusterGenesisHash": { "$ref": "#/$defs/publicKey" },
+        "programId": { "$ref": "#/$defs/publicKey" },
+        "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{7,64}$" },
+        "sbfSha256": { "$ref": "#/$defs/sha256" },
+        "idlSha256": { "$ref": "#/$defs/sha256" },
+        "sourceSha256": { "$ref": "#/$defs/sha256" },
+        "lockSha256": { "$ref": "#/$defs/sha256" },
+        "buildManifestSha256": { "$ref": "#/$defs/sha256" },
+        "releaseManifestSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "soakSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capturedAt", "clusterGenesisHash", "programId", "releaseManifestSha256", "artifact"],
+      "properties": {
+        "capturedAt": { "$ref": "#/$defs/timestamp" },
+        "clusterGenesisHash": { "$ref": "#/$defs/publicKey" },
+        "programId": { "$ref": "#/$defs/publicKey" },
+        "releaseManifestSha256": { "$ref": "#/$defs/sha256" },
+        "artifact": { "$ref": "#/$defs/artifact" }
+      }
+    }
+  }
+}

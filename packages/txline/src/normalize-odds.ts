@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { GamePhase, MatchEvent, OddsInputs, ScoreState } from '@calledit/market-engine';
 import { PCT_TO_PROBABILITY_DIVISOR, PROBABILITY_SUM_TOLERANCE } from './constants.js';
 import { consoleLogger, type TxlineLogger } from './logging.js';
@@ -105,43 +106,48 @@ export function classifyOddsRecord(record: OddsRecord, logger: TxlineLogger = co
 
 // ── period filtering ──────────────────────────────────────────────────────
 
-/**
- * MarketPeriod values that clearly denote a partial-match market. "ET"
- * (observed live 2026-07-03 when a friendly went to extra time) prices the
- * extra-time segment only — not our 90-minute/full-match inputs.
- */
-const PARTIAL_MATCH_PERIOD_PATTERN =
-  /^(1H|2H|H1|H2|HT|1ST|2ND|FIRSTHALF|SECONDHALF|HALF\d|ET|AET|OT|EXTRATIME|PEN)/;
+const FULL_MATCH_PERIOD_TOKENS = new Set(['M', 'FT', 'MATCH', 'FULL', 'FULLTIME', '90', 'REG', 'REGULAR']);
+const PERIOD_HASH_LENGTH = 12;
+const MAX_REPORTED_PERIOD_LENGTH = 128;
+
+export type MarketPeriodRejectionReason = 'unsupported_period';
+
+export type MarketPeriodNormalization =
+  | { readonly kind: 'full_match' }
+  | { readonly kind: 'rejected'; readonly reason: MarketPeriodRejectionReason };
+
+export function normalizeMarketPeriod(marketPeriod: string | null | undefined): MarketPeriodNormalization {
+  const token = marketPeriod?.trim().toUpperCase() ?? '';
+  if (token === '' || FULL_MATCH_PERIOD_TOKENS.has(token)) return { kind: 'full_match' };
+  return { kind: 'rejected', reason: 'unsupported_period' };
+}
 
 /**
- * StablePrice 1X2 is a 90-minute market; we only price from full-match
- * periods. Unknown period strings are accepted with a log (rejecting them
- * could silently zero out all odds if TxLINE uses an unexpected label).
- *
- * Devnet empirical (2026-07-03): the wire uses a key=value grammar — absent
- * period means full match, "half=1" means first half. Any "half=N" is
- * partial; other key=value forms are unfamiliar-but-accepted like unknown
- * plain tokens.
+ * StablePrice 1X2 is a 90-minute market; every other period is rejected.
  */
 export function isFullMatchPeriod(
   marketPeriod: string | null | undefined,
   logger: TxlineLogger = consoleLogger,
 ): boolean {
-  if (marketPeriod == null || marketPeriod === '') return true;
-  const equalsIndex = marketPeriod.indexOf('=');
-  if (equalsIndex !== -1) {
-    const key = marketPeriod.slice(0, equalsIndex).trim().toLowerCase();
-    if (key === 'half') return false;
-    logger('unfamiliar key=value MarketPeriod — treating as full match', { marketPeriod });
-    return true;
+  const result = normalizeMarketPeriod(marketPeriod);
+  switch (result.kind) {
+    case 'full_match':
+      return true;
+    case 'rejected': {
+      const normalizedPeriod = (marketPeriod ?? '').trim().toUpperCase();
+      logger('odds period rejected', {
+        reason: result.reason,
+        periodHash: createHash('sha256')
+          .update(normalizedPeriod)
+          .digest('hex')
+          .slice(0, PERIOD_HASH_LENGTH),
+        periodLength: Math.min(normalizedPeriod.length, MAX_REPORTED_PERIOD_LENGTH),
+      });
+      return false;
+    }
+    default:
+      return result;
   }
-  const token = normalizeToken(marketPeriod);
-  if (PARTIAL_MATCH_PERIOD_PATTERN.test(token)) return false;
-  const KNOWN_FULL_MATCH_TOKENS = new Set(['M', 'FT', 'MATCH', 'FULL', 'FULLTIME', '90', 'REG', 'REGULAR']);
-  if (!KNOWN_FULL_MATCH_TOKENS.has(token)) {
-    logger('unfamiliar MarketPeriod — treating as full match', { marketPeriod });
-  }
-  return true;
 }
 
 // ── suspension detection ──────────────────────────────────────────────────

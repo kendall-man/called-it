@@ -1,7 +1,5 @@
 /** Consumer-facing number/date formatting. Game-show register: "×9 back", never odds notation. */
 
-const REP_FORMAT = new Intl.NumberFormat('en-US');
-
 /** Fixed-locale, fixed-zone date formatting so server and client render identically. */
 const UTC_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
@@ -14,16 +12,32 @@ const UTC_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
 const MULTIPLIER_DECIMALS = 1;
 const PERCENT_FLOOR = 1;
 
-export function formatRep(points: number): string {
-  return REP_FORMAT.format(points);
-}
-
 /** Renders as "×9" (whole) or "×9.4" — never bookmaker odds notation. */
 export function formatMultiplier(multiplier: number): string {
   const rounded =
     Math.round(multiplier * 10 ** MULTIPLIER_DECIMALS) / 10 ** MULTIPLIER_DECIMALS;
   const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(MULTIPLIER_DECIMALS);
   return `×${text}`;
+}
+
+export function formatLamportsAsSol(lamports: string): string {
+  const normalized = lamports.replace(/^0+(?=\d)/, '');
+  const padded = normalized.padStart(10, '0');
+  const whole = padded.slice(0, -9).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const fractional = padded.slice(-9).replace(/0+$/, '');
+  return `${fractional === '' ? whole : `${whole}.${fractional}`} SOL`;
+}
+
+export function formatAtomicAmount(
+  amountAtomic: string,
+  currency: 'sol' | 'usdc',
+): string {
+  const decimals = currency === 'sol' ? 9 : 6;
+  const normalized = amountAtomic.replace(/^0+(?=\d)/, '');
+  const padded = normalized.padStart(decimals + 1, '0');
+  const whole = padded.slice(0, -decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const fractional = padded.slice(-decimals).replace(/0+$/, '');
+  return `${fractional === '' ? whole : `${whole}.${fractional}`} ${currency.toUpperCase()}`;
 }
 
 /** probability in [0,1] → "9%", clamped and floored at "<1%". */

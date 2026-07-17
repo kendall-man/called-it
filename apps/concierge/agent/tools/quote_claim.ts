@@ -4,7 +4,7 @@ import { engineApi, telegramIdentity, NOT_TELEGRAM } from '../lib/engine-api.js'
 
 export default defineTool({
   description:
-    'Price a football claim exactly as a member said it ("France score 2 today", "Spain win it"). Read-only: returns the compiled line(s) with live prices and trust tier, or a clarify question, or a rejection. Nothing is minted and no Rep moves.',
+    'Price a football claim exactly as a member said it ("France score 2 today", "Spain win it"). Read-only: returns the compiled line(s) with live prices and trust tier, or a clarify question, or a rejection. No SOL or position changes.',
   inputSchema: z.object({
     text: z
       .string()

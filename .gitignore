@@ -3,6 +3,7 @@ dist/
 .next/
 .turbo/
 .env
+.env.mainnet
 .env.local
 .env.*.local
 *.tsbuildinfo
@@ -25,6 +26,15 @@ wallet.json
 .output
 .workflow-data
 
+# Persistent local validation runtime (contains test-only secrets)
+.calledit-local/
+.calledit-backups/
+
+# Anchor/Rust local build artifacts
+target/
+.anchor/
+test-ledger/
+
 # Local agent tooling (generic skill packs, not project content)
 .agents/
 
@@ -39,11 +49,7 @@ wallet.json
 .agents/workflows/*
 !.agents/workflows/calledit-*.md
 
-# Reproducible local runtime state and local Git bundles (never credentials in Git).
-.calledit-local/
-.calledit-backups/
-
-# Local workflow/test artifacts; plans and evidence may contain runtime data.
+# Local workflow/browser/runtime artifacts can include credentials or raw event data.
 .omo/
 .tmp-telegram-evidence-test/
 .superstack/

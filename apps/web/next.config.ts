@@ -1,6 +1,9 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { NextConfig } from 'next';
+import { validateWebBuildEnv } from './lib/env';
+
+validateWebBuildEnv();
 
 /**
  * In-browser merkle re-verification comes from `@calledit/solana/verify`
@@ -31,6 +34,9 @@ const nextConfig: NextConfig = {
     config.resolve.alias = {
       ...(config.resolve.alias ?? {}),
       [VERIFY_BRIDGE_SPECIFIER]: verifyModulePath,
+      // Privy loads these only for Farcaster and fiat-onramp surfaces we do not expose.
+      '@farcaster/mini-app-solana': false,
+      '@stripe/crypto': false,
     };
     return config;
   },

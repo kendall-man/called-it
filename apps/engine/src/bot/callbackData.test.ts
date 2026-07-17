@@ -8,14 +8,19 @@ import {
 
 const CLAIM_ID = 'a3bb189e-8bf9-3888-9912-ace4e6543002';
 const MARKET_ID = '0f14d0ab-9605-4a62-a9e4-5ed26688389b';
+const INTENT_ID = '91b6e582-a8ea-4b5d-aa10-9fd037203cf2';
 
 const ROUND_TRIPS: CallbackAction[] = [
   { t: 'prove', claimId: CLAIM_ID },
   { t: 'option', claimId: CLAIM_ID, key: '0' },
   { t: 'option', claimId: CLAIM_ID, key: 'up' },
+  { t: 'confirm', claimId: CLAIM_ID },
   { t: 'decline', claimId: CLAIM_ID },
-  { t: 'stake', marketId: MARKET_ID, side: 'back', presetIndex: 2 },
+  { t: 'stake', marketId: MARKET_ID, side: 'back', presetIndex: 0 },
   { t: 'stake', marketId: MARKET_ID, side: 'doubt', presetIndex: 0 },
+  { t: 'stake_confirm', intentId: INTENT_ID },
+  { t: 'stake_cancel', intentId: INTENT_ID },
+  { t: 'void_replay_blocker', marketId: MARKET_ID },
   { t: 'chattiness', mode: 'react_only' },
   { t: 'web', enabled: false },
 ];
@@ -43,6 +48,7 @@ describe('callback data codec', () => {
       `st:${MARKET_ID}:x:1`,
       `st:${MARKET_ID}:b:99`,
       `op:${CLAIM_ID}:`,
+      'vr:not-a-uuid',
       'sg:z',
       'sw:2',
       'unknown:payload',
@@ -53,11 +59,11 @@ describe('callback data codec', () => {
     }
   });
 
-  it('treats removed confirm/wager buttons from an older build as stale', () => {
-    // The pivot dropped the confirm gate and the devnet-SOL settings toggle, so
-    // any surviving `cf:` / `wg:` button must decode to null (ship has sailed).
-    expect(decodeCallback(`cf:${CLAIM_ID}`)).toBeNull();
+  it('keeps only the beta consent and fixed-stake callbacks live', () => {
     expect(decodeCallback('wg:1')).toBeNull();
     expect(decodeCallback('wg:0')).toBeNull();
+    expect(decodeCallback(`st:${MARKET_ID}:b:1`)).toBeNull();
+    expect(decodeCallback(`am:${MARKET_ID}`)).toBeNull();
+    expect(decodeCallback(`ap:${MARKET_ID}:abCD_123:b:1`)).toBeNull();
   });
 });

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"]
+  },
+  "include": [
+    "scripts/check-product-copy.ts",
+    "scripts/check-product-copy.test.ts",
+    "scripts/product-copy-contract.ts"
+  ]
+}

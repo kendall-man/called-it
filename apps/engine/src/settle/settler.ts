@@ -19,16 +19,18 @@ import type {
   Position,
   SettlementOutcome,
 } from '@calledit/market-engine';
-import { TUNABLES } from '@calledit/market-engine';
+import { isWagerAsset, TUNABLES } from '@calledit/market-engine';
 import type { Deps, MarketRow, PositionRow } from '../ports.js';
 import type { Poster } from '../bot/poster.js';
 import type { Say } from '../bot/copy.js';
-import { describeTerms, formatMultiplier, receiptCardText } from '../bot/cards.js';
-import { composeClaimCard, receiptUrl } from '../pipeline/render.js';
+import { composeClaimCard } from '../pipeline/render.js';
 import { quoteSpec } from '../pipeline/claims.js';
 import { marketStakeKeyboard } from '../bot/keyboards.js';
 import { statKeyForSpec } from './statKeys.js';
 import type { ProofWorker } from '../proofs/worker.js';
+import type { SettlementJournal } from './durable.js';
+import type { GroupPointsService } from '../points/service.js';
+import { prepareGroupPointsReceipt } from './group-points-receipt.js';
 
 function toEnginePosition(row: PositionRow): Position {
   return {
@@ -42,6 +44,11 @@ function toEnginePosition(row: PositionRow): Position {
   };
 }
 
+/** Escrow markets are driven exclusively by finalized chain projections. */
+function isLegacyCustody(market: MarketRow): boolean {
+  return market.custody_mode !== 'escrow';
+}
+
 export class Settler {
   private readonly states = new Map<string, MarketState>();
 
@@ -49,7 +56,9 @@ export class Settler {
     private readonly deps: Deps,
     private readonly poster: Poster,
     private readonly say: Say,
+    private readonly points: GroupPointsService,
     private readonly proofWorker: ProofWorker | null,
+    private readonly settlementJournal: SettlementJournal | null = null,
   ) {}
 
   /** Every normalized event flows through here exactly once per (fixture, seq). */
@@ -60,20 +69,54 @@ export class Settler {
       return;
     }
     await this.deps.db.updateFixtureFromEvent(event);
-    const markets = await this.deps.db.openMarketsForFixture(event.fixtureId);
+    const markets = (await this.deps.db.openMarketsForFixture(event.fixtureId))
+      .filter((market) => !market.is_replay && isLegacyCustody(market));
+    await this.reduceMarkets(event, markets);
+  }
+
+  /**
+   * Replays intentionally bypass the durable feed-event key because those
+   * historical sequences already exist. Only test-marked markets in the
+   * requesting group receive the event.
+   */
+  async onReplayEvent(
+    groupId: number,
+    event: MatchEvent,
+    replayStartedAtMs: number = Number.NEGATIVE_INFINITY,
+  ): Promise<void> {
+    const markets = (await this.deps.db.openMarketsForFixture(event.fixtureId))
+      .filter((market) =>
+        market.is_replay &&
+        isLegacyCustody(market) &&
+        market.group_id === groupId &&
+        Date.parse(market.created_at) >= replayStartedAtMs
+      );
+    await this.reduceMarkets(event, markets, true);
+  }
+
+  private async reduceMarkets(
+    event: MatchEvent,
+    markets: MarketRow[],
+    strict: boolean = false,
+  ): Promise<void> {
     await this.narrateGoal(event, markets);
     for (const market of markets) {
       try {
         const state = await this.hydrate(market);
         const result = this.deps.engine.reduceMarket(state, event);
-        this.states.set(market.id, result.state);
         await this.applyEffects(market, result.state, result.effects, event);
-      } catch (err) {
+        if (result.state.status === 'settled' || result.state.status === 'voided') {
+          this.states.delete(market.id);
+        } else {
+          this.states.set(market.id, result.state);
+        }
+      } catch (error) {
+        if (strict) this.states.delete(market.id);
         this.deps.log.error('reduce_failed', {
           marketId: market.id,
           seq: event.seq,
-          error: String(err),
         });
+        if (strict) throw error;
       }
     }
   }
@@ -83,16 +126,20 @@ export class Settler {
     for (const [marketId, state] of [...this.states]) {
       if (!state.pendingSettlement) continue;
       const market = await this.deps.db.getMarket(marketId);
-      if (!market || market.status === 'settled' || market.status === 'voided') {
+      if (!market || !isLegacyCustody(market) || market.status === 'settled' || market.status === 'voided') {
         this.states.delete(marketId);
         continue;
       }
       try {
         const result = this.deps.engine.checkDebounce(state, nowMs);
-        this.states.set(marketId, result.state);
         await this.applyEffects(market, result.state, result.effects, null);
-      } catch (err) {
-        this.deps.log.error('debounce_failed', { marketId, error: String(err) });
+        if (result.state.status === 'settled' || result.state.status === 'voided') {
+          this.states.delete(marketId);
+        } else {
+          this.states.set(marketId, result.state);
+        }
+      } catch {
+        this.deps.log.error('debounce_failed', { marketId });
       }
     }
   }
@@ -125,6 +172,12 @@ export class Settler {
     effects: MarketEffect[],
     event: MatchEvent | null,
   ): Promise<void> {
+    if (!isLegacyCustody(market)) {
+      if (effects.length > 0) {
+        this.deps.log.warn('legacy_effects_skipped_escrow_market', { marketId: market.id });
+      }
+      return;
+    }
     for (const effect of effects) {
       this.deps.log.info('market_effect', { marketId: market.id, effect: effect.kind, seq: event?.seq });
       switch (effect.kind) {
@@ -182,32 +235,63 @@ export class Settler {
     evidenceSeqs: number[],
     voidReason?: string,
   ): Promise<void> {
+    if (!isLegacyCustody(market)) {
+      this.deps.log.warn('legacy_settlement_skipped_escrow_market', { marketId: market.id });
+      return;
+    }
     const tier = market.spec.trustTier;
-    await this.deps.db.updateMarketStatus(market.id, outcome === 'void' ? 'voided' : 'settled');
-    await this.deps.db.insertSettlement({
-      market_id: market.id,
-      outcome,
-      deciding_seq: decidingSeq,
-      evidence_seqs: evidenceSeqs,
-      tier,
-    });
+    if (this.settlementJournal) {
+      // The Task 10 RPC writes the immutable terminal fact and settlement job
+      // in one transaction, so a process death cannot leave one without the other.
+      await this.settlementJournal.recordTerminal({
+        marketId: market.id,
+        outcome,
+        decidingSeq,
+        evidenceSeqs,
+        tier,
+      });
+    } else {
+      await this.deps.db.updateMarketStatus(market.id, outcome === 'void' ? 'voided' : 'settled');
+      await this.deps.db.insertSettlement({
+        market_id: market.id,
+        outcome,
+        deciding_seq: decidingSeq,
+        evidence_seqs: evidenceSeqs,
+        tier,
+      });
+    }
     this.deps.log.info('settled', { marketId: market.id, outcome, decidingSeq, tier });
 
-    // Money moves ONLY through the wager module (every market is SOL). Its
+    // Money moves ONLY through the wager module for SOL/USDC markets. Its
     // applySettlement is idempotent (per-position/per-user keys plus the
     // wager_settlements_applied marker); if the module is somehow off, the
     // wager sweeper re-applies it once re-enabled.
-    if (this.deps.wager) {
-      await this.deps.wager.applySettlement(market.id);
+    const fundedMainnetReplay = market.is_replay
+      && this.deps.env?.SOLANA_NETWORK === 'mainnet-beta';
+    if (!isWagerAsset(market.currency)) {
+      // Legacy Rep markets use the shared Rep ledger effects from the reducer.
+    } else if (market.is_replay && !fundedMainnetReplay) {
+      // Devnet test matches remain ledger-free.
+    } else if (this.deps.wager) {
+      await this.deps.wager.applySettlement(
+        market.id,
+        fundedMainnetReplay ? { requireFullyBacked: true } : undefined,
+      );
     } else {
       this.deps.log.warn('wager_settlement_deferred', { marketId: market.id, outcome });
     }
     await this.postReceipt(market, outcome, voidReason);
 
-    if (tier === 'chain_proven' && outcome !== 'void' && this.proofWorker && decidingSeq !== null) {
+    if (
+      this.settlementJournal === null
+      && tier === 'chain_proven'
+      && outcome !== 'void'
+      && this.proofWorker
+      && decidingSeq !== null
+    ) {
       const statKey = statKeyForSpec(market.spec);
       if (statKey !== null) {
-        this.proofWorker.enqueue({
+        await this.proofWorker.enqueue({
           marketId: market.id,
           fixtureId: market.fixture_id,
           seq: decidingSeq,
@@ -225,38 +309,26 @@ export class Settler {
     outcome: SettlementOutcome,
     voidReason?: string,
   ): Promise<void> {
-    const claim = await this.deps.db.getClaim(market.claim_id);
-    const claimer = claim ? await this.deps.db.getUser(claim.claimer_user_id) : null;
-    const claimerName = claimer?.display_name ?? 'the claimer';
+    if (!isLegacyCustody(market)) {
+      this.deps.log.warn('legacy_receipt_skipped_escrow_market', { marketId: market.id });
+      return;
+    }
+    const receipt = await prepareGroupPointsReceipt(
+      this.points,
+      { deps: this.deps, market, outcome, voidReason, say: this.say },
+      () => !isWagerAsset(market.currency)
+        ? Promise.resolve('')
+        : market.is_replay && this.deps.env?.SOLANA_NETWORK !== 'mainnet-beta'
+          ? Promise.resolve('Test round - no starter position or real funds moved.')
+          : this.solPayoutsLine(market.id, outcome),
+    );
 
-    // Every market is SOL — the wager module owns the (only) place SOL amounts
-    // are phrased.
-    const payoutsLine = await this.solPayoutsLine(market.id, outcome);
-    const garnishKey =
-      outcome === 'claim_won' ? 'settle_won' : outcome === 'claim_lost' ? 'settle_lost' : 'void_market';
-    const garnish = await this.say(garnishKey, {
-      claimer: claimerName,
-      payouts: payoutsLine,
-      reason: voidReason ?? 'the match got away from us',
-      terms: describeTerms(market.spec),
-      multiplier: formatMultiplier(market.quote_multiplier).replace('×', ''),
-      url: receiptUrl(this.deps, market.id),
-    });
-
-    const receipt = receiptCardText({
-      quotedText: claim?.quoted_text ?? '(original message unavailable)',
-      claimerName,
-      spec: market.spec,
-      outcome,
-      probability: market.quote_probability,
-      provenance: market.price_provenance,
-      payoutsLine,
-      isReplay: market.is_replay,
-      receiptUrl: receiptUrl(this.deps, market.id),
-    });
-
-    this.poster.post(market.group_id, `${garnish}\n\n${receipt}`, {
+    this.poster.post(market.group_id, receipt, {
       onSent: async () => {
+        if (this.settlementJournal) {
+          await this.settlementJournal.markPosted(market.id);
+          return;
+        }
         await this.deps.db.markSettlementPosted(market.id);
       },
     });
@@ -275,9 +347,9 @@ export class Settler {
     const affected = positions.filter((p) => positionIds.includes(p.id));
     const names: string[] = [];
     for (const position of affected) {
-      // sol stakes live in the wager ledger — their delay-snipe refunds are
+      // Wager positions live in the asset ledger; their delay-snipe refunds are
       // reconciled by the wager module at settlement, never posted as Rep.
-      if (market.currency !== 'sol') {
+      if (!isWagerAsset(market.currency)) {
         await this.deps.db.postLedger({
           group_id: market.group_id,
           user_id: position.user_id,
@@ -301,10 +373,10 @@ export class Settler {
   private async reprice(market: MarketRow): Promise<void> {
     const fresh = await this.deps.db.getMarket(market.id);
     if (!fresh || fresh.status !== 'open') return;
-    // A sol market's mint quote LOCKS the FOR↔AGAINST settlement ratio
+    // A wager market's mint quote LOCKS the FOR↔AGAINST settlement ratio
     // (wager/pot.ts). Repricing it would settle the pot at a different ratio
     // than it was staked against — never touch a live sol quote.
-    if (fresh.currency === 'sol') return;
+    if (isWagerAsset(fresh.currency)) return;
     // Any pricing failure (transient, no line, unpriceable) just skips this
     // reprice tick — the card keeps its last good quote.
     const outcome = await quoteSpec(this.deps, fresh.spec);

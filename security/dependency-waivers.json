@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "waivers": [
+    {
+      "advisory_id": "1103747",
+      "package_name": "bigint-buffer",
+      "version_range": "<=1.1.5",
+      "reachability": {
+        "status": "reachable",
+        "basis": "shipped_workspace",
+        "justification": "Solana token serialization imports this package through a production workspace path.",
+        "audit_paths": [
+          "@calledit/engine>@calledit/solana>@solana/spl-token>@solana/buffer-layout-utils>bigint-buffer"
+        ]
+      },
+      "affected_paths": [
+        "packages/solana/package.json",
+        "patches/bigint-buffer@1.1.5.patch"
+      ],
+      "compensating_control": "The native loader is patched out, pnpm explicitly forbids its install script, and regression tests exercise large-buffer conversion through pure JavaScript.",
+      "owner": "security@calledit.local",
+      "issue_url": "https://github.com/advisories/GHSA-3gc7-fjrx-p6mg",
+      "evidence_ref": "sha256:82227578406d31b0caff02d54b89e7d767cca29e88f4987f628d8537bf2f3940",
+      "expires_on": "2026-08-14"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import { depositCursorStream, WAGER_KEYS, WAGER_TUNABLES } from './constants.js';
-import { WAGER_COPY } from './copy.js';
+import { createWagerCopy, WAGER_COPY } from './copy.js';
 
 describe('WAGER_TUNABLES internal consistency', () => {
   it('presets are three ascending lamport amounts', () => {
@@ -27,13 +28,16 @@ describe('WAGER_TUNABLES internal consistency', () => {
   });
 
   it('cursor stream names are treasury-scoped', () => {
-    expect(depositCursorStream('Abc')).toBe('wager:deposits:Abc');
+    expect(depositCursorStream('Abc')).toBe('wager:deposits:sol:Abc');
+    expect(depositCursorStream('Abc', 'usdc')).toBe('wager:deposits:usdc:Abc');
     expect(depositCursorStream('Abc')).not.toBe(depositCursorStream('Xyz'));
+    expect(depositCursorStream('Abc')).not.toBe(depositCursorStream('Abc', 'usdc'));
   });
 
   it('idempotency keys are namespaced and mutually distinct', () => {
     const keys = [
       WAGER_KEYS.stake('x'),
+      WAGER_KEYS.starterGrant(1),
       WAGER_KEYS.apiStake('x'),
       WAGER_KEYS.deposit('x', 0),
       WAGER_KEYS.refund('x'),
@@ -49,23 +53,30 @@ describe('WAGER_TUNABLES internal consistency', () => {
     // wager_stake v2 writes 'wager:stake:api:' || p_idempotency_key.
     expect(WAGER_KEYS.apiStake('abc')).toBe('wager:stake:api:abc');
   });
+
+  it('the starter-grant key matches the SQL ledger key namespace in migration 0004', async () => {
+    const sql = await readFile('../../packages/db/migrations/0004_starter_grant.sql', 'utf8');
+    expect(sql).toContain("'wager:starter:' || p_user_id::text");
+    expect(WAGER_KEYS.starterGrant(123)).toBe('wager:starter:123');
+  });
 });
 
 describe('copy bank hygiene', () => {
-  it('every line renders non-empty with no leftover placeholders', () => {
+  it('every line renders non-empty and follows the direct SOL vocabulary', () => {
     const samples: string[] = [
       WAGER_COPY.unlinkedOnboarding(),
       WAGER_COPY.paused(),
+      WAGER_COPY.marketClosed(),
+      WAGER_COPY.starterUnavailable(),
+      WAGER_COPY.budgetExhausted(),
+      WAGER_COPY.walletRequired(),
       WAGER_COPY.insufficient(1n),
       WAGER_COPY.pickALane(),
       WAGER_COPY.capReached(1n),
       WAGER_COPY.stakePlaced('A', 'Backing', 1n, '2'),
       WAGER_COPY.stakeReplayed(),
       WAGER_COPY.staleTap(),
-      WAGER_COPY.walletUsage(),
-      WAGER_COPY.walletInvalid(),
-      WAGER_COPY.walletPubkeyTaken(),
-      WAGER_COPY.walletLinked('Pub', { creditedCount: 1, creditedLamports: 1n }, true),
+      WAGER_COPY.walletSetupUnavailable(),
       WAGER_COPY.walletStatus('Pub', 1n),
       WAGER_COPY.depositInstructions('Treasury', false),
       WAGER_COPY.depositCredited('A', 1n, 2n),
@@ -83,10 +94,28 @@ describe('copy bank hygiene', () => {
       WAGER_COPY.opsSolvencyAlert(1n, 2n),
       WAGER_COPY.opsSolvencyRecovered(),
     ];
+    const banned = [
+      /\bRep\b/i,
+      /\breplay\b/i,
+      /\bcash\s*out\b/i,
+      /\bstack\b/i,
+      /\breal\s+(?:devnet\s+)?SOL\b/i,
+    ];
     for (const line of samples) {
       expect(line.trim().length).toBeGreaterThan(0);
       expect(line).not.toMatch(/\$\{|\{\w+\}/); // no unrendered templates
+      for (const pattern of banned) expect(line).not.toMatch(pattern);
     }
+  });
+
+  it('states that test SOL has no monetary value on onboarding and card fallbacks', () => {
+    const onboarding = WAGER_COPY.unlinkedOnboarding();
+    expect(onboarding).toMatch(/test SOL/i);
+    expect(onboarding).toMatch(/no monetary value/i);
+    expect(onboarding).toMatch(/No SOL moved/i);
+    expect(onboarding).not.toMatch(/\b(?:awarded|credited|funded|placed|recorded|success(?:ful)?)\b/i);
+    expect(WAGER_COPY.cardFooter()).toMatch(/test SOL/i);
+    expect(WAGER_COPY.cardFooter()).toMatch(/no monetary value/i);
   });
 
   it('the deposit explainer carries the devnet-only warning and the treasury address', () => {
@@ -102,5 +131,28 @@ describe('copy bank hygiene', () => {
     expect(WAGER_COPY.payoutsLineVoid()).toContain('(devnet)');
     expect(WAGER_COPY.payoutsLineNone()).toContain('(devnet)');
     expect(WAGER_COPY.payoutsLine(['x'])).toContain('(devnet)');
+  });
+
+  it('mainnet copy removes test-token language and stamps value movement', () => {
+    const copy = createWagerCopy('mainnet-beta');
+    const samples = [
+      copy.unlinkedOnboarding(),
+      copy.insufficient(1n),
+      copy.stakePlaced('A', 'Backing', 1n, '2'),
+      copy.walletStatus('Pub', 1n),
+      copy.depositInstructions('TreasuryAddr', true),
+      copy.depositCredited('A', 1n, 2n),
+      copy.withdrawUsage(),
+      copy.withdrawQueued(1n),
+      copy.withdrawConfirmed('A', 1n, 'u'),
+      copy.cardFooter(),
+      copy.payoutsLineVoid(),
+      copy.payoutsLineNone(),
+      copy.payoutsLine(['x']),
+      copy.opsSolvencyAlert(1n, 2n),
+    ];
+    expect(samples.join('\n')).not.toMatch(/devnet|test SOL|faucet/i);
+    expect(copy.depositInstructions('TreasuryAddr', true)).toContain('MAINNET ONLY');
+    expect(copy.withdrawConfirmed('A', 1n, 'u')).toContain('(mainnet)');
   });
 });

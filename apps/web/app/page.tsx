@@ -1,122 +1,98 @@
 import type { Metadata } from 'next';
-import { Badge, Card, PageShell, SectionTitle } from '@/components/ui';
+import { PageShell } from '@/components/ui';
+import { buildTelegramGroupAddUrl } from '@/lib/entry';
+import { isMainnet } from '@/lib/solana-network';
 
 export const metadata: Metadata = {
-  description:
-    'Callie books the bets your group already argues about — prices each match-night call off the live feed, matches it in devnet SOL, and settles it from verified data with a receipt anyone can check on Solana.',
+  description: 'Add Called It to your Telegram group to put football calls on the record.',
 };
 
-const SAFE_FALLBACK_URL = '/';
-
-function resolveOnboardingUrl(value: string | undefined): string {
-  if (!value) return SAFE_FALLBACK_URL;
-
-  try {
-    const url = new URL(value);
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : SAFE_FALLBACK_URL;
-  } catch {
-    return SAFE_FALLBACK_URL;
-  }
-}
-
-const DEMO_GROUP_URL = resolveOnboardingUrl(process.env.NEXT_PUBLIC_TELEGRAM_GROUP_URL);
-const SAMPLE_RECEIPT_URL = resolveOnboardingUrl(process.env.NEXT_PUBLIC_SAMPLE_RECEIPT_URL);
-const hasDemoGroupUrl = DEMO_GROUP_URL !== SAFE_FALLBACK_URL;
-const hasSampleReceiptUrl = SAMPLE_RECEIPT_URL !== SAFE_FALLBACK_URL;
-
-const LOOP_STEPS = [
-  {
-    step: '01',
-    title: 'Make the call',
-    body: 'Someone talks big in the chat — “Mbappé scores twice today”. Callie prices it on the spot: data says 9%. Anyone want to make him prove it?',
-  },
-  {
-    step: '02',
-    title: 'Back it or bet against it',
-    body: 'One tap and you’re matched — back the call or bet against it, your devnet SOL riding at ×9. The multiplier locks the second you commit. VAR check? Calls freeze until it clears.',
-  },
-  {
-    step: '03',
-    title: 'Keep the receipt',
-    body: 'The moment the deciding stat confirms, it settles and the pot pays out — no arguments. The receipt lives on a public page with the evidence and a proof anyone can check on Solana.',
-  },
+const STEPS = [
+  ['1', 'Add', 'Add Called It to your Telegram group.'],
+  ['2', 'Say it', 'Make a clear football call in the chat.'],
+  ['3', 'Take a side', 'Your group chooses whether it happens.'],
 ] as const;
 
 export default function LandingPage() {
+  const mainnet = isMainnet();
+  const telegramGroupUrl = buildTelegramGroupAddUrl(
+    process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME,
+  );
+
   return (
-    <PageShell topRight={<Badge tone="pitch">Live on Telegram</Badge>}>
-      {/* Masthead */}
-      <div className="mt-6 sm:mt-10">
-        <p className="display-type text-[13px] tracking-[0.3em] text-pitch-400">
-          Big mouth? Prove it.
-        </p>
+    <PageShell
+      topRight={
+        telegramGroupUrl ? (
+          <a
+            href={telegramGroupUrl}
+            className="inline-flex min-h-11 items-center text-sm font-semibold text-pitch-300 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+          >
+            Add to Telegram
+          </a>
+        ) : (
+          <span className="text-xs text-fog">Telegram unavailable</span>
+        )
+      }
+    >
+      <section className="entry-page mt-2 border-b border-line pb-6 sm:mt-6">
+        <p className="text-sm font-semibold text-pitch-300">Football calls, on the record</p>
         <h1 className="display-type mt-2 text-6xl text-chalk sm:text-7xl">
           Called <span className="text-pitch-400">It</span>
         </h1>
-        <p className="mt-4 max-w-md text-base leading-relaxed text-fog">
-          Callie books the calls your group already argues about. She prices each match-night call
-          off the live feed, matches whoever backs it against whoever doubts it in devnet SOL, and
-          settles it from verified match data seconds after the moment — with a receipt anyone can
-          check on Solana.
+        <p className="mt-4 max-w-lg text-base leading-relaxed text-fog">
+          &quot;Arsenal score before half-time.&quot; Add Called It to your Telegram group, say a football
+          call, and let the group take a side from the live match data.
         </p>
-      </div>
 
-      {/* The loop */}
-      <div className="mt-6 space-y-3">
-        <SectionTitle>The loop</SectionTitle>
-        {LOOP_STEPS.map(({ step, title, body }) => (
-          <Card key={step} className="flex gap-4">
-            <span className="display-type text-3xl text-line" aria-hidden>
-              {step}
-            </span>
-            <div>
-              <h3 className="display-type text-xl text-chalk">{title}</h3>
-              <p className="mt-1 text-sm leading-relaxed text-fog">{body}</p>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      {/* Trust strip */}
-      <Card className="border-pitch-500/30 bg-pitch-500/5">
-        <div className="flex items-start gap-3">
-          <Badge tone="pitch" className="mt-0.5 shrink-0">
-            Chain-proven ✓
-          </Badge>
-          <p className="text-sm leading-relaxed text-fog">
-            Team-stat verdicts are re-checkable against a Merkle root published on Solana — in
-            your browser, on this site. No wallet, no login, no app install.
+        {telegramGroupUrl ? (
+          <a
+            href={telegramGroupUrl}
+            className="display-type mt-6 flex min-h-11 items-center justify-center rounded-lg bg-pitch-500 px-5 py-3 text-center text-lg text-night-950 transition-colors hover:bg-pitch-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-night-950 motion-reduce:transition-none"
+          >
+            Add to Telegram group
+          </a>
+        ) : (
+          <p role="status" className="mt-6 text-sm leading-relaxed text-fog">
+            Telegram setup is unavailable. No call or SOL changed. Check the published bot
+            configuration and try again.
           </p>
-        </div>
-      </Card>
+        )}
 
-      {/* Calls to action */}
-      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" aria-label="Get started">
-        <a
-          href={DEMO_GROUP_URL}
-          className="display-type min-h-14 rounded-2xl bg-pitch-500 px-5 py-4 text-center text-lg text-night-950 transition-transform hover:scale-[1.01] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-pitch-300"
-          aria-describedby={!hasDemoGroupUrl ? 'onboarding-link-status' : undefined}
-        >
-          {hasDemoGroupUrl ? 'Add Callie to your group' : 'Group link not configured'}
-        </a>
-        <a
-          href={SAMPLE_RECEIPT_URL}
-          className="display-type min-h-14 rounded-2xl border border-line bg-night-800 px-5 py-4 text-center text-lg text-chalk transition-colors hover:border-pitch-500/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-pitch-300"
-          aria-describedby={!hasSampleReceiptUrl ? 'onboarding-link-status' : undefined}
-        >
-          {hasSampleReceiptUrl ? 'Open a sample receipt' : 'Sample receipt not configured'}
-        </a>
-      </div>
-
-      {!hasDemoGroupUrl || !hasSampleReceiptUrl ? (
-        <p className="text-center text-xs leading-relaxed text-fog/80" id="onboarding-link-status">
-          Demo links will appear here when configured. You can still browse the site safely.
+        <p className="mt-3 text-sm text-fog">
+          {mainnet
+            ? 'SOL positions use Solana mainnet.'
+            : 'Devnet SOL only. Test tokens have no monetary value.'}
         </p>
-      ) : null}
+      </section>
 
-      <p className="mt-1 text-center text-xs text-fog/80">
-        Every pot is devnet SOL — test tokens, not real money.
-      </p>
+      <section aria-labelledby="how-it-works" className="py-2">
+        <h2 id="how-it-works" className="display-type text-xl text-chalk">
+          Three moves
+        </h2>
+        <ol className="mt-3 grid gap-3 border-t border-line pt-3 sm:grid-cols-3">
+          {STEPS.map(([number, title, body]) => (
+            <li key={title} className="grid grid-cols-[1.5rem_1fr] gap-2">
+              <span className="display-type text-xl text-pitch-300" aria-hidden>
+                {number}
+              </span>
+              <div>
+                <h3 className="font-semibold text-chalk">{title}</h3>
+                <p className="mt-1 text-sm leading-relaxed text-fog">{body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section aria-labelledby="proof-next" className="border-t border-line pt-5">
+        <p className="text-sm font-semibold text-pitch-300">On the record</p>
+        <h2 id="proof-next" className="display-type mt-1 text-2xl text-chalk">
+          Settled calls carry their evidence.
+        </h2>
+        <p className="mt-2 max-w-lg text-sm leading-relaxed text-fog">
+          Every settled call can have a public receipt with the match evidence and proof status.
+        </p>
+      </section>
     </PageShell>
   );
 }

@@ -1,16 +1,16 @@
 /**
  * Passive claim detection (the product's identity):
- * message → deterministic prefilter → classifier → immediate priced offer
- * (high confidence, nudge mode) or silent 👀 (medium), gated on the group's
- * chattiness AND the bot's admin status (the per-group consent lever).
- * Trigger paths (@mention, "book it" reply) bypass the classifier and always
- * post their result.
+ * message → deterministic prefilter → classifier → owner confirmation. The
+ * only direct path is the author's own mention or own "book it" reply; a
+ * passive detection or friend trigger never parses, prices, or publishes terms
+ * until the original speaker confirms.
  */
 
 import type { Bot } from 'grammy';
 import { TUNABLES } from '@calledit/market-engine';
 import { ensureChatContext, ensureUserSeen, type HandlerCtx } from './context.js';
 import { offerClaim } from '../pipeline/offer.js';
+import { isBetaGroupAllowed } from './beta-access.js';
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -22,6 +22,7 @@ export function registerDetection(bot: Bot, h: HandlerCtx): void {
   bot.on('message:text', async (ctx) => {
     const chat = ctx.chat;
     if (chat.type !== 'group' && chat.type !== 'supergroup') return;
+    if (!isBetaGroupAllowed(h.deps.env, chat.id)) return;
     const from = ctx.from;
     if (!from || from.is_bot) return;
     const text = ctx.message.text;
@@ -44,6 +45,7 @@ export function registerDetection(bot: Bot, h: HandlerCtx): void {
           sourceMessageId: ctx.message.message_id,
           confidence: null,
           announce: true,
+          consent: 'explicit',
         });
       } else if (mentionReply?.text && mentionReply.from && !mentionReply.from.is_bot) {
         await ensureUserSeen(h, chat.id, mentionReply.from);
@@ -55,6 +57,7 @@ export function registerDetection(bot: Bot, h: HandlerCtx): void {
           sourceMessageId: mentionReply.message_id,
           confidence: null,
           announce: true,
+          consent: mentionReply.from.id === from.id ? 'explicit' : 'awaiting_confirm',
         });
       }
       return;
@@ -73,6 +76,7 @@ export function registerDetection(bot: Bot, h: HandlerCtx): void {
           sourceMessageId: replyTarget.message_id,
           confidence: null,
           announce: true,
+          consent: replyTarget.from.id === from.id ? 'explicit' : 'awaiting_confirm',
         });
       }
       return;
@@ -83,7 +87,7 @@ export function registerDetection(bot: Bot, h: HandlerCtx): void {
     const entities = await h.entities.get();
     if (!h.deps.agent.prefilter(text, entities)) return;
     if (!h.budget.allow(group.id)) {
-      h.deps.log.info('llm_budget_exhausted', { groupId: group.id });
+      h.deps.log.info('llm_budget_exhausted');
       return;
     }
 
@@ -91,20 +95,22 @@ export function registerDetection(bot: Bot, h: HandlerCtx): void {
     try {
       result = await h.deps.agent.classify(text, entities);
     } catch (err) {
-      h.deps.log.warn('classify_failed', { groupId: group.id, error: String(err) });
+      h.deps.log.warn('classify_failed', {
+        reason: err instanceof Error ? 'classifier_exception' : 'unknown_exception',
+      });
       return;
     }
     h.deps.log.info('classified', {
-      groupId: group.id,
       isClaim: result.isClaim,
       confidence: result.confidence,
       guess: result.claimTypeGuess,
     });
     if (!result.isClaim) return;
 
-    if (result.confidence >= TUNABLES.CLASSIFIER_NUDGE_THRESHOLD && group.chattiness === 'nudge') {
-      // High confidence: parse + price + offer immediately. Silent on parse
-      // failures (this was auto-detected, not an explicit ask).
+    if (result.confidence >= TUNABLES.CLASSIFIER_REACT_THRESHOLD) {
+      // Passive classification only establishes enough confidence to ask the
+      // author. The compiler has not seen the raw call yet, so no public terms
+      // or quote can exist before their explicit confirmation.
       await offerClaim(h, {
         chatId: chat.id,
         group,
@@ -113,24 +119,7 @@ export function registerDetection(bot: Bot, h: HandlerCtx): void {
         sourceMessageId: ctx.message.message_id,
         confidence: result.confidence,
         announce: false,
-      });
-      return;
-    }
-    if (result.confidence >= TUNABLES.CLASSIFIER_REACT_THRESHOLD) {
-      // Low-noise acknowledgment; the row lets a later /bookit trace lineage.
-      try {
-        await ctx.react('👀');
-      } catch (err) {
-        h.deps.log.warn('react_failed', { groupId: group.id, error: String(err) });
-      }
-      await h.deps.db.insertClaim({
-        group_id: chat.id,
-        claimer_user_id: from.id,
-        tg_message_id: ctx.message.message_id,
-        quoted_text: text,
-        status: 'detected',
-        classifier_confidence: result.confidence,
-        expires_at: new Date(h.deps.now() + TUNABLES.UNCONFIRMED_CLAIM_TTL_MS).toISOString(),
+        consent: 'awaiting_confirm',
       });
     }
   });

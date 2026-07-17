@@ -4,7 +4,7 @@ import { cx } from '@/lib/cx';
 
 const DOT_STYLES: Record<TimelineStep['state'], string> = {
   done: 'border-pitch-500 bg-pitch-500/20 text-pitch-300',
-  current: 'border-flood-500 bg-flood-500/20 text-flood-300 animate-pulse',
+  current: 'border-flood-500 bg-flood-500/20 text-flood-300',
   upcoming: 'border-line bg-night-800 text-fog',
 };
 

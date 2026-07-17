@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://called.it/schemas/escrow/ops-status-v1.json",
+  "title": "Called It sanitized escrow operations snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "cluster", "capturedAt", "assets", "signers", "relayer", "indexer", "rpc", "claims", "legacy"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "cluster": { "type": "string" },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "assets": { "type": "object", "additionalProperties": false, "required": ["sol", "usdc"], "properties": { "sol": { "$ref": "#/$defs/asset" }, "usdc": { "$ref": "#/$defs/asset" } } },
+    "signers": { "type": "object", "required": ["configured", "required", "agreeing", "disagreement", "outage"] },
+    "relayer": { "type": "object", "required": ["deadJobs", "unknownJobs", "oldestUnknownAgeSeconds", "maxUnknownAgeSeconds", "feeBalanceLamports", "minFeeReserveLamports"] },
+    "indexer": { "type": "object", "required": ["cursorLagSlots", "maxCursorLagSlots"] },
+    "rpc": { "type": "object", "required": ["genesisMatch", "programMatch", "configMatch", "providerAgreement"] },
+    "claims": { "type": "object", "required": ["backlogCount", "maxBacklogCount", "oldestAgeSeconds", "maxOldestAgeSeconds"] },
+    "legacy": { "type": "object", "required": ["recordedLiabilityAtomic", "reconciledLiabilityAtomic", "availableTreasuryAtomic", "withdrawalsAvailable", "newIntakeDisabled"] }
+  },
+  "$defs": {
+    "atomic": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "asset": { "type": "object", "additionalProperties": false, "required": ["vaultBalanceAtomic", "calculatedLiabilityAtomic", "expectedResidualAtomic"], "properties": { "vaultBalanceAtomic": { "$ref": "#/$defs/atomic" }, "calculatedLiabilityAtomic": { "$ref": "#/$defs/atomic" }, "expectedResidualAtomic": { "$ref": "#/$defs/atomic" } } }
+  }
+}

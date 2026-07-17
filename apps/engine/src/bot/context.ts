@@ -12,6 +12,7 @@ import type { Say } from './copy.js';
 import type { IngestSupervisor } from '../ingest/supervisor.js';
 import type { EntityCache } from './entities.js';
 import type { LlmBudget } from './budget.js';
+import type { EscrowTelegramPort } from './escrow-ux.js';
 
 export interface HandlerCtx {
   deps: Deps;
@@ -21,6 +22,8 @@ export interface HandlerCtx {
   supervisor: IngestSupervisor;
   entities: EntityCache;
   budget: LlmBudget;
+  /** Optional until the escrow wiring wave binds identity and placement services. */
+  escrow?: EscrowTelegramPort;
 }
 
 export function displayName(user: Pick<User, 'first_name' | 'last_name'>): string {
@@ -56,7 +59,9 @@ export async function isGroupAdmin(
     const member = await getChatMember();
     return member.status === 'administrator' || member.status === 'creator';
   } catch (err) {
-    h.deps.log.warn('admin_check_failed', { error: String(err) });
+    h.deps.log.warn('admin_check_failed', {
+      reason: err instanceof Error ? 'telegram_api_exception' : 'unknown_exception',
+    });
     return false;
   }
 }

@@ -2,7 +2,8 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
 
 permissions:
@@ -15,31 +16,56 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.5
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Setup Node
-        uses: actions/setup-node@v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
+          node-version: 24.11.1
 
-      - name: Enable pnpm
-        run: corepack enable
+      - name: Resolve pnpm store
+        id: pnpm-store
+        run: echo "path=$(npx -y pnpm@10.33.0 store path --silent)" >> "$GITHUB_OUTPUT"
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Cache pnpm store
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
 
-      - name: Typecheck
-        run: pnpm typecheck
+      - name: Install
+        run: npx -y pnpm@10.33.0 install --frozen-lockfile
 
-      - name: Test
-        run: pnpm test
+      - name: Verify
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+        run: |
+          set -o pipefail
+          mkdir -p .omo/evidence
+          npx -y pnpm@10.33.0 verify 2>&1 | tee .omo/evidence/ci-verify.log
 
-      - name: Build packages and web app
-        run: pnpm build
-
-      - name: Build concierge
-        run: pnpm --filter callie eve:build
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: calledit-ci-failure
+          path: |
+            .omo/evidence/**
+            .turbo/runs/**

@@ -8,9 +8,6 @@ import { encodeCallback } from './callbackData.js';
 import type { Chattiness } from '../localTypes.js';
 import type { Deps, MarketRow } from '../ports.js';
 
-/** SOL amounts shown when the wager module can't be reached (it always can now). */
-const DEFAULT_PRESET_LABELS: readonly [string, string, string] = ['0.01 SOL', '0.05 SOL', '0.1 SOL'];
-
 /**
  * Single-button retry after an infrastructure blip during the parse: re-runs
  * the claim through the parser with no re-detection. Its `t:'prove'` guard
@@ -42,39 +39,44 @@ export function retryQuoteKeyboard(claimId: string, optionKey: string): InlineKe
   );
 }
 
-/** Back / Bet-against rows with the three SOL preset amounts. */
-export function stakeKeyboard(
-  marketId: string,
-  presetLabels: readonly [string, string, string],
-): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
-  presetLabels.forEach((label, index) => {
-    keyboard.text(
-      `⚡ Back ${label}`,
-      encodeCallback({ t: 'stake', marketId, side: 'back', presetIndex: index }),
-    );
-  });
-  keyboard.row();
-  presetLabels.forEach((label, index) => {
-    keyboard.text(
-      `🛑 Against ${label}`,
-      encodeCallback({ t: 'stake', marketId, side: 'doubt', presetIndex: index }),
-    );
-  });
-  return keyboard;
+/** Only the original speaker may use this gate; callbacks enforce ownership. */
+export function confirmKeyboard(claimId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('Confirm', encodeCallback({ t: 'confirm', claimId }))
+    .text('Decline', encodeCallback({ t: 'decline', claimId }));
 }
 
-/** Stake keyboard for a market row: labels come from the wager preset amounts. */
-export function marketStakeKeyboard(deps: Deps, market: MarketRow): InlineKeyboard {
-  const labels = deps.wager?.presetLabels() ?? DEFAULT_PRESET_LABELS;
-  return stakeKeyboard(market.id, labels);
+/** The beta exposes exactly the two fixed 0.01 SOL choices. */
+export function offerKeyboard(market: MarketRow): InlineKeyboard {
+  const amount = market.currency === 'usdc' ? '1 USDC' : '0.01 SOL';
+  return new InlineKeyboard()
+    .text(
+      `It happens · ${amount}`,
+      encodeCallback({ t: 'stake', marketId: market.id, side: 'back', presetIndex: 0 }),
+    )
+    .row()
+    .text(
+      `It does not · ${amount}`,
+      encodeCallback({ t: 'stake', marketId: market.id, side: 'doubt', presetIndex: 0 }),
+    );
 }
 
-/** The offer card keyboard: both stake sides plus the claimer's "not mine" out. */
-export function offerKeyboard(deps: Deps, market: MarketRow, claimId: string): InlineKeyboard {
-  const keyboard = marketStakeKeyboard(deps, market);
-  keyboard.row().text('Not mine ❌', encodeCallback({ t: 'decline', claimId }));
-  return keyboard;
+export function stakeConfirmationKeyboard(intentId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('Confirm', encodeCallback({ t: 'stake_confirm', intentId }))
+    .text('Cancel', encodeCallback({ t: 'stake_cancel', intentId }));
+}
+
+export function voidReplayBlockerKeyboard(marketId: string): InlineKeyboard {
+  return new InlineKeyboard().text(
+    'Void call',
+    encodeCallback({ t: 'void_replay_blocker', marketId }),
+  );
+}
+
+/** A refresh preserves the same two-action public offer contract. */
+export function marketStakeKeyboard(_deps: Deps, market: MarketRow): InlineKeyboard {
+  return offerKeyboard(market);
 }
 
 export function settingsKeyboard(current: Chattiness, webEnabled: boolean): InlineKeyboard {

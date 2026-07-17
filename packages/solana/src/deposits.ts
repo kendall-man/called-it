@@ -177,6 +177,74 @@ export async function fetchIncomingTransfers(
   }
 }
 
+/**
+ * Scan finalized SPL-token transfers into a known treasury token account.
+ * The destination account fixes the mint; transferChecked instructions are
+ * additionally required to report that same mint. The signer authority is
+ * used as the linked wallet identity.
+ */
+export async function fetchIncomingTokenTransfers(
+  rpc: DepositScanRpc,
+  treasuryTokenAccount: PublicKey | string,
+  expectedMint: PublicKey | string,
+  options: FetchIncomingTransfersOptions = {},
+): Promise<FetchIncomingTransfersResult> {
+  const pageLimit = options.pageLimit ?? SIGNATURE_PAGE_LIMIT;
+  const batchSize = options.batchSize ?? PARSED_TX_BATCH_SIZE;
+  const minimum = options.minLamports ?? 0n;
+  try {
+    const destinationPk = typeof treasuryTokenAccount === 'string'
+      ? new PublicKey(treasuryTokenAccount)
+      : treasuryTokenAccount;
+    const mintPk = typeof expectedMint === 'string' ? new PublicKey(expectedMint) : expectedMint;
+    const destination = destinationPk.toBase58();
+    const mint = mintPk.toBase58();
+    const infos = await collectSignatureInfos(
+      rpc,
+      destinationPk,
+      options.untilSig,
+      pageLimit,
+      options.retry,
+    );
+    const candidates = infos.filter(
+      (info) => info.err == null && info.signature !== options.untilSig,
+    );
+    const transfersPerTx: IncomingTransfer[][] = [];
+    for (let offset = 0; offset < candidates.length; offset += batchSize) {
+      const batch = candidates.slice(offset, offset + batchSize);
+      const sigs = batch.map((info) => info.signature);
+      const parsedBatch = await withRetry(
+        () => rpc.getParsedTransactions(sigs, {
+          commitment: DEPOSIT_COMMITMENT,
+          maxSupportedTransactionVersion: MAX_SUPPORTED_TX_VERSION,
+        }),
+        options.retry,
+      );
+      for (let index = 0; index < sigs.length; index++) {
+        const sig = sigs[index]!;
+        const tx = parsedBatch[index] ?? null;
+        if (tx === null) {
+          return {
+            ok: false,
+            error: `fetchIncomingTokenTransfers: getParsedTransactions returned null for finalized signature ${sig}`,
+          };
+        }
+        const extracted = extractTokenTransfers(sig, tx, destination, mint, minimum);
+        if (!extracted.ok) return extracted;
+        transfersPerTx.push(extracted.transfers);
+      }
+    }
+    return {
+      ok: true,
+      transfers: transfersPerTx.reverse().flat(),
+      newestSig: infos[0]?.signature ?? null,
+      scannedSigs: infos.length,
+    };
+  } catch (cause) {
+    return { ok: false, error: `fetchIncomingTokenTransfers: ${errorMessage(cause)}` };
+  }
+}
+
 // ── internals ────────────────────────────────────────────────────────────────
 
 function errorMessage(cause: unknown): string {
@@ -272,6 +340,55 @@ function extractTreasuryTransfers(
     const lamports = BigInt(transfer.lamports);
     if (lamports < minLamports) continue;
     transfers.push({ sig, ixIndex, sender: transfer.source, lamports, slot: tx.slot });
+  }
+  return { ok: true, transfers };
+}
+
+function extractTokenTransfers(
+  sig: string,
+  tx: ParsedTransactionLike,
+  treasuryTokenAccount: string,
+  expectedMint: string,
+  minimum: bigint,
+): { ok: true; transfers: IncomingTransfer[] } | { ok: false; error: string } {
+  if (tx.meta?.err != null) return { ok: true, transfers: [] };
+  const transfers: IncomingTransfer[] = [];
+  const instructions = tx.transaction.message.instructions;
+  for (let ixIndex = 0; ixIndex < instructions.length; ixIndex++) {
+    const ix = instructions[ixIndex];
+    if (ix?.program !== 'spl-token' || typeof ix.parsed !== 'object' || ix.parsed === null) continue;
+    const parsed = ix.parsed as { type?: unknown; info?: unknown };
+    if (parsed.type !== 'transfer' && parsed.type !== 'transferChecked') continue;
+    const info = parsed.info as {
+      source?: unknown;
+      destination?: unknown;
+      authority?: unknown;
+      mint?: unknown;
+      amount?: unknown;
+      tokenAmount?: { amount?: unknown };
+    } | null;
+    if (
+      info === null
+      || typeof info.destination !== 'string'
+      || typeof info.source !== 'string'
+      || typeof info.authority !== 'string'
+      || info.destination !== treasuryTokenAccount
+      || info.source === treasuryTokenAccount
+    ) continue;
+    if (parsed.type === 'transferChecked' && info.mint !== expectedMint) continue;
+    const amount = parsed.type === 'transferChecked' ? info.tokenAmount?.amount : info.amount;
+    if (typeof amount !== 'string' || !/^\d+$/.test(amount)) {
+      return { ok: false, error: `unsafe token amount in ${sig}[${ixIndex}]` };
+    }
+    const atomic = BigInt(amount);
+    if (atomic < minimum) continue;
+    transfers.push({
+      sig,
+      ixIndex,
+      sender: info.authority,
+      lamports: atomic,
+      slot: tx.slot,
+    });
   }
   return { ok: true, transfers };
 }
