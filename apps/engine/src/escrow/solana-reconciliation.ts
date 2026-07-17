@@ -130,6 +130,7 @@ export class SolanaEscrowReconciliationChain implements EscrowReconciliationChai
       asset: market.asset,
       tokenMint: market.tokenMint,
       state: market.state,
+      eventEpoch: market.eventEpoch,
       ratioMilli: BigInt(market.ratioMilli),
       settlementOutcome: market.settlementOutcome,
       vaultPrincipalAtomic,

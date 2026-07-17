@@ -179,10 +179,10 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   table_header: (vars) => `THE TABLE — ${value(vars, 'groupTitle', 'this group')}`,
   slate_intro: (vars) => `Morning, legends — today's card: ${value(vars, 'fixtures', 'check back soon')}`,
   replay_started: (vars) => isEscrow(vars)
-    ? `COMPLETED-MATCH REPLAY: ${value(vars, 'fixture')} is running at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. Positions use ${isMainnet(vars) ? 'allowlisted, capped mainnet SOL or canonical USDC' : 'devnet test SOL or test USDC'} through the same private Privy approval. Replay results do not change Points.`
+    ? `COMPLETED-MATCH REPLAY: ${value(vars, 'fixture')} is running at ${value(vars, 'speed', '20')}x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. Positions use ${isMainnet(vars) ? 'allowlisted, capped mainnet SOL or canonical USDC' : 'devnet test SOL or test USDC'} through the same private Privy approval. Replay results do not change Points.`
     : isMainnet(vars)
-      ? `TEST MATCH: ${value(vars, 'fixture')} is replaying at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. Positions use real mainnet SOL and require confirmation. Test results do not change Points.`
-      : `TEST MATCH: ${value(vars, 'fixture')} is replaying at 20x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. No test SOL moves and test results do not change Points.`,
+      ? `TEST MATCH: ${value(vars, 'fixture')} is replaying at ${value(vars, 'speed', '20')}x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. Positions use real mainnet SOL and require confirmation. Test results do not change Points.`
+      : `TEST MATCH: ${value(vars, 'fixture')} is replaying at ${value(vars, 'speed', '20')}x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. No test SOL moves and test results do not change Points.`,
   replay_finished: (vars) => isEscrow(vars)
     ? `COMPLETED-MATCH REPLAY FINISHED: ${value(vars, 'fixture')}. Signed replay settlement is confirming on ${isMainnet(vars) ? 'mainnet' : 'devnet'}; the group updates only after on-chain finalization. Points did not change.`
     : isMainnet(vars)

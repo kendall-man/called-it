@@ -36,3 +36,4 @@ test-ledger/
 
 # Local agent tooling (generic skill packs, not project content)
 .agents/
+.env*

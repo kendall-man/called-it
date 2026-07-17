@@ -109,7 +109,7 @@ function setup(
     },
     requests, workflow,
   });
-  return { scheduler, persisted, loadCalls: () => loadCalls };
+  return { scheduler, persisted, currentMarket, loadCalls: () => loadCalls };
 }
 
 describe('escrow TxLINE durable event workflow scheduler', () => {
@@ -211,6 +211,33 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
     expect(fixture.persisted.find((value) => value.request.operation === 'settle_market')).toMatchObject({
       replay: true, request: { operation: 'settle_market' },
     });
+  });
+
+  it('resumes a prior-run replay escrow market after the engine restarts', async () => {
+    const fixture = setup(true);
+
+    await fixture.scheduler.onReplayEvent(
+      GROUP_ID,
+      event(),
+      Date.parse('2026-07-16T00:00:00.000Z'),
+    );
+
+    expect(fixture.persisted.map((value) => value.request.operation)).toEqual([
+      'freeze_market', 'invalidate_position_lot',
+    ]);
+  });
+
+  it.each([
+    ['another group', (row: MarketRow) => { row.group_id = GROUP_ID - 1; }],
+    ['another fixture', (row: MarketRow) => { row.fixture_id = 78; }],
+    ['a live market', (row: MarketRow) => { row.is_replay = false; }],
+  ])('excludes %s from replay escrow settlement recovery', async (_label, exclude) => {
+    const fixture = setup(true);
+    exclude(fixture.currentMarket);
+
+    await fixture.scheduler.onReplayEvent(GROUP_ID, event(), 0);
+
+    expect(fixture.persisted).toEqual([]);
   });
 
   it('does not read finalized Solana state for replay events with no on-chain effect', async () => {

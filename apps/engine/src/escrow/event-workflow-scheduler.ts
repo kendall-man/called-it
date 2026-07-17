@@ -339,17 +339,16 @@ export function createEscrowEventWorkflowScheduler(options: {
     else states.set(market.id, result.state);
   }
 
-  async function matchingMarkets(event: MatchEvent, groupId?: number, replayStartedAtMs?: number) {
+  async function matchingMarkets(event: MatchEvent, groupId?: number) {
     return (await options.deps.db.openMarketsForFixture(event.fixtureId)).filter((market) =>
-      market.custody_mode === 'escrow' && (groupId === undefined
+      market.fixture_id === event.fixtureId && market.custody_mode === 'escrow' && (groupId === undefined
         ? !market.is_replay
-        : market.is_replay && market.group_id === groupId &&
-          Date.parse(market.created_at) >= (replayStartedAtMs ?? Number.NEGATIVE_INFINITY))
+        : market.is_replay && market.group_id === groupId)
     );
   }
 
-  async function run(event: MatchEvent, groupId?: number, replayStartedAtMs?: number): Promise<void> {
-    for (const market of await matchingMarkets(event, groupId, replayStartedAtMs)) {
+  async function run(event: MatchEvent, groupId?: number): Promise<void> {
+    for (const market of await matchingMarkets(event, groupId)) {
       const attempts = groupId === undefined ? 1 : REPLAY_EVENT_ATTEMPTS;
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
@@ -377,8 +376,8 @@ export function createEscrowEventWorkflowScheduler(options: {
 
   return {
     onEvent: (event: MatchEvent) => run(event),
-    onReplayEvent: (groupId: number, event: MatchEvent, replayStartedAtMs?: number) =>
-      run(event, groupId, replayStartedAtMs),
+    onReplayEvent: (groupId: number, event: MatchEvent, _replayStartedAtMs?: number) =>
+      run(event, groupId),
     async tick(_nowMs: number) {},
   };
 }

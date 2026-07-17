@@ -40,10 +40,12 @@ function makeHarness(options: {
   blockingPositions?: Array<{ state: 'pending' | 'active' | 'void' }>;
   network?: 'devnet' | 'mainnet-beta';
   custodyMode?: 'legacy' | 'escrow';
+  replaySpeed?: number;
 } = {}) {
   const handlers = new Map<string, (ctx: any) => Promise<unknown>>();
   const posts: string[] = [];
   const starts: FixtureRow[] = [];
+  const replaySpeeds: number[] = [];
   const operations: string[] = [];
   const postOptions: Array<Record<string, unknown>> = [];
   const group: GroupRow = {
@@ -101,6 +103,7 @@ function makeHarness(options: {
         BETA_ALLOWED_GROUP_IDS: options.allowed === false ? [] : [GROUP_ID],
         SOLANA_NETWORK: options.network ?? 'devnet',
         WAGER_CUSTODY_MODE: options.custodyMode ?? 'legacy',
+        CALLEDIT_REPLAY_SPEED: options.replaySpeed ?? 20,
       },
       log: { info() {}, warn() {}, error() {}, child() { return this; } },
       now: () => NOW_MS,
@@ -115,8 +118,9 @@ function makeHarness(options: {
       renderFallback(key, vars, options.network ?? 'devnet'),
     supervisor: {
       hasActiveReplay: () => false,
-      async startReplay(_groupId: number, fixture: FixtureRow) {
+      async startReplay(_groupId: number, fixture: FixtureRow, speed: number) {
         starts.push(fixture);
+        replaySpeeds.push(speed);
         return options.startResult ?? 'started';
       },
     },
@@ -128,6 +132,7 @@ function makeHarness(options: {
     postOptions,
     posts,
     starts,
+    replaySpeeds,
     async run(match = '') {
       const handler = handlers.get('testmatch');
       if (handler === undefined) throw new Error('testmatch handler was not registered');
@@ -161,13 +166,15 @@ describe('/testmatch', () => {
   });
 
   it('lets an allowlisted group admin start the latest standard completed match', async () => {
-    const harness = makeHarness();
+    const harness = makeHarness({ replaySpeed: 8 });
 
     await harness.run();
 
     expect(harness.starts).toEqual([STANDARD_FINAL]);
+    expect(harness.replaySpeeds).toEqual([8]);
     expect(harness.posts).toHaveLength(1);
     expect(harness.posts[0]).toContain('TEST MATCH: France vs Morocco');
+    expect(harness.posts[0]).toContain('8x speed');
     expect(harness.posts[0]).toContain('No test SOL moves');
     expect(harness.posts[0]).toContain('test results do not change Points.');
     expect(harness.operations).toEqual([

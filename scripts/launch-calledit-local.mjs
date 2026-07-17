@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { parseEnv } from 'node:util';
+import { defaultJourneyProfilePath, loadJourneyProfile } from './local-journey-profile.mjs';
+import { superviseStack } from './local-stack-supervisor.mjs';
 
 const workspace = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
-const runtimePath = `${workspace}/.calledit-local/runtime.env`;
-const runtime = parseEnv(readFileSync(runtimePath, 'utf8'));
+const profile = loadJourneyProfile(defaultJourneyProfilePath(workspace), workspace);
+const runtime = profile.runtime;
 const required = [
   'WEB_BASE_URL',
   'PRIVY_APP_SECRET',
@@ -21,31 +21,28 @@ if (runtime.PRIVY_APP_SECRET.length < 16) {
 }
 
 const common = { ...process.env, ...runtime, CALLEDIT_ENV_PRELOADED: 'true' };
-const engine = spawn('/opt/homebrew/bin/npx', [
+const engine = spawn('npx', [
   '-y', 'pnpm@10.33.0', '--filter', '@calledit/engine', 'exec', 'tsx', 'src/main.ts',
 ], {
   cwd: workspace,
-  env: { ...common, PORT: '8790' },
+  env: { ...common, PORT: String(profile.services.engine.port), HOSTNAME: profile.services.engine.host },
   stdio: 'inherit',
 });
-const web = spawn('/opt/homebrew/bin/npx', [
+const web = spawn('npx', [
   '-y', 'pnpm@10.33.0', '--dir', 'apps/web', 'exec', 'next', 'dev',
-  '--hostname', '127.0.0.1', '--port', '3020',
+  '--hostname', profile.services.web.host, '--port', String(profile.services.web.port),
 ], {
   cwd: workspace,
-  env: { ...common, PORT: '3020', HOSTNAME: '127.0.0.1' },
+  env: { ...common, PORT: String(profile.services.web.port), HOSTNAME: profile.services.web.host },
   stdio: 'inherit',
 });
 
-let stopping = false;
-const stop = () => {
-  if (stopping) return;
-  stopping = true;
-  engine.kill('SIGTERM');
-  web.kill('SIGTERM');
+const stop = superviseStack([engine, web], {
+  onUnexpectedExit: (code) => { process.exitCode = code === 0 ? 1 : code; },
+});
+const handleSignal = () => {
+  stop();
   setTimeout(() => process.exit(0), 2_000).unref();
 };
-engine.on('exit', (code) => { if (!stopping && code !== 0) process.exitCode = code ?? 1; });
-web.on('exit', (code) => { if (!stopping && code !== 0) process.exitCode = code ?? 1; });
-process.on('SIGINT', stop);
-process.on('SIGTERM', stop);
+process.on('SIGINT', handleSignal);
+process.on('SIGTERM', handleSignal);

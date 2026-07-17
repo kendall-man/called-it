@@ -62,6 +62,7 @@ describe('loadEnv', () => {
       SOLANA_RPC_URL: 'https://api.devnet.solana.com',
       PORT: 8790,
       TELEGRAM_INGRESS: 'poll',
+      CALLEDIT_REPLAY_SPEED: 20,
       WAGER_RUNTIME_MODE: 'disabled',
       WAGER_CUSTODY_MODE: 'legacy',
       WAGER_MODE_ENABLED: 'false',
@@ -71,6 +72,10 @@ describe('loadEnv', () => {
       ESCROW_ALLOWED_GROUP_IDS: [],
       BETA_ALLOWED_GROUP_IDS: [],
     });
+  });
+
+  it('parses a configurable local replay speed', () => {
+    expect(loadEnv({ ...BASE_ENV, CALLEDIT_REPLAY_SPEED: '8' }).CALLEDIT_REPLAY_SPEED).toBe(8);
   });
 
   it('fails closed when escrow custody is selected without its deployment contract', () => {

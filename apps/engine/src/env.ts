@@ -167,6 +167,8 @@ const EnvSchema = z.object({
   WEB_CONCIERGE_TOKEN_SHA256: Sha256FingerprintSchema.optional(),
   /** HTTP port for the engine API (Railway injects PORT). */
   PORT: z.coerce.number().int().positive().default(8790),
+  /** Completed-match replay multiplier; configurable so local signed journeys can avoid Telegram rate limits. */
+  CALLEDIT_REPLAY_SPEED: z.coerce.number().int().min(1).max(1_000).default(20),
   /**
    * How Telegram updates reach this process. 'poll' long-polls getUpdates
    * (default, standalone). 'webhook' accepts Bot API updates directly at

@@ -383,7 +383,7 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
       const result = await h.supervisor.startReplay(
         group.id,
         fixture,
-        ENGINE.REPLAY_SPEED,
+        h.deps.env.CALLEDIT_REPLAY_SPEED,
         ENGINE.REPLAY_SETUP_GRACE_MS,
       );
       if (result === 'already_active') {
@@ -405,6 +405,7 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
         fixture: `${fixture.p1_name} vs ${fixture.p2_name}`,
         p1: fixture.p1_name,
         p2: fixture.p2_name,
+        speed: h.deps.env.CALLEDIT_REPLAY_SPEED,
         custodyMode: h.deps.env.WAGER_CUSTODY_MODE,
       }),
       { replyToMessageId },

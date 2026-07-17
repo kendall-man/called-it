@@ -20,6 +20,7 @@ function snapshot(asset: 'sol' | 'usdc'): EscrowReconciliationSnapshot {
     asset,
     tokenMint: asset === 'usdc' ? 'mint-a' : null,
     state: 'open',
+    eventEpoch: 0n,
     ratioMilli: 1_500n,
     settlementOutcome: null,
     vaultPrincipalAtomic: 25n,
@@ -94,7 +95,19 @@ describe('finalized escrow account reconciliation', () => {
 
     // Then the market is marked drifted with a signed delta
     expect(result).toEqual({ status: 'drift', liabilityAtomic: 25n, vaultPrincipalAtomic: 24n, driftAtomic: -1n });
-    expect(fixture.checks[0]?.details).toEqual({ driftAtomic: '-1', custodyMode: 'escrow', asset: 'sol' });
+    expect(fixture.checks[0]?.details).toEqual({
+      driftAtomic: '-1', custodyMode: 'escrow', asset: 'sol', chainState: 'open', eventEpoch: '0',
+    });
+  });
+
+  it('projects finalized freeze state and event epoch through reconciliation', async () => {
+    const fixture = setup({ ...snapshot('sol'), state: 'frozen', eventEpoch: 1n });
+
+    await fixture.reconciler.reconcile({
+      marketId: MARKET_ID, custodyMode: 'escrow', marketPda: 'market-a', vaultPda: 'vault-a', asset: 'sol',
+    });
+
+    expect(fixture.checks[0]?.details).toMatchObject({ chainState: 'frozen', eventEpoch: '1' });
   });
 
   it('rejects wrong program, mint, and legacy custody snapshots', async () => {

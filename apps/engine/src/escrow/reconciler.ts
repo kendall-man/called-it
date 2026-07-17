@@ -28,6 +28,7 @@ export interface EscrowReconciliationSnapshot {
   readonly asset: EscrowAsset;
   readonly tokenMint: string | null;
   readonly state: MarketState;
+  readonly eventEpoch: bigint;
   readonly ratioMilli: bigint;
   readonly settlementOutcome: SettlementOutcome | null;
   readonly vaultPrincipalAtomic: bigint;
@@ -175,7 +176,10 @@ export function createEscrowReconciler(options: {
         liabilityAtomic,
         positionAccountCount: snapshot.positions.length,
         status,
-        details: { driftAtomic: driftAtomic.toString(), custodyMode: 'escrow', asset: snapshot.asset },
+        details: {
+          driftAtomic: driftAtomic.toString(), custodyMode: 'escrow', asset: snapshot.asset,
+          chainState: snapshot.state, eventEpoch: snapshot.eventEpoch.toString(),
+        },
         checkedAtIso: options.clock(),
       });
       return { status, liabilityAtomic, vaultPrincipalAtomic: snapshot.vaultPrincipalAtomic, driftAtomic };

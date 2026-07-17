@@ -1,0 +1,137 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+
+import { defaultJourneyProfilePath, loadJourneyProfile } from './local-journey-profile.mjs';
+
+test('one profile resolves a tunnel origin for web, wallet, and webhook', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'calledit-profile-'));
+  writeFileSync(join(workspace, 'runtime.env'), 'TELEGRAM_BOT_TOKEN=test-only\n', { mode: 0o600 });
+  writeFileSync(join(workspace, 'tunnel-url'), 'https://fresh.example.test\n', { mode: 0o600 });
+  writeFileSync(join(workspace, 'journey.json'), JSON.stringify({
+    version: 1,
+    runtimeEnv: 'runtime.env',
+    publicOrigin: { source: 'file', path: 'tunnel-url' },
+    services: {
+      engine: { host: '127.0.0.1', port: 8790 },
+      web: { host: '127.0.0.1', port: 3020 },
+    },
+    tunnel: { target: 'http://127.0.0.1:3020' },
+    telegram: {
+      webhookPath: '/api/telegram-webhook',
+      allowedUpdates: ['message', 'callback_query', 'my_chat_member'],
+      dropPendingUpdates: true,
+    },
+    chain: {
+      rpcUrl: 'http://127.0.0.1:8899',
+      network: 'devnet',
+      localForkIndexer: true,
+    },
+    replay: { speed: 8 },
+    environment: { TELEGRAM_INGRESS: 'webhook' },
+  }));
+
+  const resolved = loadJourneyProfile(join(workspace, 'journey.json'), workspace);
+
+  assert.equal(resolved.publicOrigin, 'https://fresh.example.test');
+  assert.equal(resolved.runtime.WEB_BASE_URL, 'https://fresh.example.test');
+  assert.equal(resolved.runtime.WALLET_LINK_DOMAIN, 'fresh.example.test');
+  assert.equal(resolved.runtime.SOLANA_RPC_URL, 'http://127.0.0.1:8899');
+  assert.equal(resolved.runtime.ESCROW_LOCAL_FORK_INDEXER, 'true');
+  assert.equal(resolved.runtime.CALLEDIT_REPLAY_SPEED, '8');
+  assert.equal(resolved.runtime.TELEGRAM_INGRESS, 'webhook');
+  assert.equal(resolved.webhookUrl, 'https://fresh.example.test/api/telegram-webhook');
+});
+
+test('profile rejects credential-like settings', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'calledit-profile-'));
+  writeFileSync(join(workspace, 'runtime.env'), '', { mode: 0o600 });
+  const path = join(workspace, 'journey.json');
+  for (const name of ['PRIVATE_SIGNING_KEY', 'GLM_API_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'AUTH_HEADER', 'SESSION_COOKIE']) {
+    writeFileSync(path, JSON.stringify({
+      version: 1,
+      runtimeEnv: 'runtime.env',
+      publicOrigin: { source: 'url', url: 'https://safe.example.test' },
+      services: { engine: { host: '127.0.0.1', port: 8790 }, web: { host: '127.0.0.1', port: 3020 } },
+      tunnel: { target: 'http://127.0.0.1:3020' },
+      telegram: { webhookPath: '/api/telegram-webhook', allowedUpdates: ['message'], dropPendingUpdates: false },
+      chain: { rpcUrl: 'http://127.0.0.1:8899', network: 'devnet', localForkIndexer: true },
+      replay: { speed: 8 },
+      environment: { [name]: 'must-not-live-here' },
+    }));
+
+    assert.throws(() => loadJourneyProfile(path, workspace), /credential-like setting/i);
+  }
+});
+
+test('profile rejects webhook paths that are not clean origin-relative paths', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'calledit-profile-'));
+  writeFileSync(join(workspace, 'runtime.env'), '', { mode: 0o600 });
+  const path = join(workspace, 'journey.json');
+  for (const webhookPath of ['//attacker.example.test/capture', '/hook?mode=test', '/hook#fragment', '/hook\\capture']) {
+    writeFileSync(path, JSON.stringify({
+      version: 1,
+      runtimeEnv: 'runtime.env',
+      publicOrigin: { source: 'url', url: 'https://safe.example.test' },
+      services: { engine: { host: '127.0.0.1', port: 8790 }, web: { host: '127.0.0.1', port: 3020 } },
+      tunnel: { target: 'http://127.0.0.1:3020' },
+      telegram: { webhookPath, allowedUpdates: ['message'], dropPendingUpdates: false },
+      chain: { rpcUrl: 'http://127.0.0.1:8899', network: 'devnet', localForkIndexer: true },
+      replay: { speed: 8 },
+    }));
+
+    assert.throws(() => loadJourneyProfile(path, workspace), /webhookPath/i);
+  }
+});
+
+test('profile allows only documented non-secret environment overrides', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'calledit-profile-'));
+  writeFileSync(join(workspace, 'runtime.env'), '', { mode: 0o600 });
+  const path = join(workspace, 'journey.json');
+  writeFileSync(path, JSON.stringify({
+    version: 1,
+    runtimeEnv: 'runtime.env',
+    publicOrigin: { source: 'url', url: 'https://safe.example.test' },
+    services: { engine: { host: '127.0.0.1', port: 8790 }, web: { host: '127.0.0.1', port: 3020 } },
+    tunnel: { target: 'http://127.0.0.1:3020' },
+    telegram: { webhookPath: '/api/telegram-webhook', allowedUpdates: ['message'], dropPendingUpdates: false },
+    chain: { rpcUrl: 'http://127.0.0.1:8899', network: 'devnet', localForkIndexer: true },
+    replay: { speed: 8 },
+    environment: { LOG_LEVEL: 'debug' },
+  }));
+
+  assert.throws(() => loadJourneyProfile(path, workspace), /environment\.LOG_LEVEL/i);
+});
+
+test('relative profile selection resolves from the workspace', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'calledit-profile-'));
+  const previous = process.env.CALLEDIT_LOCAL_PROFILE;
+  process.env.CALLEDIT_LOCAL_PROFILE = 'profiles/local.json';
+
+  try {
+    assert.equal(defaultJourneyProfilePath(workspace), join(workspace, 'profiles/local.json'));
+  } finally {
+    if (previous === undefined) delete process.env.CALLEDIT_LOCAL_PROFILE;
+    else process.env.CALLEDIT_LOCAL_PROFILE = previous;
+  }
+});
+
+test('profile rejects an unsupported Solana network', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'calledit-profile-'));
+  writeFileSync(join(workspace, 'runtime.env'), '', { mode: 0o600 });
+  const path = join(workspace, 'journey.json');
+  writeFileSync(path, JSON.stringify({
+    version: 1,
+    runtimeEnv: 'runtime.env',
+    publicOrigin: { source: 'url', url: 'https://safe.example.test' },
+    services: { engine: { host: '127.0.0.1', port: 8790 }, web: { host: '127.0.0.1', port: 3020 } },
+    tunnel: { target: 'http://127.0.0.1:3020' },
+    telegram: { webhookPath: '/api/telegram-webhook', allowedUpdates: ['message'], dropPendingUpdates: false },
+    chain: { rpcUrl: 'http://127.0.0.1:8899', network: 'testnet', localForkIndexer: true },
+    replay: { speed: 8 },
+  }));
+
+  assert.throws(() => loadJourneyProfile(path, workspace), /chain\.network/i);
+});
