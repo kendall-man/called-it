@@ -126,6 +126,19 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
     });
   });
 
+  it('binds replay oracle evidence to provider time, not the accelerated test clock', async () => {
+    const fixture = setup(true);
+    const shifted = {
+      ...event({ tsMs: 500_000, receivedAtMs: 501_000 }),
+      providerTsMs: 100_000,
+    };
+
+    await fixture.scheduler.onReplayEvent(GROUP_ID, shifted, 0);
+
+    expect(fixture.persisted.find((value) => value.request.operation === 'freeze_market')?.request)
+      .toMatchObject({ attestation: { observedAt: 100n } });
+  });
+
   it('admits only DB-stamped escrow custody, not legacy rows in the same enabled group', async () => {
     const fixture = setup(false, [], 'legacy');
 

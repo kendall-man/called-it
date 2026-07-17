@@ -144,6 +144,8 @@ describe('replay logging privacy', () => {
     expect(replayed).toHaveLength(1);
     expect(replayed[0]).toMatchObject({ groupId: GROUP_ID, event: { fixtureId: FIXTURE_ID, seq: 11 } });
     expect(replayed[0]!.event.tsMs).toBe(runtime.deps.now());
+    expect((replayed[0]!.event as MatchEvent & { providerTsMs?: number }).providerTsMs)
+      .toBe(historicalTs);
     expect(stopped).toBe(false);
     expect(FIXTURE).toMatchObject({ phase: 'F', last_seq: 1_113 });
 

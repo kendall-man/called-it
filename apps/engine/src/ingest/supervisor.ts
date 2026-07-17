@@ -412,10 +412,13 @@ export class IngestSupervisor {
     replay.firstEventTsMs ??= event.tsMs;
     return {
       ...event,
+      // Preserve provider time for independent oracle evidence verification.
+      // The shifted tsMs below remains the replay's anti-snipe/test clock.
+      providerTsMs: event.tsMs,
       tsMs:
         replay.wallStartedAtMs +
         Math.round((event.tsMs - replay.firstEventTsMs) / replay.speed),
       receivedAtMs: this.deps.now(),
-    };
+    } as MatchEvent & { readonly providerTsMs: number };
   }
 }

@@ -157,9 +157,16 @@ export function createEscrowEventWorkflowScheduler(options: {
     };
   }
 
+  function oracleEvidenceEvent(event: MatchEvent): MatchEvent {
+    const providerTsMs = (event as MatchEvent & { readonly providerTsMs?: unknown }).providerTsMs;
+    return typeof providerTsMs === 'number' && Number.isSafeInteger(providerTsMs) && providerTsMs >= 0
+      ? { ...event, tsMs: providerTsMs }
+      : event;
+  }
+
   function common(context: EscrowWorkflowMarketContext, event: MatchEvent) {
     return {
-      deployment: options.deployment, market: context.binding, event,
+      deployment: options.deployment, market: context.binding, event: oracleEvidenceEvent(event),
       issuedAt: BigInt(Math.floor(event.receivedAtMs / 1_000)), ttlSeconds,
     };
   }
