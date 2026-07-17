@@ -13,6 +13,7 @@ import type { IngestSupervisor } from '../ingest/supervisor.js';
 import type { EntityCache } from './entities.js';
 import type { LlmBudget } from './budget.js';
 import type { EscrowTelegramPort } from './escrow-ux.js';
+import type { UiStateStore } from './stake-ui-state.js';
 
 /** In-process live probes backing the admin /status board. */
 export interface EngineStatusProbes {
@@ -35,6 +36,11 @@ export interface HandlerCtx {
   escrow?: EscrowTelegramPort;
   /** Optional live-status probes for the admin /status board. */
   status?: EngineStatusProbes;
+  /**
+   * In-process two-step stake ladder visual state (STAKE_LADDER_ENABLED). Only
+   * present when the flag is on; its absence is the single-tap flow.
+   */
+  uiState?: UiStateStore;
 }
 
 export function displayName(user: Pick<User, 'first_name' | 'last_name'>): string {

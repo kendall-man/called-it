@@ -87,11 +87,29 @@ describe('Mini App position open boundary', () => {
     expect(JSON.parse(String(init.body))).toEqual({
       marketId: MARKET_ID,
       side: 'back',
-      amountPreset: 0,
+      // Absent suffix defaults to the base stake (code 1). The engine session
+      // schema accepts both amountCode and the legacy amountPreset.
+      amountCode: 1,
       telegramUserId: 42,
       telegramUsername: 'callie_fan',
-      idempotencyKey: sha256Hex(`miniapp:42:${MARKET_ID}:back:${BUCKET}`),
+      idempotencyKey: sha256Hex(`miniapp:42:${MARKET_ID}:back:1:${BUCKET}`),
     });
+  });
+
+  it('forwards the ladder amount code from the start_param suffix', async () => {
+    const fetchImpl = engineResponding(200, { token: SESSION_TOKEN, expiresAtIso: EXPIRES_AT_ISO });
+    const initData = signedInitData({ startParam: `p-${MARKET_HEX}-b-5` });
+
+    const result = await openMiniAppPositionSession({ initData }, dependencies(fetchImpl));
+
+    expect(result.status).toBe(200);
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [URL, RequestInit];
+    const payload = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(payload.amountCode).toBe(5);
+    expect(payload).not.toHaveProperty('amountPreset');
+    // The amount participates in the idempotency key so a re-open at a new rung
+    // mints a distinct session.
+    expect(payload.idempotencyKey).toBe(sha256Hex(`miniapp:42:${MARKET_ID}:back:5:${BUCKET}`));
   });
 
   it('maps the d side code to against', async () => {
@@ -104,7 +122,7 @@ describe('Mini App position open boundary', () => {
     const [, init] = fetchImpl.mock.calls[0] as unknown as [URL, RequestInit];
     const payload = JSON.parse(String(init.body)) as Record<string, unknown>;
     expect(payload.side).toBe('against');
-    expect(payload.idempotencyKey).toBe(sha256Hex(`miniapp:42:${MARKET_ID}:against:${BUCKET}`));
+    expect(payload.idempotencyKey).toBe(sha256Hex(`miniapp:42:${MARKET_ID}:against:1:${BUCKET}`));
     expect(payload).not.toHaveProperty('telegramUsername');
   });
 
@@ -212,23 +230,35 @@ describe('Mini App position open boundary', () => {
       telegramUserId: 42,
       marketId: MARKET_ID,
       side: 'back',
+      amountCode: 1,
       now: NOW,
     });
     const sameBucket = miniAppPositionIdempotencyKey({
       telegramUserId: 42,
       marketId: MARKET_ID,
       side: 'back',
+      amountCode: 1,
       now: new Date(NOW.getTime() + 29_999),
     });
     const nextBucket = miniAppPositionIdempotencyKey({
       telegramUserId: 42,
       marketId: MARKET_ID,
       side: 'back',
+      amountCode: 1,
       now: new Date(NOW.getTime() + 30_000),
     });
-    expect(base).toBe(sha256Hex(`miniapp:42:${MARKET_ID}:back:${BUCKET}`));
+    const otherAmount = miniAppPositionIdempotencyKey({
+      telegramUserId: 42,
+      marketId: MARKET_ID,
+      side: 'back',
+      amountCode: 5,
+      now: NOW,
+    });
+    expect(base).toBe(sha256Hex(`miniapp:42:${MARKET_ID}:back:1:${BUCKET}`));
     expect(sameBucket).toBe(base);
     expect(nextBucket).not.toBe(base);
+    // A different rung in the same bucket is a distinct session.
+    expect(otherAmount).not.toBe(base);
   });
 });
 

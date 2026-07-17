@@ -10,10 +10,12 @@ const MARKET_HEX = '8ec17c8a2a304f089b757cbe565d568f';
 const MARKET_ID = '8ec17c8a-2a30-4f08-9b75-7cbe565d568f';
 
 describe('Mini App start-param contract', () => {
-  it('parses a back-side param into the dashed market uuid', () => {
+  it('parses a back-side param and defaults an absent amount to the base stake', () => {
+    // Every already-posted card omits the amount suffix → code 1 (0.01 SOL).
     expect(parseMiniAppPositionStartParam(`p-${MARKET_HEX}-b`)).toEqual({
       marketId: MARKET_ID,
       side: 'back',
+      amountCode: 1,
     });
   });
 
@@ -21,7 +23,24 @@ describe('Mini App start-param contract', () => {
     expect(parseMiniAppPositionStartParam(`p-${MARKET_HEX}-d`)).toEqual({
       marketId: MARKET_ID,
       side: 'against',
+      amountCode: 1,
     });
+  });
+
+  it('parses the ladder amount code suffix (1/2/5/10)', () => {
+    for (const code of [1, 2, 5, 10] as const) {
+      expect(parseMiniAppPositionStartParam(`p-${MARKET_HEX}-b-${code}`)).toEqual({
+        marketId: MARKET_ID,
+        side: 'back',
+        amountCode: code,
+      });
+    }
+  });
+
+  it('rejects amount suffixes off the 1-2-5-10 series', () => {
+    for (const bad of ['3', '4', '0', '01', '100', 'x']) {
+      expect(parseMiniAppPositionStartParam(`p-${MARKET_HEX}-b-${bad}`), bad).toBeNull();
+    }
   });
 
   it('rejects params outside the exact contract shape', () => {
@@ -42,8 +61,8 @@ describe('Mini App start-param contract', () => {
     }
   });
 
-  it('stays within the 64-char [A-Za-z0-9_-] startapp budget', () => {
-    const param = `p-${MARKET_HEX}-b`;
+  it('stays within the 64-char [A-Za-z0-9_-] startapp budget (longest suffix)', () => {
+    const param = `p-${MARKET_HEX}-b-10`;
     expect(param.length).toBeLessThanOrEqual(64);
     expect(/^[A-Za-z0-9_-]+$/.test(param)).toBe(true);
   });

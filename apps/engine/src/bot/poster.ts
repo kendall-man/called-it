@@ -23,9 +23,21 @@ export interface PostOptions {
   onSendFailed?: () => void;
 }
 
+/** Card-edit options: `urgent` jumps an interactive edit ahead of narration. */
+export interface EditCardOptions {
+  readonly urgent?: boolean;
+}
+
 export interface Poster {
   post(chatId: number, text: string, options?: PostOptions): void;
-  editCard(chatId: number, marketId: string, messageId: number, text: string, keyboard?: InlineKeyboard): void;
+  editCard(
+    chatId: number,
+    marketId: string,
+    messageId: number,
+    text: string,
+    keyboard?: InlineKeyboard,
+    options?: EditCardOptions,
+  ): void;
   /** Best-effort removal of an inline keyboard from an earlier message. */
   stripKeyboard(chatId: number, messageId: number): void;
   /**
@@ -96,7 +108,7 @@ export function createPoster(api: Api, queue: SendQueue, log: Logger): Poster {
         }
       });
     },
-    editCard(chatId, marketId, messageId, text, keyboard) {
+    editCard(chatId, marketId, messageId, text, keyboard, options) {
       queue.enqueueCardEdit(chatId, marketId, async () => {
         try {
           await api.editMessageText(chatId, messageId, text, {
@@ -113,7 +125,7 @@ export function createPoster(api: Api, queue: SendQueue, log: Logger): Poster {
             log.warn('card_edit_failed', { marketId });
           }
         }
-      });
+      }, options ?? {});
     },
   };
 }

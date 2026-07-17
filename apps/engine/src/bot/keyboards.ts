@@ -37,23 +37,35 @@ const MINIAPP_MARKET_ID_HEX_PATTERN = /^[0-9a-f]{32}$/;
 
 /**
  * Shared contract with apps/web: "p-<marketId as 32 lowercase hex chars>-<b|d>"
- * (b backs the call, d goes against). Carries no secret — the Mini App mints
+ * (b backs the call, d goes against), with an OPTIONAL amount code suffix
+ * "-<1|2|5|10>" (base units of 0.01 SOL) carried by the two-step value ladder.
+ * Absent amount is backward compatible: every already-posted card omits it and
+ * the web defaults it to 1 (0.01 SOL). Carries no secret — the Mini App mints
  * its session against verified initData, never from this param.
  */
-export function miniAppStartParam(marketId: string, side: 'back' | 'doubt'): string | null {
+export function miniAppStartParam(
+  marketId: string,
+  side: 'back' | 'doubt',
+  amountCode?: 1 | 2 | 5 | 10,
+): string | null {
   const hex = marketId.toLowerCase().replaceAll('-', '');
   if (!MINIAPP_MARKET_ID_HEX_PATTERN.test(hex)) return null;
-  return `p-${hex}-${side === 'back' ? 'b' : 'd'}`;
+  const suffix = amountCode === undefined ? '' : `-${amountCode}`;
+  return `p-${hex}-${side === 'back' ? 'b' : 'd'}${suffix}`;
 }
 
-export function miniAppPositionUrl(market: MarketRow, side: 'back' | 'doubt'): string | null {
+export function miniAppPositionUrl(
+  market: MarketRow,
+  side: 'back' | 'doubt',
+  amountCode?: 1 | 2 | 5 | 10,
+): string | null {
   const config = miniAppOfferConfig;
   if (config === null || config.custodyMode !== 'escrow' || config.miniAppShortName === undefined) {
     return null;
   }
   const username = config.botUsername();
   if (username === undefined || username.length === 0) return null;
-  const param = miniAppStartParam(market.id, side);
+  const param = miniAppStartParam(market.id, side, amountCode);
   if (param === null) return null;
   return `https://t.me/${username}/${config.miniAppShortName}?startapp=${param}`;
 }

@@ -23,9 +23,10 @@ import { isWagerAsset, TUNABLES } from '@calledit/market-engine';
 import type { Deps, MarketRow, PositionRow } from '../ports.js';
 import type { Poster } from '../bot/poster.js';
 import type { Say } from '../bot/copy.js';
-import { composeClaimCard } from '../pipeline/render.js';
+import { composeClaimCard, receiptUrl } from '../pipeline/render.js';
 import { quoteSpec } from '../pipeline/claims.js';
 import { marketStakeKeyboard } from '../bot/keyboards.js';
+import { settlementPingText } from '../bot/stake-step-cards.js';
 import { statKeyForSpec } from './statKeys.js';
 import type { ProofWorker } from '../proofs/worker.js';
 import type { SettlementJournal } from './durable.js';
@@ -341,15 +342,35 @@ export class Settler {
           : this.solPayoutsLine(market.id, outcome),
     );
 
-    this.poster.post(market.group_id, receipt, {
-      onSent: async () => {
-        if (this.settlementJournal) {
-          await this.settlementJournal.markPosted(market.id);
-          return;
-        }
-        await this.deps.db.markSettlementPosted(market.id);
-      },
-    });
+    const markPosted = async (): Promise<void> => {
+      if (this.settlementJournal) {
+        await this.settlementJournal.markPosted(market.id);
+        return;
+      }
+      await this.deps.db.markSettlementPosted(market.id);
+    };
+
+    // Two-step lifecycle: the board is the FINAL edit of the same card message,
+    // and one compact ping (reply to the card) carries the only notification —
+    // card edits emit none. Net message count stays at one, as today. Flag off,
+    // behaviour is unchanged: the full receipt posts and the card refreshes.
+    if (this.deps.env?.STAKE_LADDER_ENABLED === true && market.card_tg_message_id !== null) {
+      this.poster.editCard(
+        market.group_id,
+        market.id,
+        market.card_tg_message_id,
+        receipt,
+        undefined,
+        { urgent: true },
+      );
+      this.poster.post(market.group_id, settlementPingText(outcome, receiptUrl(this.deps, market.id)), {
+        replyToMessageId: market.card_tg_message_id,
+        onSent: markPosted,
+      });
+      return;
+    }
+
+    this.poster.post(market.group_id, receipt, { onSent: markPosted });
     await this.refreshCard(market.id);
   }
 

@@ -5,6 +5,7 @@ import {
   parseMiniAppPositionStartParam,
   startParamFromInitData,
   telegramUsernameFromInitData,
+  type MiniAppAmountCode,
   type MiniAppPositionSide,
 } from './miniapp-contract';
 import { verifyTelegramInitData as verifyTelegramWebAppInitData } from './telegram-init-data-server';
@@ -65,10 +66,15 @@ export function miniAppPositionIdempotencyKey(input: {
   readonly telegramUserId: number;
   readonly marketId: string;
   readonly side: MiniAppPositionSide;
+  readonly amountCode: MiniAppAmountCode;
   readonly now: Date;
 }): string {
   const bucket = idempotencyBucket(input.now);
-  return sha256Hex(`miniapp:${input.telegramUserId}:${input.marketId}:${input.side}:${bucket}`);
+  // The amount code is part of the key so a re-open at a DIFFERENT rung mints a
+  // distinct session rather than colliding with the previous amount's session.
+  return sha256Hex(
+    `miniapp:${input.telegramUserId}:${input.marketId}:${input.side}:${input.amountCode}:${bucket}`,
+  );
 }
 
 export function miniAppWalletIdempotencyKey(input: {
@@ -99,13 +105,16 @@ export async function openMiniAppPositionSession(
   return mintEngineSession(dependencies, config, '/api/escrow/positions/session', {
     marketId: intent.marketId,
     side: intent.side,
-    amountPreset: 0,
+    // The ladder amount code (base units of 0.01 SOL). Deploy the engine before
+    // web: its session schema accepts both this and the legacy amountPreset.
+    amountCode: intent.amountCode,
     telegramUserId: verified.telegramUserId,
     ...(telegramUsername === null ? {} : { telegramUsername }),
     idempotencyKey: miniAppPositionIdempotencyKey({
       telegramUserId: verified.telegramUserId,
       marketId: intent.marketId,
       side: intent.side,
+      amountCode: intent.amountCode,
       now,
     }),
   }, POSITION_OPEN_ERROR_STATUS);

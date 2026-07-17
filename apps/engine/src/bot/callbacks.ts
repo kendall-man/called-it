@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto';
 import type { Bot, Context } from 'grammy';
 import { TUNABLES } from '@calledit/market-engine';
-import type { ClaimRow, GroupRow, MarketRow } from '../ports.js';
+import type { ClaimRow, Deps, GroupRow, MarketRow } from '../ports.js';
 import { decodeCallback, type CallbackAction } from './callbackData.js';
 import { displayName, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
 import {
@@ -23,10 +23,18 @@ import { mintOffer, retryOffer } from '../pipeline/offer.js';
 import { voidAbandonedMarket } from '../pipeline/void.js';
 import { composeClaimCard } from '../pipeline/render.js';
 import { renderFallback } from './copy.js';
-import { WAGER_TUNABLES, presetStakes } from '../wager/constants.js';
+import {
+  WAGER_TUNABLES,
+  isLadderCodeAllowed,
+  ladderAtomic,
+  presetStakes,
+} from '../wager/constants.js';
 import { multiplierLabel, wagerDoubtMultiplier } from '../wager/stake.js';
 import { isBetaGroupAllowed } from './beta-access.js';
 import { createWagerCopy } from '../wager/copy.js';
+import { STAKE_LADDER_TTL_MS, STAKE_SIGN_TTL_MS } from './stake-ui-state.js';
+import { editCardSurface, stakePositionsAvailable } from './stake-surface.js';
+import { sideLabelFor } from './stake-step-cards.js';
 import {
   escrowPlacementRejectionText,
   escrowSigningPrompt,
@@ -456,55 +464,70 @@ async function handleEscrowStake(
 }
 
 /**
- * A Back / Against tap. Every market is SOL now, so this delegates straight
- * into the wager module (funds, presets, and copy). The preset index is
- * resolved to lamports here — the module speaks lamports, never button indices.
+ * The shared guard chain for a side/value tap — everything from identity and
+ * market load through the in-play snipe cutoff, up to (but not including) the
+ * money dispatch. `lamportsFor` resolves the tap's amount from the narrowed
+ * asset; returning null aborts as a stale tap. Answers ctx and returns null on
+ * any gate, so callers just early-return.
  */
-async function handleStake(
+interface ResolvedStake {
+  readonly chatId: number;
+  readonly from: NonNullable<Context['from']>;
+  readonly wager: Deps['wager'];
+  readonly escrowMode: boolean;
+  readonly market: MarketRow;
+  readonly wagerMarket: MarketRow & { currency: 'sol' | 'usdc' };
+  readonly asset: 'sol' | 'usdc';
+  readonly lamports: bigint;
+  readonly callbackId: string;
+  readonly inPlay: boolean;
+}
+
+async function resolveStake(
   h: HandlerCtx,
   ctx: Context,
-  action: Extract<CallbackAction, { t: 'stake' }>,
-): Promise<void> {
+  marketId: string,
+  lamportsFor: (asset: 'sol' | 'usdc', escrowMode: boolean, wager: Deps['wager']) => bigint | null,
+): Promise<ResolvedStake | null> {
   const chatId = ctx.chat?.id;
   const from = ctx.from;
   const wager = h.deps.wager;
   const escrowMode = h.deps.env.WAGER_CUSTODY_MODE === 'escrow';
   if (chatId === undefined || !from || (!escrowMode && !wager)) {
     await stale(h, ctx);
-    return;
+    return null;
   }
-  const market: MarketRow | null = await h.deps.db.getMarket(action.marketId);
+  const market: MarketRow | null = await h.deps.db.getMarket(marketId);
   if (
     !market || market.group_id !== chatId
     || (market.currency !== 'sol' && market.currency !== 'usdc')
   ) {
     await stale(h, ctx);
-    return;
+    return null;
   }
-  const wagerMarket = { ...market, currency: market.currency };
+  const asset = market.currency;
+  const wagerMarket = { ...market, currency: asset };
   if (market.status !== 'open' && market.status !== 'pending_lineup') {
     await answerAlert(ctx, `${statusLine(market.status)}.`);
-    return;
+    return null;
   }
   if (market.is_replay) {
     const admission = await h.supervisor.admitReplayPosition(market);
     if (admission.kind === 'stale') {
       await refreshStakeCard(h, chatId, market.id, { forceLocked: true });
       await answerAlert(ctx, 'That test call is no longer active. No assets moved.');
-      return;
+      return null;
     }
   }
-  const lamports = escrowMode
-    ? presetStakes(market.currency)[action.presetIndex] ?? null
-    : wager?.presetLamports(action.presetIndex, market.currency) ?? null;
+  const lamports = lamportsFor(asset, escrowMode, wager);
   if (lamports === null) {
     await stale(h, ctx);
-    return;
+    return null;
   }
   const callbackId = ctx.callbackQuery?.id;
   if (callbackId === undefined) {
     await stale(h, ctx);
-    return;
+    return null;
   }
   // In-play cutoff — no new positions once a match is deep enough that a tap
   // would be a near-certain snipe.
@@ -517,40 +540,40 @@ async function handleStake(
   const inPlay = fixture !== null && fixture.phase !== 'NS';
   if (inPlay && fixture.minute !== null && fixture.minute >= TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE) {
     await answerAlert(ctx, await h.say('window_closed'));
-    return;
+    return null;
   }
-  await ensureUserSeen(h, chatId, from);
-  if (escrowMode) {
-    await handleEscrowStake(h, ctx, {
-      callbackId,
-      telegramUserId: from.id,
-      groupId: chatId,
-      marketId: market.id,
-      side: action.side,
-      asset: market.currency,
-      amountAtomic: lamports,
-      network: h.deps.env.SOLANA_NETWORK,
-      replay: market.is_replay,
-    });
-    return;
-  }
+  return { chatId, from, wager, escrowMode, market, wagerMarket, asset, lamports, callbackId, inPlay };
+}
+
+/**
+ * The non-escrow money dispatch (funded replay / replay / mainnet confirm /
+ * direct SOL stake). Byte-for-byte the single-tap tail; shared by the two-step
+ * value tap so the money path never forks. Returns whether the stake committed.
+ */
+async function commitLegacyStake(
+  h: HandlerCtx,
+  ctx: Context,
+  r: ResolvedStake,
+  side: 'back' | 'doubt',
+): Promise<{ committed: boolean }> {
+  const { chatId, from, market, wagerMarket, asset, lamports, callbackId, inPlay, wager } = r;
   if (wager === null) {
     await stale(h, ctx);
-    return;
+    return { committed: false };
   }
   const fundedReplay = market.is_replay
     && wager.kind === 'funded'
     && h.deps.env.SOLANA_NETWORK === 'mainnet-beta';
   if (market.is_replay && !fundedReplay) {
-    await handleReplayStake(h, ctx, market, from.id, action.side, lamports, inPlay);
-    return;
+    await handleReplayStake(h, ctx, market, from.id, side, lamports, inPlay);
+    return { committed: true };
   }
   if (h.deps.env.SOLANA_NETWORK === 'mainnet-beta' && wager.kind === 'funded') {
     const prepared = await wager.prepareStakeConfirmation({
       market: wagerMarket,
       userId: from.id,
       userName: displayName(from),
-      side: action.side,
+      side,
       lamports,
       inPlay,
       nowMs: h.deps.now(),
@@ -558,19 +581,19 @@ async function handleStake(
     });
     if (!prepared.ok) {
       await answerAlert(ctx, prepared.reply);
-      if (!(await wager.stakesAvailable(market.currency))) {
+      if (!(await wager.stakesAvailable(asset))) {
         await refreshStakeCard(h, chatId, market.id);
       }
-      return;
+      return { committed: false };
     }
-    const multiplier = action.side === 'back'
+    const multiplier = side === 'back'
       ? market.quote_multiplier
       : wagerDoubtMultiplier(market.quote_probability);
-    const copy = createWagerCopy('mainnet-beta', market.currency);
+    const copy = createWagerCopy('mainnet-beta', asset);
     const sourceMessageId = callbackMessageId(ctx);
     h.poster.post(chatId, copy.confirmationPrompt(
       displayName(from),
-      action.side === 'back' ? 'It happens' : 'It does not',
+      side === 'back' ? 'It happens' : 'It does not',
       lamports,
       multiplierLabel(multiplier),
       describeTerms(market.spec),
@@ -579,18 +602,18 @@ async function handleStake(
       keyboard: stakeConfirmationKeyboard(prepared.intentId),
     });
     await answer(ctx, copy.confirmationSent());
-    return;
+    return { committed: true };
   }
   const result = await wager.handleStakeTap({
     market: wagerMarket,
     userId: from.id,
     userName: displayName(from),
-    side: action.side,
+    side,
     lamports,
     inPlay,
     nowMs: h.deps.now(),
     source:
-      market.currency === 'sol'
+      asset === 'sol'
       && lamports === WAGER_TUNABLES.PRESET_STAKES_LAMPORTS[0] &&
       h.deps.env.STARTER_GRANTS_ENABLED && h.deps.env.STAKE_ACCEPTANCE_ENABLED
         ? { kind: 'telegram_default_card', callbackId }
@@ -603,9 +626,183 @@ async function handleStake(
   } else {
     await answerAlert(ctx, result.reply);
   }
-  if (result.placed || !(await wager.stakesAvailable(market.currency))) {
+  if (result.placed || !(await wager.stakesAvailable(asset))) {
     await refreshStakeCard(h, chatId, market.id);
   }
+  return { committed: result.placed === true };
+}
+
+/**
+ * A Back / Against tap (step 1). With the ladder flag OFF this is the whole
+ * single-tap flow: resolve the default preset to lamports and dispatch straight
+ * to escrow signing or the wager module. With the flag ON it mints nothing —
+ * it opens the value ladder on the card (see handleLadderEntry).
+ */
+async function handleStake(
+  h: HandlerCtx,
+  ctx: Context,
+  action: Extract<CallbackAction, { t: 'stake' }>,
+): Promise<void> {
+  if (h.deps.env.STAKE_LADDER_ENABLED && h.uiState !== undefined) {
+    await handleLadderEntry(h, ctx, action.marketId, action.side);
+    return;
+  }
+  const r = await resolveStake(h, ctx, action.marketId, (asset, escrowMode, wager) =>
+    escrowMode
+      ? presetStakes(asset)[action.presetIndex] ?? null
+      : wager?.presetLamports(action.presetIndex, asset) ?? null,
+  );
+  if (r === null) return;
+  await ensureUserSeen(h, r.chatId, r.from);
+  if (r.escrowMode) {
+    await handleEscrowStake(h, ctx, {
+      callbackId: r.callbackId,
+      telegramUserId: r.from.id,
+      groupId: r.chatId,
+      marketId: r.market.id,
+      side: action.side,
+      asset: r.asset,
+      amountAtomic: r.lamports,
+      network: h.deps.env.SOLANA_NETWORK,
+      replay: r.market.is_replay,
+    });
+    return;
+  }
+  await commitLegacyStake(h, ctx, r, action.side);
+}
+
+/**
+ * Step 1 with the ladder ON: the side tap moves ZERO SOL. It records the picked
+ * side in the in-process UI store (20s auto-revert) and urgent-edits the card
+ * into the value ladder. Reversible via "← Back" until the sign.
+ */
+async function handleLadderEntry(
+  h: HandlerCtx,
+  ctx: Context,
+  marketId: string,
+  side: 'back' | 'doubt',
+): Promise<void> {
+  const store = h.uiState;
+  const chatId = ctx.chat?.id;
+  if (store === undefined || chatId === undefined) {
+    await stale(h, ctx);
+    return;
+  }
+  const market = await h.deps.db.getMarket(marketId);
+  if (
+    !market || market.group_id !== chatId
+    || (market.currency !== 'sol' && market.currency !== 'usdc')
+  ) {
+    await stale(h, ctx);
+    return;
+  }
+  if (market.status !== 'open' && market.status !== 'pending_lineup') {
+    await answerAlert(ctx, `${statusLine(market.status)}.`);
+    return;
+  }
+  const positionsAvailable = await stakePositionsAvailable(h.deps, market);
+  if (!positionsAvailable) {
+    // Positions paused — keep the card honest instead of showing a dead ladder.
+    await refreshStakeCard(h, chatId, market.id);
+    await answerAlert(ctx, 'New positions are paused right now. No SOL moved.');
+    return;
+  }
+  const uiState = { kind: 'ladder', side } as const;
+  store.set(market.id, uiState, STAKE_LADDER_TTL_MS);
+  await editCardSurface(
+    h.deps,
+    h.poster,
+    market,
+    { positionsAvailable: true, ladderEnabled: true, uiState },
+    { urgent: true },
+  );
+  await answer(ctx, `${sideLabelFor(market.spec, side)} — now pick a size below.`);
+}
+
+/**
+ * Step 2 (ladder ON): a rung pick. Reuses the full stake guard chain, then for
+ * escrow shows the in-card sign handoff (the session is minted only when the
+ * member opens the Mini App), and for legacy commits the stake at the chosen
+ * amount exactly like the single tap.
+ */
+async function handleStakeValue(
+  h: HandlerCtx,
+  ctx: Context,
+  action: Extract<CallbackAction, { t: 'stake_value' }>,
+): Promise<void> {
+  const store = h.uiState;
+  if (!h.deps.env.STAKE_LADDER_ENABLED || store === undefined) {
+    await stale(h, ctx);
+    return;
+  }
+  const custody = h.deps.env.WAGER_CUSTODY_MODE;
+  const network = h.deps.env.SOLANA_NETWORK;
+  const r = await resolveStake(h, ctx, action.marketId, (asset) =>
+    isLadderCodeAllowed(action.amountCode, asset, custody, network)
+      ? ladderAtomic(asset, action.amountCode)
+      : null,
+  );
+  if (r === null) return;
+  await ensureUserSeen(h, r.chatId, r.from);
+  if (r.escrowMode) {
+    // Escrow: no session is minted here. Show the sign handoff (URL button); the
+    // engine mints the placement session when the member opens the Mini App.
+    const uiState = { kind: 'sign', side: action.side, amountCode: action.amountCode } as const;
+    store.set(r.market.id, uiState, STAKE_SIGN_TTL_MS);
+    await editCardSurface(
+      h.deps,
+      h.poster,
+      r.market,
+      { positionsAvailable: true, ladderEnabled: true, uiState },
+      { urgent: true },
+    );
+    await answer(ctx, 'Sized. Review and sign to place it — nothing moves until you sign.');
+    return;
+  }
+  // Legacy: the value tap IS the commit.
+  await commitLegacyStake(h, ctx, r, action.side);
+  store.clear(r.market.id);
+  // Return the card to the two-side offer immediately (updated tallies), rather
+  // than leaving the ladder visible until the next passive refresh collapses.
+  await editCardSurface(
+    h.deps,
+    h.poster,
+    r.market,
+    {
+      positionsAvailable: await stakePositionsAvailable(h.deps, r.market),
+      ladderEnabled: true,
+      uiState: null,
+    },
+    { urgent: true },
+  );
+}
+
+/** "← Back" from the value ladder to the two-side offer. Loses nothing. */
+async function handleStakeBack(h: HandlerCtx, ctx: Context, marketId: string): Promise<void> {
+  const store = h.uiState;
+  const chatId = ctx.chat?.id;
+  if (!h.deps.env.STAKE_LADDER_ENABLED || store === undefined || chatId === undefined) {
+    await stale(h, ctx);
+    return;
+  }
+  const market = await h.deps.db.getMarket(marketId);
+  if (!market || market.group_id !== chatId) {
+    await stale(h, ctx);
+    return;
+  }
+  store.clear(marketId);
+  await editCardSurface(
+    h.deps,
+    h.poster,
+    market,
+    {
+      positionsAvailable: await stakePositionsAvailable(h.deps, market),
+      ladderEnabled: true,
+      uiState: null,
+    },
+    { urgent: true },
+  );
+  await answer(ctx, 'Back to the call.');
 }
 
 async function finishStakeConfirmationMessage(ctx: Context, text: string): Promise<void> {
@@ -857,6 +1054,13 @@ export async function dispatchCallback(
     case 'stake':
       // SOL stakes are serialized by the wager module's DB advisory locks.
       await handleStake(h, ctx, action);
+      break;
+    case 'stake_value':
+      // Market-scoped shared surface; the money path keeps its own DB locks.
+      await handleStakeValue(h, ctx, action);
+      break;
+    case 'stake_back':
+      await handleStakeBack(h, ctx, action.marketId);
       break;
     case 'stake_confirm':
       await handleStakeConfirmation(h, ctx, action.intentId, true);

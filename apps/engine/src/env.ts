@@ -237,6 +237,16 @@ const EnvSchema = z.object({
   STARTER_GRANTS_ENABLED: z.enum(['true', 'false']).transform((value) => value === 'true'),
   WALLET_MINIAPP_ENABLED: z.enum(['true', 'false']).transform((value) => value === 'true'),
   STAKE_ACCEPTANCE_ENABLED: z.enum(['true', 'false']).transform((value) => value === 'true'),
+  /**
+   * Two-step interactive stake ladder (side tap → value ladder → sign). OFF by
+   * default and byte-for-byte the single-tap flow when unset: the offer card's
+   * side buttons mint a stake/session on the first tap exactly as today. When
+   * 'true' the side tap only edits the card to a value ladder and no assets move
+   * until an explicit value pick (legacy) or Mini App signature (escrow). This
+   * is the deploy safety switch for the whole lifecycle overhaul.
+   */
+  STAKE_LADDER_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
   TREASURY_COVERAGE_ENFORCED: z.enum(['true', 'false']).transform((value) => value === 'true'),
   QUEUE_LEASE_MS: MillisecondsSchema,
   QUEUE_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(100),

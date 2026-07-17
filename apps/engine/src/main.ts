@@ -22,6 +22,8 @@ import { EntityCache } from './bot/entities.js';
 import { LlmBudget } from './bot/budget.js';
 import { BOT_COMMANDS, registerBotHandlers } from './bot/bot.js';
 import type { HandlerCtx } from './bot/context.js';
+import { UiStateStore } from './bot/stake-ui-state.js';
+import { editCardSurface, stakePositionsAvailable } from './bot/stake-surface.js';
 import { Settler } from './settle/settler.js';
 import { createGroupPointsService } from './points/service.js';
 import { createSettlementReconciler } from './settle/settlement-reconciler.js';
@@ -326,11 +328,32 @@ async function main(): Promise<void> {
     }
   };
 
+  // Two-step stake ladder visual store (STAKE_LADDER_ENABLED). Built only when
+  // the flag is on so a flag-off deploy is the single-tap flow, byte-for-byte.
+  // onExpire auto-reverts the card back to the two-side offer when a member
+  // walks away mid-compose (a purely visual timeout — no money depends on it).
+  const uiStateStore = env.STAKE_LADDER_ENABLED
+    ? new UiStateStore({
+        onExpire: (marketId) => {
+          void (async () => {
+            const market = await deps.db.getMarket(marketId);
+            if (market === null) return;
+            await editCardSurface(deps, poster, market, {
+              positionsAvailable: await stakePositionsAvailable(deps, market),
+              ladderEnabled: true,
+              uiState: null,
+            });
+          })().catch(() => log.warn('stake_ui_revert_failed', { marketId }));
+        },
+      })
+    : null;
+
   const handlerCtx: HandlerCtx = {
     deps, queue, poster, say, supervisor,
     entities: new EntityCache(deps.db), budget: new LlmBudget(),
     ...(escrowRuntime === null ? {} : { escrow: escrowRuntime.telegram }),
     ...(escrowRuntime === null ? {} : { status: { escrowReadiness: probeEscrowReadiness } }),
+    ...(uiStateStore === null ? {} : { uiState: uiStateStore }),
   };
 
   supervisor.onReplayConfirmationScheduled = ({ groupId, fixtureId }) => {

@@ -7,7 +7,7 @@ import type {
   EscrowPlacementRejectionCode,
   EscrowTelegramPort,
 } from '../bot/escrow-ux.js';
-import { presetStakes } from '../wager/constants.js';
+import { isLadderCodeAllowed, ladderAtomic, presetStakes } from '../wager/constants.js';
 import { sendJson } from './server-http.js';
 
 const POSITION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -128,17 +128,27 @@ const SESSION_IDEMPOTENCY_KEY_PATTERN = /^[0-9a-f]{64}$/;
 const TELEGRAM_USERNAME_MAX_LENGTH = 64;
 const SESSION_CREATES_PER_USER_PER_WINDOW = 6;
 const SESSION_RATE_WINDOW_MS = 60_000;
-/** The Mini App exposes only the first preset (0.01 SOL / 1 USDC). */
+/** The legacy body carried only the first preset index (0.01 SOL / 1 USDC). */
 const MINIAPP_AMOUNT_PRESET_INDEX = 0;
 
+/**
+ * Rollout skew: the two-step ladder web build sends `amountCode` (base units of
+ * 0.01 SOL, 1/2/5/10), while already-deployed web and every already-posted card
+ * send the legacy `amountPreset: 0`. The engine deploys AHEAD of web, so this
+ * schema must accept BOTH. Exactly one amount field is required.
+ */
 export const EscrowPositionSessionInputSchema = z.object({
   marketId: z.string().regex(UUID_PATTERN),
   side: z.enum(['back', 'against']),
-  amountPreset: z.literal(MINIAPP_AMOUNT_PRESET_INDEX),
+  amountPreset: z.literal(MINIAPP_AMOUNT_PRESET_INDEX).optional(),
+  amountCode: z.union([z.literal(1), z.literal(2), z.literal(5), z.literal(10)]).optional(),
   telegramUserId: z.number().int().positive().safe(),
   telegramUsername: z.string().min(1).max(TELEGRAM_USERNAME_MAX_LENGTH).optional(),
   idempotencyKey: z.string().regex(SESSION_IDEMPOTENCY_KEY_PATTERN),
-}).strict();
+}).strict().refine(
+  (value) => value.amountPreset !== undefined || value.amountCode !== undefined,
+  { message: 'an amount is required', path: ['amountCode'] },
+);
 
 export const EscrowWalletSessionInputSchema = z.object({
   telegramUserId: z.number().int().positive().safe(),
@@ -289,9 +299,20 @@ export async function handleEscrowPositionSession(input: {
     sendSessionError(res, 'rate_limited');
     return;
   }
+  // Resolve the amount from either the ladder code or the legacy preset, and
+  // enforce the escrow ceiling (0.05 SOL on devnet) before minting a session.
+  let amountAtomic: bigint;
+  if (request.amountCode !== undefined) {
+    if (!isLadderCodeAllowed(request.amountCode, asset, 'escrow', deps.network)) {
+      sendSessionError(res, 'invalid_request');
+      return;
+    }
+    amountAtomic = ladderAtomic(asset, request.amountCode);
+  } else {
+    amountAtomic = presetStakes(asset)[MINIAPP_AMOUNT_PRESET_INDEX];
+  }
   try {
     await ensureSessionUser(deps.users, request.telegramUserId, request.telegramUsername);
-    const amountAtomic = presetStakes(asset)[MINIAPP_AMOUNT_PRESET_INDEX];
     const result = await deps.sessions.createPlacementSession({
       idempotencyKey: request.idempotencyKey,
       telegramUserId: request.telegramUserId,

@@ -2,20 +2,45 @@
  * Shared start-param contract for the direct-link Mini App entry (/app).
  *
  * The group card's URL buttons carry `startapp=p-<marketId32>-<b|d>` where
- * `marketId32` is the market uuid without dashes. The param is public (no
- * secret): the engine mints the placement session only after the web server
- * verifies Telegram initData, so the client-side parse is used for routing
- * alone and the server re-parses the param from the signed initData.
+ * `marketId32` is the market uuid without dashes, plus an OPTIONAL amount code
+ * suffix `-<1|2|5|10>` (base units of 0.01 SOL) added by the two-step value
+ * ladder. The param is public (no secret): the engine mints the placement
+ * session only after the web server verifies Telegram initData, so the
+ * client-side parse is used for routing alone and the server re-parses the
+ * param from the signed initData.
+ *
+ * Backward compatibility: every already-posted card omits the amount suffix, so
+ * an absent amount defaults to code 1 (0.01 SOL) — the pre-ladder behaviour.
  */
 
-export const MINIAPP_POSITION_START_PARAM_PATTERN = /^p-([0-9a-f]{32})-([bd])$/;
+export const MINIAPP_POSITION_START_PARAM_PATTERN = /^p-([0-9a-f]{32})-([bd])(?:-(1|2|5|10))?$/;
 
 export type MiniAppPositionSide = 'back' | 'against';
+
+/** Base units of 0.01 SOL; the shared wire form for the ladder amount. */
+export type MiniAppAmountCode = 1 | 2 | 5 | 10;
+
+/** Absent amount → the base stake (0.01 SOL), matching every legacy card. */
+export const DEFAULT_MINIAPP_AMOUNT_CODE: MiniAppAmountCode = 1;
 
 export type MiniAppPositionIntent = {
   readonly marketId: string;
   readonly side: MiniAppPositionSide;
+  readonly amountCode: MiniAppAmountCode;
 };
+
+function toAmountCode(raw: string | undefined): MiniAppAmountCode {
+  switch (raw) {
+    case '2':
+      return 2;
+    case '5':
+      return 5;
+    case '10':
+      return 10;
+    default:
+      return DEFAULT_MINIAPP_AMOUNT_CODE;
+  }
+}
 
 export function parseMiniAppPositionStartParam(value: string): MiniAppPositionIntent | null {
   const match = MINIAPP_POSITION_START_PARAM_PATTERN.exec(value);
@@ -29,7 +54,11 @@ export function parseMiniAppPositionStartParam(value: string): MiniAppPositionIn
     hex.slice(16, 20),
     hex.slice(20),
   ].join('-');
-  return { marketId, side: sideCode === 'b' ? 'back' : 'against' };
+  return {
+    marketId,
+    side: sideCode === 'b' ? 'back' : 'against',
+    amountCode: toAmountCode(match?.[3]),
+  };
 }
 
 /**

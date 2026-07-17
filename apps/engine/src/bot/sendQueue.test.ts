@@ -132,6 +132,63 @@ describe('SendQueue', () => {
     expect(applied.sort()).toEqual(['m1', 'm2']);
   });
 
+  it('urgent card edits cancel a deferred edit for the same key', async () => {
+    const clock = makeVirtualClock();
+    const applied: string[] = [];
+    const queue = new SendQueue({
+      ratePerMinute: 100,
+      collapseMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+      schedule: clock.schedule,
+    });
+    queue.enqueueCardEdit(1, 'market-1', async () => {
+      applied.push('v1');
+    });
+    await queue.idle();
+    // A passive edit lands inside the window and is deferred…
+    queue.enqueueCardEdit(1, 'market-1', async () => {
+      applied.push('passive');
+    });
+    // …then an urgent tap supersedes it immediately.
+    queue.enqueueCardEdit(1, 'market-1', async () => {
+      applied.push('urgent');
+    }, { urgent: true });
+    await queue.idle();
+    expect(applied).toEqual(['v1', 'urgent']);
+    // The cancelled deferred edit must never fire, even after the window.
+    clock.advance(60_000);
+    await queue.idle();
+    expect(applied).toEqual(['v1', 'urgent']);
+  });
+
+  it('urgent card edits jump ahead of queued narration', async () => {
+    const clock = makeVirtualClock();
+    const applied: string[] = [];
+    const queue = new SendQueue({
+      ratePerMinute: 1, // one slot per window forces ordering to matter
+      collapseMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+      schedule: clock.schedule,
+    });
+    // Prime the single rate slot so the next tasks must queue.
+    queue.enqueue(1, async () => {
+      applied.push('primer');
+    });
+    await queue.idle();
+    queue.enqueue(1, async () => {
+      applied.push('narration');
+    });
+    queue.enqueueCardEdit(1, 'market-1', async () => {
+      applied.push('urgent');
+    }, { urgent: true });
+    clock.advance(60_000);
+    await queue.idle();
+    // Urgent unshifts ahead of the already-queued narration.
+    expect(applied).toEqual(['primer', 'urgent', 'narration']);
+  });
+
   it('keeps pumping after a task failure', async () => {
     const clock = makeVirtualClock();
     const errors: unknown[] = [];

@@ -133,6 +133,57 @@ describe('POST /api/escrow/positions/session', () => {
     }]);
   });
 
+  it('accepts the new ladder amountCode and forwards the exact amount', async () => {
+    const port = sessionPort();
+    const harness = await startHarness({
+      env: { WAGER_CUSTODY_MODE: 'escrow' },
+      escrowWebTokenSha256: ESCROW_WEB_TOKEN_SHA256,
+      escrowSessions: port,
+    });
+
+    const response = await fetch(`${harness.base}/api/escrow/positions/session`, {
+      method: 'POST',
+      headers: bearer(ESCROW_WEB_TOKEN),
+      // No legacy amountPreset — the ladder body carries amountCode only.
+      body: positionBody({ amountPreset: undefined, amountCode: 5 }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(port.placementCalls[0]?.amountAtomic).toBe(50_000_000n);
+  });
+
+  it('still accepts the legacy amountPreset body during rollout skew', async () => {
+    const port = sessionPort();
+    const harness = await startHarness({
+      env: { WAGER_CUSTODY_MODE: 'escrow' },
+      escrowWebTokenSha256: ESCROW_WEB_TOKEN_SHA256,
+      escrowSessions: port,
+    });
+    const response = await fetch(`${harness.base}/api/escrow/positions/session`, {
+      method: 'POST', headers: bearer(ESCROW_WEB_TOKEN), body: positionBody(),
+    });
+    expect(response.status).toBe(200);
+    expect(port.placementCalls[0]?.amountAtomic).toBe(10_000_000n);
+  });
+
+  it('refuses an amountCode above the escrow devnet cap without touching the creator', async () => {
+    const port = sessionPort();
+    const harness = await startHarness({
+      env: { WAGER_CUSTODY_MODE: 'escrow' },
+      escrowWebTokenSha256: ESCROW_WEB_TOKEN_SHA256,
+      escrowSessions: port,
+    });
+    // 0.1 SOL (code 10) exceeds the 0.05 on-chain devnet ceiling.
+    const response = await fetch(`${harness.base}/api/escrow/positions/session`, {
+      method: 'POST',
+      headers: bearer(ESCROW_WEB_TOKEN),
+      body: positionBody({ amountPreset: undefined, amountCode: 10 }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'invalid_request' });
+    expect(port.placementCalls).toHaveLength(0);
+  });
+
   it('maps the back side to the back placement input', async () => {
     const port = sessionPort();
     const harness = await startHarness({
@@ -162,6 +213,8 @@ describe('POST /api/escrow/positions/session', () => {
       '{',
       positionBody({ side: 'up' }),
       positionBody({ amountPreset: 1 }),
+      positionBody({ amountCode: 3 }), // off the 1-2-5-10 series
+      positionBody({ amountPreset: undefined }), // neither amount field present
       positionBody({ marketId: 'not-a-uuid' }),
       positionBody({ idempotencyKey: 'short' }),
       positionBody({ telegramUserId: -1 }),

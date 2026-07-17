@@ -20,6 +20,14 @@ export type CallbackAction =
   | { t: 'decline'; claimId: string }
   /** The beta exposes one literal 0.01 test-SOL amount on either outcome. */
   | { t: 'stake'; marketId: string; side: 'back' | 'doubt'; presetIndex: 0 }
+  /**
+   * Two-step ladder (STAKE_LADDER_ENABLED). `stake_value` is step 2: a rung
+   * pick after the side tap. `amountCode` is base units of 0.01 SOL
+   * (1/2/5/10), shared with the web startapp param — never a preset index.
+   */
+  | { t: 'stake_value'; marketId: string; side: 'back' | 'doubt'; amountCode: 1 | 2 | 5 | 10 }
+  /** Lossless "← Back" from the value ladder to the two-side offer. */
+  | { t: 'stake_back'; marketId: string }
   /** Mainnet second-tap confirmation backed by a durable stake intent. */
   | { t: 'stake_confirm'; intentId: string }
   | { t: 'stake_cancel'; intentId: string }
@@ -59,6 +67,12 @@ export function encodeCallback(action: CallbackAction): string {
       break;
     case 'stake':
       data = `st:${action.marketId}:${action.side === 'back' ? 'b' : 'd'}:${action.presetIndex}`;
+      break;
+    case 'stake_value':
+      data = `sv:${action.marketId}:${action.side === 'back' ? 'b' : 'd'}:${action.amountCode}`;
+      break;
+    case 'stake_back':
+      data = `sb:${action.marketId}`;
       break;
     case 'stake_confirm':
       data = `sc:${action.intentId}`;
@@ -130,6 +144,26 @@ export function decodeCallback(data: string): CallbackAction | null {
         side: sideCode === 'b' ? 'back' : 'doubt',
         presetIndex: 0,
       };
+    }
+    case 'sv': {
+      const marketId = parts[1];
+      const sideCode = parts[2];
+      const codeRaw = parts[3];
+      if (parts.length !== 4 || marketId === undefined || !UUID_RE.test(marketId)) return null;
+      if (sideCode !== 'b' && sideCode !== 'd') return null;
+      if (codeRaw !== '1' && codeRaw !== '2' && codeRaw !== '5' && codeRaw !== '10') return null;
+      return {
+        t: 'stake_value',
+        marketId,
+        side: sideCode === 'b' ? 'back' : 'doubt',
+        amountCode: Number(codeRaw) as 1 | 2 | 5 | 10,
+      };
+    }
+    case 'sb': {
+      const marketId = parts[1];
+      return parts.length === 2 && marketId !== undefined && UUID_RE.test(marketId)
+        ? { t: 'stake_back', marketId }
+        : null;
     }
     case 'sc': {
       const intentId = parts[1];

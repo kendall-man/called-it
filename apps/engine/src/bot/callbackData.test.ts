@@ -18,6 +18,11 @@ const ROUND_TRIPS: CallbackAction[] = [
   { t: 'decline', claimId: CLAIM_ID },
   { t: 'stake', marketId: MARKET_ID, side: 'back', presetIndex: 0 },
   { t: 'stake', marketId: MARKET_ID, side: 'doubt', presetIndex: 0 },
+  { t: 'stake_value', marketId: MARKET_ID, side: 'back', amountCode: 1 },
+  { t: 'stake_value', marketId: MARKET_ID, side: 'doubt', amountCode: 2 },
+  { t: 'stake_value', marketId: MARKET_ID, side: 'back', amountCode: 5 },
+  { t: 'stake_value', marketId: MARKET_ID, side: 'doubt', amountCode: 10 },
+  { t: 'stake_back', marketId: MARKET_ID },
   { t: 'stake_confirm', intentId: INTENT_ID },
   { t: 'stake_cancel', intentId: INTENT_ID },
   { t: 'void_replay_blocker', marketId: MARKET_ID },
@@ -47,6 +52,13 @@ describe('callback data codec', () => {
       'pv:not-a-uuid',
       `st:${MARKET_ID}:x:1`,
       `st:${MARKET_ID}:b:99`,
+      `sv:${MARKET_ID}:b:0`, // 0 is not a rung
+      `sv:${MARKET_ID}:b:3`, // 3 is not on the 1-2-5 series
+      `sv:${MARKET_ID}:x:1`, // bad side
+      `sv:${MARKET_ID}:b`, // missing code
+      `sv:not-a-uuid:b:1`,
+      `sb:not-a-uuid`,
+      `sb:${MARKET_ID}:extra`,
       `op:${CLAIM_ID}:`,
       'vr:not-a-uuid',
       'sg:z',

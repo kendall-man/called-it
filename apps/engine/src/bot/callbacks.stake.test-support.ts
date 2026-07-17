@@ -16,6 +16,8 @@ import { installAtomicStarterRpc } from './callbacks.starter-rpc.test-support.js
 import { EntityCache } from './entities.js';
 import { SendQueue } from './sendQueue.js';
 import type { EscrowTelegramPort } from './escrow-ux.js';
+import { UiStateStore } from './stake-ui-state.js';
+import type { InlineKeyboard } from 'grammy';
 
 export const NOW = Date.parse('2026-07-06T18:00:00.000Z');
 export const CHAT_ID = -100999;
@@ -69,11 +71,26 @@ export function stakeMarket(overrides: Partial<MarketRow> = {}): MarketRow {
   };
 }
 
+/** The full card-edit capture (text + keyboard) for two-step surface tests. */
+export interface CardSurfaceRecord {
+  chatId: number;
+  marketId: string;
+  messageId: number;
+  text?: string;
+  keyboard?: InlineKeyboard;
+  urgent?: boolean;
+}
+
 export interface StakeHarness {
   h: HandlerCtx;
   wagerDb: FakeWagerDb;
+  /** Backward-compatible id-only record; existing tests deep-equal this. */
   cardEdits: Array<{ chatId: number; marketId: string; messageId: number }>;
+  /** Rich record (text + keyboard + urgent) for two-step surface assertions. */
+  cardSurfaces: CardSurfaceRecord[];
   posts: Array<{ chatId: number; text: string; options: unknown }>;
+  /** Present only when the two-step ladder flag is enabled. */
+  uiState: UiStateStore | null;
 }
 
 export interface StakeHarnessOptions {
@@ -89,6 +106,8 @@ export interface StakeHarnessOptions {
   solanaNetwork?: 'devnet' | 'mainnet-beta';
   custodyMode?: 'legacy' | 'escrow';
   escrow?: EscrowTelegramPort;
+  /** Turns on the two-step stake ladder and attaches a UiStateStore. */
+  ladderEnabled?: boolean;
 }
 
 type StakeDb = Pick<
@@ -123,11 +142,19 @@ interface StakeHandler {
   deps: StakeDeps;
   poster: {
     post: (chatId: number, text: string, options?: unknown) => void;
-    editCard: (chatId: number, marketId: string, messageId: number) => void;
+    editCard: (
+      chatId: number,
+      marketId: string,
+      messageId: number,
+      text?: string,
+      keyboard?: InlineKeyboard,
+      options?: { urgent?: boolean },
+    ) => void;
     stripKeyboard: () => void;
     react: (chatId: number, messageId: number, emoji: string) => void;
     chatAction: (chatId: number, action: string) => void;
   };
+  uiState?: UiStateStore;
   say: (key: Parameters<typeof renderFallback>[0], vars?: Parameters<typeof renderFallback>[1]) => Promise<string>;
   supervisor: object;
   budget: LlmBudget;
@@ -206,7 +233,12 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
       }
     : null;
   const cardEdits: Array<{ chatId: number; marketId: string; messageId: number }> = [];
+  const cardSurfaces: CardSurfaceRecord[] = [];
   const posts: Array<{ chatId: number; text: string; options: unknown }> = [];
+  // No-fire scheduler so auto-revert timers never run during a synchronous test.
+  const uiStateStore = (opts.ladderEnabled ?? false)
+    ? new UiStateStore({ now: () => NOW, schedule: () => () => undefined })
+    : null;
   const db = asEngineDb({
     ...createPointMethodStubs({ kind: 'empty', groupId: CHAT_ID }),
     getMarket: async (id: string) => (id === market.id ? { ...market } : null),
@@ -263,19 +295,30 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
         STAKE_ACCEPTANCE_ENABLED: opts.stakeAcceptanceEnabled ?? false,
         SOLANA_NETWORK: opts.solanaNetwork ?? 'devnet',
         WAGER_CUSTODY_MODE: opts.custodyMode ?? 'legacy',
+        STAKE_LADDER_ENABLED: opts.ladderEnabled ?? false,
+        TELEGRAM_MINIAPP_SHORT_NAME: undefined,
       },
     },
     poster: {
       post: (chatId: number, text: string, options?: unknown) => {
         posts.push({ chatId, text, options });
       },
-      editCard: (chatId: number, marketId: string, messageId: number) => {
+      editCard: (
+        chatId: number,
+        marketId: string,
+        messageId: number,
+        text?: string,
+        keyboard?: InlineKeyboard,
+        options?: { urgent?: boolean },
+      ) => {
         cardEdits.push({ chatId, marketId, messageId });
+        cardSurfaces.push({ chatId, marketId, messageId, text, keyboard, urgent: options?.urgent });
       },
       stripKeyboard: () => undefined,
       react: () => undefined,
       chatAction: () => undefined,
     },
+    ...(uiStateStore === null ? {} : { uiState: uiStateStore }),
     say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
     supervisor: {
       replayFixture: () => opts.replayFixture?.fixture_id ?? null,
@@ -301,7 +344,7 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
     entities: new EntityCache(db, () => NOW),
     ...(opts.escrow === undefined ? {} : { escrow: opts.escrow }),
   });
-  return { h, wagerDb: wagerBundle.db, cardEdits, posts };
+  return { h, wagerDb: wagerBundle.db, cardEdits, cardSurfaces, posts, uiState: uiStateStore };
 }
 
 export function makeStakeContext(
@@ -347,5 +390,10 @@ export function makeStakeContext(
 
 export const stakeAction = (side: 'back' | 'doubt', presetIndex: 0) =>
   ({ t: 'stake', marketId: MARKET_ID, side, presetIndex }) as const;
+
+export const stakeValueAction = (side: 'back' | 'doubt', amountCode: 1 | 2 | 5 | 10) =>
+  ({ t: 'stake_value', marketId: MARKET_ID, side, amountCode }) as const;
+
+export const stakeBackAction = () => ({ t: 'stake_back', marketId: MARKET_ID }) as const;
 
 export const INPLAY_CUTOFF = TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE;

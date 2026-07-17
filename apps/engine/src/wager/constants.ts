@@ -31,6 +31,91 @@ export const WAGER_TUNABLES = {
   DEPOSIT_COMMITMENT: 'finalized',
 } as const;
 
+/**
+ * Two-step stake ladder (STAKE_LADDER_ENABLED). Ascending exact amounts on a
+ * 1-2-5 series, each code being that many base rungs of 0.01 of the asset:
+ * SOL rungs are 0.01 / 0.02 / 0.05 / 0.1. `amountCode` is the wire form shared
+ * with apps/web's `p-<hex>-<b|d>-<code>` startapp param and the engine session
+ * schema; it is base units of 0.01, never a preset index. 0.01 (code 1) is the
+ * anchor rung — leftmost, "base stake" in copy — but never preselected.
+ */
+export const STAKE_LADDER_BASE_UNITS = [1, 2, 5, 10] as const;
+
+export type StakeLadderCode = (typeof STAKE_LADDER_BASE_UNITS)[number];
+
+/** 0.01 of the asset, in atomic units, per ladder code. */
+const STAKE_LADDER_UNIT_ATOMIC: Record<WagerAsset, bigint> = {
+  sol: 10_000_000n,
+  usdc: 10_000n,
+};
+
+/** On-chain escrow devnet ceiling: a single position tops out at 0.05 SOL. */
+export const ESCROW_MAX_STAKE_LAMPORTS = 50_000_000n;
+
+/** SOL lamports for a ladder code (code base units of 0.01 SOL). */
+export function ladderLamports(code: number): bigint {
+  return BigInt(code) * STAKE_LADDER_UNIT_ATOMIC.sol;
+}
+
+/** Atomic amount for a ladder code in the given asset. */
+export function ladderAtomic(asset: WagerAsset, code: number): bigint {
+  return BigInt(code) * STAKE_LADDER_UNIT_ATOMIC[asset];
+}
+
+export interface StakeLadderRung {
+  readonly code: StakeLadderCode;
+  readonly atomic: bigint;
+}
+
+/**
+ * The highest per-position atomic amount a ladder rung may reach for a custody
+ * mode: escrow enforces the on-chain devnet cap (0.05 SOL), legacy allows the
+ * per-market cap (0.1 SOL). USDC mirrors the SOL rung count via its own unit.
+ */
+export function stakeLadderMaxAtomic(
+  asset: WagerAsset,
+  custody: 'legacy' | 'escrow',
+): bigint {
+  const unit = STAKE_LADDER_UNIT_ATOMIC[asset];
+  const solCap = custody === 'escrow'
+    ? ESCROW_MAX_STAKE_LAMPORTS
+    : WAGER_TUNABLES.PER_MARKET_STAKE_CAP_LAMPORTS;
+  // Express the SOL cap as a rung count, then scale into the asset's unit so a
+  // USDC ladder keeps the same 3-or-4 rung shape.
+  const codeCap = solCap / STAKE_LADDER_UNIT_ATOMIC.sol;
+  return codeCap * unit;
+}
+
+/**
+ * The value ladder for a market: ascending rungs filtered to the effective per
+ * position cap. Escrow devnet keeps three rungs (0.01 / 0.02 / 0.05); legacy
+ * keeps four (adds 0.1). The `_network` argument reserves room for a
+ * network-specific cap without changing call sites.
+ */
+export function stakeLadder(
+  asset: WagerAsset,
+  custody: 'legacy' | 'escrow',
+  _network: 'devnet' | 'mainnet-beta',
+): readonly StakeLadderRung[] {
+  const max = stakeLadderMaxAtomic(asset, custody);
+  const rungs: StakeLadderRung[] = [];
+  for (const code of STAKE_LADDER_BASE_UNITS) {
+    const atomic = ladderAtomic(asset, code);
+    if (atomic <= max) rungs.push({ code, atomic });
+  }
+  return rungs;
+}
+
+/** True when `code` is a rung offered for this market (guards forged taps). */
+export function isLadderCodeAllowed(
+  code: number,
+  asset: WagerAsset,
+  custody: 'legacy' | 'escrow',
+  network: 'devnet' | 'mainnet-beta',
+): boolean {
+  return stakeLadder(asset, custody, network).some((rung) => rung.code === code);
+}
+
 export function presetStakes(asset: WagerAsset): readonly [bigint, bigint, bigint] {
   return asset === 'sol'
     ? WAGER_TUNABLES.PRESET_STAKES_LAMPORTS

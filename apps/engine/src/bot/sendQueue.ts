@@ -70,10 +70,31 @@ export class SendQueue {
   /**
    * Enqueue a card edit under a collapse key (use the market id). Within the
    * collapse window the newest edit replaces any deferred one.
+   *
+   * `urgent` is for interactive taps (the two-step stake ladder): the two-step
+   * card must move the instant the member taps, so the edit cancels any
+   * deferred (collapsed) edit for the same key and jumps ahead of queued
+   * narration. It never lowers the passive collapse budget — ordinary card
+   * refreshes still collapse on the 60s window.
    */
-  enqueueCardEdit(chatId: number, collapseKey: string, task: SendTask): void {
+  enqueueCardEdit(
+    chatId: number,
+    collapseKey: string,
+    task: SendTask,
+    options: { readonly urgent?: boolean } = {},
+  ): void {
     if (this.stopped) return;
     const key = `${chatId}:${collapseKey}`;
+    if (options.urgent) {
+      const deferred = this.deferredEdits.get(key);
+      if (deferred) {
+        deferred.cancel();
+        this.deferredEdits.delete(key);
+      }
+      this.lastEditAt.set(key, this.now());
+      this.enqueueFront(chatId, task);
+      return;
+    }
     const existing = this.deferredEdits.get(key);
     if (existing) {
       existing.task = task; // latest wins
@@ -94,6 +115,15 @@ export class SendQueue {
       this.enqueue(chatId, entry.task);
     }, delay);
     this.deferredEdits.set(key, entry);
+  }
+
+  /** Jump a task ahead of queued narration (interactive edits) while still
+   * honoring the per-chat rate window. */
+  private enqueueFront(chatId: number, task: SendTask): void {
+    if (this.stopped) return;
+    const state = this.chatState(chatId);
+    state.tasks.unshift(task);
+    void this.pump(chatId, state);
   }
 
   /** Resolves when every chat queue is drained (deferred edits not included). */

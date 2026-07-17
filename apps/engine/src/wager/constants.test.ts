@@ -1,7 +1,69 @@
 import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import { depositCursorStream, WAGER_KEYS, WAGER_TUNABLES } from './constants.js';
+import {
+  depositCursorStream,
+  ESCROW_MAX_STAKE_LAMPORTS,
+  isLadderCodeAllowed,
+  ladderAtomic,
+  ladderLamports,
+  stakeLadder,
+  STAKE_LADDER_BASE_UNITS,
+  WAGER_KEYS,
+  WAGER_TUNABLES,
+} from './constants.js';
 import { createWagerCopy, WAGER_COPY } from './copy.js';
+
+describe('stake ladder constants', () => {
+  it('is the ascending 1-2-5 series (0.01 the anchor rung, 0.1 the ceiling)', () => {
+    expect(STAKE_LADDER_BASE_UNITS).toEqual([1, 2, 5, 10]);
+    expect(ladderLamports(1)).toBe(10_000_000n); // 0.01 SOL — base stake
+    expect(ladderLamports(2)).toBe(20_000_000n);
+    expect(ladderLamports(5)).toBe(50_000_000n);
+    expect(ladderLamports(10)).toBe(100_000_000n);
+    // Strictly ascending.
+    const lamports = STAKE_LADDER_BASE_UNITS.map(ladderLamports);
+    for (let i = 1; i < lamports.length; i += 1) {
+      expect(lamports[i]! > lamports[i - 1]!).toBe(true);
+    }
+  });
+
+  it('escrow devnet caps the ladder at 3 rungs (0.05 on-chain ceiling)', () => {
+    const rungs = stakeLadder('sol', 'escrow', 'devnet');
+    expect(rungs.map((rung) => rung.code)).toEqual([1, 2, 5]);
+    expect(rungs.map((rung) => rung.atomic)).toEqual([10_000_000n, 20_000_000n, 50_000_000n]);
+    // Never exposes an amount above the on-chain cap.
+    expect(rungs.every((rung) => rung.atomic <= ESCROW_MAX_STAKE_LAMPORTS)).toBe(true);
+  });
+
+  it('legacy custody keeps all 4 rungs within the 0.1 per-market cap', () => {
+    const rungs = stakeLadder('sol', 'legacy', 'devnet');
+    expect(rungs.map((rung) => rung.code)).toEqual([1, 2, 5, 10]);
+    expect(rungs.at(-1)!.atomic).toBe(WAGER_TUNABLES.PER_MARKET_STAKE_CAP_LAMPORTS);
+  });
+
+  it('never renders more than four discrete rungs', () => {
+    for (const custody of ['legacy', 'escrow'] as const) {
+      for (const network of ['devnet', 'mainnet-beta'] as const) {
+        expect(stakeLadder('sol', custody, network).length).toBeLessThanOrEqual(4);
+      }
+    }
+  });
+
+  it('mirrors the rung shape for usdc via its own 0.01 unit', () => {
+    expect(ladderAtomic('usdc', 1)).toBe(10_000n);
+    expect(stakeLadder('usdc', 'escrow', 'devnet').map((r) => r.code)).toEqual([1, 2, 5]);
+  });
+
+  it('isLadderCodeAllowed guards forged codes against the effective cap', () => {
+    expect(isLadderCodeAllowed(1, 'sol', 'escrow', 'devnet')).toBe(true);
+    expect(isLadderCodeAllowed(5, 'sol', 'escrow', 'devnet')).toBe(true);
+    // 0.1 SOL is above the escrow devnet cap — rejected there, allowed on legacy.
+    expect(isLadderCodeAllowed(10, 'sol', 'escrow', 'devnet')).toBe(false);
+    expect(isLadderCodeAllowed(10, 'sol', 'legacy', 'devnet')).toBe(true);
+    expect(isLadderCodeAllowed(3, 'sol', 'legacy', 'devnet')).toBe(false);
+    expect(isLadderCodeAllowed(0, 'sol', 'legacy', 'devnet')).toBe(false);
+  });
+});
 
 describe('WAGER_TUNABLES internal consistency', () => {
   it('presets are three ascending lamport amounts', () => {
