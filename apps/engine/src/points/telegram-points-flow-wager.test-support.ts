@@ -70,7 +70,7 @@ export class TelegramFlowWager implements FundedWagerModule {
   }
 
   async stakesAvailable(): Promise<boolean> { return true; }
-  cardFooter(): string { return 'Test SOL has no monetary value.'; }
+  cardFooter(): string { return ''; }
   presetLabels(): [string, string, string] { return ['0.01 SOL', '0.05 SOL', '0.1 SOL']; }
   presetLamports(index: number): bigint | null { return index === 0 ? DEFAULT_STAKE_LAMPORTS : null; }
   async walletSummary() {

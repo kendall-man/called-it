@@ -87,7 +87,6 @@ describe('copy bank hygiene', () => {
       WAGER_COPY.withdrawQueued(1n),
       WAGER_COPY.withdrawConfirmed('A', 1n, 'https://example.com'),
       WAGER_COPY.withdrawFailed('A', 1n),
-      WAGER_COPY.cardFooter(),
       WAGER_COPY.payoutsLineVoid(),
       WAGER_COPY.payoutsLineNone(),
       WAGER_COPY.payoutsLine([WAGER_COPY.payoutPart('A', 1n)]),
@@ -108,14 +107,16 @@ describe('copy bank hygiene', () => {
     }
   });
 
-  it('states that test SOL has no monetary value on onboarding and card fallbacks', () => {
+  it('keeps the single devnet disclosure at wallet setup and off routine copy', () => {
     const onboarding = WAGER_COPY.unlinkedOnboarding();
-    expect(onboarding).toMatch(/test SOL/i);
-    expect(onboarding).toMatch(/no monetary value/i);
     expect(onboarding).toMatch(/No SOL moved/i);
     expect(onboarding).not.toMatch(/\b(?:awarded|credited|funded|placed|recorded|success(?:ful)?)\b/i);
-    expect(WAGER_COPY.cardFooter()).toMatch(/test SOL/i);
-    expect(WAGER_COPY.cardFooter()).toMatch(/no monetary value/i);
+    // The one devnet disclosure lives at wallet setup; routine copy never
+    // repeats value disclaimers (voice rule: honesty is not a nag).
+    expect(WAGER_COPY.walletSetupReady()).toContain('Runs on Solana devnet — these are test tokens.');
+    expect(WAGER_COPY.cardFooter()).toBe('');
+    expect(WAGER_COPY.stakePlaced('A', 'Backing', 1n, '2')).not.toMatch(/monetary value|devnet/i);
+    expect(onboarding).not.toMatch(/monetary value/i);
   });
 
   it('the deposit explainer carries the devnet-only warning and the treasury address', () => {
@@ -125,12 +126,15 @@ describe('copy bank hygiene', () => {
     expect(line).toContain('mainnet');
   });
 
-  it('value-moving lines are stamped (devnet)', () => {
-    expect(WAGER_COPY.depositCredited('A', 1n, 2n)).toContain('(devnet)');
-    expect(WAGER_COPY.withdrawConfirmed('A', 1n, 'u')).toContain('(devnet)');
-    expect(WAGER_COPY.payoutsLineVoid()).toContain('(devnet)');
-    expect(WAGER_COPY.payoutsLineNone()).toContain('(devnet)');
-    expect(WAGER_COPY.payoutsLine(['x'])).toContain('(devnet)');
+  it('devnet money lines carry no network stamp or repeated disclaimer', () => {
+    const lines = [
+      WAGER_COPY.depositCredited('A', 1n, 2n),
+      WAGER_COPY.withdrawConfirmed('A', 1n, 'u'),
+      WAGER_COPY.payoutsLineVoid(),
+      WAGER_COPY.payoutsLineNone(),
+      WAGER_COPY.payoutsLine(['x']),
+    ];
+    expect(lines.join('\n')).not.toMatch(/\(devnet\)|monetary value/i);
   });
 
   it('mainnet copy removes test-token language and stamps value movement', () => {

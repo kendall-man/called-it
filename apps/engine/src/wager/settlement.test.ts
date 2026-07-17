@@ -266,7 +266,7 @@ describe('settlementPayoutsLine', () => {
       controlSafe: !/[\p{Cc}\p{Cf}\p{Cs}]/u.test(line),
       unicodeSafe: !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(line),
       bounded: line.length <= 512,
-      devnet: line.endsWith('(devnet)'),
+      unstamped: !line.includes('(devnet)'),
     }).toEqual({
       bulkQueries: [winnerIds.slice(0, 5)],
       sequentialReads: 0,
@@ -277,7 +277,7 @@ describe('settlementPayoutsLine', () => {
       controlSafe: true,
       unicodeSafe: true,
       bounded: true,
-      devnet: true,
+      unstamped: true,
     });
   });
 
@@ -289,7 +289,7 @@ describe('settlementPayoutsLine', () => {
     db.seedPosition({ market_id: 'm1', user_id: 2, side: 'doubt', stake: 10_000_000 });
     const line = await settlementPayoutsLine(deps, 'm1', 'claim_won');
     // 10M stake + 10M matched-and-won = 20M = 0.02 SOL.
-    expect(line).toBe('Sana collects 0.02 SOL. (devnet)');
+    expect(line).toBe('Sana collects 0.02 SOL.');
   });
 
   it('uses a stable label instead of a missing winner name or id', async () => {
@@ -300,7 +300,7 @@ describe('settlementPayoutsLine', () => {
 
     const line = await settlementPayoutsLine(deps, 'm1', 'claim_won');
 
-    expect(line).toBe('Player collects 0.02 SOL. (devnet)');
+    expect(line).toBe('Player collects 0.02 SOL.');
     expect(line).not.toContain('42');
   });
 
@@ -308,8 +308,8 @@ describe('settlementPayoutsLine', () => {
     const { deps } = makeFakeDeps();
     const voidLine = await settlementPayoutsLine(deps, 'm1', 'void');
     const noneLine = await settlementPayoutsLine(deps, 'm1', 'claim_won');
-    expect(voidLine).toBe('Call off — every SOL position returned. (devnet)');
-    expect(noneLine).toBe('No SOL changed hands. (devnet)');
+    expect(voidLine).toBe('Call off — every SOL position returned.');
+    expect(noneLine).toBe('No SOL changed hands.');
   });
 });
 

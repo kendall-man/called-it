@@ -4,6 +4,7 @@ import { decodeCallback } from './callbackData.js';
 import {
   configureMiniAppOfferKeyboards,
   marketStakeKeyboard,
+  miniAppPositionUrl,
   miniAppStartParam,
   offerKeyboard,
 } from './keyboards.js';
@@ -39,7 +40,7 @@ function labels(keyboard: ReturnType<typeof offerKeyboard>): string[][] {
   return keyboard.inline_keyboard.map((row) => row.map((button) => button.text));
 }
 
-const OFFER_LABELS = [['It happens · 0.01 SOL'], ['It does not · 0.01 SOL']];
+const OFFER_LABELS = [['Brazil win it'], ["They don't"]];
 
 type OfferButton = { text: string; callback_data?: string; url?: string };
 
@@ -75,73 +76,74 @@ function configureMiniApp(overrides: {
 describe('offer keyboard', () => {
   afterEach(() => configureMiniAppOfferKeyboards(null));
 
-  it('renders only the two exact 0.01 SOL actions', () => {
+  it('renders the two contextual side actions without amounts or odds', () => {
     const keyboard = offerKeyboard(MARKET);
 
     expect(labels(keyboard)).toMatchInlineSnapshot(`
       [
         [
-          "It happens · 0.01 SOL",
+          "Brazil win it",
         ],
         [
-          "It does not · 0.01 SOL",
+          "They don't",
         ],
       ]
     `);
+    for (const label of labels(keyboard).flat()) {
+      expect(label).not.toMatch(/SOL|USDC|\d/);
+    }
+  });
+
+  it('renders the exact binary fallback labels for a subject-free claim', () => {
+    const totals = offerKeyboard({
+      ...MARKET,
+      spec: { ...MARKET.spec, claimType: 'totals_ou', threshold: 2.5 },
+    });
+    expect(labels(totals)).toEqual([['It happens'], ['It does not']]);
   });
 
   it('keeps callback buttons when unconfigured', () => {
     expectCallbackButtons(offerKeyboard(MARKET));
   });
 
-  it('renders direct-link Mini App URL buttons with unchanged labels when the flag is active', () => {
+  it('stays callback-only even when the Mini App flag is fully configured', () => {
     configureMiniApp();
-
-    const keyboard = offerKeyboard(MARKET);
-
-    expect(labels(keyboard)).toEqual(OFFER_LABELS);
-    const [back, doubt] = buttons(keyboard);
-    expect(back?.url).toBe(
-      'https://t.me/callit_testing_bot/app?startapp=p-0f14d0ab96054a62a9e45ed26688389b-b',
-    );
-    expect(doubt?.url).toBe(
-      'https://t.me/callit_testing_bot/app?startapp=p-0f14d0ab96054a62a9e45ed26688389b-d',
-    );
-    expect(back?.callback_data).toBeUndefined();
-    expect(doubt?.callback_data).toBeUndefined();
-  });
-
-  it('keeps callback buttons under legacy custody even with the flag configured', () => {
-    configureMiniApp({ custodyMode: 'legacy' });
     expectCallbackButtons(offerKeyboard(MARKET));
   });
 
-  it('keeps callback buttons when no short name is configured', () => {
-    configureMiniApp({ miniAppShortName: undefined });
-    expectCallbackButtons(offerKeyboard(MARKET));
-  });
-
-  it('keeps callback buttons until the runtime bot username is known', () => {
-    configureMiniApp({ botUsername: () => undefined });
-    expectCallbackButtons(offerKeyboard(MARKET));
-  });
-
-  it('keeps callback buttons for a market id that does not encode to 32 hex chars', () => {
-    configureMiniApp();
-    const keyboard = offerKeyboard({ ...MARKET, id: 'not-a-uuid' });
-    const [back, doubt] = buttons(keyboard);
-    expect(back?.url).toBeUndefined();
-    expect(doubt?.url).toBeUndefined();
-    expect(labels(keyboard)).toEqual(OFFER_LABELS);
-  });
-
-  it('routes card refreshes through the same flag switch', () => {
+  it('routes card refreshes through the same callback-only builder', () => {
     configureMiniApp();
     const keyboard = marketStakeKeyboard({} as Deps, MARKET);
     const [back] = buttons(keyboard);
-    expect(back?.url).toBe(
+    expect(back?.url).toBeUndefined();
+    expect(decodeCallback(back?.callback_data ?? '')).toEqual({
+      t: 'stake', marketId: MARKET.id, side: 'back', presetIndex: 0,
+    });
+  });
+});
+
+describe('miniAppPositionUrl (reserved for the staking value step)', () => {
+  afterEach(() => configureMiniAppOfferKeyboards(null));
+
+  it('builds the direct-link URL only when fully configured for escrow', () => {
+    configureMiniApp();
+    expect(miniAppPositionUrl(MARKET, 'back')).toBe(
       'https://t.me/callit_testing_bot/app?startapp=p-0f14d0ab96054a62a9e45ed26688389b-b',
     );
+    expect(miniAppPositionUrl(MARKET, 'doubt')).toBe(
+      'https://t.me/callit_testing_bot/app?startapp=p-0f14d0ab96054a62a9e45ed26688389b-d',
+    );
+  });
+
+  it('returns null under legacy custody, missing config, or a bad market id', () => {
+    configureMiniApp({ custodyMode: 'legacy' });
+    expect(miniAppPositionUrl(MARKET, 'back')).toBeNull();
+    configureMiniApp({ miniAppShortName: undefined });
+    expect(miniAppPositionUrl(MARKET, 'back')).toBeNull();
+    configureMiniApp({ botUsername: () => undefined });
+    expect(miniAppPositionUrl(MARKET, 'back')).toBeNull();
+    configureMiniApp();
+    expect(miniAppPositionUrl({ ...MARKET, id: 'not-a-uuid' }, 'back')).toBeNull();
   });
 });
 

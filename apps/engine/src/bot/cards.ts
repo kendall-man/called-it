@@ -86,6 +86,89 @@ export function provenanceChip(provenance: 'market' | 'modelled'): string {
   return provenance === 'market' ? 'market price' : 'modelled price';
 }
 
+/**
+ * Longest allowed side label BEFORE the " · 0.01 SOL" keyboard suffix. Keeps
+ * every button label comfortably inside Telegram's visible width.
+ */
+const SIDE_LABEL_LIMIT = 22;
+
+export interface SideLabels {
+  back: string;
+  doubt: string;
+}
+
+/** The exact binary fallback — the pre-pivot contract labels, kept verbatim. */
+export const FALLBACK_SIDE_LABELS: SideLabels = { back: 'It happens', doubt: 'It does not' };
+
+/**
+ * Fit a name-bearing template inside SIDE_LABEL_LIMIT without mid-word cuts:
+ * try the full compiled name, then its last word (surname / "United"), else
+ * give up so the caller falls back to the binary labels.
+ */
+function fitEntityLabel(
+  name: string,
+  template: (entity: string) => string,
+): string | null {
+  const entity = normalizeInlineText(name, ENTITY_NAME_LIMIT, '');
+  // A 96+-char name arrives truncated with an ellipsis — binary reads better.
+  if (entity.length === 0 || entity.endsWith('...')) return null;
+  const lastWord = entity.split(' ').at(-1);
+  const candidates = lastWord === undefined || lastWord === entity
+    ? [entity]
+    : [entity, lastWord];
+  for (const candidate of candidates) {
+    const label = template(candidate);
+    if (label.length <= SIDE_LABEL_LIMIT) return label;
+  }
+  return null;
+}
+
+function pairedSideLabels(back: string | null, doubt: string): SideLabels {
+  return back === null ? FALLBACK_SIDE_LABELS : { back, doubt };
+}
+
+/**
+ * Deterministic per-claim side labels, keyed on the compiled spec's claim
+ * taxonomy and entity names — NEVER on LLM output. Anything without a clean
+ * short subject (totals, non-gte comparators, overlong names) falls back to
+ * the exact binary pair. Used verbatim by the offer keyboard, the card's side
+ * lines, and the stake-confirmation prompt so the vocabulary never forks.
+ */
+export function sideLabels(spec: MarketSpec): SideLabels {
+  switch (spec.claimType) {
+    case 'match_winner':
+      return pairedSideLabels(
+        fitEntityLabel(spec.entityRef.name, (team) => `${team} win it`),
+        "They don't",
+      );
+    case 'comeback':
+      return pairedSideLabels(
+        fitEntityLabel(spec.entityRef.name, (team) => `${team} come back`),
+        'No comeback',
+      );
+    case 'team_scores_n': {
+      if (spec.comparator !== 'gte') return FALLBACK_SIDE_LABELS;
+      const goals = spec.threshold === 1 ? ' score' : ` score ${spec.threshold}+`;
+      return pairedSideLabels(
+        fitEntityLabel(spec.entityRef.name, (team) => `${team}${goals}`),
+        "They don't",
+      );
+    }
+    case 'player_scores_n': {
+      if (spec.comparator !== 'gte') return FALLBACK_SIDE_LABELS;
+      const goals = spec.threshold === 1 ? ' scores' : ` scores ${spec.threshold}+`;
+      return pairedSideLabels(
+        fitEntityLabel(spec.entityRef.name, (player) => `${player}${goals}`),
+        'No goal',
+      );
+    }
+    case 'btts':
+      return { back: 'Both teams score', doubt: "They don't" };
+    case 'totals_ou':
+      return FALLBACK_SIDE_LABELS;
+  }
+}
+
 export function trustTierLine(tier: MarketSpec['trustTier']): string {
   return tier === 'chain_proven'
     ? 'Chain-proven — Merkle proof lands on the receipt page'
@@ -179,6 +262,7 @@ export function claimCardText(input: ClaimCardInput): string {
   const currency = input.currency ?? 'sol';
   const backMult = formatMultiplier(fullMatchMultiplier(input.probability, 'back'));
   const againstMult = formatMultiplier(fullMatchMultiplier(input.probability, 'doubt'));
+  const sides = sideLabels(input.spec);
   const showsParticipants =
     input.backParticipants !== undefined || input.doubtParticipants !== undefined;
   const quote = normalizeInlineText(input.quotedText, QUOTED_TEXT_LIMIT, 'Call unavailable');
@@ -205,22 +289,21 @@ export function claimCardText(input: ClaimCardInput): string {
       ? [`⏸ New ${currency.toUpperCase()} positions are temporarily paused. No ${currency.toUpperCase()} can move.`]
       : []),
     '',
-    `⚡ Backing it: ${formatAssetAmount(input.back.stakeLamports, currency)} (${input.back.count} in)`,
-    `🛑 Against it: ${formatAssetAmount(input.doubt.stakeLamports, currency)} (${input.doubt.count} in)`,
+    `⚡ ${sides.back}: ${formatAssetAmount(input.back.stakeLamports, currency)} (${input.back.count} in)`,
+    `🛑 ${sides.doubt}: ${formatAssetAmount(input.doubt.stakeLamports, currency)} (${input.doubt.count} in)`,
     `🤝 Matched: ${input.matchedPct}%`,
     ...(showsParticipants
       ? [
-          `It happens: ${sideListText(
+          `${sides.back}: ${sideListText(
             input.backParticipants ?? [],
             TELEGRAM_MESSAGE_LIMIT,
             input.backParticipantCount ?? input.backParticipants?.length ?? 0,
           )}`,
-          `It does not: ${sideListText(
+          `${sides.doubt}: ${sideListText(
             input.doubtParticipants ?? [],
             TELEGRAM_MESSAGE_LIMIT,
             input.doubtParticipantCount ?? input.doubtParticipants?.length ?? 0,
           )}`,
-          'Choices and results are visible in this group.',
         ]
       : []),
     '',
@@ -378,10 +461,11 @@ export function statusBoardText(input: StatusBoardInput): string {
     ...(input.escrowRuntime === undefined
       ? []
       : [escrowRuntimeStatusLine(input.escrowRuntime)]),
-    '',
-    input.solanaNetwork === 'mainnet-beta'
-      ? 'SOL positions settle on Solana mainnet.'
-      : 'Test SOL has no monetary value. (devnet)',
+    // Devnet needs no footer here — value disclaimers live at onboarding and
+    // on the receipt page, not on routine boards. Mainnet stays explicit.
+    ...(input.solanaNetwork === 'mainnet-beta'
+      ? ['', 'SOL positions settle on Solana mainnet.']
+      : []),
   ];
   return telegramMessageBody(lines.join('\n'));
 }

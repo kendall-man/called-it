@@ -359,8 +359,8 @@ describe('option pick prices and mints', () => {
     const offer = harness.cardEdits.at(-1)!;
     expect(offer.text).toContain('🎙 THE CALL');
     expect(keyboardLabels(offer)).toEqual([
-      'It happens · 0.01 SOL',
-      'It does not · 0.01 SOL',
+      'Egypt win it',
+      "They don't",
     ]);
     expect(keyboardData(offer)).not.toContain(`nx:${CLAIM_ID}`);
   });

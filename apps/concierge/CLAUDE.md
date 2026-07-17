@@ -8,9 +8,10 @@ the single source of truth. Callie proposes, the engine disposes.
 ## Shape
 
 Eve framework (`eve` package) auto-discovers everything under `agent/`:
-- `agent/agent.ts`, model config: GLM `glm-4.6` through its Anthropic-compatible
-  endpoint (`GLM_BASE_URL`). `modelContextWindowTokens` is REQUIRED (GLM is not in the
-  gateway catalog, so removing it breaks the compaction build). Session caps and subagent
+- `agent/agent.ts`, model config: GLM `glm-5.2` through its Anthropic-compatible
+  endpoint (`GLM_BASE_URL`). `modelContextWindowTokens` is REQUIRED and must match the
+  model's real window (`1_000_000` for glm-5.2; GLM is not in the gateway catalog, so a
+  wrong value or a missing field breaks the compaction build). Session caps and subagent
   depth 1 are runaway guards.
 - `agent/instructions/*.md`, concatenated alphabetically into one system prompt (the
   `00-`/`10-` prefixes are ordering). There are no eve "skills"; edit persona and rules

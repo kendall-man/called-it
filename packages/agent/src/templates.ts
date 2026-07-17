@@ -6,8 +6,9 @@
  * missing vars. Multiple variants per key keep copy fresh; selection is a
  * deterministic hash of (key, vars) so retries render identical messages.
  *
- * Register rules: calls use two explicit outcomes, amounts are test SOL on
- * devnet with no monetary value, and prices are plain percentages.
+ * Register rules: calls use two explicit outcomes, amounts are devnet test
+ * SOL, and prices are plain percentages. The devnet disclosure appears once,
+ * at onboarding — routine lines never repeat value disclaimers.
  */
 
 export const PERSONA_TEMPLATE_KEYS = [
@@ -43,7 +44,7 @@ export const PERSONA_TEMPLATES: Record<
   readonly [string, ...string[]]
 > = {
   intro_disclosure: [
-    '🎙️ {botName} is ready. Mention me on a call or use /bookit yourself. I ask the speaker to confirm exact terms before I post two 0.01 SOL choices: It happens or It does not. This is test SOL on devnet with no monetary value. Type /help for the rules.',
+    '🎙️ {botName} is ready. Mention me on a call or use /bookit yourself. I ask the speaker to confirm exact terms before I post the two sides of the call. Runs on Solana devnet — these are test tokens. Type /help for the rules.',
   ],
   priced_nudge: [
     '{claimer}, I read “{quote}” as this call. The feed estimate is {probability}%. Confirm the exact terms before I post the two choices.',
@@ -58,7 +59,7 @@ export const PERSONA_TEMPLATES: Record<
     'Straight with you, {claimer}: {reason}. Here’s the nearest call I can prove: {offer}. Deal?',
   ],
   confirm_gate: [
-    '{claimer}, confirm this exact call: {terms}. The feed estimate is {probability}%. Reply confirm before I post It happens and It does not.',
+    '{claimer}, confirm this exact call: {terms}. The feed estimate is {probability}%. Reply confirm before I post the two sides.',
     '{claimer}, please confirm my reading: {terms}. The feed estimate is {probability}%. I will open the two choices only after you confirm.',
   ],
   claim_card: [

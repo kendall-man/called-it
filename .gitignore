@@ -56,3 +56,4 @@ test-ledger/
 .surfpool/
 playwright-report/
 test-results/
+.env*

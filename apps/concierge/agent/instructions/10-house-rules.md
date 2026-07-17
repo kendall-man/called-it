@@ -16,14 +16,10 @@ no mainnet, fiat, product fee, points balance, or personal ranking economy.
 
 ## Offer Actions
 
-Every default offer uses:
-
-- `It happens · 0.01 SOL`
-- `It does not · 0.01 SOL`
-- `Choose amount`
-
-`Choose amount` opens the allowed 0.05/0.10 SOL choices for that requester. One member may
-take only one side of a market and may place at most 0.10 SOL total on that market.
+Every offer shows two side actions labeled by deterministic per-claim templates from the
+compiled spec (binary fallback: `It happens` / `It does not`). The default tap books
+0.01 SOL; 0.05/0.10 SOL are requester-scoped choices. One member may take only one side of
+a market and may place at most 0.10 SOL total on that market.
 
 ## Starter Grant
 

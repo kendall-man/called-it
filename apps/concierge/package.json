@@ -2,7 +2,7 @@
   "name": "callie",
   "version": "0.1.0",
   "private": true,
-  "description": "Called It concierge \u2014 the eve-powered conversational betting agent",
+  "description": "Called It concierge — the eve-powered conversational betting agent",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -17,8 +17,10 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.9",
+    "@chat-adapter/state-memory": "4.34.0",
+    "@chat-adapter/telegram": "4.34.0",
     "ai": "^7.0.17",
-    "eve": "^0.22.4",
+    "eve": "^0.22.6",
     "zod": "^4.4.3"
   },
   "devDependencies": {

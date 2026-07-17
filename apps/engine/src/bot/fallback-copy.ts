@@ -85,14 +85,14 @@ function value(vars: CopyVars, key: string, fallback = ''): string {
 
 export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string> = {
   intro: (vars) => isEscrow(vars)
-    ? `Add Called It to a Telegram group. Reply /bookit to a football call, then choose It happens or It does not using SOL or canonical USDC. Each live choice opens a private Privy wallet approval and settles through On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Named choices and results are visible in the group.`
+    ? `Add Called It to a Telegram group. Reply /bookit to a football call, then pick a side using SOL or canonical USDC. Each live choice opens a private Privy wallet approval and settles through On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Named choices and results are visible in the group.`
     : isMainnet(vars)
-    ? 'Add Called It to a Telegram group. Reply /bookit to your own football call, then choose It happens or It does not using SOL or USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in the group. Use /wallet in private chat to review your verified wallet, and /leaderboard, /mystats, or /table in the group.'
-    : 'Add Called It to a Telegram group. Reply /bookit to your own football call, then choose It happens or It does not using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test assets are devnet-only and have no monetary value.',
+    ? 'Add Called It to a Telegram group. Reply /bookit to your own football call, then pick a side using SOL or USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in the group. Use /wallet in private chat to review your verified wallet, and /leaderboard, /mystats, or /table in the group.'
+    : 'Add Called It to a Telegram group. Reply /bookit to your own football call, then pick a side using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet — these are test tokens.',
   help: (vars) => isEscrow(vars) ? [
     'How On-chain escrow works:',
     '• Make or book a football call in the group.',
-    '• Choose It happens or It does not in SOL or canonical USDC.',
+    '• Pick a side in SOL or canonical USDC.',
     '• Review and approve the exact amount with your Privy wallet in private chat.',
     '• The group updates only after the position is finalized on-chain.',
     `• Completed-match replays use ${isMainnet(vars) ? 'allowlisted, capped mainnet assets' : 'devnet test assets'} through the same Privy approval and never change Points.`,
@@ -104,7 +104,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     'How this works:',
     '• Add Called It to a Telegram group.',
     '• Reply /bookit to your own football call.',
-    '• Choose It happens or It does not, then pick an amount in the call asset.',
+    '• Pick a side, then an amount in the call asset.',
     '• SOL is the default. Group admins can use /currency sol or /currency usdc for new calls.',
     '• Choices and named results are visible to everyone in this Telegram group.',
     '• Correct choices earn 10 points automatically.',
@@ -114,7 +114,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
       : 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /help',
     isMainnet(vars)
       ? 'SOL and native Circle USDC deposits and withdrawals use Solana mainnet.'
-      : 'Test SOL and test USDC are devnet-only and have no monetary value.',
+      : 'Runs on Solana devnet — these are test tokens.',
   ].join('\n'),
   dm_start: (vars) =>
     `I live in group chats — add me to yours and the banter starts pricing itself. ${value(vars, 'addLink')}`,
@@ -144,7 +144,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   budget_spent: () => "I've done all the thinking I can in here for today — catch me tomorrow.",
   market_live: (vars) => `Locked in. ${value(vars, 'claimer')} is on the record — pick a side below.`,
   offer_live: (vars) =>
-    `${value(vars, 'claimer', 'Someone')}'s call is on the board. Choose It happens · ${value(vars, 'amount', '0.01 SOL')} or It does not · ${value(vars, 'amount', '0.01 SOL')} below.`,
+    `${value(vars, 'claimer', 'Someone')}'s call is on the board — pick a side below. Each tap books ${value(vars, 'amount', '0.01 SOL')}.`,
   offer_taken: () =>
     "Too late to pull it — there's already money on this one. It rides to the final whistle now.",
   pending_lineup_note: () =>
@@ -214,10 +214,10 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   admin_permission_required: () =>
     'One step left: promote Called It to group admin with permission to manage messages. I will post the ready message when setup is complete.',
   group_ready: (vars) => isEscrow(vars)
-    ? `Called It is ready with On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Make a football call, then choose "It happens" or "It does not" in SOL or canonical USDC. Every live or completed-match replay choice opens a private Privy wallet approval; this group updates only after finalization. Replays do not change Points. Legacy /deposit and /withdraw remain only for older balances. Board: ${value(vars, 'webUrl', 'the group board')}`
+    ? `Called It is ready with On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Make a football call, then pick a side in SOL or canonical USDC. Every live or completed-match replay choice opens a private Privy wallet approval; this group updates only after finalization. Replays do not change Points. Legacy /deposit and /withdraw remain only for older balances. Board: ${value(vars, 'webUrl', 'the group board')}`
     : isMainnet(vars)
-    ? `Called It is ready on Solana mainnet. Say a football call, mention me, or reply /bookit to your own message. Choose "It happens" or "It does not," then pick an amount. New calls use SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this group. Correct choices earn 10 points automatically. A verified wallet is required; /wallet in private chat shows your status. Board: ${value(vars, 'webUrl', 'the group board')}`
-    : `Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Choose "It happens" or "It does not," then pick an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test assets are devnet-only with no monetary value. Board: ${value(vars, 'webUrl', 'the group board')}`,
+    ? `Called It is ready on Solana mainnet. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this group. Correct choices earn 10 points automatically. A verified wallet is required; /wallet in private chat shows your status. Board: ${value(vars, 'webUrl', 'the group board')}`
+    : `Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet — these are test tokens. Board: ${value(vars, 'webUrl', 'the group board')}`,
   private_start: () => 'Called It lives in group chats. Add it to a group to make a football call.',
   group_only_recovery: () => 'Open this command in the group where you want to use Called It.',
   points_unavailable: () => 'Points are temporarily unavailable. Try again shortly.',

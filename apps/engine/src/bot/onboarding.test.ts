@@ -39,7 +39,7 @@ describe('group onboarding', () => {
     expect(first).toEqual({
       kind: 'post_ready',
       text:
-        'Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Choose "It happens" or "It does not," then pick an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Test assets are devnet-only with no monetary value. Board: https://calledit.example/g/sunday-legends',
+        'Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet — these are test tokens. Board: https://calledit.example/g/sunday-legends',
     });
     expect(duplicate).toEqual({ kind: 'already_ready' });
   });

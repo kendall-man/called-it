@@ -111,6 +111,14 @@ const RULES: readonly Rule[] = [
     policyScope: 'all',
   },
   {
+    // The devnet disclosure lives ONCE at onboarding and on the receipt page.
+    // Routine copy repeating "no monetary value" is disclaimer spam, not honesty.
+    id: 'value.repeated-disclaimer',
+    pattern: /\bno monetary value\b/i,
+    policyScope: 'contracts',
+    surfaces: ['bot', 'web', 'fixture'],
+  },
+  {
     id: 'language.cashout',
     pattern: /\bcash(?:\s|-)?out\b/i,
     policyScope: 'contracts',

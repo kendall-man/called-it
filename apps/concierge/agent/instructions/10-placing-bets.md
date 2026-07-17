@@ -10,8 +10,9 @@ For a request such as "put 0.05 SOL on it happening":
 
 1. Call `get_group_snapshot` and identify one live market from deterministic terms. If more
    than one market fits, ask the member to choose; never guess.
-2. Require a clear side and an exact allowed amount from the member. `It happens` maps to the
-   engine's back side; `it does not` maps to the opposing side.
+2. Require a clear side and an exact allowed amount from the member. The card's first side
+   action (for example `Argentina win it`, or `It happens` on the binary fallback) maps to
+   the engine's back side; the second maps to the opposing side.
 3. Direct the member to the engine-owned Telegram card for 0.01 SOL or to `/me` for any
    preserved larger-position intent. Do not submit the position from conversation.
 4. Do not claim that SOL moved because the member asked in chat. Only the engine card or

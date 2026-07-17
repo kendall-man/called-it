@@ -37,6 +37,12 @@ surface, not a marketing site or an analytics dashboard.
   in an expandable trust section.
 - No demo or replay onboarding, decorative blobs, fake receipts, nested cards, or
   instructional feature tours.
+- Assume the user is smart: never explain the obvious, never pad, never repeat
+  disclaimers. The devnet test-token disclosure appears exactly once at onboarding
+  (group-ready and wallet setup) and once on the public receipt page. Routine cards,
+  acknowledgements, boards, and toasts carry no value disclaimers — an
+  `On-chain escrow · DEVNET` chip is identity, not a disclaimer, and may stay. No copy
+  anywhere may imply devnet SOL has monetary value.
 
 ## Approved Target
 
@@ -133,16 +139,20 @@ destinations are forbidden.
 
 ### Offer
 
-An offer has deterministic compiled terms, timing, aggregate pot state, and exactly these
-top-level actions:
+An offer has deterministic compiled terms, timing, aggregate pot state, and exactly two
+equal primary side actions. Side labels are deterministic per-claim templates derived from
+the compiled market spec's claim taxonomy and entity names — never from model output — with
+the exact binary fallback:
 
-1. `It happens · 0.01 SOL`
-2. `It does not · 0.01 SOL`
-3. `Choose amount`
+1. Back: e.g. `Argentina win it`, `Mbappé scores`, `Both teams score`; fallback `It happens`.
+2. Doubt: e.g. `They don't`, `No goal`, `No comeback`; fallback `It does not`.
 
-The first two are equal primary rows. `Choose amount` is secondary and opens a scoped
-0.05/0.10 SOL picker. Pending, matched, closed, and refused states replace the action area
-without changing the card width.
+Totals lines, non-standard comparators, and names that will not fit 22 characters without a
+mid-word cut use the binary fallback verbatim. Button labels carry no amount or odds
+notation; the default tap books 0.01 SOL and larger amounts stay requester-scoped. The
+card's side tally and participant lines reuse the same labels so the vocabulary never
+forks. Pending, matched, closed, and refused states replace the action area without
+changing the card width.
 
 ### Status, Errors, And Recovery
 

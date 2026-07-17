@@ -47,7 +47,7 @@ describe('Telegram group points flow', () => {
     const firstCard = requiredCall(
       harness.runtime.transport.calls,
       (call) => call.method === 'editMessageText' && call.text?.includes(first.id) === true
-        && call.text.includes('@alice_calls') && call.text.includes('It does not: Bob'),
+        && call.text.includes('@alice_calls') && call.text.includes("They don't: Bob"),
       'first populated card',
     );
 
@@ -81,8 +81,8 @@ describe('Telegram group points flow', () => {
     ]);
     expect(harness.runtime.log.events.some((event) => event.event === 'group_points_applied')).toBe(false);
     expect(firstCard.chatId).toBe(GROUP_ONE_ID);
-    expect(firstCard.text).toContain('It happens: @alice_calls');
-    expect(firstCard.text).toContain('It does not: Bob');
+    expect(firstCard.text).toContain('Atlas FC win it: @alice_calls');
+    expect(firstCard.text).toContain("They don't: Bob");
     expect(firstCard.text).not.toMatch(/It (?:happens|does not):[^\n]*@dee_calls/);
 
     // When Telegram repeats the terminal update, the real event path deduplicates it
@@ -235,22 +235,22 @@ describe('Telegram group points flow', () => {
     const groupOneCard = requiredCall(
       harness.runtime.transport.calls,
       (call) => call.chatId === GROUP_ONE_ID && call.text?.includes(groupOne.id) === true
-        && call.text.includes('It does not: Bob'),
+        && call.text.includes("They don't: Bob"),
       'group-one populated card',
     );
     const groupTwoCard = requiredCall(
       harness.runtime.transport.calls,
       (call) => call.chatId === GROUP_TWO_ID && call.text?.includes(groupTwo.id) === true
-        && call.text.includes('It does not: @cara_calls'),
+        && call.text.includes("They don't: @cara_calls"),
       'group-two populated card',
     );
 
     // Then intended labels stay in their origin group and cross-group names are absent
-    expect(groupOneCard.text).toContain('It happens: @alice_calls');
-    expect(groupOneCard.text).toContain('It does not: Bob');
+    expect(groupOneCard.text).toContain('Atlas FC win it: @alice_calls');
+    expect(groupOneCard.text).toContain("They don't: Bob");
     expect(groupOneCard.text).not.toContain('@cara_calls');
-    expect(groupTwoCard.text).toContain('It happens: @alice_calls');
-    expect(groupTwoCard.text).toContain('It does not: @cara_calls');
+    expect(groupTwoCard.text).toContain('Cygnus FC win it: @alice_calls');
+    expect(groupTwoCard.text).toContain("They don't: @cara_calls");
     expect(groupTwoCard.text).not.toMatch(/It (?:happens|does not):[^\n]*Bob/);
   });
 });

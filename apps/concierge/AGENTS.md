@@ -29,8 +29,9 @@ source of truth.
   insert a simulated flow before it.
 - A quote is read-only and never substitutes for speaker consent or a committed position.
 - Explicit author input may proceed; passive/friend-triggered calls remain owner-confirmed.
-- The offer contract is `It happens · 0.01 SOL`, `It does not · 0.01 SOL`, and
-  `Choose amount`; never invent a price, side, or amount.
+- Offer side labels are deterministic per-claim templates from the compiled spec with the
+  exact binary fallback `It happens` / `It does not`; the default tap books 0.01 SOL.
+  Never invent a price, side, or amount.
 - Starter test SOL has no monetary value, is limited and not guaranteed, and exists only
   with an eligible first committed position.
 - `/me` is private requester state. `/table` is aggregate group state. Do not cross them.

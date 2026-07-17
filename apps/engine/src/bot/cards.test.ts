@@ -5,9 +5,11 @@ import {
   describeTerms,
   escrowRuntimeStatusLabel,
   FAIR_PLAY_PENDING_LINE,
+  FALLBACK_SIDE_LABELS,
   formatMultiplier,
   formatProbabilityPct,
   receiptCardText,
+  sideLabels,
   skeletonCardText,
   statusBoardText,
   type ClaimCardInput,
@@ -56,7 +58,7 @@ const RECEIPT_INPUT = {
   outcome: 'claim_won',
   probability: CLAIM_INPUT.probability,
   provenance: CLAIM_INPUT.provenance,
-  payoutsLine: 'Dee collects 0.08 SOL. (devnet)',
+  payoutsLine: 'Dee collects 0.08 SOL.',
   isReplay: false,
   receiptUrl: CLAIM_INPUT.receiptUrl,
 } satisfies ReceiptCardInput;
@@ -74,6 +76,90 @@ describe('formatters', () => {
     expect(formatProbabilityPct(0.09)).toBe('9');
     expect(formatProbabilityPct(0.005)).toBe('<1');
     expect(formatProbabilityPct(0.999)).toBe('>99');
+  });
+});
+
+describe('sideLabels', () => {
+  const specOf = (overrides: Partial<MarketSpec>): MarketSpec => ({
+    ...TEAM_SPEC,
+    ...overrides,
+  } as MarketSpec);
+
+  it('labels every claim taxonomy from the compiled spec entities', () => {
+    expect(sideLabels(specOf({
+      claimType: 'match_winner',
+      entityRef: { kind: 'team', participant: 1, name: 'Brazil' },
+      threshold: 1,
+    }))).toEqual({ back: 'Brazil win it', doubt: "They don't" });
+    expect(sideLabels(TEAM_SPEC)).toEqual({ back: 'France score 2+', doubt: "They don't" });
+    expect(sideLabels(specOf({ threshold: 1 })))
+      .toEqual({ back: 'France score', doubt: "They don't" });
+    expect(sideLabels(specOf({
+      claimType: 'player_scores_n',
+      entityRef: { kind: 'player', normativeId: 9, name: 'Mbappé', participant: 1 },
+      threshold: 1,
+    }))).toEqual({ back: 'Mbappé scores', doubt: 'No goal' });
+    expect(sideLabels(specOf({
+      claimType: 'player_scores_n',
+      entityRef: { kind: 'player', normativeId: 9, name: 'Mbappé', participant: 1 },
+      threshold: 2,
+    }))).toEqual({ back: 'Mbappé scores 2+', doubt: 'No goal' });
+    expect(sideLabels(specOf({ claimType: 'btts' })))
+      .toEqual({ back: 'Both teams score', doubt: "They don't" });
+    expect(sideLabels(COMEBACK_SPEC))
+      .toEqual({ back: 'Brazil come back', doubt: 'No comeback' });
+  });
+
+  it('falls back to the exact binary labels without a clean short subject', () => {
+    expect(FALLBACK_SIDE_LABELS).toEqual({ back: 'It happens', doubt: 'It does not' });
+    // Totals have no subject; non-gte comparators have no short phrasing.
+    expect(sideLabels(specOf({ claimType: 'totals_ou' }))).toEqual(FALLBACK_SIDE_LABELS);
+    expect(sideLabels(specOf({ comparator: 'lte' }))).toEqual(FALLBACK_SIDE_LABELS);
+    expect(sideLabels(specOf({ comparator: 'eq' }))).toEqual(FALLBACK_SIDE_LABELS);
+  });
+
+  it('shortens long names at word boundaries, never mid-word', () => {
+    const gladbach = sideLabels(specOf({
+      claimType: 'match_winner',
+      entityRef: { kind: 'team', participant: 1, name: 'Borussia Mönchengladbach' },
+      threshold: 1,
+    }));
+    expect(gladbach.back).toBe('Mönchengladbach win it');
+    // A single overlong word cannot be shortened safely — binary wins.
+    expect(sideLabels(specOf({
+      claimType: 'match_winner',
+      entityRef: { kind: 'team', participant: 1, name: 'Abcdefghijklmnopqrstuvwxyz' },
+      threshold: 1,
+    }))).toEqual(FALLBACK_SIDE_LABELS);
+  });
+
+  it('keeps every generated label within the 22-character button budget', () => {
+    const specs: MarketSpec[] = [
+      TEAM_SPEC,
+      COMEBACK_SPEC,
+      specOf({ claimType: 'btts' }),
+      specOf({ claimType: 'totals_ou' }),
+      specOf({
+        claimType: 'player_scores_n',
+        entityRef: { kind: 'player', normativeId: 9, name: 'Kylian Mbappé Lottin', participant: 1 },
+        threshold: 3,
+      }),
+    ];
+    for (const spec of specs) {
+      const labels = sideLabels(spec);
+      expect(labels.back.length).toBeLessThanOrEqual(22);
+      expect(labels.doubt.length).toBeLessThanOrEqual(22);
+    }
+  });
+
+  it('sanitizes hostile entity names before they can reach a button', () => {
+    const hostile = sideLabels(specOf({
+      claimType: 'match_winner',
+      entityRef: { kind: 'team', participant: 1, name: '\u0000\u202eFrance ' },
+      threshold: 1,
+    }));
+    expect(hostile.back).not.toMatch(/[\u0000\u202e]/u);
+    expect(hostile.back).toContain('win it');
   });
 });
 
@@ -132,14 +218,14 @@ describe('cards', () => {
 
     expect(card).toContain(
       [
-        '⚡ Backing it: 0.05 SOL (2 in)',
-        '🛑 Against it: 0.03 SOL (1 in)',
+        '⚡ France score 2+: 0.05 SOL (2 in)',
+        "🛑 They don't: 0.03 SOL (1 in)",
         '🤝 Matched: 60%',
         '',
         'Receipt: https://example.test/r/abc',
       ].join('\n'),
     );
-    expect(receipt).toContain('💠 Dee collects 0.08 SOL. (devnet)');
+    expect(receipt).toContain('💠 Dee collects 0.08 SOL.');
     expect(receipt).toMatch(/Receipt: https:\/\/example\.test\/r\/abc$/);
   });
 
@@ -156,7 +242,7 @@ describe('cards', () => {
     expect(card).toContain('https://example.test/r/abc');
   });
 
-  it('shows participant sides with the ongoing group disclosure', () => {
+  it('shows participant sides under the deterministic side labels', () => {
     const namedCard = claimCardText({
       ...CLAIM_INPUT,
       backParticipants: [
@@ -168,11 +254,12 @@ describe('cards', () => {
 
     expect(namedCard).toContain(
       [
-        'It happens: @alice_7, Bob',
-        'It does not: @carol_9',
-        'Choices and results are visible in this group.',
+        'France score 2+: @alice_7, Bob',
+        "They don't: @carol_9",
       ].join('\n'),
     );
+    // Voice rule: no repeated group-visibility or value disclaimers on cards.
+    expect(namedCard).not.toContain('Choices and results are visible in this group.');
   });
 
   it('keeps financial positions separate from distinct participant overflow', () => {
@@ -186,8 +273,8 @@ describe('cards', () => {
       doubtParticipantCount: 0,
     });
 
-    expect(duplicateOnlyCard).toContain('⚡ Backing it: 0.06 SOL (6 in)');
-    expect(duplicateOnlyCard).toContain('It happens: @alice_7');
+    expect(duplicateOnlyCard).toContain('⚡ France score 2+: 0.06 SOL (6 in)');
+    expect(duplicateOnlyCard).toContain('France score 2+: @alice_7');
     expect(duplicateOnlyCard).not.toContain('and 5 more');
   });
 
@@ -208,9 +295,9 @@ describe('cards', () => {
     });
 
     expect(boundedCard).toContain(
-      'It happens: @player_0, @player_1, @player_2, @player_3, @player_4, and 95 more',
+      'France score 2+: @player_0, @player_1, @player_2, @player_3, @player_4, and 95 more',
     );
-    expect(boundedCard).toContain('It does not: No one yet');
+    expect(boundedCard).toContain("They don't: No one yet");
     expect(boundedCard).not.toMatch(/[\u0000\u202e]/u);
     expect(boundedCard.length).toBeLessThanOrEqual(4_096);
   });
@@ -240,7 +327,7 @@ describe('cards', () => {
     expect(receipt).toContain('1st. @player_0 - 60 points, 6 wins, 0 losses, 100% accuracy');
     expect(receipt).toContain('5th. @player_4 - 20 points, 2 wins, 4 losses, 33% accuracy');
     expect(receipt).not.toContain('@player_5');
-    expect(receipt).toContain('💠 Dee collects 0.08 SOL. (devnet)');
+    expect(receipt).toContain('💠 Dee collects 0.08 SOL.');
     expect(receipt).toContain('Receipt: https://example.test/r/abc');
   });
 
@@ -377,7 +464,8 @@ describe('status board', () => {
     expect(board).toContain('🎙 Open calls here: 3');
     expect(board).toContain('⏳ Positions in the fair-play wait: 2');
     expect(board).toContain('🔐 Escrow desk: all clear');
-    expect(board).toContain('Test SOL has no monetary value. (devnet)');
+    // Voice rule: no devnet value disclaimer on the routine board.
+    expect(board).not.toMatch(/monetary value|\(devnet\)/);
   });
 
   it('names the replayed fixture with its virtual minute', () => {

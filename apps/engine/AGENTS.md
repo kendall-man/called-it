@@ -30,8 +30,9 @@ test-SOL positions, settlement, proofs, durable jobs, cron work, and the private
   `position_placed` only after the position commits. They are the only activation events.
 - Explicit author mentions or the author's own `/bookit` may proceed. Passive or
   friend-triggered calls publish nothing until the owner confirms within two minutes.
-- Default offers use exactly `It happens · 0.01 SOL`,
-  `It does not · 0.01 SOL`, and `Choose amount`.
+- Offer side buttons use deterministic per-claim labels compiled from `market.spec`
+  (binary fallback `It happens` / `It does not`); labels carry no amount and the default
+  tap books 0.01 SOL.
 - Starter support is limited to an eligible exact first 0.01 test-SOL position, commits in
   the same transaction, is disabled by default, and has no monetary value.
 - `/me` never exposes account data in a group; `/table` resolves aggregate group state.

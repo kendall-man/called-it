@@ -16,7 +16,10 @@ privacy, and copy must agree here, in `README.md`, `docs/PRD-called-it-mvp.md`,
 - Every externally replayable mutation is idempotent and reports only after the durable
   effect commits.
 - SOL/test SOL on Solana devnet is the only current economy. It has no monetary value; the
-  product supports no mainnet, fiat, fee, or profit claim.
+  product supports no mainnet, fiat, fee, or profit claim. Honesty means never implying
+  value, not repeating disclaimers: the devnet test-token disclosure appears once at
+  onboarding (group-ready, wallet setup) and once on the public receipt page, and routine
+  cards, acknowledgements, boards, and toasts carry no value disclaimers.
 - Public data is aggregate and pseudonymous. Raw chat, Telegram identity, wallet identity,
   private balances, individual positions, and ledger rows remain private.
 - Every user-facing failure says what happened, whether SOL or saved state changed, and one
@@ -29,8 +32,10 @@ privacy, and copy must agree here, in `README.md`, `docs/PRD-called-it-mvp.md`,
    `group_ready` exactly once.
 3. Explicit speaker input proceeds. Passive or friend-triggered input waits for owner-only
    confirmation and publishes nothing before consent.
-4. The compiler creates deterministic terms and the offer shows exactly:
-   `It happens · 0.01 SOL`, `It does not · 0.01 SOL`, and `Choose amount`.
+4. The compiler creates deterministic terms and the offer shows two side actions whose
+   labels are deterministic per-claim templates from the compiled spec (claim taxonomy plus
+   entity names), with the exact binary fallback `It happens` / `It does not`. Labels carry
+   no amount or odds notation; the default tap books 0.01 SOL.
 5. A default eligible first tap may atomically grant and spend 0.01 test SOL. A committed
    position emits `position_placed` exactly once.
 6. Durable feed/settlement/proof work converges to aggregate group and receipt views.
@@ -145,7 +150,9 @@ private HTTP API.
   bot handler resolves; durable ingress acceptance remains later work.
 - Group-ready delivery is idempotent across membership and versioned-start updates.
 - Position callbacks bind trusted user, group, market, side, amount, and source key.
-- Default offer rows use the exact contract labels; larger choices are requester-scoped.
+- Offer side labels are deterministic per-claim templates rendered from the compiled spec
+  with the exact binary fallback (`It happens` / `It does not`), never model output;
+  larger choices are requester-scoped.
 - Cards and API responses do not report success before the corresponding database commit.
 - The engine posts shared card/status changes so button and concierge paths converge on one
   surface.
@@ -187,7 +194,9 @@ group boards, and public receipts.
 `npx -y pnpm@10.33.0 verify:product-copy` runs behavior tests and scans active guidance,
 concierge instructions, SOL bot copy, and user-facing web source. It rejects primary-path
 alternate-economy language and misleading starter/value claims. No demo or replay onboarding
-instruction or literal hash-only anchor destination may pass.
+instruction or literal hash-only anchor destination may pass. The bot and web surfaces must
+each carry the single devnet test-token disclosure (onboarding and receipt page), and
+repeated "no monetary value" disclaimers on active bot/web copy are rejected as spam.
 
 Historical migrations and dormant `Rep` compatibility fields are excluded from consumer
 copy enforcement so forward-only schema history stays reproducible. Historical replay code

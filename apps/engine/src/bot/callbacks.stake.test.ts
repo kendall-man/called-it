@@ -86,7 +86,7 @@ describe('handleStake - beta starter position', () => {
   it.each([
     {
       switches: { starterGrantsEnabled: false },
-      expected: /verified wallet.*test SOL.*no monetary value.*No SOL moved.*\/wallet/i,
+      expected: /verified wallet.*No SOL moved.*\/wallet/i,
     },
     {
       switches: { stakeAcceptanceEnabled: false },

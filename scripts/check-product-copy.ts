@@ -33,9 +33,15 @@ function parseArguments(args: readonly string[]): ScanMode {
   return { kind: 'fixtures', paths };
 }
 
+/** One confident line, e.g. "Runs on Solana devnet — these are test tokens." */
+const DEVNET_DISCLOSURE = /\bdevnet\b[^.\n]{0,80}\btest tokens\b/i;
+/** Surfaces that must carry the single devnet disclosure (onboarding + receipt). */
+const DISCLOSURE_SURFACES: readonly string[] = ['bot', 'web'];
+
 function scanSurface(surface: Surface, paths: readonly string[]): number {
   const violations: Violation[] = [];
   let hasSolContract = surface.name === 'fixture';
+  let hasDevnetDisclosure = !DISCLOSURE_SURFACES.includes(surface.name);
 
   for (const path of paths) {
     const result = readSource(path);
@@ -45,6 +51,7 @@ function scanSurface(surface: Surface, paths: readonly string[]): number {
     }
     console.log(`SCAN ${surface.name} ${relative(REPO_ROOT, path)}`);
     if (/\bSOL\b/u.test(result.contents)) hasSolContract = true;
+    if (DEVNET_DISCLOSURE.test(result.contents)) hasDevnetDisclosure = true;
     violations.push(...scanFile(path, surface.name, result.contents));
   }
 
@@ -54,6 +61,15 @@ function scanSurface(surface: Surface, paths: readonly string[]): number {
       line: 0,
       ruleId: 'economy.sol-required',
       excerpt: 'Active surfaces must identify SOL or test SOL as the sole economy.',
+    });
+  }
+
+  if (!hasDevnetDisclosure) {
+    violations.push({
+      file: surface.name,
+      line: 0,
+      ruleId: 'economy.devnet-disclosure-required',
+      excerpt: 'Onboarding and receipt surfaces must disclose Solana devnet test tokens once.',
     });
   }
 

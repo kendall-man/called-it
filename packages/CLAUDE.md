@@ -1,8 +1,8 @@
 # packages/, shared libraries (one direction: apps depend on these, never the reverse)
 
-None of these read env vars except `agent` (`GLM_API_KEY`, `GLM_BASE_URL`, and the legacy
-`ANTHROPIC_API_KEY` fallback). db, solana, and txline take credentials as constructor or
-function arguments. All are ESM, built with tsc, tested with vitest, no network in CI.
+None of these read env vars except `agent` (`GLM_API_KEY`, `GLM_BASE_URL`, the optional
+`GLM_PARSER_MODEL` parser-model override, and the legacy `ANTHROPIC_API_KEY` fallback).
+db, solana, and txline take credentials as constructor or function arguments. All are ESM, built with tsc, tested with vitest, no network in CI.
 
 ## market-engine, the pure core
 
@@ -41,8 +41,9 @@ are synthesized (`test-fixtures.ts`).
 ## agent, the three LLM touchpoints
 
 `prefilter` (pure regex plus entity dictionary, kills over 95% of messages pre-LLM),
-`classifyMessage` (glm-4.5-air), `parseClaim` (glm-4.6, forced tool-use rounds against
-OUR fixture and player search executors, so the model cannot invent entity ids), and
+`classifyMessage` (glm-4.5-air), `parseClaim` (glm-5.2, overridable with the
+`GLM_PARSER_MODEL` env var; forced tool-use rounds against OUR fixture and player search
+executors, so the model cannot invent entity ids), and
 `persona` (deterministic templates plus optional garnish, with a deny-list that bans odds
 notation but allows bet, stake, and against post-pivot). The golden-set harness runs
 scripted clients in CI, and live model calls happen only with `AGENT_LIVE=1`. Keep

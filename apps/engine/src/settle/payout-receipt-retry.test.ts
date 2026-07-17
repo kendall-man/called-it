@@ -99,7 +99,7 @@ describe('bounded payout receipt recovery', () => {
     expect(harness.telegram.attempts).toBe(2);
     expect(harness.telegram.texts).toHaveLength(1);
     expect(harness.markedMarketIds).toEqual([MARKET_ID]);
-    expect(receipt).toContain('and 95 more winners collect test SOL. (devnet)');
+    expect(receipt).toContain('and 95 more winners collect test SOL.');
     expect(payoutLine).not.toMatch(/[\p{Cc}\p{Cf}\p{Cs}]/u);
     expect(payoutLine).not.toContain('@raw_');
     expect(payoutLine).not.toMatch(BROKEN_SURROGATE);

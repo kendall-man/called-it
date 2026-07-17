@@ -62,8 +62,8 @@ describe('template bank', () => {
 
     expect(renderedBank).not.toMatch(/\bRep\b|\breplay\b|cash\s*out|\bstack\b|real devnet SOL/i);
     expect(intro).toMatch(/mention.*\/bookit/i);
-    expect(intro).toMatch(/test SOL/i);
-    expect(intro).toMatch(/no monetary value/i);
+    expect(intro).toContain('Runs on Solana devnet — these are test tokens.');
+    expect(intro).not.toMatch(/no monetary value/i);
     expect(confirmation).toMatch(/confirm/i);
   });
 });

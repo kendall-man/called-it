@@ -31,8 +31,8 @@ aggregate group boards, and public receipts. Browser code never writes Supabase 
   position commit.
 - An explicit speaker call may proceed. Passive or friend-triggered text publishes nothing
   until the speaker confirms.
-- Offer rendering uses exactly `It happens · 0.01 SOL`,
-  `It does not · 0.01 SOL`, and `Choose amount`.
+- Offer rendering uses the deterministic per-claim side labels derived from the compiled
+  spec, with the exact binary fallback `It happens` / `It does not`.
 - The limited starter grant may fund only an eligible exact first 0.01 test-SOL position,
   commits atomically with it, is disabled by default, and has no monetary value.
 - Follow root `DESIGN.md`: one `h1`, zero negative letter spacing, visible focus, 44px

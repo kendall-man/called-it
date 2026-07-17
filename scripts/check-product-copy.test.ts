@@ -194,6 +194,32 @@ test('rejects real devnet SOL, cashout, load-stack, demo, and assigned hash CTA 
   }
 });
 
+test('flags repeated no-monetary-value disclaimers on active copy surfaces', () => {
+  // Given
+  const fixtureDirectory = mkdtempSync(join(tmpdir(), 'calledit-product-copy-'));
+  const fixturePath = join(fixtureDirectory, 'card.tsx');
+  writeFileSync(fixturePath, 'Test SOL has no monetary value.\n', 'utf8');
+
+  try {
+    // When
+    const result = runChecker(['--fixture', fixturePath]);
+
+    // Then
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /\[value\.repeated-disclaimer\]/);
+  } finally {
+    rmSync(fixtureDirectory, { recursive: true, force: true });
+  }
+});
+
+test('keeps the single devnet disclosure present on the bot and web surfaces', () => {
+  // When
+  const result = runChecker([]);
+
+  // Then the onboarding/receipt disclosure requirement is satisfied
+  assert.doesNotMatch(result.stdout, /\[economy\.devnet-disclosure-required\]/);
+});
+
 test('prints CLI usage without scanning when help is requested', () => {
   // Given
   const args = ['--help'];

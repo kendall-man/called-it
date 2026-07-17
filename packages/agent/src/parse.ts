@@ -250,6 +250,20 @@ async function executeTool(
   }
 }
 
+// ── Model selection ───────────────────────────────────────────────────────
+
+/**
+ * Resolve the parser model. An explicit `opts.model` always wins (tests pin
+ * it); otherwise `GLM_PARSER_MODEL` overrides the pinned default, so a bad
+ * GLM-5.2 day rolls back with one env change instead of a redeploy.
+ */
+export function resolveParserModel(
+  explicit: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return explicit ?? env.GLM_PARSER_MODEL ?? PARSER_MODEL;
+}
+
 // ── The loop ──────────────────────────────────────────────────────────────
 
 export async function parseClaim(
@@ -259,6 +273,7 @@ export async function parseClaim(
 ): Promise<RawClaimParse> {
   const client = opts.client ?? createModelClient();
   const maxRounds = opts.maxToolRounds ?? MAX_PARSE_TOOL_ROUNDS;
+  const model = resolveParserModel(opts.model);
 
   const messages: ModelMessageParam[] = [
     {
@@ -269,7 +284,7 @@ export async function parseClaim(
 
   for (let round = 0; round < maxRounds; round += 1) {
     const response = await client.messages.create({
-      model: opts.model ?? PARSER_MODEL,
+      model,
       max_tokens: opts.maxTokens ?? PARSE_MAX_TOKENS,
       system: PARSE_SYSTEM_PROMPT,
       messages,

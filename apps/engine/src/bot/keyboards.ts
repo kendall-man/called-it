@@ -5,14 +5,16 @@
 
 import { InlineKeyboard } from 'grammy';
 import { encodeCallback } from './callbackData.js';
+import { sideLabels } from './cards.js';
 import type { Chattiness } from '../localTypes.js';
 import type { Deps, MarketRow } from '../ports.js';
 
 /**
- * Direct-link Mini App signing buttons (shared startapp contract with
- * apps/web): active only when custody is escrow, TELEGRAM_MINIAPP_SHORT_NAME
- * is configured, and the runtime bot identity is known. Every miss falls back
- * to the callback-button flow, so an unconfigured deploy is byte-identical.
+ * Direct-link Mini App signing URLs (shared startapp contract with apps/web):
+ * available only when custody is escrow, TELEGRAM_MINIAPP_SHORT_NAME is
+ * configured, and the runtime bot identity is known. The offer card's side
+ * buttons are callback-only; these URLs are reserved for the staking value
+ * step (follow-up wave), so the contract and its config stay wired.
  */
 export interface MiniAppOfferKeyboardConfig {
   readonly custodyMode: 'legacy' | 'escrow';
@@ -44,7 +46,7 @@ export function miniAppStartParam(marketId: string, side: 'back' | 'doubt'): str
   return `p-${hex}-${side === 'back' ? 'b' : 'd'}`;
 }
 
-function miniAppPositionUrl(market: MarketRow, side: 'back' | 'doubt'): string | null {
+export function miniAppPositionUrl(market: MarketRow, side: 'back' | 'doubt'): string | null {
   const config = miniAppOfferConfig;
   if (config === null || config.custodyMode !== 'escrow' || config.miniAppShortName === undefined) {
     return null;
@@ -94,24 +96,22 @@ export function confirmKeyboard(claimId: string): InlineKeyboard {
     .text('Decline', encodeCallback({ t: 'decline', claimId }));
 }
 
-/** The beta exposes exactly the two fixed 0.01 SOL choices. */
+/**
+ * The two side actions, labeled by the deterministic per-claim templates from
+ * the compiled spec (binary "It happens" / "It does not" fallback). Amounts
+ * live on the card body, not in the button label; both buttons are callback
+ * buttons so the side tap stays inside the chat.
+ */
 export function offerKeyboard(market: MarketRow): InlineKeyboard {
-  const amount = market.currency === 'usdc' ? '1 USDC' : '0.01 SOL';
-  const backLabel = `It happens · ${amount}`;
-  const doubtLabel = `It does not · ${amount}`;
-  const backUrl = miniAppPositionUrl(market, 'back');
-  const doubtUrl = miniAppPositionUrl(market, 'doubt');
-  if (backUrl !== null && doubtUrl !== null) {
-    return new InlineKeyboard().url(backLabel, backUrl).row().url(doubtLabel, doubtUrl);
-  }
+  const sides = sideLabels(market.spec);
   return new InlineKeyboard()
     .text(
-      backLabel,
+      sides.back,
       encodeCallback({ t: 'stake', marketId: market.id, side: 'back', presetIndex: 0 }),
     )
     .row()
     .text(
-      doubtLabel,
+      sides.doubt,
       encodeCallback({ t: 'stake', marketId: market.id, side: 'doubt', presetIndex: 0 }),
     );
 }

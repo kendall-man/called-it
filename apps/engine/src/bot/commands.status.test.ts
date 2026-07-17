@@ -126,7 +126,8 @@ describe('/status', () => {
     expect(board).toContain('🎙 Open calls here: 2');
     expect(board).toContain('⏳ Positions in the fair-play wait: 2');
     expect(board).toContain('🔐 Escrow desk: all clear');
-    expect(board).toContain('Test SOL has no monetary value. (devnet)');
+    // Voice rule: routine boards carry no devnet value disclaimer.
+    expect(board).not.toMatch(/monetary value|\(devnet\)/);
   });
 
   it('shows the replay fixture and its virtual minute while a replay runs', async () => {

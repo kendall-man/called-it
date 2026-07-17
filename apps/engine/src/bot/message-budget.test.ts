@@ -117,10 +117,9 @@ describe('Telegram message budgets', () => {
     const five = Array.from({ length: 5 }, () => IDENTITY_LABEL).join(', ');
 
     for (const line of [
-      '⚡ Backing it: 0.05 SOL (100 in)', '🛑 Against it: 0.03 SOL (100 in)',
-      '🤝 Matched: 60%', `It happens: ${five}, and 95 more`,
-      `It does not: ${five}, and 95 more`,
-      'Choices and results are visible in this group.',
+      '⚡ France score 2+: 0.05 SOL (100 in)', "🛑 They don't: 0.03 SOL (100 in)",
+      '🤝 Matched: 60%', `France score 2+: ${five}, and 95 more`,
+      `They don't: ${five}, and 95 more`,
       'Receipt: https://example.test/r/abc',
     ]) expect(active).toContain(line);
     expect(active.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);

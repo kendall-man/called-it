@@ -8,7 +8,8 @@ import { runChecker } from './check-product-copy.test-support.js';
 const APPROVED_GROUP_GUIDANCE = [
   'Choices and named results are visible to everyone in this Telegram group.',
   'Correct choices earn 10 points automatically.',
-  'Test SOL has no monetary value.',
+  'New calls use test SOL by default.',
+  'Runs on Solana devnet — these are test tokens.',
 ].join('\n');
 
 test('rejects aggregate receipt wording across whitespace variants', () => {
@@ -20,7 +21,7 @@ test('rejects aggregate receipt wording across whitespace variants', () => {
     // When
     const results = variants.map((variant, index) => {
       const fixturePath = join(fixtureDirectory, `aggregate-${index}.md`);
-      writeFileSync(fixturePath, `Test SOL has no monetary value.\n${variant}\n`, 'utf8');
+      writeFileSync(fixturePath, `Positions use test SOL.\n${variant}\n`, 'utf8');
       return runChecker(['--fixture', fixturePath]);
     });
 

@@ -3,7 +3,7 @@
  *
  * Model: GLM (Z.ai) through its Anthropic-compatible endpoint, the same
  * provider the engine uses, so the two surfaces share one cost profile.
- * Validated 2026-07-08: `createAnthropic({ baseURL: <GLM>/v1 })("glm-4.6")`
+ * Validated 2026-07-18: `createAnthropic({ baseURL: <GLM>/v1 })("glm-5.2")`
  * returns clean completions through the AI SDK. To fall back to the Vercel
  * AI Gateway swap `model` for the string "anthropic/claude-sonnet-5".
  */
@@ -14,7 +14,7 @@ import { loadConciergeEnv } from './env.js';
 
 const env = loadConciergeEnv();
 
-const PARSER_MODEL = 'glm-4.6';
+const PARSER_MODEL = 'glm-5.2';
 
 // Session token ceilings — the concierge answers short Telegram turns; a
 // session that burns past these is a runaway, not a conversation (NL-spec R1).
@@ -30,9 +30,9 @@ const glm = createAnthropic({
 export default defineAgent({
   model: glm(PARSER_MODEL),
   // GLM is not in the AI Gateway catalog, so eve cannot look up its context
-  // window — supply it verbatim (glm-4.6 has a 200K window) or the build fails
-  // compiling compaction.
-  modelContextWindowTokens: 200_000,
+  // window — supply it verbatim (glm-5.2 has a 1M window, validated
+  // 2026-07-18) or the build fails compiling compaction.
+  modelContextWindowTokens: 1_000_000,
   limits: {
     maxInputTokensPerSession: MAX_INPUT_TOKENS_PER_SESSION,
     maxOutputTokensPerSession: MAX_OUTPUT_TOKENS_PER_SESSION,

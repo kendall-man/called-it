@@ -30,8 +30,11 @@ describe('concierge instruction bundle', () => {
     ]);
     expect(files.every((file) => file.body.trim().length > 0)).toBe(true);
     expect(combined).toContain('SOL/test SOL on Solana devnet only');
-    expect(combined).toContain('It happens · 0.01 SOL');
-    expect(combined).toContain('It does not · 0.01 SOL');
+    // Side labels are deterministic per-claim templates; the binary pair is
+    // the exact fallback Callie may name.
+    expect(combined).toContain('deterministic');
+    expect(combined).toContain('`It happens` / `It does not`');
+    expect(combined).toContain('the default tap books 0.01 SOL');
     expect(filenames).not.toContain('10-replay-demo.md');
     expect(combined).not.toMatch(/\bPractice Rep\b/i);
   });

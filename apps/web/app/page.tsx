@@ -61,7 +61,7 @@ export default function LandingPage() {
         <p className="mt-3 text-sm text-fog">
           {mainnet
             ? 'SOL positions use Solana mainnet.'
-            : 'Devnet SOL only. Test tokens have no monetary value.'}
+            : 'Runs on Solana devnet — these are test tokens.'}
         </p>
       </section>
 

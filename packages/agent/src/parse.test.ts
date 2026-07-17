@@ -8,6 +8,7 @@ import {
   SEARCH_FIXTURES_TOOL,
   SUBMIT_PARSE_TOOL,
   parseClaim,
+  resolveParserModel,
   type ParseToolExecutors,
 } from './parse.js';
 import { makeGoldenContext, makeGoldenExecutors } from './goldenSet.js';
@@ -228,5 +229,36 @@ describe('parseClaim tool loop', () => {
     const firstUser = JSON.stringify(client.requests[0]!.messages[0]);
     expect(firstUser).toContain('France vs Brazil');
     expect(firstUser).toContain('Kylian Mbapp');
+  });
+
+  it('honors GLM_PARSER_MODEL for one-env rollback when no model is pinned', async () => {
+    // Given an operator pins a rollback model in the environment
+    const client = makeScriptedClient([
+      { content: [toolUseBlock(SUBMIT_PARSE_TOOL, fullParse)], stop_reason: 'tool_use' },
+    ]);
+    vi.stubEnv('GLM_PARSER_MODEL', 'glm-4.6');
+
+    // When parseClaim runs without an explicit model override
+    await parseClaim('x', ctx, { client, executors: makeGoldenExecutors() });
+
+    // Then the request uses the env-pinned model instead of the default
+    expect(client.requests[0]!.model).toBe('glm-4.6');
+    vi.unstubAllEnvs();
+  });
+});
+
+describe('resolveParserModel', () => {
+  it('prefers an explicit model over the env override and the default', () => {
+    expect(resolveParserModel('claude-sonnet-5', { GLM_PARSER_MODEL: 'glm-4.6' })).toBe(
+      'claude-sonnet-5',
+    );
+  });
+
+  it('uses GLM_PARSER_MODEL when no explicit model is given', () => {
+    expect(resolveParserModel(undefined, { GLM_PARSER_MODEL: 'glm-4.6' })).toBe('glm-4.6');
+  });
+
+  it('falls back to the pinned default when nothing overrides it', () => {
+    expect(resolveParserModel(undefined, {})).toBe(PARSER_MODEL);
   });
 });

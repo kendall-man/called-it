@@ -58,14 +58,12 @@ describe('offer Telegram message budget', () => {
       throw new TypeError(`Offer test did not post a market card; markets=${runtime.db.marketList().length}; events=${events}; calls=${calls}`);
     }
     const mandatoryLines = [
-      '⚡ Backing it: 0 SOL (0 in)',
-      '🛑 Against it: 0 SOL (0 in)',
+      '⚡ Atlas FC win it: 0 SOL (0 in)',
+      "🛑 They don't: 0 SOL (0 in)",
       '🤝 Matched: 0%',
-      'It happens: No one yet',
-      'It does not: No one yet',
-      'Choices and results are visible in this group.',
+      'Atlas FC win it: No one yet',
+      "They don't: No one yet",
       `Receipt: https://calledit.invalid/r/${market.id}`,
-      'Test SOL has no monetary value.',
     ];
     expect(sent.text.length).toBeLessThanOrEqual(4_096);
     for (const line of mandatoryLines) expect(sent.text).toContain(line);

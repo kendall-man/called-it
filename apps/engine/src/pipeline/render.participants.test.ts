@@ -132,19 +132,19 @@ describe('composeClaimCard participant projection', () => {
     expect(userReads).toEqual([USER_A]);
     expect(card?.text).toContain(
       [
-        '⚡ Backing it: 0.03 SOL (2 in)',
-        '🛑 Against it: 0.03 SOL (2 in)',
+        '⚡ Brazil win it: 0.03 SOL (2 in)',
+        "🛑 They don't: 0.03 SOL (2 in)",
         '🤝 Matched: 100%',
-        'It happens: @alice_calls, Cara',
-        'It does not: Bob',
-        'Choices and results are visible in this group.',
+        'Brazil win it: @alice_calls, Cara',
+        "They don't: Bob",
       ].join('\n'),
     );
     expect(card?.text.split('Bob')).toHaveLength(2);
     expect(card?.text).not.toContain('and 1 more');
     expect(card?.text).not.toMatch(/\u0000|\u202e/u);
     expect(card?.text).toContain(`Receipt: https://web.test/r/${MARKET_ID}`);
-    expect(card?.text).toContain('Test SOL has no monetary value.');
+    // Voice rule: routine cards repeat no value disclaimers.
+    expect(card?.text).not.toContain('no monetary value');
   });
 
   it('edits one named card and posts nothing when three duplicate taps race', async () => {
@@ -187,9 +187,8 @@ describe('composeClaimCard participant projection', () => {
     expect(posts).toEqual([]);
     expect(edits.join('\n')).toContain(
       [
-        'It happens: @alice_calls',
-        'It does not: No one yet',
-        'Choices and results are visible in this group.',
+        'Brazil win it: @alice_calls',
+        "They don't: No one yet",
       ].join('\n'),
     );
   });

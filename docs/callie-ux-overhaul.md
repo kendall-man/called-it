@@ -48,6 +48,10 @@ New (active only when `TELEGRAM_MINIAPP_SHORT_NAME` is set and custody is escrow
   Mini App: `https://t.me/<bot>/<short>?startapp=p-<marketId32>-<b|d>`. Labels unchanged
   (contract: `It happens · 0.01 SOL` / `It does not · 0.01 SOL`). URL buttons work in
   groups; the param carries NO secret (market id + side only).
+  **SUPERSEDED (2026-07-18 copy wave):** side buttons are callback-only again, labeled by
+  deterministic per-claim templates from the compiled spec (binary fallback, no amount
+  suffix). The direct-link URL contract above is retained by `miniAppPositionUrl` for the
+  upcoming two-step value ladder, which will re-introduce the Mini App handoff there.
 - New web page `/app` is the registered Mini App entry. It reads `start_param` from
   HMAC-verified initData and routes: `p-…` → position flow, otherwise → wallet.
 - New web route `POST /api/position/open`: verifies initData server-side (existing

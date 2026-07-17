@@ -46,15 +46,12 @@ duplicate callbacks create no market.
 
 ## Offers And Positions
 
-The default offer has exactly these top-level actions:
-
-- `It happens · 0.01 SOL`
-- `It does not · 0.01 SOL`
-- `Choose amount`
-
-The two 0.01 SOL card actions are the direct default path. `Choose amount` opens a scoped
-0.05/0.10 SOL flow. Do not substitute labels, choose a side/amount, or add another setup
-step.
+The offer shows two side actions, one per outcome. Their labels are deterministic
+per-claim templates from the compiled spec (for example `Argentina win it` / `They don't`,
+`Mbappé scores` / `No goal`), falling back to exactly `It happens` / `It does not` when the
+claim has no clean short subject. Labels carry no amount: the default tap books 0.01 SOL,
+and 0.05/0.10 SOL remain requester-scoped. Do not substitute labels, choose a side/amount,
+or add another setup step.
 
 An eligible first default tap may receive and spend a limited starter grant atomically with
 the position. It is disabled by default, not guaranteed, and has no monetary value.
