@@ -3,7 +3,6 @@ import { DbError } from './errors.js';
 import {
   MARKET_ID,
   NOW_ISO,
-  OTHER_USER_ID,
   UNSAFE_BIGINT,
   UNSAFE_INTEGER,
   USER_ID,
@@ -37,23 +36,38 @@ describe('deposits', () => {
     expect(fake.rows('wager_deposits')).toHaveLength(0);
   });
 
-  it('markDepositCredited attributes exactly once', async () => {
+  it('creditDepositToCurrentVerifiedWallet delegates attribution to one atomic RPC', async () => {
     const { db, fake } = makeHarness();
     await db.upsertDeposit(deposit);
-    await db.markDepositCredited('sig1', 0, USER_ID);
-    expect(fake.rows('wager_deposits')[0]).toMatchObject({ user_id: USER_ID });
-    expect(fake.rows('wager_deposits')[0]?.credited_at).toBeTruthy();
-    // Already credited → no-op, attribution never moves.
-    await db.markDepositCredited('sig1', 0, OTHER_USER_ID);
-    expect(fake.rows('wager_deposits')[0]?.user_id).toBe(USER_ID);
-    expect(await db.orphanDepositsBySender(deposit.sender_pubkey)).toHaveLength(0);
+    fake.onRpc('wager_credit_deposit', (args) => {
+      expect(args).toEqual({
+        p_tx_sig: deposit.tx_sig,
+        p_ix_index: deposit.ix_index,
+        p_min_lamports: 1_000_000,
+      });
+      return { data: { ok: true, outcome: 'credited', user_id: USER_ID }, error: null };
+    });
+    await expect(
+      db.creditDepositToCurrentVerifiedWallet({
+        tx_sig: deposit.tx_sig,
+        ix_index: deposit.ix_index,
+        min_lamports: 1_000_000n,
+      }),
+    ).resolves.toEqual({ ok: true, outcome: 'credited', user_id: USER_ID });
   });
 
   it('orphanDepositsBySender returns only uncredited rows, lamports as bigint', async () => {
-    const { db } = makeHarness();
+    const { db, fake } = makeHarness();
     await db.upsertDeposit(deposit);
     await db.upsertDeposit({ ...deposit, tx_sig: 'sig2' });
-    await db.markDepositCredited('sig2', 0, USER_ID);
+    const credited = fake.rows('wager_deposits').find((row) => row.tx_sig === 'sig2');
+    if (credited === undefined) throw new Error('fixture: credited deposit missing');
+    Object.assign(credited, {
+      user_id: USER_ID,
+      credited_at: NOW_ISO,
+      attribution_state: 'credited',
+      attribution_reason: null,
+    });
     await db.upsertDeposit({ ...deposit, tx_sig: 'sig3', sender_pubkey: 'OtherSender' });
     const orphans = await db.orphanDepositsBySender(deposit.sender_pubkey);
     expect(orphans.map((row) => row.tx_sig)).toEqual(['sig1']);

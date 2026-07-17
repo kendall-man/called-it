@@ -2,6 +2,8 @@ import type { SettlementOutcome } from '@calledit/market-engine';
 import { DbError, unwrapMaybe, unwrapRows, type PgResult } from './errors.js';
 import type {
   PendingStakeIntentState,
+  WagerDepositAttributionReason,
+  WagerDepositAttributionState,
   WagerStatusRow,
   WagerWalletLinkRow,
   WagerWithdrawalState,
@@ -63,6 +65,20 @@ function isSettlementOutcome(value: unknown): value is SettlementOutcome {
 
 function isWithdrawalState(value: unknown): value is WagerWithdrawalState {
   return value === 'debited' || value === 'submitted' || value === 'confirmed' || value === 'failed';
+}
+
+function isDepositAttributionState(value: unknown): value is WagerDepositAttributionState {
+  return value === 'unattributed' || value === 'credited' || value === 'orphaned' || value === 'dust';
+}
+
+function isDepositAttributionReason(value: unknown): value is WagerDepositAttributionReason {
+  return (
+    value === 'below_minimum' ||
+    value === 'legacy_orphan' ||
+    value === 'unlinked_sender' ||
+    value === 'unverified_wallet' ||
+    value === 'stale_wallet'
+  );
 }
 
 function isPositionSide(value: unknown): value is 'back' | 'doubt' {
@@ -139,11 +155,19 @@ export interface RawDepositRow {
   readonly slot: number;
   readonly user_id: number | null;
   readonly credited_at: string | null;
+  readonly attribution_state: WagerDepositAttributionState;
+  readonly attribution_reason: WagerDepositAttributionReason | null;
   readonly observed_at: string;
 }
 
 export function parseDepositRow(op: string, value: unknown): RawDepositRow {
   const row = record(op, value);
+  const attributionState = row.attribution_state;
+  if (!isDepositAttributionState(attributionState)) return malformed(op, 'attribution_state');
+  const attributionReason = row.attribution_reason;
+  if (attributionReason !== null && !isDepositAttributionReason(attributionReason)) {
+    return malformed(op, 'attribution_reason');
+  }
   return {
     id: integerField(op, row, 'id'),
     tx_sig: stringField(op, row, 'tx_sig'),
@@ -153,6 +177,8 @@ export function parseDepositRow(op: string, value: unknown): RawDepositRow {
     slot: integerField(op, row, 'slot'),
     user_id: nullableIntegerField(op, row, 'user_id'),
     credited_at: nullableStringField(op, row, 'credited_at'),
+    attribution_state: attributionState,
+    attribution_reason: attributionReason,
     observed_at: stringField(op, row, 'observed_at'),
   };
 }

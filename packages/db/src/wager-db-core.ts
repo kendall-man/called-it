@@ -168,6 +168,8 @@ const STAKE_ERROR_CODES: ReadonlySet<unknown> = new Set<WagerStakeErrorCode>([
 
 const WITHDRAW_ERROR_CODES: ReadonlySet<unknown> = new Set<WagerWithdrawErrorCode>([
   'no_wallet',
+  'wallet_unverified',
+  'withdrawal_pending',
   'insufficient',
 ]);
 

@@ -9,7 +9,8 @@ const IMPORTER_SECTIONS = [
   ['devDependencies', 'devDependencies'],
   ['optionalDependencies', 'optionalDependencies'],
 ];
-const LOCKFILE_KEYS = new Set(['lockfileVersion', 'settings', 'importers', 'packages', 'snapshots']);
+const REQUIRED_LOCKFILE_KEYS = new Set(['lockfileVersion', 'settings', 'importers', 'packages', 'snapshots']);
+const LOCKFILE_KEYS = new Set([...REQUIRED_LOCKFILE_KEYS, 'overrides']);
 
 export async function verifyLockIntegrity({ root = process.cwd() } = {}) {
   const absoluteRoot = resolve(root);
@@ -20,6 +21,7 @@ export async function verifyLockIntegrity({ root = process.cwd() } = {}) {
   ]);
   const lockfile = parseLockfile(lockfileText);
   validateLockfileShape(lockfile);
+  validateOverrides(lockfile.overrides, manifests[0]?.document);
   validateImporters(lockfile.importers, manifests, absoluteRoot);
   const registryPackageCount = validatePackageIntegrities(lockfile.packages);
 
@@ -44,7 +46,7 @@ function parseLockfile(source) {
 }
 
 function validateLockfileShape(lockfile) {
-  if (!hasExactKeys(lockfile, LOCKFILE_KEYS)) {
+  if (!hasRequiredKeys(lockfile, REQUIRED_LOCKFILE_KEYS) || !Object.keys(lockfile).every((key) => LOCKFILE_KEYS.has(key))) {
     throw new LockIntegrityError('pnpm-lock.yaml has unknown or missing top-level fields');
   }
   if (lockfile.lockfileVersion !== '9.0') {
@@ -56,6 +58,29 @@ function validateLockfileShape(lockfile) {
   }
   if (!isRecord(lockfile.importers) || !isRecord(lockfile.packages) || !isRecord(lockfile.snapshots)) {
     throw new LockIntegrityError('pnpm-lock.yaml importers, packages, and snapshots must be objects');
+  }
+}
+
+function validateOverrides(lockOverrides, rootManifest) {
+  if (!isRecord(rootManifest)) {
+    throw new LockIntegrityError('root package.json must contain an object');
+  }
+  const pnpm = rootManifest.pnpm;
+  if (pnpm !== undefined && !isRecord(pnpm)) {
+    throw new LockIntegrityError('root package.json pnpm must be an object');
+  }
+  const expected = isRecord(pnpm) && pnpm.overrides !== undefined ? pnpm.overrides : {};
+  if (!isRecord(expected) || !Object.values(expected).every(isNonEmptyString)) {
+    throw new LockIntegrityError('root package.json pnpm.overrides must be a string map');
+  }
+  const actual = lockOverrides ?? {};
+  if (!isRecord(actual) || !hasExactKeys(actual, new Set(Object.keys(expected)))) {
+    throw new LockIntegrityError('pnpm-lock.yaml overrides must exactly match root package.json');
+  }
+  for (const [name, version] of Object.entries(expected)) {
+    if (actual[name] !== version) {
+      throw new LockIntegrityError(`pnpm-lock.yaml override ${name} does not match root package.json`);
+    }
   }
 }
 
@@ -138,6 +163,10 @@ function isRecord(value) {
 function hasExactKeys(value, expected) {
   const actual = Object.keys(value);
   return actual.length === expected.size && actual.every((key) => expected.has(key));
+}
+
+function hasRequiredKeys(value, required) {
+  return [...required].every((key) => Object.hasOwn(value, key));
 }
 
 function isNonEmptyString(value) {

@@ -125,6 +125,7 @@ export function createProductionReadinessPorts(
           enabled: options.proofEnabled,
           heartbeatAtMs: null,
           backlog: 0,
+          deadCount: 0,
           oldestAgeMs: null,
         };
       },
@@ -139,6 +140,7 @@ export function createProductionReadinessPorts(
           enabled: options.settlementEnabled,
           heartbeatAtMs: null,
           backlog: 0,
+          deadCount: 0,
           oldestAgeMs: null,
         };
       },

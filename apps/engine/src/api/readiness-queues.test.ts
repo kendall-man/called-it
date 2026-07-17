@@ -89,6 +89,27 @@ describe('engine readiness queue checks', () => {
     });
   });
 
+  it('reports immutable proof dead letters as an operator-visible readiness failure', async () => {
+    const ports = healthyReadinessPorts();
+    const result = await evaluateReadinessPorts({
+      ...ports,
+      proof: {
+        snapshot: async () => ({
+          enabled: true,
+          heartbeatAtMs: READINESS_TEST_NOW,
+          backlog: 0,
+          deadCount: 1,
+          oldestAgeMs: null,
+        }),
+      },
+    });
+
+    expect(result).toEqual({
+      status: 'not_ready',
+      reasons: [ENGINE_READINESS_REASONS.proofDeadLetter],
+    });
+  });
+
   it('reports proof_oldest_stale when the oldest job exceeds its age budget', async () => {
     const ports = healthyReadinessPorts();
     const result = await evaluateReadinessPorts({
@@ -187,6 +208,27 @@ describe('engine readiness queue checks', () => {
     expect(result).toEqual({
       status: 'not_ready',
       reasons: [ENGINE_READINESS_REASONS.settlementBacklog],
+    });
+  });
+
+  it('reports immutable settlement dead letters as an operator-visible readiness failure', async () => {
+    const ports = healthyReadinessPorts();
+    const result = await evaluateReadinessPorts({
+      ...ports,
+      settlement: {
+        snapshot: async () => ({
+          enabled: true,
+          heartbeatAtMs: READINESS_TEST_NOW,
+          backlog: 0,
+          deadCount: 1,
+          oldestAgeMs: null,
+        }),
+      },
+    });
+
+    expect(result).toEqual({
+      status: 'not_ready',
+      reasons: [ENGINE_READINESS_REASONS.settlementDeadLetter],
     });
   });
 

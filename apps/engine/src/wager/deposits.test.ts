@@ -59,6 +59,8 @@ describe('deposit watcher', () => {
     const row = db.deposits.get('sigB:0');
     expect(row?.user_id).toBeNull();
     expect(row?.credited_at).toBeNull();
+    expect(row?.attribution_state).toBe('orphaned');
+    expect(row?.attribution_reason).toBe('unlinked_sender');
     expect(db.ledger).toHaveLength(0);
     expect(poster.posts).toHaveLength(0);
   });
@@ -73,7 +75,41 @@ describe('deposit watcher', () => {
     await createDepositWatcher(deps).tick();
 
     expect(db.deposits.has('sigC:0')).toBe(true);
+    expect(db.deposits.get('sigC:0')?.attribution_state).toBe('dust');
     expect(db.ledger).toHaveLength(0);
+  });
+
+  it('never credits a sender whose current wallet is unverified', async () => {
+    const { deps, db, chain } = makeFakeDeps();
+    db.seedLink(USER, SENDER, GROUP, false);
+    chain.setScanTransfers([transfer({ sig: 'unverified' })]);
+
+    await createDepositWatcher(deps).tick();
+
+    expect(db.deposits.get('unverified:0')).toMatchObject({
+      user_id: null,
+      attribution_state: 'orphaned',
+      attribution_reason: 'unverified_wallet',
+    });
+    expect(db.ledger).toHaveLength(0);
+  });
+
+  it('keeps a transfer from an old relinked wallet permanently unattached', async () => {
+    const { deps, db, chain } = makeFakeDeps();
+    db.seedLink(USER, SENDER, GROUP);
+    db.seedLink(USER, 'CurrentWallet111111111111111111111111111111', GROUP);
+    chain.setScanTransfers([transfer({ sig: 'stale' })]);
+
+    const watcher = createDepositWatcher(deps);
+    await watcher.tick();
+    await watcher.tick();
+
+    expect(db.deposits.get('stale:0')).toMatchObject({
+      user_id: null,
+      attribution_state: 'orphaned',
+      attribution_reason: 'stale_wallet',
+    });
+    expect(db.ledgerByKey(WAGER_KEYS.deposit('stale', 0))).toBeUndefined();
   });
 
   it('re-processing the same scan is idempotent — no double credit, no double notify', async () => {

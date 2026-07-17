@@ -134,6 +134,20 @@ export type WagerStakeTapSource =
   | { kind: 'telegram_card'; callbackId: string }
   | { kind: 'durable_source'; idempotencyKey: string };
 
+/** Owner-bound wallet and pending-intent operations used by the private API. */
+export type WagerAccount = Pick<
+  WagerDb,
+  | 'createWalletLinkChallenge'
+  | 'getWalletLink'
+  | 'verifyWalletLink'
+  | 'createPendingStakeIntent'
+  | 'resolveActiveStakeIntent'
+  | 'getPendingStakeIntent'
+  | 'markStakeIntentFunded'
+  | 'consumeReadyStakeIntent'
+  | 'cancelStakeIntent'
+>;
+
 export interface WagerModule {
   /** Always 'sol' now — every market is a SOL market. Stamped atomically at mint. */
   currencyForMint(groupId: number): Promise<WagerCurrency>;
@@ -149,6 +163,7 @@ export interface WagerModule {
   presetLamports(index: number): bigint | null;
   /** User-global SOL balance (lamports) + linked wallet, for the API wallet route. */
   walletSummary(userId: number): Promise<{ balanceLamports: bigint; pubkey: string | null }>;
+  readonly account: WagerAccount;
   registerCommands(bot: WagerBotLike): void;
   registerCrons(registry: WagerCronRegistry): void;
 }

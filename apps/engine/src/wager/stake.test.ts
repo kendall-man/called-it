@@ -65,7 +65,7 @@ describe('handleStakeTap gates', () => {
   it('limits the starter source to the exact 0.01 SOL amount', async () => {
     const { deps, db } = makeFakeDeps({
       starterGrantsEnabled: true,
-      walletMiniappEnabled: true,
+      walletMiniappEnabled: false,
       stakeAcceptanceEnabled: true,
     });
     const result = await handleStakeTap(deps, tap({
@@ -83,7 +83,7 @@ describe('handleStakeTap gates', () => {
   ] as const)('requires %s inside the wager module before a starter stake can begin', async (disabledFlag) => {
     const { deps, db } = makeFakeDeps({
       starterGrantsEnabled: true,
-      walletMiniappEnabled: true,
+      walletMiniappEnabled: false,
       stakeAcceptanceEnabled: true,
       [disabledFlag]: false,
     });
@@ -103,6 +103,32 @@ describe('handleStakeTap gates', () => {
     const result = await handleStakeTap(deps, tap());
     expect(result.placed).toBe(false);
     expect(result.reply).toBe(WAGER_COPY.paused());
+    expect(db.lastStakeArgs).toBeNull();
+  });
+
+  it('persists a coverage pause before a stake can create an uncovered position', async () => {
+    const { deps, db, chain } = makeFakeDeps();
+    db.seedLink(USER, WALLET);
+    db.seedBalance(USER, PRESET_SMALL);
+    chain.treasuryLamports = WAGER_TUNABLES.FEE_BUFFER_LAMPORTS + PRESET_SMALL - 1n;
+
+    const result = await handleStakeTap(deps, tap());
+
+    expect(result).toEqual({ reply: WAGER_COPY.paused(), placed: false });
+    expect(db.status.paused).toBe(true);
+    expect(db.lastStakeArgs).toBeNull();
+    expect(db.positions).toHaveLength(0);
+  });
+
+  it('fails closed and persists a pause when the treasury balance cannot be read', async () => {
+    const { deps, db, chain } = makeFakeDeps();
+    db.seedLink(USER, WALLET);
+    chain.treasuryBalanceFails = true;
+
+    const result = await handleStakeTap(deps, tap());
+
+    expect(result).toEqual({ reply: WAGER_COPY.coverageUnavailable(), placed: false });
+    expect(db.status.reason).toBe('solvency: treasury_unavailable');
     expect(db.lastStakeArgs).toBeNull();
   });
 });

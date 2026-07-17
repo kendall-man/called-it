@@ -24,6 +24,7 @@ import {
   handleWallet,
 } from './server-read.js';
 import { handleQuoteRequest } from './server-write.js';
+import { createAccountApi, type AccountApi, type WalletLinkVerifier } from './account-api.js';
 
 export interface TelegramIngressPort {
   accept(update: Record<string, unknown>): Promise<void>;
@@ -36,15 +37,17 @@ export interface EngineApiOptions {
   log: Logger;
   readiness: ReadinessEvaluator;
   drainState: DrainState;
+  walletLinkVerifier: WalletLinkVerifier;
   telegramIngress?: TelegramIngressPort;
 }
 
 export function startEngineApi(options: EngineApiOptions): Server {
   const credentials = createRouteCredentialBoundary(routeCredentials(options.env));
   const quoteBudget = new LlmBudget(undefined, options.deps.now);
+  const accountApi = createAccountApi(options.deps, options.env, options.walletLinkVerifier);
   const server = createServer((req, res) => {
     const requestId = randomUUID();
-    void route(options, quoteBudget, credentials, req, res).catch((err) => {
+    void route(options, quoteBudget, credentials, accountApi, req, res).catch((err) => {
       options.log.error('engine_api_unhandled', {
         requestId,
         reason: redactedFailureReason(err),
@@ -62,6 +65,7 @@ async function route(
   options: EngineApiOptions,
   quoteBudget: LlmBudget,
   credentials: RouteCredentialBoundary,
+  accountApi: AccountApi,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -107,6 +111,9 @@ async function route(
   }
   if (options.drainState.isDraining()) {
     sendJson(res, 503, { error: 'draining' });
+    return;
+  }
+  if (await accountApi.handle({ method: req.method ?? 'GET', path, body: body.value, res })) {
     return;
   }
 
@@ -166,9 +173,21 @@ function allowedScopes(method: string, path: string): ReadonlySet<RouteScope> | 
   if (method === 'GET' && /^\/api\/markets\/[0-9a-f-]{36}$/.test(path)) return concierge();
   if (method === 'GET' && path === '/api/fixtures') return concierge();
   if (method === 'POST' && path === '/api/quote') return concierge();
+  if (method === 'POST' && isAccountApiPath(path)) return concierge();
   if (method === 'POST' && path === '/api/telegram-ingress') return telegram();
   if (method === 'GET' && path === '/api/ops/status') return ops();
   return null;
+}
+
+function isAccountApiPath(path: string): boolean {
+  return (
+    path === '/api/account/challenges' ||
+    path === '/api/account/challenges/verify' ||
+    path === '/api/account/state' ||
+    path === '/api/account/stake-intents' ||
+    path === '/api/account/stake-intents/active' ||
+    /^\/api\/account\/stake-intents\/[0-9a-f-]{36}\/(cancel|funding-observed|confirm)$/i.test(path)
+  );
 }
 
 async function readBodyWithoutCredentials(

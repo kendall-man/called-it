@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createSolvencyMonitor, escrowedLamports } from './solvency.js';
-import { SOLVENCY_PAUSE_REASON_PREFIX } from './constants.js';
+import { createSolvencyMonitor, escrowedLamports, requiredSolvencyLamports } from './solvency.js';
+import { SOLVENCY_PAUSE_REASON_PREFIX, WAGER_TUNABLES } from './constants.js';
 import { makeFakeDeps } from './fakes.js';
 import type { WagerPositionRow } from './port.js';
 
@@ -33,6 +33,19 @@ describe('escrowedLamports', () => {
 
   it('rejects unsafe stake integers loudly', () => {
     expect(() => escrowedLamports([position({ stake: 2 ** 53 })])).toThrow(/safe integer/);
+  });
+});
+
+describe('requiredSolvencyLamports', () => {
+  it('includes every liability reserve without netting one user against another', () => {
+    expect(
+      requiredSolvencyLamports({
+        positive_ledger_lamports: 10n,
+        open_escrow_lamports: 20n,
+        pending_withdrawal_lamports: 30n,
+        remaining_starter_cap_lamports: 40n,
+      }),
+    ).toBe(100n + WAGER_TUNABLES.FEE_BUFFER_LAMPORTS);
   });
 });
 
@@ -73,6 +86,49 @@ describe('solvency monitor', () => {
     expect(db.status.paused).toBe(true);
   });
 
+  it('does not let a negative user ledger balance hide positive liabilities', async () => {
+    const { deps, db, chain } = makeFakeDeps();
+    db.seedBalance(1, 100n, 'positive');
+    db.seedBalance(2, -100n, 'negative');
+    chain.treasuryLamports = WAGER_TUNABLES.FEE_BUFFER_LAMPORTS + 99n;
+
+    await createSolvencyMonitor(deps).tick();
+
+    expect(db.status.paused).toBe(true);
+  });
+
+  it('counts each pending withdrawal reservation even after its ledger debit', async () => {
+    const { deps, db, chain } = makeFakeDeps();
+    db.seedLink(1, 'withdraw-wallet');
+    db.seedBalance(1, 100n);
+    await db.requestWithdrawal({ user_id: 1, lamports: 100n });
+    chain.treasuryLamports = WAGER_TUNABLES.FEE_BUFFER_LAMPORTS + 99n;
+
+    await createSolvencyMonitor(deps).tick();
+
+    expect(db.status.paused).toBe(true);
+  });
+
+  it('reserves the whole enabled starter budget before a new grant is issued', async () => {
+    const { deps, db, chain } = makeFakeDeps();
+    db.starterBudget.enabled = true;
+    db.starterBudget.totalCapLamports = 100n;
+    chain.treasuryLamports = WAGER_TUNABLES.FEE_BUFFER_LAMPORTS + 99n;
+
+    await createSolvencyMonitor(deps).tick();
+
+    expect(db.status.paused).toBe(true);
+  });
+
+  it('reserves the final one-lamport fee buffer', async () => {
+    const { deps, db, chain } = makeFakeDeps();
+    chain.treasuryLamports = WAGER_TUNABLES.FEE_BUFFER_LAMPORTS - 1n;
+
+    await createSolvencyMonitor(deps).tick();
+
+    expect(db.status.paused).toBe(true);
+  });
+
   it('recovery: clears its own pause once the treasury covers the book again', async () => {
     const { deps, db, chain, poster } = makeFakeDeps({ opsChatId: 777 });
     db.status = { paused: true, reason: `${SOLVENCY_PAUSE_REASON_PREFIX} shortfall` };
@@ -94,12 +150,13 @@ describe('solvency monitor', () => {
     expect(db.status.reason).toBe('ops: manual halt');
   });
 
-  it('an RPC blip moves nothing', async () => {
+  it('a treasury RPC failure persists the intake pause but does not touch money rows', async () => {
     const { deps, db, chain, poster } = makeFakeDeps({ opsChatId: 777 });
     db.seedBalance(1, 100_000_000_000n); // wildly insolvent on paper
     chain.treasuryBalanceFails = true;
     await createSolvencyMonitor(deps).tick();
-    expect(db.status.paused).toBe(false);
+    expect(db.status.paused).toBe(true);
+    expect(db.status.reason).toBe(`${SOLVENCY_PAUSE_REASON_PREFIX} treasury_unavailable`);
     expect(poster.posts).toHaveLength(0);
   });
 });

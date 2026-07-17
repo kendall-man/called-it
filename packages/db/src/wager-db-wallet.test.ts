@@ -131,4 +131,43 @@ describe('verified wallet RPC facade', () => {
       code: 'not_found',
     });
   });
+
+  it('persists only an encoded challenge hash and reads an intent by its bound owner', async () => {
+    // Given a hash-only wallet challenge and an owner-bound pending intent row
+    const { db, fake } = makeHarness();
+    fake.seed('wager_pending_stake_intents', [{
+      id: INTENT_ID,
+      user_id: USER_ID,
+      group_id: GROUP_ID,
+      market_id: MARKET_ID,
+      side: 'back',
+      lamports: 50_000_000,
+      state: 'pending',
+      expires_at: '2026-07-10T12:10:00.000Z',
+      created_at: '2026-07-10T12:00:00.000Z',
+      updated_at: '2026-07-10T12:01:00.000Z',
+    }]);
+
+    // When the facade creates the challenge and resolves that specific intent
+    await db.createWalletLinkChallenge({
+      id: CHALLENGE_ID,
+      user_id: USER_ID,
+      pubkey: PUBKEY,
+      challenge_hash_hex: HASH_HEX,
+      expires_at: '2026-07-10T12:05:00.000Z',
+    });
+    const resolved = await db.getPendingStakeIntent(USER_ID, INTENT_ID);
+    const foreign = await db.getPendingStakeIntent(OTHER_USER_ID, INTENT_ID);
+
+    // Then the DB receives bytea-encoded hash material and preserves owner isolation
+    expect(fake.rows('wager_wallet_challenges')).toEqual([{
+      id: CHALLENGE_ID,
+      user_id: USER_ID,
+      pubkey: PUBKEY,
+      challenge_hash: `\\x${HASH_HEX}`,
+      expires_at: '2026-07-10T12:05:00.000Z',
+    }]);
+    expect(resolved).toMatchObject({ ok: true, intent: { id: INTENT_ID, lamports: 50_000_000n } });
+    expect(foreign).toEqual({ ok: false, code: 'not_found' });
+  });
 });

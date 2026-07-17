@@ -124,6 +124,14 @@ export function createWagerModule(deps: WagerModuleDeps): WagerModule {
         await ctx.reply(WAGER_COPY.withdrawNoWallet());
         return;
       }
+      if (result.code === 'wallet_unverified') {
+        await ctx.reply(WAGER_COPY.withdrawWalletUnverified());
+        return;
+      }
+      if (result.code === 'withdrawal_pending') {
+        await ctx.reply(WAGER_COPY.withdrawPending());
+        return;
+      }
       const balance = await deps.db.balanceLamports(from.id);
       await ctx.reply(WAGER_COPY.withdrawInsufficient(balance));
       return;
@@ -138,6 +146,18 @@ export function createWagerModule(deps: WagerModuleDeps): WagerModule {
   }
 
   return {
+    account: {
+      createWalletLinkChallenge: (args) => deps.db.createWalletLinkChallenge(args),
+      getWalletLink: (userId) => deps.db.getWalletLink(userId),
+      verifyWalletLink: (args) => deps.db.verifyWalletLink(args),
+      createPendingStakeIntent: (args) => deps.db.createPendingStakeIntent(args),
+      resolveActiveStakeIntent: (userId) => deps.db.resolveActiveStakeIntent(userId),
+      getPendingStakeIntent: (userId, intentId) => deps.db.getPendingStakeIntent(userId, intentId),
+      markStakeIntentFunded: (userId, intentId) => deps.db.markStakeIntentFunded(userId, intentId),
+      consumeReadyStakeIntent: (userId, intentId) => deps.db.consumeReadyStakeIntent(userId, intentId),
+      cancelStakeIntent: (userId, intentId) => deps.db.cancelStakeIntent(userId, intentId),
+    },
+
     async currencyForMint() {
       // SOL-only product: every market is a SOL market.
       return 'sol';

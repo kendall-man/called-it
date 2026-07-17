@@ -28,7 +28,6 @@ type AccountDb = Pick<
   | 'balanceLamports'
   | 'totalLedgerLamports'
   | 'upsertDeposit'
-  | 'markDepositCredited'
   | 'orphanDepositsBySender'
 >;
 
@@ -135,20 +134,6 @@ export function accountDbMethods(client: WagerDbClient): AccountDb {
         parseNumericIdRow,
       );
       return { inserted: rows.length > 0 };
-    },
-
-    async markDepositCredited(txSig, ixIndex, userId) {
-      // .is(null) guard: a deposit row is credited exactly once. The ledger's
-      // idempotency key is the money guard; this keeps attribution stable.
-      assertOk(
-        'markDepositCredited',
-        await client
-          .from('wager_deposits')
-          .update({ user_id: userId, credited_at: nowIso() })
-          .eq('tx_sig', txSig)
-          .eq('ix_index', ixIndex)
-          .is('credited_at', null),
-      );
     },
 
     async orphanDepositsBySender(pubkey) {

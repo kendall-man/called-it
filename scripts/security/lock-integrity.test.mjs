@@ -44,7 +44,20 @@ test('fails when a lock importer no longer matches its manifest specifier', asyn
   await assert.rejects(result, /specifier mismatch/);
 });
 
-async function createFixture(context, lockfile) {
+test('fails when a lockfile override diverges from the root package override', async (context) => {
+  // Given
+  const root = await createFixture(context, validLockfile({ overrides: { example: '2.0.0' } }), {
+    pnpm: { overrides: { example: '3.0.0' } },
+  });
+
+  // When
+  const result = verifyLockIntegrity({ root });
+
+  // Then
+  await assert.rejects(result, /override/);
+});
+
+async function createFixture(context, lockfile, rootPackage = {}) {
   const root = await mkdtemp(join(tmpdir(), 'calledit-lock-integrity-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   await Promise.all([
@@ -54,7 +67,7 @@ async function createFixture(context, lockfile) {
   await writeFile(join(root, 'pnpm-lock.yaml'), lockfile, 'utf8');
   await writeFile(
     join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture', private: true, packageManager: 'pnpm@10.33.0' }),
+    JSON.stringify({ name: 'fixture', private: true, packageManager: 'pnpm@10.33.0', ...rootPackage }),
     'utf8',
   );
   await writeFile(
@@ -65,12 +78,15 @@ async function createFixture(context, lockfile) {
   return root;
 }
 
-function validLockfile({ specifier = '^2.0.0' } = {}) {
+function validLockfile({ specifier = '^2.0.0', overrides = undefined } = {}) {
+  const overrideBlock = overrides === undefined
+    ? ''
+    : `overrides:\n${Object.entries(overrides).map(([name, version]) => `  ${name}: ${version}`).join('\n')}\n`;
   return `lockfileVersion: '9.0'
 settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
-importers:
+${overrideBlock}importers:
   .: {}
   apps/engine:
     dependencies:

@@ -6,6 +6,8 @@
 import type { Api } from 'grammy';
 import type { InlineKeyboard } from 'grammy';
 import type { Logger } from '../log.js';
+import type { OwnedTelegramSender } from '../telegram/owned-sender.js';
+import type { OwnedTelegramSendResult } from '../telegram/owned-sender-contract.js';
 import type { SendQueue } from './sendQueue.js';
 
 export interface PostOptions {
@@ -15,6 +17,15 @@ export interface PostOptions {
   onSent?: (messageId: number) => Promise<void>;
 }
 
+export interface OwnedPostOptions {
+  readonly logicalKey: string;
+  readonly domainKind: string;
+  readonly domainId: string;
+  readonly replyToMessageId?: number;
+  readonly keyboard?: InlineKeyboard;
+  readonly recordAuthoritativeMessageId?: (messageId: number) => Promise<void>;
+}
+
 export interface Poster {
   post(chatId: number, text: string, options?: PostOptions): void;
   editCard(chatId: number, marketId: string, messageId: number, text: string, keyboard?: InlineKeyboard): void;
@@ -22,18 +33,62 @@ export interface Poster {
   stripKeyboard(chatId: number, messageId: number): void;
 }
 
-export function createPoster(api: Api, queue: SendQueue, log: Logger): Poster {
+export interface OwnedPoster extends Poster {
+  /** Sends through durable ownership; an `owned` outcome has committed the Telegram message id. */
+  postOwned(
+    chatId: number,
+    text: string,
+    options: OwnedPostOptions,
+  ): Promise<OwnedTelegramSendResult>;
+  configureOutboundOwnership(sender: OwnedTelegramSender): void;
+}
+
+export function createPoster(api: Api, queue: SendQueue, log: Logger): OwnedPoster {
+  let outboundOwnership: OwnedTelegramSender | null = null;
+
+  const sendMessage = async (
+    chatId: number,
+    text: string,
+    options: Pick<PostOptions, 'replyToMessageId' | 'keyboard'>,
+  ) => api.sendMessage(chatId, text, {
+    ...(options.replyToMessageId !== undefined
+      ? { reply_parameters: { message_id: options.replyToMessageId } }
+      : {}),
+    ...(options.keyboard ? { reply_markup: options.keyboard } : {}),
+    link_preview_options: { is_disabled: true },
+  });
+
   return {
+    configureOutboundOwnership(sender) {
+      outboundOwnership = sender;
+    },
     post(chatId, text, options = {}) {
       queue.enqueue(chatId, async () => {
-        const message = await api.sendMessage(chatId, text, {
-          ...(options.replyToMessageId !== undefined
-            ? { reply_parameters: { message_id: options.replyToMessageId } }
-            : {}),
-          ...(options.keyboard ? { reply_markup: options.keyboard } : {}),
-          link_preview_options: { is_disabled: true },
-        });
+        const message = await sendMessage(chatId, text, options);
         if (options.onSent) await options.onSent(message.message_id);
+      });
+    },
+    async postOwned(chatId, text, options) {
+      if (outboundOwnership === null) {
+        return {
+          kind: 'skipped',
+          jobId: null,
+          state: null,
+          code: 'outbound_ownership_unconfigured',
+        };
+      }
+      return outboundOwnership.send({
+        logicalKey: options.logicalKey,
+        chatId,
+        domainKind: options.domainKind,
+        domainId: options.domainId,
+        send: async () => {
+          const message = await queue.enqueueAndWait(chatId, () => sendMessage(chatId, text, options));
+          return message.message_id;
+        },
+        ...(options.recordAuthoritativeMessageId === undefined
+          ? {}
+          : { recordAuthoritativeMessageId: options.recordAuthoritativeMessageId }),
       });
     },
     stripKeyboard(chatId, messageId) {

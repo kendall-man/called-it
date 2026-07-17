@@ -13,11 +13,10 @@
 import {
   depositCursorStream,
   WAGER_CRON_LOCKS,
-  WAGER_KEYS,
   WAGER_TUNABLES,
 } from './constants.js';
 import { WAGER_COPY } from './copy.js';
-import type { WagerIncomingTransfer, WagerModuleDeps, WagerWalletLinkRow } from './port.js';
+import type { WagerIncomingTransfer, WagerModuleDeps } from './port.js';
 
 export interface OrphanDepositOpsClassification {
   orphanCount: number;
@@ -57,29 +56,44 @@ export async function classifyOrphanDepositsForOps(
 async function creditTransfer(
   deps: WagerModuleDeps,
   transfer: WagerIncomingTransfer,
-  link: WagerWalletLinkRow,
 ): Promise<void> {
-  const { inserted } = await deps.db.postWagerLedger({
-    user_id: link.user_id,
-    group_id: null,
-    market_id: null,
-    kind: 'deposit',
-    lamports: transfer.lamports,
-    idempotency_key: WAGER_KEYS.deposit(transfer.sig, transfer.ixIndex),
+  const result = await deps.db.creditDepositToCurrentVerifiedWallet({
+    tx_sig: transfer.sig,
+    ix_index: transfer.ixIndex,
+    min_lamports: WAGER_TUNABLES.MIN_DEPOSIT_LAMPORTS,
   });
-  await deps.db.markDepositCredited(transfer.sig, transfer.ixIndex, link.user_id);
-  // inserted=false means a re-scan of an already-credited deposit — the
-  // notification (and the log line) must not repeat.
-  if (!inserted) return;
+
+  if (!result.ok) {
+    deps.log.info('wager_deposit_unattributed', {
+      txSig: transfer.sig,
+      ixIndex: transfer.ixIndex,
+      code: result.code,
+    });
+    return;
+  }
+  // A repeat scan can reach an already-credited row, but must never repeat a
+  // balance notification. The database owns both the ledger write and row
+  // attribution, so there is no crash window between those effects.
+  if (result.outcome === 'already_credited') return;
+
+  const link = await deps.db.getWalletLink(result.user_id);
+  if (!link || link.verified_at === null) {
+    deps.log.error('wager_deposit_credit_link_missing', {
+      txSig: transfer.sig,
+      ixIndex: transfer.ixIndex,
+      userId: result.user_id,
+    });
+    return;
+  }
   deps.log.info('wager_deposit_credited', {
     txSig: transfer.sig,
     ixIndex: transfer.ixIndex,
-    userId: link.user_id,
+    userId: result.user_id,
     lamports: transfer.lamports.toString(),
   });
   if (link.last_wager_group_id === null) return;
-  const name = (await deps.db.getUserName(link.user_id)) ?? 'A player';
-  const balance = await deps.db.balanceLamports(link.user_id);
+  const name = (await deps.db.getUserName(result.user_id)) ?? 'A player';
+  const balance = await deps.db.balanceLamports(result.user_id);
   deps.poster.post(
     link.last_wager_group_id,
     WAGER_COPY.depositCredited(name, transfer.lamports, balance),
@@ -97,10 +111,7 @@ async function processTransfer(
     lamports: transfer.lamports,
     slot: transfer.slot,
   });
-  if (transfer.lamports < WAGER_TUNABLES.MIN_DEPOSIT_LAMPORTS) return; // stored, never credited
-  const link = await deps.db.getWalletLinkByPubkey(transfer.sender);
-  if (!link) return; // orphan — persisted for later private ops reconciliation
-  await creditTransfer(deps, transfer, link);
+  await creditTransfer(deps, transfer);
 }
 
 export interface DepositWatcher {

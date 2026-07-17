@@ -40,7 +40,11 @@ export type WagerStakeErrorCode =
   | 'wallet_required';
 
 /** Typed rejection codes returned by the wager_request_withdrawal RPC. */
-export type WagerWithdrawErrorCode = 'no_wallet' | 'insufficient';
+export type WagerWithdrawErrorCode =
+  | 'no_wallet'
+  | 'wallet_unverified'
+  | 'withdrawal_pending'
+  | 'insufficient';
 
 // ── Table rows (as surfaced by the façade: lamports already bigint) ────────
 
@@ -86,8 +90,34 @@ export interface WagerDepositRow {
   user_id: number | null;
   /** null = not yet posted to the ledger. */
   credited_at: string | null;
+  /** Terminal attribution outcome; orphaned rows are never auto-attached later. */
+  attribution_state: WagerDepositAttributionState;
+  /** Stable private reason code for dust and permanently unattributed rows. */
+  attribution_reason: WagerDepositAttributionReason | null;
   observed_at: string;
 }
+
+export type WagerDepositAttributionState = 'unattributed' | 'credited' | 'orphaned' | 'dust';
+
+export type WagerDepositAttributionReason =
+  | 'below_minimum'
+  | 'legacy_orphan'
+  | 'unlinked_sender'
+  | 'unverified_wallet'
+  | 'stale_wallet';
+
+export type WagerDepositCreditResult =
+  | { ok: true; outcome: 'credited' | 'already_credited'; user_id: number }
+  | {
+      ok: false;
+      code:
+        | 'not_found'
+        | 'below_minimum'
+        | 'legacy_orphan'
+        | 'unlinked_sender'
+        | 'unverified_wallet'
+        | 'stale_wallet';
+    };
 
 export interface WagerWithdrawalRow {
   id: string;
@@ -116,6 +146,28 @@ export interface WagerStatusRow {
   paused: boolean;
   reason: string | null;
   updated_at: string;
+}
+
+/** Database half of the complete treasury coverage equation. */
+export interface WagerSolvencySnapshot {
+  positive_ledger_lamports: bigint;
+  open_escrow_lamports: bigint;
+  pending_withdrawal_lamports: bigint;
+  remaining_starter_cap_lamports: bigint;
+}
+
+export interface WagerLegacyReconciliationReason {
+  kind: 'unverified_link' | 'orphan_deposit';
+  reason: string;
+  count: number;
+}
+
+/** Aggregate-only output for the dry-run legacy reconciliation classifier. */
+export interface WagerLegacyReconciliationSummary {
+  unresolved_count: number;
+  unverified_link_count: number;
+  orphan_deposit_count: number;
+  reasons: readonly WagerLegacyReconciliationReason[];
 }
 
 export interface WagerStarterBudgetRow {
@@ -150,7 +202,7 @@ export interface WagerLedgerEntry {
   idempotency_key: string;
 }
 
-/** Deposits are always recorded as observed; attribution happens via markDepositCredited. */
+/** Deposits are always recorded as observed before atomic current-wallet attribution. */
 export interface WagerDepositInsert {
   tx_sig: string;
   ix_index: number;
@@ -172,6 +224,15 @@ export interface VerifiedWalletLinkInput {
   user_id: number;
   pubkey: string;
   challenge_hash_hex: string;
+}
+
+/** Only the SHA-256 of the one-time nonce is persisted. */
+export interface WalletLinkChallengeInput {
+  id: string;
+  user_id: number;
+  pubkey: string;
+  challenge_hash_hex: string;
+  expires_at: string;
 }
 
 export type VerifiedWalletLinkResult =

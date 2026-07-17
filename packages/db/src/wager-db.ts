@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { accountDbMethods } from './wager-db-account.js';
+import { hardeningDbMethods } from './wager-db-hardening.js';
 import {
   requireWagerDbClient,
 } from './wager-db-core.js';
@@ -32,6 +33,7 @@ export function wagerDbFromClient(candidate: unknown): WagerDb {
   const client = requireWagerDbClient(candidate);
   return {
     ...accountDbMethods(client),
+    ...hardeningDbMethods(client),
     ...operationsDbMethods(client),
     ...rpcDbMethods(client),
     ...walletDbMethods(client),

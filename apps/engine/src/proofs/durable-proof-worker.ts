@@ -1,8 +1,17 @@
-import type { SettlementProofJobRow, SettlementProofJobsDb } from '@calledit/db';
+import type {
+  ProofSubmissionOutboxDb,
+  ProofSubmissionOutboxRow,
+  SettlementProofJobRow,
+  SettlementProofJobsDb,
+} from '@calledit/db';
 import { explorerTxUrl } from '../engineConstants.js';
 import { isoAt, type DurableQueuePolicy, type RecoveryClock } from '../settle/durable.js';
 import type { RecoveryLogger, RecoveredSettlementFact, SettlementFactSource } from '../settle/recovery-types.js';
-import type { ProofSubmitter, TxPort } from '../ports.js';
+import type { TxPort } from '../ports.js';
+import type {
+  DurableProofSubmissionTransport,
+  PreparedDurableProofSubmission,
+} from './proof-submission.js';
 import {
   verifyProofAgainstExpectedRoots,
   type ExpectedScoresRootSource,
@@ -15,9 +24,10 @@ export interface DurableProofWorker {
 
 export function createDurableProofWorker(options: {
   readonly jobs: SettlementProofJobsDb;
+  readonly outbox: ProofSubmissionOutboxDb | null;
   readonly facts: SettlementFactSource;
   readonly tx: Pick<TxPort, 'fetchStatProof'>;
-  readonly submitter: ProofSubmitter | null;
+  readonly submission: DurableProofSubmissionTransport | null;
   readonly roots: ExpectedScoresRootSource;
   readonly clock: RecoveryClock;
   readonly policy: DurableQueuePolicy;
@@ -72,7 +82,20 @@ async function processProofJob(
       await recordUnavailableAndComplete(options, job, fact, null);
       return;
     }
-    if (options.submitter === null) {
+    if (options.outbox === null) {
+      await recordUnavailableAndComplete(options, job, fact, null);
+      return;
+    }
+    const existing = await options.outbox.get(job.marketId);
+    if (!existing.ok) {
+      await retryOrDeadLetter(options, job, fact, 'proof_submit_failed');
+      return;
+    }
+    if (existing.outbox !== null) {
+      await recoverPersistedSubmission(options, job, fact, existing.outbox);
+      return;
+    }
+    if (options.submission === null) {
       await recordUnavailableAndComplete(options, job, fact, null);
       return;
     }
@@ -88,7 +111,7 @@ async function processProofJob(
         await retryOrDeadLetter(options, job, fact, 'proof_verify_pending');
         return;
       case 'verified':
-        await submitVerifiedProof(options, job, fact, verification.proof);
+        await prepareAndRecoverSubmission(options, job, fact, verification.proof);
         return;
     }
   } catch (error) {
@@ -101,19 +124,117 @@ async function processProofJob(
   }
 }
 
-async function submitVerifiedProof(
+async function recoverPersistedSubmission(
+  options: Parameters<typeof createDurableProofWorker>[0],
+  job: SettlementProofJobRow,
+  fact: RecoveredSettlementFact,
+  outbox: ProofSubmissionOutboxRow,
+): Promise<void> {
+  const verification = await verifyProofAgainstExpectedRoots(outbox.proofPayload, options.roots);
+  switch (verification.kind) {
+    case 'payload_invalid':
+    case 'root_mismatch':
+      await recordUnavailableAndComplete(options, job, fact, outbox.proofPayload);
+      return;
+    case 'root_unavailable':
+      await retryOrDeadLetter(options, job, fact, 'proof_verify_pending');
+      return;
+    case 'verified':
+      await recoverVerifiedSubmission(options, job, fact, outbox, verification.proof);
+      return;
+  }
+}
+
+async function recoverVerifiedSubmission(
+  options: Parameters<typeof createDurableProofWorker>[0],
+  job: SettlementProofJobRow,
+  fact: RecoveredSettlementFact,
+  outbox: ProofSubmissionOutboxRow,
+  proof: Readonly<Record<string, unknown>>,
+): Promise<void> {
+  const submissionOutbox = requireOutbox(options);
+  if (outbox.state === 'landed') {
+    await recordVerifiedAndComplete(options, job, fact, proof, outbox.signature);
+    return;
+  }
+  if (outbox.state === 'expired') {
+    await prepareAndRecoverSubmission(options, job, fact, proof);
+    return;
+  }
+  if (options.submission === null) {
+    await retryOrDeadLetter(options, job, fact, 'proof_submit_failed');
+    return;
+  }
+
+  const inspected = await options.submission.inspect(toPreparedSubmission(outbox));
+  if (!inspected.ok) {
+    await retryOrDeadLetter(options, job, fact, 'proof_submit_failed');
+    return;
+  }
+  switch (inspected.plan.kind) {
+    case 'landed': {
+      const landed = await submissionOutbox.markLanded(identityFor(options, outbox));
+      if (!landed.ok) {
+        await retryOrDeadLetter(options, job, fact, 'proof_submit_failed');
+        return;
+      }
+      await recordVerifiedAndComplete(options, job, fact, proof, landed.outbox.signature);
+      return;
+    }
+    case 'onchain_failed': {
+      const landed = await submissionOutbox.markLanded(identityFor(options, outbox));
+      if (!landed.ok) {
+        await retryOrDeadLetter(options, job, fact, 'proof_submit_failed');
+        return;
+      }
+      await recordUnavailableAndComplete(options, job, fact, proof);
+      return;
+    }
+    case 'wait':
+      await retryOrDeadLetter(options, job, fact, 'proof_submit_failed');
+      return;
+    case 'rebroadcast': {
+      const broadcast = await options.submission.rebroadcast(toPreparedSubmission(outbox));
+      if (!broadcast.ok) {
+        await retryOrDeadLetter(options, job, fact, 'proof_submit_failed');
+        return;
+      }
+      const marked = await submissionOutbox.markBroadcast(identityFor(options, outbox));
+      if (!marked.ok) {
+        await retryOrDeadLetter(options, job, fact, 'proof_submit_failed');
+        return;
+      }
+      await retryOrDeadLetter(options, job, fact, 'proof_submit_failed');
+      return;
+    }
+    case 'rebuild': {
+      const expired = await submissionOutbox.markExpired(identityFor(options, outbox));
+      if (!expired.ok) {
+        await retryOrDeadLetter(options, job, fact, 'proof_submit_failed');
+        return;
+      }
+      await prepareAndRecoverSubmission(options, job, fact, proof);
+    }
+  }
+}
+
+async function prepareAndRecoverSubmission(
   options: Parameters<typeof createDurableProofWorker>[0],
   job: SettlementProofJobRow,
   fact: RecoveredSettlementFact,
   proof: Readonly<Record<string, unknown>>,
 ): Promise<void> {
+  const submissionOutbox = requireOutbox(options);
+  if (options.submission === null) {
+    await recordUnavailableAndComplete(options, job, fact, proof);
+    return;
+  }
   const pending = await options.jobs.recordProofState(proofStateInput(options, fact, proof, 'pending'));
-  if (!pending.ok) {
+  if (!pending.ok && pending.code !== 'proof_fact_conflict') {
     await retryOrDeadLetter(options, job, fact, 'proof_payload_invalid');
     return;
   }
-
-  const submission = await options.submitter?.submit({
+  const built = await options.submission.build({
     fixtureId: fact.fixtureId,
     seq: fact.decidingSeq ?? 0,
     statKey: fact.statKey ?? 0,
@@ -121,21 +242,38 @@ async function submitVerifiedProof(
     threshold: fact.threshold,
     proof,
   });
-  if (submission === undefined || submission.permanent) {
-    await recordUnavailableAndComplete(options, job, fact, proof);
-    return;
-  }
-  if (!submission.ok || submission.txSig === undefined || submission.txSig.trim() === '') {
+  if (!built.ok) {
     await retryOrDeadLetter(options, job, fact, 'proof_submit_failed');
     return;
   }
+  const prepared = await submissionOutbox.prepare({
+    marketId: job.marketId,
+    signature: built.submission.signature,
+    rawTxB64: built.submission.rawTxB64,
+    lastValidBlockHeight: built.submission.lastValidBlockHeight,
+    proofPayload: proof,
+    nowIso: isoAt(options.clock.now()),
+  });
+  if (!prepared.ok) {
+    await retryOrDeadLetter(options, job, fact, 'proof_submit_failed');
+    return;
+  }
+  await recoverVerifiedSubmission(options, job, fact, prepared.outbox, proof);
+}
 
+async function recordVerifiedAndComplete(
+  options: Parameters<typeof createDurableProofWorker>[0],
+  job: SettlementProofJobRow,
+  fact: RecoveredSettlementFact,
+  proof: Readonly<Record<string, unknown>>,
+  signature: string,
+): Promise<void> {
   const verified = await options.jobs.recordProofState({
     ...proofStateInput(options, fact, proof, 'verified'),
-    validateStatTx: submission.txSig,
-    explorerUrl: explorerTxUrl(submission.txSig),
+    validateStatTx: signature,
+    explorerUrl: explorerTxUrl(signature),
   });
-  if (!verified.ok) {
+  if (!verified.ok && verified.code !== 'proof_fact_conflict') {
     await retryOrDeadLetter(options, job, fact, 'proof_verify_failed');
     return;
   }
@@ -244,6 +382,33 @@ function proofStateInput(
     status,
     nowIso: isoAt(options.clock.now()),
   };
+}
+
+function toPreparedSubmission(outbox: ProofSubmissionOutboxRow): PreparedDurableProofSubmission {
+  return {
+    signature: outbox.signature,
+    rawTxB64: outbox.rawTxB64,
+    lastValidBlockHeight: outbox.lastValidBlockHeight,
+  };
+}
+
+function identityFor(
+  options: Parameters<typeof createDurableProofWorker>[0],
+  outbox: ProofSubmissionOutboxRow,
+) {
+  return {
+    marketId: outbox.marketId,
+    attempt: outbox.attempt,
+    signature: outbox.signature,
+    nowIso: isoAt(options.clock.now()),
+  };
+}
+
+function requireOutbox(
+  options: Parameters<typeof createDurableProofWorker>[0],
+): ProofSubmissionOutboxDb {
+  if (options.outbox === null) throw new Error('durable proof outbox is unavailable');
+  return options.outbox;
 }
 
 function retryDelayMs(job: SettlementProofJobRow): number {

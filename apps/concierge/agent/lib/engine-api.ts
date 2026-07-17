@@ -9,6 +9,17 @@ import { loadConciergeEnv } from '../env.js';
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
+export class EngineApiResponseError extends Error {
+  readonly name = 'EngineApiResponseError';
+
+  constructor(
+    readonly path: string,
+    readonly status: number,
+  ) {
+    super(`engine api ${path} → ${status}`);
+  }
+}
+
 export interface EngineMarket {
   marketId: string;
   terms: string;
@@ -112,19 +123,17 @@ function createCaller(scope: EngineRouteScope) {
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-    const parsed = await res.json().catch(() => null);
-    if (parsed === null) throw new Error(`engine api ${path} → ${res.status} (no body)`);
     if (!res.ok && res.status !== 422 && res.status !== 404) {
-      throw new Error(`engine api ${path} → ${res.status}`);
+      throw new EngineApiResponseError(path, res.status);
     }
-    return parsed;
+    return res.json();
   };
 }
 
 const call = createCaller('concierge');
 const callTelegram = createCaller('telegram');
 
-export async function forwardTelegramUpdate(update: Record<string, unknown>): Promise<void> {
+export async function forwardTelegramUpdate(update: Readonly<Record<string, unknown>>): Promise<void> {
   await callTelegram('POST', '/api/telegram-ingress', update);
 }
 

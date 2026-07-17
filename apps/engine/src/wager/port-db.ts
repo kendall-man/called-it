@@ -1,11 +1,33 @@
 import type {
+  CreatePendingStakeIntentResult,
+  MutatePendingStakeIntentResult,
+  PendingStakeIntentInput,
+  ResolvePendingStakeIntentResult,
+  VerifiedWalletLinkInput,
+  VerifiedWalletLinkResult,
+  WagerDepositCreditResult,
   WagerLedgerEntry,
+  WagerLegacyReconciliationSummary,
+  WagerSolvencySnapshot,
+  PendingStakeIntentRow,
+  WalletLinkChallengeInput,
   WagerStakeInput,
   WagerStakeResult,
 } from '@calledit/db';
 
 export type {
+  CreatePendingStakeIntentResult,
+  MutatePendingStakeIntentResult,
+  PendingStakeIntentInput,
+  ResolvePendingStakeIntentResult,
+  VerifiedWalletLinkInput,
+  VerifiedWalletLinkResult,
+  WagerDepositCreditResult,
   WagerLedgerEntry,
+  WagerLegacyReconciliationSummary,
+  WagerSolvencySnapshot,
+  PendingStakeIntentRow,
+  WalletLinkChallengeInput,
   WagerLedgerKind,
   WagerStakeErrorCode,
   WagerStakeInput,
@@ -52,6 +74,14 @@ export interface WagerDepositRow {
   slot: number;
   user_id: number | null;
   credited_at: string | null;
+  attribution_state: 'unattributed' | 'credited' | 'orphaned' | 'dust';
+  attribution_reason:
+    | 'below_minimum'
+    | 'legacy_orphan'
+    | 'unlinked_sender'
+    | 'unverified_wallet'
+    | 'stale_wallet'
+    | null;
 }
 
 export type WagerWithdrawalState = 'debited' | 'submitted' | 'confirmed' | 'failed';
@@ -68,7 +98,11 @@ export interface WagerWithdrawalRow {
   error: string | null;
 }
 
-export type WagerWithdrawErrorCode = 'insufficient' | 'no_wallet';
+export type WagerWithdrawErrorCode =
+  | 'insufficient'
+  | 'no_wallet'
+  | 'wallet_unverified'
+  | 'withdrawal_pending';
 
 export type WagerWithdrawResult =
   | { ok: true; withdrawal_id: string }
@@ -95,8 +129,13 @@ export interface WagerDb {
     lamports: bigint;
     slot: number;
   }): Promise<{ inserted: boolean }>;
-  markDepositCredited(txSig: string, ixIndex: number, userId: number): Promise<void>;
+  creditDepositToCurrentVerifiedWallet(args: {
+    tx_sig: string;
+    ix_index: number;
+    min_lamports: bigint;
+  }): Promise<WagerDepositCreditResult>;
   orphanDepositsBySender(pubkey: string): Promise<WagerDepositRow[]>;
+  classifyLegacyWalletReconciliation(): Promise<WagerLegacyReconciliationSummary>;
   withdrawalsInState(state: 'debited' | 'submitted'): Promise<WagerWithdrawalRow[]>;
   markWithdrawalSubmitted(
     id: string,
@@ -114,9 +153,19 @@ export interface WagerDb {
   openSolMarketIds(): Promise<string[]>;
   getWagerStatus(): Promise<WagerStatusRow>;
   setWagerStatus(paused: boolean, reason: string | null): Promise<void>;
+  setSolvencyStatus(paused: boolean, reason: string | null): Promise<void>;
+  getSolvencySnapshot(): Promise<WagerSolvencySnapshot>;
   getCursor(streamName: string): Promise<string | null>;
   setCursor(streamName: string, value: string): Promise<void>;
   tryCronLock(name: string): Promise<boolean>;
   releaseCronLock(name: string): Promise<void>;
   getUserName(userId: number): Promise<string | null>;
+  createWalletLinkChallenge(args: WalletLinkChallengeInput): Promise<void>;
+  verifyWalletLink(args: VerifiedWalletLinkInput): Promise<VerifiedWalletLinkResult>;
+  createPendingStakeIntent(args: PendingStakeIntentInput): Promise<CreatePendingStakeIntentResult>;
+  resolveActiveStakeIntent(userId: number): Promise<ResolvePendingStakeIntentResult>;
+  getPendingStakeIntent(userId: number, intentId: string): Promise<ResolvePendingStakeIntentResult>;
+  markStakeIntentFunded(userId: number, intentId: string): Promise<MutatePendingStakeIntentResult>;
+  consumeReadyStakeIntent(userId: number, intentId: string): Promise<ResolvePendingStakeIntentResult>;
+  cancelStakeIntent(userId: number, intentId: string): Promise<MutatePendingStakeIntentResult>;
 }

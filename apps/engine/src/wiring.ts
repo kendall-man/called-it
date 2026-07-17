@@ -5,7 +5,16 @@
  */
 
 import { CLAIM_TYPES, checkDebounce, compileClaim, priceSpec, reduceMarket, type MatchEvent } from '@calledit/market-engine';
-import { createEngineDb, createWagerDb } from '@calledit/db';
+import {
+  createEngineDb,
+  createProofSubmissionOutboxDb,
+  createSettlementProofJobsDb,
+  createTelegramDb,
+  createWagerDb,
+  type ProofSubmissionOutboxDb,
+  type SettlementProofJobsDb,
+  type TelegramDb,
+} from '@calledit/db';
 import {
   classifyMessage,
   parseClaim,
@@ -25,15 +34,18 @@ import {
 import {
   broadcastRawTx,
   buildSolTransfer,
+  buildSignedValidateStatSubmission,
   Connection,
   fetchIncomingTransfers,
   getSigStatus,
   isBlockheightExceeded,
+  inspectProofSubmission,
   loadWallet,
-  submitValidateStat,
+  rebroadcastProofSubmission,
   withRetry,
 } from '@calledit/solana';
-import type { AgentPort, Deps, EngineDb, EventSourceLike, OddsFetchResult, ProofSubmitter, TxPort } from './ports.js';
+import { z } from 'zod';
+import type { AgentPort, Deps, EngineDb, EventSourceLike, OddsFetchResult, TxPort } from './ports.js';
 import type { WagerModule, WagerPoster } from './wager/module.js';
 import type { Env } from './env.js';
 import type { Logger } from './log.js';
@@ -42,8 +54,27 @@ import { ENGINE } from './engineConstants.js';
 import { bindAbortSignalToFetch } from './api/readiness-http.js';
 import { createSupabaseProductionReadinessPorts } from './api/readiness-production.js';
 import { resolvePersonaTemplateKey } from './wiring-agent.js';
-import { createProductionProofSubmitter } from './wiring-proof.js';
 import { createProductionWagerModule } from './wiring-wager.js';
+import { mapStatValidationToParams } from './proofs/mapping.js';
+import type { DurableProofSubmissionTransport } from './proofs/proof-submission.js';
+import type { SettlementFactSource } from './settle/recovery-types.js';
+import { statKeyForSpec } from './settle/statKeys.js';
+
+const SettlementFactRows = z.array(z.object({
+  outcome: z.enum(['claim_won', 'claim_lost', 'void']),
+  deciding_seq: z.number().int().nullable(),
+  tier: z.enum(['chain_proven', 'oracle_resolved']),
+}).strict());
+
+export interface ProductionRuntimeFacades {
+  readonly proofOutbox: ProofSubmissionOutboxDb;
+  readonly proofSubmission: DurableProofSubmissionTransport | null;
+  readonly settlementFacts: SettlementFactSource;
+  readonly settlementJobs: SettlementProofJobsDb;
+  readonly telegram: TelegramDb;
+}
+
+export type ProductionDeps = Deps & { readonly runtime: ProductionRuntimeFacades };
 
 // ── Dependency construction ───────────────────────────────────────────────
 
@@ -52,7 +83,7 @@ export async function createDeps(
   log: Logger,
   /** Rate-limited chat poster — required only when wager mode is enabled. */
   wagerPoster?: WagerPoster,
-): Promise<Deps> {
+): Promise<ProductionDeps> {
   const now = () => Date.now();
   const db: EngineDb = createEngineDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -187,11 +218,10 @@ export async function createDeps(
       new ReplaySource({ client, fixtureId, speed, logger: txLogger }),
   };
 
-  const proofSubmitter: ProofSubmitter | null = createProductionProofSubmitter(env, log, {
-    createConnection: (rpcUrl) => new Connection(rpcUrl, 'confirmed'),
-    loadWallet,
-    submit: (input) => submitValidateStat(input),
-  });
+  // Proof submission is exclusively owned by the durable Task 17 outbox.
+  // Keep the legacy port disabled so production composition cannot revive the
+  // volatile proof-worker path by accident.
+  const proofSubmitter = null;
   const wager: WagerModule | null = await createProductionWagerModule({
     env,
     log,
@@ -221,6 +251,7 @@ export async function createDeps(
         fetchIncomingTransfers(connection, address, options),
     },
   });
+  const runtime = createProductionRuntimeFacades(env, db, log);
   const readiness = createSupabaseProductionReadinessPorts({
     supabaseUrl: env.SUPABASE_URL,
     supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
@@ -243,8 +274,8 @@ export async function createDeps(
     now,
     wagerEnabled: env.WAGER_MODE_ENABLED === 'true',
     wagerConfigured: wager !== null,
-    proofEnabled: proofSubmitter !== null,
-    settlementEnabled: false,
+    proofEnabled: runtime.proofSubmission !== null,
+    settlementEnabled: wager !== null,
   });
 
   return {
@@ -253,12 +284,101 @@ export async function createDeps(
     engine: { compileClaim, priceSpec, reduceMarket, checkDebounce },
     tx,
     proofSubmitter,
+    runtime,
     wager,
     readiness,
     drains: [],
     env,
     log,
     now,
+  };
+}
+
+function createProductionRuntimeFacades(
+  env: Env,
+  db: EngineDb,
+  log: Logger,
+): ProductionRuntimeFacades {
+  return {
+    proofOutbox: createProofSubmissionOutboxDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY),
+    proofSubmission: createProductionDurableProofSubmission(env, log),
+    settlementFacts: createSettlementFactSource(env, db),
+    settlementJobs: createSettlementProofJobsDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY),
+    telegram: createTelegramDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY),
+  };
+}
+
+function createSettlementFactSource(env: Env, db: EngineDb): SettlementFactSource {
+  return {
+    async find(marketId) {
+      const market = await db.getMarket(marketId);
+      if (market === null || market.currency !== 'sol') return null;
+
+      const url = new URL('/rest/v1/settlements', env.SUPABASE_URL);
+      url.searchParams.set('select', 'outcome,deciding_seq,tier');
+      url.searchParams.set('market_id', `eq.${marketId}`);
+      const response = await fetch(url, {
+        headers: {
+          accept: 'application/json',
+          apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+          authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+      });
+      if (!response.ok) throw new Error('settlement fact request failed');
+
+      const settlement = SettlementFactRows.parse(await response.json())[0];
+      if (settlement === undefined || settlement.tier !== market.spec.trustTier) return null;
+      return {
+        marketId,
+        fixtureId: market.fixture_id,
+        outcome: settlement.outcome,
+        tier: settlement.tier,
+        decidingSeq: settlement.deciding_seq,
+        comparator: market.spec.comparator,
+        threshold: market.spec.threshold,
+        statKey: statKeyForSpec(market.spec),
+      };
+    },
+  };
+}
+
+function createProductionDurableProofSubmission(
+  env: Env,
+  log: Logger,
+): DurableProofSubmissionTransport | null {
+  const secret = env.SOLANA_KEYPAIR_B58;
+  if (secret === undefined) {
+    log.warn('durable_proof_submission_disabled', { reason: 'SOLANA_KEYPAIR_B58 not set' });
+    return null;
+  }
+  const connection = new Connection(env.SOLANA_RPC_URL, 'confirmed');
+  const wallet = loadWallet(secret);
+  return {
+    async build(input) {
+      const mapped = mapStatValidationToParams(input.proof, input.comparator, input.threshold);
+      if (mapped === null) return { ok: false };
+      const built = await buildSignedValidateStatSubmission({
+        connection,
+        wallet,
+        programId: env.TXORACLE_PROGRAM_ID,
+        ...mapped,
+      });
+      return built.ok ? built : { ok: false };
+    },
+    async inspect(submission) {
+      const inspected = await inspectProofSubmission(connection, submission);
+      if (!inspected.ok) return { ok: false };
+      return {
+        ok: true,
+        plan: inspected.plan.kind === 'onchain_failed'
+          ? { kind: 'onchain_failed' as const }
+          : inspected.plan,
+      };
+    },
+    async rebroadcast(submission) {
+      const broadcast = await rebroadcastProofSubmission(connection, submission);
+      return broadcast.ok ? { ok: true } : { ok: false };
+    },
   };
 }
 

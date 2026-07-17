@@ -67,6 +67,23 @@ export class SendQueue {
     void this.pump(chatId, state);
   }
 
+  /** Enqueue a task whose durable caller must wait for its Telegram result. */
+  enqueueAndWait<Result>(chatId: number, task: () => Promise<Result>): Promise<Result> {
+    if (this.stopped) return Promise.reject(new SendQueueStoppedError());
+    return new Promise<Result>((resolve, reject) => {
+      this.enqueue(chatId, async () => {
+        try {
+          const result = await task();
+          resolve(result);
+          return result;
+        } catch (error) {
+          reject(error);
+          throw error;
+        }
+      });
+    });
+  }
+
   /**
    * Enqueue a card edit under a collapse key (use the market id). Within the
    * collapse window the newest edit replaces any deferred one.
@@ -153,5 +170,13 @@ export class SendQueue {
       state.pumping = false;
       for (const resolve of state.idleResolvers.splice(0)) resolve();
     }
+  }
+}
+
+export class SendQueueStoppedError extends Error {
+  readonly name = 'SendQueueStoppedError';
+
+  constructor() {
+    super('telegram send queue is stopped');
   }
 }

@@ -1,10 +1,11 @@
 /**
  * Called It engine — the single long-running process:
  * grammY bot (long polling via @grammyjs/runner) + TxLINE ingest supervisor +
- * settlement loop + async proof worker + cron ticks. Booting validates the
+ * settlement loop + durable recovery workers + cron ticks. Booting validates the
  * environment with zod and fails loudly on misconfiguration.
  */
 
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +13,7 @@ import { Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
 import { run } from '@grammyjs/runner';
 import { TUNABLES } from '@calledit/market-engine';
+import { buildWalletLinkMessage, verifyWalletLinkSignature } from '@calledit/solana';
 import { loadEnv } from './env.js';
 import { createLogger } from './log.js';
 import { createDeps } from './wiring.js';
@@ -23,12 +25,15 @@ import { EntityCache } from './bot/entities.js';
 import { LlmBudget } from './bot/budget.js';
 import { BOT_COMMANDS, registerBotHandlers } from './bot/bot.js';
 import type { HandlerCtx } from './bot/context.js';
-import { ProofWorker } from './proofs/worker.js';
+import { createOnchainExpectedScoresRootSource } from './proofs/verification.js';
 import { Settler } from './settle/settler.js';
 import { IngestSupervisor } from './ingest/supervisor.js';
 import { startCrons } from './cron/index.js';
 import { startEngineApi } from './api/server.js';
 import { createTelegramIngressHandler } from './api/telegram-ingress-boundary.js';
+import { createPersistAndRoute } from './telegram/persist-and-route.js';
+import { createTelegramRoutingPolicy } from './telegram/routing-decision.js';
+import { createEngineRuntime } from './runtime.js';
 import { assertWagerBootable } from './wager-capability.js';
 import {
   createEngineReadinessChecks,
@@ -95,8 +100,53 @@ async function main(): Promise<void> {
   assertWagerBootable(env, deps.wager !== null);
 
   const say = createSay(deps.agent, log);
-  const proofWorker = new ProofWorker(deps);
-  const settler = new Settler(deps, poster, say, proofWorker);
+  const webhookIngress = env.TELEGRAM_INGRESS === 'webhook';
+  const entities = new EntityCache(deps.db);
+  let settler: Settler | null = null;
+  const runtime = createEngineRuntime({
+    jobs: deps.runtime.settlementJobs,
+    proofSubmissionOutbox: deps.runtime.proofOutbox,
+    telegram: deps.runtime.telegram,
+    facts: deps.runtime.settlementFacts,
+    effects: {
+      async apply(marketId) {
+        if (deps.wager === null) throw new Error('wager_module_unavailable');
+        await deps.wager.applySettlement(marketId);
+      },
+    },
+    receipts: {
+      async deliver(fact) {
+        const market = await deps.db.getMarket(fact.marketId);
+        if (market === null || settler === null) return 'pending';
+        return settler.deliverDurableReceipt(market, fact.outcome);
+      },
+    },
+    tx: deps.tx,
+    proofSubmission: deps.runtime.proofSubmission,
+    roots: createOnchainExpectedScoresRootSource({
+      rpcUrl: env.SOLANA_RPC_URL,
+      programId: env.TXORACLE_PROGRAM_ID,
+    }),
+    marketEvidence: deps.db,
+    poster,
+    clock: { now: deps.now },
+    policy: {
+      maxAttempts: env.QUEUE_MAX_ATTEMPTS,
+      leaseMs: env.QUEUE_LEASE_MS,
+      retryBaseMs: env.QUEUE_RETRY_BASE_MS,
+      retryMaxMs: env.QUEUE_RETRY_MAX_MS,
+      initialChainProofDelayMs: ENGINE.PROOF_FIRST_ATTEMPT_DELAY_MS,
+      batchSize: 20,
+      reconcileLimit: 100,
+    },
+    log,
+    workerId: randomUUID(),
+    settlementEnabled: deps.wager !== null,
+    ...(webhookIngress
+      ? { ingressHandler: createTelegramIngressHandler((update) => bot.handleUpdate(update)) }
+      : {}),
+  });
+  settler = new Settler(deps, poster, say, null, runtime.journal);
   const supervisor = new IngestSupervisor(deps, settler);
 
   const handlerCtx: HandlerCtx = {
@@ -105,7 +155,7 @@ async function main(): Promise<void> {
     poster,
     say,
     supervisor,
-    entities: new EntityCache(deps.db),
+    entities,
     budget: new LlmBudget(),
   };
 
@@ -127,10 +177,34 @@ async function main(): Promise<void> {
     log.warn('set_commands_failed', { error: String(err) });
   });
 
-  const crons = startCrons({ deps, poster, say, settler, supervisor });
-  const webhookIngress = env.TELEGRAM_INGRESS === 'webhook';
+  const persistAndRoute = createPersistAndRoute({
+    analyticsHmacSecretBase64: env.ANALYTICS_HMAC_SECRET,
+    db: {
+      async persistUpdate(input) {
+        const persisted = await deps.runtime.telegram.persistUpdate(input);
+        if (!persisted.ok) throw new Error(`telegram_ingress_persist_${persisted.code}`);
+        return persisted;
+      },
+    },
+    route: createTelegramRoutingPolicy({
+      botUsername: env.TELEGRAM_BOT_USERNAME,
+      prefilter: async (text) => deps.agent.prefilter(text, await entities.get()),
+      resolveOwnedReply: async (chatId, messageId) => {
+        const resolved = await deps.runtime.telegram.resolveOwnedMessage(chatId, messageId);
+        return resolved.ok ? resolved.owner : 'unknown';
+      },
+    }),
+  });
+  const persistTelegramIngress = createTelegramIngressHandler(async (update) => {
+    await persistAndRoute(Object.fromEntries(Object.entries(update)));
+    void runtime.tick();
+  });
+  if (webhookIngress) {
+    await bot.init(); // The durable ingress worker dispatches through handleUpdate.
+    telegramHeartbeatAtMs = deps.now();
+  }
+  const crons = startCrons({ deps, poster, say, settler, supervisor, durableRecovery: runtime });
   let runner: ReturnType<typeof run> | null = null;
-  let webhookWorkerReady = false;
   const drainState = new DrainState();
   const readinessPolicy = {
     checkTimeoutMs: env.READINESS_CHECK_TIMEOUT_MS,
@@ -144,10 +218,12 @@ async function main(): Promise<void> {
   } satisfies EngineReadinessPolicy;
   const readinessPorts: EngineReadinessPorts = {
     ...deps.readiness,
+    proof: runtime.readiness.proof,
+    settlement: runtime.readiness.settlement,
     telegram: {
       async snapshot() {
         if (webhookIngress) {
-          return { heartbeatAtMs: webhookWorkerReady ? deps.now() : null };
+          return runtime.readiness.telegram.snapshot(new AbortController().signal);
         }
         return {
           heartbeatAtMs: runner?.isRunning() ? telegramHeartbeatAtMs : null,
@@ -172,10 +248,14 @@ async function main(): Promise<void> {
     log,
     readiness,
     drainState,
+    walletLinkVerifier: {
+      build: buildWalletLinkMessage,
+      verify: verifyWalletLinkSignature,
+    },
     ...(webhookIngress
       ? {
           telegramIngress: {
-            accept: createTelegramIngressHandler((update) => bot.handleUpdate(update)),
+            accept: persistTelegramIngress,
           },
         }
       : {}),
@@ -183,16 +263,14 @@ async function main(): Promise<void> {
   // Webhook ingress: the concierge owns getUpdates' replacement (the webhook)
   // and forwards; polling here would 409 against the registered webhook.
   if (webhookIngress) {
-    await bot.init(); // handleUpdate needs botInfo, which run() normally fetches
-    webhookWorkerReady = true;
-    telegramHeartbeatAtMs = deps.now();
+    // Updates enter only through the persisted ingress queue in webhook mode.
   } else {
     runner = run(bot);
     telegramHeartbeatAtMs = deps.now();
   }
   log.info('engine_up', {
     webBaseUrl: env.WEB_BASE_URL,
-    proofSubmitter: deps.proofSubmitter !== null,
+    proofSubmitter: deps.runtime.proofSubmission !== null,
     api: apiServer !== null,
     ingress: env.TELEGRAM_INGRESS,
     wagerModule: deps.wager !== null,
@@ -216,7 +294,7 @@ async function main(): Promise<void> {
       stopIntake() {
         crons.stop();
         supervisor.stopAll();
-        proofWorker.stop();
+        runtime.stop();
       },
       async closeResources(abortSignal) {
         const closeApi = new Promise<void>((resolveClose) => {
@@ -237,7 +315,7 @@ async function main(): Promise<void> {
         const closeRunner = runner?.isRunning() ? runner.stop() : Promise.resolve();
         await Promise.all([closeApi, closeRunner]);
       },
-      drains: [...deps.drains, queueDrain],
+      drains: [...deps.drains, ...runtime.shutdownDrains(), queueDrain],
     });
     queue.stop();
     log.info('engine_shutdown_complete', {

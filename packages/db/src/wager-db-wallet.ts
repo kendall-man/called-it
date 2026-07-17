@@ -1,4 +1,4 @@
-import { DbError, unwrapRows } from './errors.js';
+import { assertOk, DbError, unwrapRows } from './errors.js';
 import {
   isUuid,
   lamportsFromDb,
@@ -18,9 +18,11 @@ import type {
 
 type WalletDb = Pick<
   WagerDb,
+  | 'createWalletLinkChallenge'
   | 'verifyWalletLink'
   | 'createPendingStakeIntent'
   | 'resolveActiveStakeIntent'
+  | 'getPendingStakeIntent'
   | 'markStakeIntentFunded'
   | 'consumeReadyStakeIntent'
   | 'cancelStakeIntent'
@@ -54,6 +56,19 @@ const INTENT_STATES: ReadonlySet<unknown> = new Set<PendingStakeIntentState>([
 
 export function walletDbMethods(client: WagerDbClient): WalletDb {
   return {
+    async createWalletLinkChallenge(args) {
+      assertOk(
+        'createWalletLinkChallenge',
+        await client.from('wager_wallet_challenges').insert({
+          id: args.id,
+          user_id: args.user_id,
+          pubkey: args.pubkey,
+          challenge_hash: `\\x${args.challenge_hash_hex}`,
+          expires_at: args.expires_at,
+        }),
+      );
+    },
+
     async verifyWalletLink(args) {
       const payload = unwrapRows<unknown>(
         'wager_verify_wallet_link',
@@ -89,6 +104,19 @@ export function walletDbMethods(client: WagerDbClient): WalletDb {
         await client.rpc('wager_resolve_active_stake_intent', { p_user_id: userId }),
       );
       return parseResolveIntentResult(payload);
+    },
+
+    async getPendingStakeIntent(userId, intentId) {
+      const row = await client
+        .from('wager_pending_stake_intents')
+        .select('*')
+        .eq('id', intentId)
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (row.error) throw new DbError('getPendingStakeIntent', row.error);
+      if (row.data === null) return { ok: false, code: 'not_found' };
+      const raw = parsePendingStakeIntentRow('getPendingStakeIntent', row.data);
+      return { ok: true, intent: { ...raw, lamports: lamportsFromDb('pendingIntent.lamports', raw.lamports) } };
     },
 
     async markStakeIntentFunded(userId, intentId) {

@@ -35,6 +35,8 @@ export interface WorkerReadinessPort {
 export interface QueueReadinessSnapshot extends WorkerReadinessSnapshot {
   readonly enabled: boolean;
   readonly backlog: number;
+  /** Immutable terminal queue jobs require operator intervention. */
+  readonly deadCount?: number;
   readonly oldestAgeMs: number | null;
 }
 
@@ -165,6 +167,9 @@ export function createEngineReadinessChecks(
       if (_now() - snapshot.heartbeatAtMs > _policy.workerMaxAgeMs) {
         return { kind: 'not_ready', reason: ENGINE_READINESS_REASONS.proofWorkerStale };
       }
+      if ((snapshot.deadCount ?? 0) > 0) {
+        return { kind: 'not_ready', reason: ENGINE_READINESS_REASONS.proofDeadLetter };
+      }
       if (snapshot.backlog > _policy.proofMaxBacklog) {
         return { kind: 'not_ready', reason: ENGINE_READINESS_REASONS.proofBacklog };
       }
@@ -200,6 +205,9 @@ export function createEngineReadinessChecks(
           kind: 'not_ready',
           reason: ENGINE_READINESS_REASONS.settlementWorkerStale,
         };
+      }
+      if ((snapshot.deadCount ?? 0) > 0) {
+        return { kind: 'not_ready', reason: ENGINE_READINESS_REASONS.settlementDeadLetter };
       }
       if (snapshot.backlog > _policy.settlementMaxBacklog) {
         return { kind: 'not_ready', reason: ENGINE_READINESS_REASONS.settlementBacklog };

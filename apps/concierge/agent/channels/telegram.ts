@@ -3,16 +3,13 @@
  * Telegram talks to; the engine bot no longer polls (TELEGRAM_INGRESS=webhook
  * over there). Routing:
  *
- *   conversational private chat → the eve agent (Callie)
- *   every group message, including explicit @mentions, plus /commands and
- *   card-button callback queries
- *     → forwarded verbatim to the engine's /api/telegram-ingress, where the
- *       existing grammY handlers process it exactly as if polled
+ *   safe private free text → the Eve agent (Callie)
+ *   every other allowed update → forwarded as its original envelope to the
+ *   engine's durable /api/telegram-ingress queue
  *
- * eve answers its own HITL callbacks (approval keyboards) before
- * onCallbackQuery fires, so only the engine's pv:/st:/cf: buttons reach the
- * forwarder. Until the semantic prefilter ships, all group messages stay on
- * the engine path; Eve conversational intake is private-chat only.
+ * The full-envelope verifier runs before Eve parses the update. Engine-owned
+ * envelopes are replaced with an update-id-only body after persistence so
+ * neither Eve callbacks nor a conversational session can mutate them.
  *
  * BotFather: /setprivacy → Disable (the bot must see plain group messages to
  * forward them for claim detection).
@@ -23,31 +20,41 @@ import { loadConciergeEnv } from '../env.js';
 import { forwardTelegramUpdate } from '../lib/engine-api.js';
 import { conciergeLifecycle } from '../runtime/lifecycle.js';
 import {
-  forwardEngineCallback,
-  forwardEngineMessage,
+  TELEGRAM_ALLOWED_UPDATES,
+  verifyAndRouteTelegramWebhook,
 } from '../runtime/telegram-forwarding.js';
+import { routeTelegramIntake } from '../runtime/telegram-intake.js';
 
-const botUsername = loadConciergeEnv().TELEGRAM_BOT_USERNAME;
+const env = loadConciergeEnv();
+
+// Keep this deployment registration allowlist in sync with the gate above.
+export { TELEGRAM_ALLOWED_UPDATES };
 
 export default telegramChannel({
-  botUsername,
-  onMessage: async (_ctx, message) => {
-    const destination = await forwardEngineMessage(
-      { ...message, raw: message.raw },
+  botUsername: env.TELEGRAM_BOT_USERNAME,
+  credentials: {
+    webhookVerifier: (request, body) =>
+      verifyAndRouteTelegramWebhook(request, body, {
+        lifecycle: conciergeLifecycle,
+        secretToken: env.TELEGRAM_WEBHOOK_SECRET_TOKEN,
+        forward: forwardTelegramUpdate,
+      }),
+  },
+  onMessage: (_ctx, message) => {
+    const route = routeTelegramIntake(
+      {
+        chat: { type: message.chat.type },
+        text: message.text,
+        caption: message.caption,
+        ...(message.from === undefined ? {} : { from: { isBot: message.from.isBot } }),
+        ...(message.replyToMessage === undefined ? {} : { isReply: true }),
+      },
       conciergeLifecycle,
-      forwardTelegramUpdate,
     );
-    if (destination === 'draining') return null;
-    if (destination === 'concierge') {
+    if (route === 'concierge') {
       return { auth: defaultTelegramAuth(message) };
     }
-    return null; // handled — do not start an agent session
+    return null;
   },
-  onCallbackQuery: async (_ctx, query) => {
-    await forwardEngineCallback(
-      query.raw,
-      conciergeLifecycle,
-      forwardTelegramUpdate,
-    );
-  },
+  onCallbackQuery: async () => undefined,
 });

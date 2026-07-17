@@ -228,6 +228,35 @@ describe('/withdraw command', () => {
     expect(ctx.replies).toEqual([WAGER_COPY.withdrawNoWallet()]);
   });
 
+  it('refuses an unverified current wallet with the exact recovery copy', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.seedLink(USER, VALID_PUBKEY, null, false);
+    db.seedBalance(USER, 1_000_000_000n);
+    const bot = fakeBot();
+    createWagerModule(deps).registerCommands(bot);
+
+    const ctx = groupCtx('0.05');
+    await invoke(bot, 'withdraw', ctx);
+
+    expect(ctx.replies).toEqual([WAGER_COPY.withdrawWalletUnverified()]);
+    expect(await db.withdrawalsInState('debited')).toHaveLength(0);
+  });
+
+  it('keeps one outstanding withdrawal reservation at a time', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.seedLink(USER, VALID_PUBKEY);
+    db.seedBalance(USER, 1_000_000_000n);
+    const bot = fakeBot();
+    createWagerModule(deps).registerCommands(bot);
+    await invoke(bot, 'withdraw', groupCtx('0.05'));
+
+    const retry = groupCtx('0.05');
+    await invoke(bot, 'withdraw', retry);
+
+    expect(retry.replies).toEqual([WAGER_COPY.withdrawPending()]);
+    expect(await db.withdrawalsInState('debited')).toHaveLength(1);
+  });
+
   it('maps an insufficient balance to honest copy', async () => {
     const { deps, db } = makeFakeDeps();
     db.seedLink(USER, VALID_PUBKEY);

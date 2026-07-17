@@ -28,6 +28,7 @@ class FakeTable {
 
 type PendingOp =
   | { kind: 'select' }
+  | { kind: 'insert'; value: Row }
   | { kind: 'upsert'; value: Row; onConflict: string[]; ignoreDuplicates: boolean }
   | { kind: 'update'; patch: Row }
   | { kind: 'delete' };
@@ -62,6 +63,11 @@ class FakeQuery implements WagerFilterBuilder, WagerTableBuilder {
         .filter(Boolean),
       ignoreDuplicates: options?.ignoreDuplicates ?? false,
     };
+    return this;
+  }
+
+  insert(values: object): WagerFilterBuilder {
+    this.op = { kind: 'insert', value: rowFromObject(values) };
     return this;
   }
 
@@ -162,6 +168,15 @@ class FakeQuery implements WagerFilterBuilder, WagerTableBuilder {
         this.table.rows.push(inserted);
         return { data: this.project([inserted]), error: null };
       }
+      case 'insert': {
+        const clash = this.uniqueViolation(op.value);
+        if (clash) return { data: null, error: clash };
+        const inserted: Row = { ...this.table.spec.defaults, ...op.value };
+        const serial = this.table.spec.serialColumn;
+        if (serial && inserted[serial] === undefined) inserted[serial] = this.table.nextSerial++;
+        this.table.rows.push(inserted);
+        return { data: this.project([inserted]), error: null };
+      }
       case 'update': {
         const targets = this.table.rows.filter((row) => this.matches(row));
         for (const row of targets) Object.assign(row, op.patch);
@@ -189,11 +204,19 @@ export class FakeSupabase implements WagerDbClient {
       uniques: [['user_id'], ['pubkey']],
       defaults: { last_wager_group_id: null, created_at: NOW_ISO },
     });
+    this.define('wager_wallet_challenges', { uniques: [['id']] });
+    this.define('wager_pending_stake_intents', { uniques: [['id']] });
     this.define('wager_ledger_entries', { uniques: [['idempotency_key']], serialColumn: 'id' });
     this.define('wager_deposits', {
       uniques: [['tx_sig', 'ix_index']],
       serialColumn: 'id',
-      defaults: { user_id: null, credited_at: null, observed_at: NOW_ISO },
+      defaults: {
+        user_id: null,
+        credited_at: null,
+        attribution_state: 'unattributed',
+        attribution_reason: null,
+        observed_at: NOW_ISO,
+      },
     });
     this.define('wager_withdrawals', { uniques: [['id']] });
     this.define('wager_settlements_applied', { uniques: [['market_id']] });

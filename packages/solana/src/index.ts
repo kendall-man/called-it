@@ -6,6 +6,18 @@
 export { loadWallet } from './wallet.js';
 export { activationMessage, signActivation } from './activation.js';
 export {
+  buildWalletLinkMessage,
+  verifyWalletLinkSignature,
+  WALLET_LINK_CLUSTER,
+  WALLET_LINK_STATEMENT,
+  type WalletLinkClock,
+  type WalletLinkMessageFailureCode,
+  type WalletLinkMessageInput,
+  type WalletLinkMessageResult,
+  type WalletLinkSignatureVerificationFailureCode,
+  type WalletLinkSignatureVerificationResult,
+} from './message-signing.js';
+export {
   buildSubscribeInstruction,
   buildValidateStatInstruction,
   deriveDailyScoresRootsPda,
@@ -28,6 +40,17 @@ export {
   type ValidateStatResult,
 } from './txoracle.js';
 export { TXORACLE_IDL } from './txoracle-idl.js';
+export {
+  buildSignedValidateStatSubmission,
+  inspectProofSubmission,
+  planProofSubmissionRecovery,
+  rebroadcastProofSubmission,
+  type BroadcastProofSubmissionResult,
+  type BuildProofSubmissionResult,
+  type InspectProofSubmissionResult,
+  type PreparedProofSubmission,
+  type ProofSubmissionRecoveryPlan,
+} from './proof-submission.js';
 export * from './verify.js';
 export { base58Decode, base58Encode, bytesToHex, hexToBytes } from './codecs.js';
 

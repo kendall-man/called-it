@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ConciergeLifecycle } from './lifecycle.js';
 import {
-  forwardEngineCallback,
-  forwardEngineMessage,
+  forwardEngineEnvelope,
   type TelegramForwarder,
 } from './telegram-forwarding.js';
 
@@ -14,19 +13,20 @@ function failingForwarder(error: Error): TelegramForwarder {
 
 describe('Telegram engine forwarding', () => {
   it('propagates group message forwarding failures for webhook retry', async () => {
-    // Given a group message belongs to the engine path
+    // Given a group update belongs to the engine path
     const failure = new Error('engine unavailable');
-    const message = {
-      chat: { type: 'group' },
-      text: 'Spain win this',
-      caption: '',
-      from: { isBot: false },
-      raw: { chat: { id: -1 }, text: 'Spain win this' },
+    const update = {
+      update_id: 101,
+      message: {
+        chat: { id: -1, type: 'group' },
+        text: 'Spain win this',
+        from: { is_bot: false },
+      },
     };
 
     // When forwarding fails
-    const forward = forwardEngineMessage(
-      message,
+    const forward = forwardEngineEnvelope(
+      update,
       new ConciergeLifecycle(),
       failingForwarder(failure),
     );
@@ -38,17 +38,18 @@ describe('Telegram engine forwarding', () => {
   it('propagates private command forwarding failures for webhook retry', async () => {
     // Given a private command is still engine-owned
     const failure = new Error('engine unavailable');
-    const message = {
-      chat: { type: 'private' },
-      text: '/bookit',
-      caption: '',
-      from: { isBot: false },
-      raw: { chat: { id: 1 }, text: '/bookit' },
+    const update = {
+      update_id: 102,
+      message: {
+        chat: { id: 1, type: 'private' },
+        text: '/bookit',
+        from: { is_bot: false },
+      },
     };
 
     // When forwarding fails
-    const forward = forwardEngineMessage(
-      message,
+    const forward = forwardEngineEnvelope(
+      update,
       new ConciergeLifecycle(),
       failingForwarder(failure),
     );
@@ -58,12 +59,16 @@ describe('Telegram engine forwarding', () => {
   });
 
   it('propagates callback forwarding failures for webhook retry', async () => {
-    // Given an unclaimed callback belongs to the engine path
+    // Given a callback belongs to the engine path
     const failure = new Error('engine unavailable');
+    const update = {
+      update_id: 103,
+      callback_query: { id: 'callback-1', data: 'st:market:back:0' },
+    };
 
     // When forwarding fails
-    const forward = forwardEngineCallback(
-      { id: 'callback-1', data: 'st:market:back:0' },
+    const forward = forwardEngineEnvelope(
+      update,
       new ConciergeLifecycle(),
       failingForwarder(failure),
     );

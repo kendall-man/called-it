@@ -55,6 +55,9 @@ npx -y pnpm@10.33.0 --filter callie eve:build
   `ENGINE_OPS_TOKEN_SHA256`, `WEB_CONCIERGE_TOKEN`, `GLM_API_KEY`, and
   `GLM_BASE_URL`.
 - Telegram privacy mode must be disabled for the single-ingress forwarding design.
+- Telegram webhook registration is external to Eve. It must use the exact `allowed_updates`
+  contract exported by `agent/channels/telegram.ts`: `message`, `callback_query`, and
+  `my_chat_member`; do not add unrelated update families.
 - `group_ready` and `position_placed` are the only activation events; Callie must not report
   either before the engine returns the committed transition.
 - No demo or replay instruction belongs in the loaded agent bundle.

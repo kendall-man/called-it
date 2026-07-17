@@ -10,19 +10,25 @@ import type {
   WagerChain,
   WagerDb,
   WagerDepositRow,
+  WagerDepositCreditResult,
   WagerDepositScan,
   WagerIncomingTransfer,
   WagerLedgerEntry,
   WagerLogger,
+  WagerLegacyReconciliationSummary,
   WagerModuleDeps,
+  PendingStakeIntentRow,
   WagerPositionRow,
   WagerPoster,
   WagerSettlementOutcome,
   WagerSigStatus,
   WagerStakeResult,
+  WagerSolvencySnapshot,
   WagerWalletLinkRow,
   WagerWithdrawalRow,
   WagerWithdrawResult,
+  WalletLinkChallengeInput,
+  VerifiedWalletLinkResult,
 } from './port.js';
 
 export const silentLog: WagerLogger = {
@@ -57,6 +63,7 @@ export class FakeWagerDb implements WagerDb {
   readonly ledger: WagerLedgerEntry[] = [];
   private readonly ledgerKeys = new Set<string>();
   readonly links = new Map<number, WagerWalletLinkRow>();
+  private readonly walletHistory = new Map<string, number>();
   readonly deposits = new Map<string, WagerDepositRow>();
   readonly withdrawals = new Map<string, WagerWithdrawalRow>();
   readonly positions: WagerPositionRow[] = [];
@@ -66,8 +73,17 @@ export class FakeWagerDb implements WagerDb {
   readonly groupsEnabled = new Map<number, boolean>();
   readonly cursors = new Map<string, string>();
   readonly users = new Map<number, string>();
+  readonly pendingStakeIntents = new Map<string, PendingStakeIntentRow>();
+  private readonly intentIdsByHash = new Map<string, string>();
+  private readonly walletChallenges = new Map<string, WalletLinkChallengeInput>();
+  private readonly consumedWalletChallenges = new Set<string>();
   status: { paused: boolean; reason: string | null } = { paused: false, reason: null };
   openSolMarkets: string[] = [];
+  starterBudget = {
+    enabled: false,
+    totalCapLamports: 5_000_000_000n,
+    grantedLamports: 0n,
+  };
   cronLockGranted = true;
   /** When set, wagerStake returns this instead of the default happy path. */
   stakeResult: WagerStakeResult | null = null;
@@ -99,6 +115,142 @@ export class FakeWagerDb implements WagerDb {
   async setLastWagerGroup(userId: number, groupId: number): Promise<void> {
     const link = this.links.get(userId);
     if (link) link.last_wager_group_id = groupId;
+  }
+
+  async createWalletLinkChallenge(args: WalletLinkChallengeInput): Promise<void> {
+    this.walletChallenges.set(args.id, args);
+  }
+
+  async verifyWalletLink(
+    args: Parameters<WagerDb['verifyWalletLink']>[0],
+  ): Promise<VerifiedWalletLinkResult> {
+    const challenge = this.walletChallenges.get(args.challenge_id);
+    if (
+      challenge === undefined ||
+      this.consumedWalletChallenges.has(args.challenge_id) ||
+      challenge.user_id !== args.user_id ||
+      challenge.pubkey !== args.pubkey ||
+      challenge.challenge_hash_hex !== args.challenge_hash_hex
+    ) {
+      return { ok: false as const, code: 'challenge_invalid' as const };
+    }
+    this.consumedWalletChallenges.add(args.challenge_id);
+    const reservedUser = this.walletHistory.get(args.pubkey);
+    if (reservedUser !== undefined && reservedUser !== args.user_id) {
+      return { ok: false as const, code: 'pubkey_reserved' as const };
+    }
+    const current = this.links.get(args.user_id);
+    if (current !== undefined && current.pubkey !== args.pubkey) {
+      if ((await this.balanceLamports(args.user_id)) !== 0n) {
+        return { ok: false as const, code: 'balance_nonzero' as const };
+      }
+      if (this.positions.some((position) => position.user_id === args.user_id && position.state !== 'void')) {
+        return { ok: false as const, code: 'positions_open' as const };
+      }
+      if (
+        [...this.withdrawals.values()].some(
+          (withdrawal) =>
+            withdrawal.user_id === args.user_id &&
+            (withdrawal.state === 'debited' || withdrawal.state === 'submitted'),
+        )
+      ) {
+        return { ok: false as const, code: 'withdrawal_pending' as const };
+      }
+    }
+    this.walletHistory.set(args.pubkey, args.user_id);
+    this.links.set(args.user_id, {
+      user_id: args.user_id,
+      pubkey: args.pubkey,
+      last_wager_group_id: null,
+      verified_at: new Date(0).toISOString(),
+      created_at: new Date(0).toISOString(),
+    });
+    return { ok: true as const, relinked: current !== undefined && current.pubkey !== args.pubkey, link_id: 1 };
+  }
+
+  async createPendingStakeIntent(args: Parameters<WagerDb['createPendingStakeIntent']>[0]) {
+    const existingId = this.intentIdsByHash.get(args.intent_key_hash_hex);
+    if (existingId !== undefined) {
+      const existing = this.pendingStakeIntents.get(existingId);
+      if (existing === undefined) throw new Error('missing fake stake intent');
+      const sameFields =
+        existing.user_id === args.user_id &&
+        existing.group_id === args.group_id &&
+        existing.market_id === args.market_id &&
+        existing.side === args.side &&
+        existing.lamports === args.lamports;
+      return sameFields
+        ? { ok: true as const, intent_id: existing.id, state: existing.state }
+        : { ok: false as const, code: 'field_mismatch' as const };
+    }
+    const active = [...this.pendingStakeIntents.values()].find(
+      (intent) => intent.user_id === args.user_id &&
+        (intent.state === 'pending' || intent.state === 'awaiting_funds' || intent.state === 'ready'),
+    );
+    if (active !== undefined) {
+      return { ok: false as const, code: 'active_intent_exists' as const, intent_id: active.id };
+    }
+    const id = `00000000-0000-4000-8000-${String(this.pendingStakeIntents.size + 1).padStart(12, '0')}`;
+    const now = new Date(0).toISOString();
+    const intent: PendingStakeIntentRow = {
+      id,
+      user_id: args.user_id,
+      group_id: args.group_id,
+      market_id: args.market_id,
+      side: args.side,
+      lamports: args.lamports,
+      state: 'pending',
+      expires_at: args.expires_at,
+      created_at: now,
+      updated_at: now,
+    };
+    this.pendingStakeIntents.set(id, intent);
+    this.intentIdsByHash.set(args.intent_key_hash_hex, id);
+    return { ok: true as const, intent_id: id, state: intent.state };
+  }
+
+  async resolveActiveStakeIntent(userId: number) {
+    const intent = [...this.pendingStakeIntents.values()].find(
+      (candidate) => candidate.user_id === userId &&
+        (candidate.state === 'pending' || candidate.state === 'awaiting_funds' || candidate.state === 'ready'),
+    );
+    return intent === undefined
+      ? { ok: false as const, code: 'not_found' as const }
+      : { ok: true as const, intent };
+  }
+
+  async getPendingStakeIntent(userId: number, intentId: string) {
+    const intent = this.pendingStakeIntents.get(intentId);
+    return intent === undefined || intent.user_id !== userId
+      ? { ok: false as const, code: 'not_found' as const }
+      : { ok: true as const, intent };
+  }
+
+  async markStakeIntentFunded(userId: number, intentId: string) {
+    const intent = this.pendingStakeIntents.get(intentId);
+    if (intent === undefined || intent.user_id !== userId || (intent.state !== 'pending' && intent.state !== 'awaiting_funds')) {
+      return { ok: false as const, code: 'not_ready' as const };
+    }
+    intent.state = 'ready';
+    return { ok: true as const };
+  }
+
+  async consumeReadyStakeIntent(userId: number, intentId: string) {
+    const intent = this.pendingStakeIntents.get(intentId);
+    if (intent === undefined || intent.user_id !== userId || intent.state !== 'ready') {
+      return { ok: false as const, code: 'not_ready' as const };
+    }
+    intent.state = 'consumed';
+    return { ok: true as const, intent };
+  }
+
+  async cancelStakeIntent(userId: number, intentId: string) {
+    const intent = this.pendingStakeIntents.get(intentId);
+    if (intent === undefined || intent.user_id !== userId || (intent.state !== 'pending' && intent.state !== 'awaiting_funds' && intent.state !== 'ready')) {
+      return { ok: false as const, code: 'not_found' as const };
+    }
+    intent.state = 'cancelled';
+    return { ok: true as const };
   }
 
   async balanceLamports(userId: number): Promise<bigint> {
@@ -164,6 +316,16 @@ export class FakeWagerDb implements WagerDb {
   }): Promise<WagerWithdrawResult> {
     const link = this.links.get(args.user_id);
     if (!link) return { ok: false, code: 'no_wallet' };
+    if (link.verified_at === null) return { ok: false, code: 'wallet_unverified' };
+    if (
+      [...this.withdrawals.values()].some(
+        (withdrawal) =>
+          withdrawal.user_id === args.user_id &&
+          (withdrawal.state === 'debited' || withdrawal.state === 'submitted'),
+      )
+    ) {
+      return { ok: false, code: 'withdrawal_pending' };
+    }
     const balance = await this.balanceLamports(args.user_id);
     if (balance < args.lamports) return { ok: false, code: 'insufficient' };
     const id = freshId('wd');
@@ -202,21 +364,93 @@ export class FakeWagerDb implements WagerDb {
   }): Promise<{ inserted: boolean }> {
     const key = this.depositKey(row.tx_sig, row.ix_index);
     if (this.deposits.has(key)) return { inserted: false };
-    this.deposits.set(key, { ...row, user_id: null, credited_at: null });
+    this.deposits.set(key, {
+      ...row,
+      user_id: null,
+      credited_at: null,
+      attribution_state: 'unattributed',
+      attribution_reason: null,
+    });
     return { inserted: true };
   }
 
-  async markDepositCredited(txSig: string, ixIndex: number, userId: number): Promise<void> {
-    const row = this.deposits.get(this.depositKey(txSig, ixIndex));
-    if (!row) return;
-    row.user_id = userId;
+  async creditDepositToCurrentVerifiedWallet(args: {
+    tx_sig: string;
+    ix_index: number;
+    min_lamports: bigint;
+  }): Promise<WagerDepositCreditResult> {
+    const row = this.deposits.get(this.depositKey(args.tx_sig, args.ix_index));
+    if (!row) return { ok: false, code: 'not_found' };
+    if (row.attribution_state === 'credited') {
+      if (row.user_id === null) throw new Error('credited fake deposit has no owner');
+      return { ok: true, outcome: 'already_credited', user_id: row.user_id };
+    }
+    if (row.attribution_state === 'orphaned') {
+      return { ok: false, code: row.attribution_reason ?? 'legacy_orphan' };
+    }
+    if (row.attribution_state === 'dust') return { ok: false, code: 'below_minimum' };
+    if (row.lamports < args.min_lamports) {
+      row.attribution_state = 'dust';
+      row.attribution_reason = 'below_minimum';
+      return { ok: false, code: 'below_minimum' };
+    }
+
+    const link = await this.getWalletLinkByPubkey(row.sender_pubkey);
+    if (link === null || link.verified_at === null) {
+      const code =
+        link !== null
+          ? 'unverified_wallet'
+          : this.walletHistory.has(row.sender_pubkey)
+            ? 'stale_wallet'
+            : 'unlinked_sender';
+      row.attribution_state = 'orphaned';
+      row.attribution_reason = code;
+      return { ok: false, code };
+    }
+
+    const posted = await this.postWagerLedger({
+      user_id: link.user_id,
+      group_id: null,
+      market_id: null,
+      kind: 'deposit',
+      lamports: row.lamports,
+      idempotency_key: `wager:deposit:${row.tx_sig}:${row.ix_index}`,
+    });
+    row.user_id = link.user_id;
     row.credited_at = new Date(0).toISOString();
+    row.attribution_state = 'credited';
+    row.attribution_reason = null;
+    return {
+      ok: true,
+      outcome: posted.inserted ? 'credited' : 'already_credited',
+      user_id: link.user_id,
+    };
   }
 
   async orphanDepositsBySender(pubkey: string): Promise<WagerDepositRow[]> {
     return [...this.deposits.values()].filter(
       (row) => row.sender_pubkey === pubkey && row.user_id === null,
     );
+  }
+
+  async classifyLegacyWalletReconciliation(): Promise<WagerLegacyReconciliationSummary> {
+    const reasons = new Map<string, number>();
+    for (const deposit of this.deposits.values()) {
+      if (deposit.attribution_state !== 'orphaned') continue;
+      const reason = deposit.attribution_reason ?? 'legacy_orphan';
+      reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+    }
+    const orphanDepositCount = [...reasons.values()].reduce((sum, count) => sum + count, 0);
+    return {
+      unresolved_count: orphanDepositCount,
+      unverified_link_count: 0,
+      orphan_deposit_count: orphanDepositCount,
+      reasons: [...reasons.entries()].map(([reason, count]) => ({
+        kind: 'orphan_deposit',
+        reason,
+        count,
+      })),
+    };
   }
 
   async withdrawalsInState(state: 'debited' | 'submitted'): Promise<WagerWithdrawalRow[]> {
@@ -293,6 +527,45 @@ export class FakeWagerDb implements WagerDb {
     this.status = { paused, reason };
   }
 
+  async setSolvencyStatus(paused: boolean, reason: string | null): Promise<void> {
+    const isManualPause =
+      this.status.paused && this.status.reason !== null && !this.status.reason.startsWith('solvency:');
+    if (isManualPause) return;
+    if (!paused && !this.status.paused) return;
+    if (!paused && (this.status.reason === null || !this.status.reason.startsWith('solvency:'))) return;
+    this.status = { paused, reason };
+  }
+
+  async getSolvencySnapshot(): Promise<WagerSolvencySnapshot> {
+    const balances = new Map<number, bigint>();
+    for (const entry of this.ledger) {
+      balances.set(entry.user_id, (balances.get(entry.user_id) ?? 0n) + entry.lamports);
+    }
+    let positiveLedgerLamports = 0n;
+    for (const balance of balances.values()) {
+      if (balance > 0n) positiveLedgerLamports += balance;
+    }
+    let openEscrowLamports = 0n;
+    for (const position of this.positions) {
+      if (position.state === 'void' || !this.openSolMarkets.includes(position.market_id)) continue;
+      openEscrowLamports += BigInt(position.stake);
+    }
+    let pendingWithdrawalLamports = 0n;
+    for (const withdrawal of this.withdrawals.values()) {
+      if (withdrawal.state === 'debited' || withdrawal.state === 'submitted') {
+        pendingWithdrawalLamports += withdrawal.lamports;
+      }
+    }
+    return {
+      positive_ledger_lamports: positiveLedgerLamports,
+      open_escrow_lamports: openEscrowLamports,
+      pending_withdrawal_lamports: pendingWithdrawalLamports,
+      remaining_starter_cap_lamports: this.starterBudget.enabled
+        ? this.starterBudget.totalCapLamports - this.starterBudget.grantedLamports
+        : 0n,
+    };
+  }
+
   async getCursor(streamName: string): Promise<string | null> {
     return this.cursors.get(streamName) ?? null;
   }
@@ -315,12 +588,18 @@ export class FakeWagerDb implements WagerDb {
 
   // ── test helpers ─────────────────────────────────────────────────────────
 
-  seedLink(userId: number, pubkey: string, lastGroupId: number | null = null): void {
+  seedLink(
+    userId: number,
+    pubkey: string,
+    lastGroupId: number | null = null,
+    verified = true,
+  ): void {
+    this.walletHistory.set(pubkey, userId);
     this.links.set(userId, {
       user_id: userId,
       pubkey,
       last_wager_group_id: lastGroupId,
-      verified_at: null,
+      verified_at: verified ? new Date(0).toISOString() : null,
       created_at: new Date(0).toISOString(),
     });
   }
@@ -371,6 +650,8 @@ export class FakeWagerDb implements WagerDb {
       slot: row.slot ?? 1,
       user_id: null,
       credited_at: null,
+      attribution_state: 'orphaned',
+      attribution_reason: 'legacy_orphan',
     });
   }
 

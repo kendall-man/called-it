@@ -21,7 +21,7 @@ import type {
 } from '@calledit/market-engine';
 import { TUNABLES } from '@calledit/market-engine';
 import type { Deps, MarketRow, PositionRow } from '../ports.js';
-import type { Poster } from '../bot/poster.js';
+import type { OwnedPoster } from '../bot/poster.js';
 import type { Say } from '../bot/copy.js';
 import { describeTerms, formatMultiplier, receiptCardText } from '../bot/cards.js';
 import { composeClaimCard, receiptUrl } from '../pipeline/render.js';
@@ -30,6 +30,7 @@ import { marketStakeKeyboard } from '../bot/keyboards.js';
 import { statKeyForSpec } from './statKeys.js';
 import type { ProofWorker } from '../proofs/worker.js';
 import type { SettlementJournal } from './durable.js';
+import type { OwnedTelegramSendResult } from '../telegram/owned-sender-contract.js';
 
 function toEnginePosition(row: PositionRow): Position {
   return {
@@ -48,7 +49,7 @@ export class Settler {
 
   constructor(
     private readonly deps: Deps,
-    private readonly poster: Poster,
+    private readonly poster: OwnedPoster,
     private readonly say: Say,
     private readonly proofWorker: ProofWorker | null,
     private readonly settlementJournal: SettlementJournal | null = null,
@@ -192,6 +193,9 @@ export class Settler {
         evidenceSeqs,
         tier,
       });
+      this.deps.log.info('settled', { marketId: market.id, outcome, decidingSeq, tier });
+      this.states.delete(market.id);
+      return;
     } else {
       await this.deps.db.updateMarketStatus(market.id, outcome === 'void' ? 'voided' : 'settled');
       await this.deps.db.insertSettlement({
@@ -242,6 +246,42 @@ export class Settler {
     outcome: SettlementOutcome,
     voidReason?: string,
   ): Promise<void> {
+    if (this.settlementJournal) {
+      await this.deliverDurableReceipt(market, outcome, voidReason);
+      return;
+    }
+    const text = await this.receiptText(market, outcome, voidReason);
+    this.poster.post(market.group_id, text, {
+      onSent: async () => {
+        await this.deps.db.markSettlementPosted(market.id);
+      },
+    });
+    await this.refreshCard(market.id);
+  }
+
+  async deliverDurableReceipt(
+    market: MarketRow,
+    outcome: SettlementOutcome,
+    voidReason?: string,
+  ): Promise<'delivered' | 'pending'> {
+    const result = await this.poster.postOwned(
+      market.group_id,
+      await this.receiptText(market, outcome, voidReason),
+      {
+        logicalKey: `settlement-receipt:${market.id}`,
+        domainKind: 'settlement_receipt',
+        domainId: market.id,
+      },
+    );
+    await this.refreshCard(market.id);
+    return deliveryOutcome(result);
+  }
+
+  private async receiptText(
+    market: MarketRow,
+    outcome: SettlementOutcome,
+    voidReason?: string,
+  ): Promise<string> {
     const claim = await this.deps.db.getClaim(market.claim_id);
     const claimer = claim ? await this.deps.db.getUser(claim.claimer_user_id) : null;
     const claimerName = claimer?.display_name ?? 'the claimer';
@@ -272,16 +312,7 @@ export class Settler {
       receiptUrl: receiptUrl(this.deps, market.id),
     });
 
-    this.poster.post(market.group_id, `${garnish}\n\n${receipt}`, {
-      onSent: async () => {
-        if (this.settlementJournal) {
-          await this.settlementJournal.markPosted(market.id);
-          return;
-        }
-        await this.deps.db.markSettlementPosted(market.id);
-      },
-    });
-    await this.refreshCard(market.id);
+    return `${garnish}\n\n${receipt}`;
   }
 
   private async solPayoutsLine(marketId: string, outcome: SettlementOutcome): Promise<string> {
@@ -386,4 +417,15 @@ export class Settler {
     const line = await this.say(key, vars);
     this.poster.post(market.group_id, line);
   }
+}
+
+function deliveryOutcome(result: OwnedTelegramSendResult): 'delivered' | 'pending' {
+  if (result.kind === 'owned' || result.kind === 'complete') return 'delivered';
+  if (
+    result.kind === 'skipped' &&
+    (result.state === 'owned' || result.state === 'complete' || result.state === 'reconciled')
+  ) {
+    return 'delivered';
+  }
+  return 'pending';
 }

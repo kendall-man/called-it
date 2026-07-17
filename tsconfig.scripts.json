@@ -24,6 +24,8 @@
     "scripts/sql-harness.telegram-ingress-recovery.test.ts",
     "scripts/sql-harness.settlement-proof-jobs.test.ts",
     "scripts/sql-harness.privacy.test.ts",
+    "scripts/sql-harness.bot-onboarding.test.ts",
+    "scripts/sql-harness.proof-submission-outbox.test.ts",
     "scripts/check-telegram-evidence.ts",
     "scripts/check-telegram-evidence.test.ts",
     "scripts/task-9/**/*.ts",

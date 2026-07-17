@@ -1,11 +1,12 @@
 import type { Server } from 'node:http';
 import type { Logger } from '../log.js';
 import type { Deps, EngineDb, FixtureRow, MarketRow } from '../ports.js';
-import type { Poster } from '../bot/poster.js';
+import type { OwnedPoster } from '../bot/poster.js';
 import { createWagerModule } from '../wager/module.js';
 import { makeFakeDeps, type FakeWagerDb } from '../wager/fakes.js';
 import { DrainState, createReadinessEvaluator, type ReadinessEvaluator } from './readiness.js';
 import { startEngineApi, type TelegramIngressPort } from './server.js';
+import type { WalletLinkVerifier } from './account-api.js';
 import { TEST_ENV } from './server-test-env.js';
 
 export const NOW = Date.parse('2026-07-08T12:00:00.000Z');
@@ -72,6 +73,32 @@ function createLogger(): Logger {
   };
 }
 
+function isSignaturePayload(value: unknown): value is { readonly pubkey: unknown; readonly signature: unknown } {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) &&
+    'pubkey' in value && 'signature' in value;
+}
+
+const TEST_WALLET_LINK_VERIFIER: WalletLinkVerifier = {
+  build(challenge) {
+    const message = `called-it-test:${challenge.challengeId}:${challenge.nonce}`;
+    return { ok: true, message, bytes: new TextEncoder().encode(message) };
+  },
+  verify(payload, challenge, clock) {
+    if (clock.now().getTime() >= Date.parse(challenge.expiresAt)) {
+      return { ok: false, code: 'challenge_expired' };
+    }
+    if (
+      !isSignaturePayload(payload) ||
+      payload.pubkey !== challenge.pubkey ||
+      typeof payload.signature !== 'string' ||
+      payload.signature.length === 0
+    ) {
+      return { ok: false, code: 'signature_invalid' };
+    }
+    return { ok: true };
+  },
+};
+
 function createDb(theMarket: MarketRow): EngineDb {
   return {
     upsertGroup: unreachableAsync,
@@ -125,7 +152,13 @@ function createDb(theMarket: MarketRow): EngineDb {
   };
 }
 
-function createDeps(db: EngineDb, wager: Deps['wager'], log: Logger): Deps {
+function createDeps(input: {
+  readonly db: EngineDb;
+  readonly wager: Deps['wager'];
+  readonly log: Logger;
+  readonly now: () => number;
+}): Deps {
+  const { db, wager, log, now } = input;
   return {
     db,
     wager,
@@ -173,7 +206,7 @@ function createDeps(db: EngineDb, wager: Deps['wager'], log: Logger): Deps {
     drains: [],
     env: TEST_ENV,
     log,
-    now: () => NOW,
+    now,
   };
 }
 
@@ -202,8 +235,10 @@ export async function startHarness(options: {
   wager?: Deps['wager'];
   telegramIngress?: TelegramIngressPort;
   handleTelegramUpdate?: (update: Record<string, unknown>) => Promise<void>;
+  now?: () => number;
 } = {}): Promise<ApiHarness> {
-  const wagerBundle = makeFakeDeps({ now: () => NOW });
+  const now = options.now ?? (() => NOW);
+  const wagerBundle = makeFakeDeps({ now });
   const wager = options.wager === undefined ? createWagerModule(wagerBundle.deps) : options.wager;
   if (wager !== null) {
     if (options.link ?? true) wagerBundle.db.seedLink(USER_ID, PUBKEY);
@@ -211,7 +246,7 @@ export async function startHarness(options: {
     wagerBundle.db.seedMarketProbability(MARKET_ID, 0.5);
   }
   const log = options.log ?? createLogger();
-  const deps = createDeps(createDb(options.market ?? MARKET), wager, log);
+  const deps = createDeps({ db: createDb(options.market ?? MARKET), wager, log, now });
   if (options.parse !== undefined) {
     deps.agent.parse = options.parse;
   }
@@ -224,8 +259,15 @@ export async function startHarness(options: {
     ...TEST_ENV,
     PORT: 0,
   };
-  const poster: Poster = {
+  const poster: OwnedPoster = {
     post: () => undefined,
+    postOwned: async () => ({
+      kind: 'skipped' as const,
+      jobId: null,
+      state: null,
+      code: 'outbound_ownership_unconfigured' as const,
+    }),
+    configureOutboundOwnership: () => undefined,
     editCard: () => undefined,
     stripKeyboard: () => undefined,
   };
@@ -236,6 +278,7 @@ export async function startHarness(options: {
     log,
     readiness,
     drainState,
+    walletLinkVerifier: TEST_WALLET_LINK_VERIFIER,
     ...(options.telegramIngress
       ? { telegramIngress: options.telegramIngress }
       : {}),

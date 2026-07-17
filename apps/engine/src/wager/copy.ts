@@ -15,9 +15,11 @@ import { WAGER_TUNABLES } from './constants.js';
 export const WAGER_COPY = {
   // ── stake gates & results ────────────────────────────────────────────────
   unlinkedOnboarding: (): string =>
-    'This beta only supports its one starter position. No SOL moved. Try a listed 0.01 SOL call.',
+    'This beta only supports its one starter position in test SOL. Test SOL has no monetary value. No SOL moved. Try a listed 0.01 test SOL call.',
   paused: (): string =>
     'Starter positions are temporarily paused. No SOL moved. Try another allowlisted beta group later.',
+  coverageUnavailable: (): string =>
+    'New SOL positions are paused because treasury coverage cannot be verified. No SOL moved. Try again after the table check recovers.',
   marketClosed: (): string =>
     'That call is closed for new SOL positions. No SOL moved. Choose another call.',
   starterUnavailable: (): string =>
@@ -47,7 +49,8 @@ export const WAGER_COPY = {
     const lines = [
       'Add test SOL by sending a devnet transfer to the table treasury —',
       treasuryPubkey,
-      `Minimum ${formatSolAmount(WAGER_TUNABLES.MIN_DEPOSIT_LAMPORTS)}; smaller sends are ignored. Plain transfer from your linked wallet, no memo needed — it credits automatically within a minute or so.`,
+      `Minimum ${formatSolAmount(WAGER_TUNABLES.MIN_DEPOSIT_LAMPORTS)}; smaller sends are recorded but never credited. Send only from your current verified devnet wallet, no memo needed — it credits automatically within a minute or so.`,
+      'Transfers from an old, unlinked or unverified wallet stay private for table operations and cannot be attached to a later wallet link.',
       'DEVNET ONLY. Test SOL has no monetary value. Do not send mainnet SOL; it will not credit and cannot be returned.',
     ];
     if (!linked) {
@@ -65,12 +68,16 @@ export const WAGER_COPY = {
     `Usage: /withdraw <amount|all> — sends devnet SOL back to your linked wallet. Minimum ${formatSolAmount(WAGER_TUNABLES.MIN_WITHDRAWAL_LAMPORTS)}.`,
   withdrawNoWallet: (): string =>
     'No verified wallet is available. No SOL moved. Open /wallet in private chat first.',
+  withdrawWalletUnverified: (): string =>
+    'The current wallet has not completed ownership verification. No SOL moved. Finish /wallet in private chat first.',
+  withdrawPending: (): string =>
+    'One withdrawal is already being recovered. No additional SOL moved. Wait for its receipt or return to /me.',
   withdrawBelowMin: (): string =>
     `Withdrawals start at ${formatSolAmount(WAGER_TUNABLES.MIN_WITHDRAWAL_LAMPORTS)}. No SOL moved. Choose a qualifying amount.`,
   withdrawInsufficient: (balanceLamports: bigint): string =>
     `Available balance: ${formatSolAmount(balanceLamports)} (devnet). No SOL moved. Choose a smaller amount.`,
   withdrawQueued: (lamports: bigint): string =>
-    `Withdrawal queued: ${formatSolAmount(lamports)} to your verified wallet. I'll post the receipt when it confirms. (devnet)`,
+    `Withdrawal queued: ${formatSolAmount(lamports)} to your verified wallet. The table fee reserve covers the network fee; this is the full transfer amount. I'll post the receipt when it confirms. (devnet)`,
   withdrawConfirmed: (name: string, lamports: bigint, explorerUrl: string): string =>
     `Withdrawal confirmed: ${formatSolAmount(lamports)} sent to ${name}'s verified wallet. Receipt: ${explorerUrl} (devnet)`,
   withdrawFailed: (name: string, lamports: bigint): string =>

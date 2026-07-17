@@ -121,7 +121,7 @@ describe('security-definer RPCs', () => {
       withdrawal_id: 'w-1',
     });
 
-    for (const code of ['no_wallet', 'insufficient'] as const) {
+    for (const code of ['no_wallet', 'wallet_unverified', 'withdrawal_pending', 'insufficient'] as const) {
       const { db, fake } = makeHarness();
       fake.onRpc('wager_request_withdrawal', () => ({ data: { ok: false, code }, error: null }));
       expect(await db.requestWithdrawal({ user_id: USER_ID, lamports: 10_000_000n })).toEqual({

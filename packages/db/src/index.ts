@@ -5,6 +5,16 @@
  */
 
 export { createEngineDb, type EngineDb } from './engine-db.js';
+export {
+  botOnboardingDbFromClient,
+  createBotOnboardingDb,
+  type BotOnboardingDbClient,
+} from './bot-onboarding-db.js';
+export type {
+  BotGroupReadyResult,
+  BotOnboardingDb,
+  BotOnboardingVersion,
+} from './bot-onboarding-types.js';
 export { DbError } from './errors.js';
 export type {
   Chattiness,
@@ -56,6 +66,9 @@ export {
 } from './wager-db.js';
 export type {
   WagerDepositInsert,
+  WagerDepositAttributionReason,
+  WagerDepositAttributionState,
+  WagerDepositCreditResult,
   WagerDepositRow,
   WagerGroupRow,
   WagerLedgerEntry,
@@ -75,6 +88,9 @@ export type {
   WagerStakeInput,
   WagerStakeResult,
   WagerStatusRow,
+  WagerSolvencySnapshot,
+  WagerLegacyReconciliationReason,
+  WagerLegacyReconciliationSummary,
   WagerWalletLinkRow,
   WagerWithdrawErrorCode,
   WagerWithdrawResult,
@@ -83,6 +99,7 @@ export type {
   VerifiedWalletLinkErrorCode,
   VerifiedWalletLinkInput,
   VerifiedWalletLinkResult,
+  WalletLinkChallengeInput,
 } from './wager-types.js';
 export {
   createTelegramDb,
@@ -142,3 +159,18 @@ export type {
   SettlementProofTier,
   TerminalSettlementGap,
 } from './settlement-proof-job-types.js';
+export {
+  createProofSubmissionOutboxDb,
+  proofSubmissionOutboxDbFromClient,
+  type ProofSubmissionOutboxDbClient,
+} from './proof-submission-outbox.js';
+export type {
+  GetProofSubmissionResult,
+  PrepareProofSubmissionInput,
+  ProofSubmissionIdentity,
+  ProofSubmissionMutationResult,
+  ProofSubmissionOutboxDb,
+  ProofSubmissionOutboxRow,
+  ProofSubmissionOutboxRpcCode,
+  ProofSubmissionOutboxState,
+} from './proof-submission-outbox-types.js';

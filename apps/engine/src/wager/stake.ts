@@ -8,6 +8,7 @@
 import { TUNABLES } from '@calledit/market-engine';
 import { WAGER_TUNABLES } from './constants.js';
 import { WAGER_COPY, sideLabel } from './copy.js';
+import { checkSolvencyBeforeStake } from './solvency.js';
 import type {
   WagerModuleDeps,
   WagerStakeErrorCode,
@@ -83,6 +84,17 @@ export async function handleStakeTap(
   // lock round-trip while the desk is paused.
   const status = await deps.db.getWagerStatus();
   if (status.paused) return { reply: WAGER_COPY.paused(), placed: false };
+
+  const solvency = await checkSolvencyBeforeStake(deps);
+  if (!solvency.ok) {
+    return {
+      reply:
+        solvency.code === 'treasury_unavailable'
+          ? WAGER_COPY.coverageUnavailable()
+          : WAGER_COPY.paused(),
+      placed: false,
+    };
+  }
 
   // Multiplier lock — back gets the quoted multiplier, doubt its complement.
   const lockedMultiplier =

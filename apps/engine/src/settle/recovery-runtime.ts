@@ -115,6 +115,7 @@ function snapshotFor(
     readonly oldestReadyAgeMs: number | null;
     readonly activeLeaseCount: number;
     readonly retryWaitCount: number;
+    readonly deadCount: number;
   },
 ): QueueReadinessSnapshot {
   const heartbeatAtMs = kind === 'settlement'
@@ -124,6 +125,7 @@ function snapshotFor(
     enabled: true,
     heartbeatAtMs,
     backlog: backlog.readyCount + backlog.activeLeaseCount + backlog.retryWaitCount,
+    deadCount: backlog.deadCount,
     oldestAgeMs: backlog.oldestReadyAgeMs,
   };
 }
