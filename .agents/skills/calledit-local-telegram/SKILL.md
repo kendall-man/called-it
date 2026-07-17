@@ -34,6 +34,16 @@ Then send one fresh Telegram command and verify one state transition. Use `pnpm 
 
 The launcher owns engine and web only. Database/PostgREST, Supabase compatibility proxy, Surfpool/local validator, and TxLINE fixtures must already pass preflight or be supplied by the selected branch's bootstrap scripts. On the escrow branch, prefer its `escrow:devnet` and evidence-runner commands over ad hoc RPC calls.
 
+## Escrow oracle checkpoint
+
+Before claiming terminal escrow settlement is testable, verify the selected branch's `docs/escrow-operations.md`, `apps/oracle-signer/.env.example`, and engine escrow environment contract. Report names and presence only; never print keys, tokens, or endpoint values.
+
+- Surfpool/local fork: use the engine's documented devnet-only local provider with three distinct test keypairs and a 2-of-3 threshold. Do not deploy HTTPS signer services for a local proof.
+- Public devnet: verify three distinct HTTPS signer services, public keys, origins, journals, and a 2-of-3 threshold are documented and configured.
+- If neither provider is ready, placement and activation may still be tested, but label terminal freeze, settlement, payout/refund, and final receipt as blocked.
+
+The local keypairs must match the public keys in Surfpool's on-chain oracle set. If they do not, use the branch-owned bootstrap to create a fresh local oracle set; do not patch around the mismatch. This checkpoint is verification-only: do not implement signer code, deploy signer services, or change a public-devnet oracle set unless explicitly requested.
+
 ## Stop rules
 
 - One restart per failed component, then diagnose.

@@ -235,6 +235,14 @@ export interface MarketState {
     debounceUntilMs: number;
   } | null;
   createdAtMs: number;
+  /**
+   * Replay markets ride a historical feed: event `tsMs` is the ORIGINAL
+   * on-pitch timestamp (hours or days in the past), while taps carry
+   * wall-clock `placedAtMs`. The delay-snipe guard must therefore judge
+   * replays by event emission time (`receivedAtMs`), or every in-play tap
+   * reads as placed "after" every deciding moment and gets voided.
+   */
+  isReplay?: boolean;
 }
 
 export type SettlementOutcome = 'claim_won' | 'claim_lost' | 'void';

@@ -111,6 +111,9 @@ export class Settler {
       positions,
       pendingSettlement: null,
       createdAtMs: Date.parse(row.created_at),
+      // Replay markets ride historical event timestamps; the reducer's
+      // delay-snipe guard needs to know to judge taps by emission time.
+      isReplay: row.is_replay,
     };
     this.states.set(row.id, state);
     return state;

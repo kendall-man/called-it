@@ -224,11 +224,17 @@ function applyPositionGuards(
   positions: Position[],
   event: MatchEvent,
   effects: MarketEffect[],
+  isReplay: boolean,
 ): Position[] {
   const next = positions.map((p) => ({ ...p }));
   if (isPriceMoving(event)) {
+    // Live: a tap between the on-pitch moment (tsMs) and the feed's delivery
+    // is the snipe being guarded against. Replay: tsMs is the original match
+    // timeline (always in the past), so the emission clock is the on-pitch
+    // analog — without this, every pending in-play replay tap voids here.
+    const snipeReferenceMs = isReplay ? event.receivedAtMs : event.tsMs;
     const sniped = next.filter(
-      (p) => p.state === 'pending' && p.placedAtMs > event.tsMs,
+      (p) => p.state === 'pending' && p.placedAtMs > snipeReferenceMs,
     );
     if (sniped.length > 0) {
       for (const p of sniped) p.state = 'void';
@@ -399,11 +405,19 @@ export function reduceMarket(
     return { state, effects: [] };
   }
   const scratch = scratchOf(state);
-  if (event.seq <= scratch.lastSeq) {
-    // Duplicate or stale delivery — settlement must be idempotent.
-    return { state, effects: [] };
+  // Odds-stream events carry epoch-ms `seq`s (normalize-odds keys them by the
+  // record's Ts) — a different sequence space from the small-integer score
+  // stream. Running one through the shared cursor would mark every later
+  // score event stale and blind the market to goals and full time, so odds
+  // events bypass the cursor; upstream (fixture, seq) dedupe still guards
+  // re-delivery.
+  if (event.kind !== 'odds_suspension') {
+    if (event.seq <= scratch.lastSeq) {
+      // Duplicate or stale delivery — settlement must be idempotent.
+      return { state, effects: [] };
+    }
+    scratch.lastSeq = event.seq;
   }
-  scratch.lastSeq = event.seq;
 
   if (state.status === 'pending_lineup') {
     return reducePendingLineup(state as ReducibleMarketState, event, scratch);
@@ -430,7 +444,10 @@ export function reduceMarket(
   trackGoals(scratch, event);
 
   // 3. Position fairness guards (snipe voids before window activations).
-  next = { ...next, positions: applyPositionGuards(next.positions, event, effects) };
+  next = {
+    ...next,
+    positions: applyPositionGuards(next.positions, event, effects, state.isReplay === true),
+  };
 
   // 4. Staking cutoffs are permanent.
   if (cutoffTriggered(spec, event) && !scratch.cutoffReached) {

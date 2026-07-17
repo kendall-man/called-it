@@ -26,6 +26,8 @@ Use one fresh fixture and one happy path. Separate these boundaries:
 
 At each boundary, assert a concrete state transition. If a boundary is not ready, report the exact blocker and stop that branch rather than repeatedly polling.
 
+For Surfpool escrow, prefer three local test keypairs matching a fresh on-chain oracle set with threshold 2-of-3. Remote HTTPS signer services are a public-deployment control, not a prerequisite for local validation. A complete winning-path proof requires freeze quorum, finalized settlement, a successful winner claim/payout, and the final receipt; placement and activation alone are partial evidence.
+
 ## Polling rule
 
 Use bounded polling with a deadline, exponential backoff, and a terminal diagnostic. Never issue open-ended `wait` loops. A timeout is evidence: preserve the last state, logs, and transaction/session ID for diagnosis.

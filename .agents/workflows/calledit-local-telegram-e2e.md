@@ -11,7 +11,8 @@
 
 1. Create `.calledit-local/runtime.env` from the selected branch's `.env.example`; set mode `0600`.
 2. Start or verify PostgreSQL/PostgREST/Supabase compatibility, Surfpool or devnet RPC, and fixture data using branch-owned scripts.
-3. Run `pnpm local:preflight`. Resolve every missing command, credential name, route, and worktree mismatch before startup.
+3. For Surfpool escrow, use the branch-owned bootstrap to configure a fresh three-key local oracle set with threshold 2-of-3. Verify key presence and public-key matching without printing key material. Do not deploy remote oracle services.
+4. Run `pnpm local:preflight`. Resolve every missing command, credential name, route, and worktree mismatch before startup.
 
 ## Start and expose
 
@@ -25,6 +26,8 @@
 ## Prove one flow
 
 Use one fresh Telegram group command, one market/session ID, and one expected terminal state. Record redacted evidence at ingress, persistence, chain/indexer, and Telegram delivery boundaries. Do not create parallel fixtures while diagnosing one failure.
+
+For a winning escrow path, require this sequence: placement finalized, position active, replay terminal, 2-of-3 freeze/settlement attestations accepted, settlement finalized, winner claim paid, and final receipt rendered. If oracle keys are missing or do not match the on-chain set, stop at that boundary and report partial evidence; do not substitute public-devnet remote signers.
 
 ## Stop or hand off
 

@@ -4,15 +4,34 @@
  */
 
 import type { Bot } from 'grammy';
-import type { HandlerCtx } from './context.js';
+import { ensureChatContext, type HandlerCtx } from './context.js';
 import { registerCommands } from './commands.js';
 import { registerCallbacks } from './callbacks.js';
 import { registerDetection } from './detection.js';
 import { tableUrl } from '../pipeline/render.js';
 
+function isGroupChat(chatType: string): boolean {
+  return chatType === 'group' || chatType === 'supergroup';
+}
+
 export function registerBotHandlers(bot: Bot, h: HandlerCtx): void {
   bot.catch((err) => {
     h.deps.log.error('bot_update_failed', { error: String(err.error) });
+  });
+
+  // A command can be a user's first-ever interaction. The wager handlers
+  // (/wallet, /deposit, /withdraw) write to wager tables that carry a users
+  // FK, and the passive-detection path — which is where every other handler
+  // gets its ensureChatContext upsert — skips commands (`text.startsWith('/')`
+  // returns early). Without this a first-touch /wallet dies on the FK. Upsert
+  // the group + acting user for any group command before its handler runs;
+  // the upserts are idempotent, so this is a no-op for returning members.
+  bot.on('message:text', async (ctx, next) => {
+    const from = ctx.from;
+    if (from && !from.is_bot && isGroupChat(ctx.chat.type) && ctx.message.text.startsWith('/')) {
+      await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', from);
+    }
+    await next();
   });
 
   bot.on('my_chat_member', async (ctx) => {

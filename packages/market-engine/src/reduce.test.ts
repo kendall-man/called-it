@@ -568,6 +568,35 @@ describe('reduceMarket — delay-snipe guard & position activation', () => {
     expect(state.positions.find((p) => p.id === 'honest')?.state).toBe('pending');
   });
 
+  it('replay markets judge snipes by emission time, not the historical on-pitch time', () => {
+    // In a replay, tsMs is the original match timeline (days old) while taps
+    // carry wall-clock placedAtMs. Regression: every pending in-play replay
+    // tap read as placed "after" the goal and was voided at the first goal.
+    const HOURS = 60 * 60_000;
+    const emittedNowMs = KICKOFF_MS + 48 * HOURS; // replaying two days later
+    const goal = mkEvent('goal', 1, {
+      minute: 30,
+      score: mkScore(1, 0),
+      receivedAtMs: emittedNowMs,
+    });
+    const beforeEmission = mkPosition('before-emission', {
+      placedAtMs: emittedNowMs - 5_000,
+    });
+    const trueSniper = mkPosition('true-sniper', {
+      placedAtMs: emittedNowMs + 5_000,
+    });
+    const { state, effects } = run(
+      mkState(OVER_25, { isReplay: true, positions: [beforeEmission, trueSniper] }),
+      [goal],
+    );
+    const voided = effects.find(
+      (e): e is Extract<MarketEffect, { kind: 'void_positions' }> =>
+        e.kind === 'void_positions',
+    );
+    expect(voided?.positionIds).toEqual(['true-sniper']);
+    expect(state.positions.find((p) => p.id === 'before-emission')?.state).toBe('pending');
+  });
+
   it('a red card is also a price-moving snipe check', () => {
     const red = mkEvent('card', 1, {
       minute: 30,
@@ -674,6 +703,19 @@ describe('reduceMarket — freezes & cutoffs', () => {
       mkEvent('odds_suspension', 1, { score: mkScore(2, 0) }),
       mkEvent('goal', 2, { score: mkScore(3, 0) }),
     ]);
+    expect(state.status).toBe('settling');
+    expect(state.pendingSettlement?.outcome).toBe('claim_won');
+  });
+
+  it('an epoch-ms odds seq does not blind the market to later score events', () => {
+    // normalize-odds keys suspension events by the record's Ts (epoch ms) — a
+    // different seq space from the score stream. Regression: one suspension
+    // advanced the shared cursor past every score seq, so the goal and full
+    // time read as stale and the market wedged frozen with stakes escrowed.
+    const suspend = mkEvent('odds_suspension', 1_784_192_721_743, { score: mkScore(0, 0) });
+    const goal = mkEvent('goal', 5, { score: mkScore(1, 0), detail: { participant: 1 } });
+    const fullTime = mkEvent('phase_change', 13, { phase: 'F', minute: 90, score: mkScore(1, 0) });
+    const { state } = run(mkState(WINNER_90), [suspend, goal, fullTime]);
     expect(state.status).toBe('settling');
     expect(state.pendingSettlement?.outcome).toBe('claim_won');
   });

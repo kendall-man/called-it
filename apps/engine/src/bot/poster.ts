@@ -28,7 +28,16 @@ export function createPoster(api: Api, queue: SendQueue, log: Logger): Poster {
       queue.enqueue(chatId, async () => {
         const message = await api.sendMessage(chatId, text, {
           ...(options.replyToMessageId !== undefined
-            ? { reply_parameters: { message_id: options.replyToMessageId } }
+            ? {
+                // allow_sending_without_reply: the claim/source message can be
+                // deleted between detection and this send (e.g. a user removes
+                // their banter while the parse runs). Without this the whole
+                // offer card send fails and the market silently has no card.
+                reply_parameters: {
+                  message_id: options.replyToMessageId,
+                  allow_sending_without_reply: true,
+                },
+              }
             : {}),
           ...(options.keyboard ? { reply_markup: options.keyboard } : {}),
           link_preview_options: { is_disabled: true },
