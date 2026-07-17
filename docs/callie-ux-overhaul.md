@@ -106,6 +106,30 @@ New (active only when `TELEGRAM_MINIAPP_SHORT_NAME` is set and custody is escrow
 - All new Telegram calls go through the existing Poster/SendQueue budgets or are
   budget-free (reactions, chat actions, callback answers).
 
+## Live verification (2026-07-18, production, real users)
+
+Observed on screen in the test group after deploy: 👀 reactions on both users'
+claim messages; positions placed through the in-group Mini App buttons with NO
+signing DM (the 03:37 completion DM arrived with the receipt link, no prompt
+before it — old flow's "Awaiting signature" DMs stop accumulating); group card
+locked/edited in place with both participants and 93% matched; `/status`
+rendered live replay minute, open-call count, fair-play-wait count, and escrow
+health. Not yet observed live: Mini App stepper visuals, skeleton-card edit
+(transient), settle finale.
+
+## Liquid polish backlog (observed friction, next pass)
+
+- Delete (not just strip) consent-gate messages once confirmed/declined/expired;
+  requires delete_messages admin right, falls back to strip.
+- Wire the settle reaction for escrow-custody settlements at the projection sink
+  (this wave only covers legacy-custody settle; 🏆-equivalent from the legal set).
+- Old pre-overhaul "Review and sign" DMs keep dead buttons forever; a one-time
+  sweep could edit them to "expired" copy.
+- Bot display name is the raw username; set "Callie · Called It" + profile photo
+  + about via BotFather for the demo.
+- Consider collapsing the replay banner + first confirm gate when the same admin
+  runs /testmatch and immediately calls.
+
 ## Explicitly out of scope (follow-ups)
 
 - Adopting the unwired durable telegram ingress/outbound-ownership stack wholesale.
