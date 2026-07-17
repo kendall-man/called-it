@@ -15,8 +15,8 @@ type CommandResult = {
   readonly stderr: string;
 };
 
-test('rejects a major-only GitHub Action version', async () => {
-  // Given a workflow pinned only to an action major version
+test('rejects a GitHub Action tag instead of a commit SHA', async () => {
+  // Given a workflow pinned to a mutable action tag
   const workflow =
     `jobs:
   verify:
@@ -49,7 +49,7 @@ test('rejects a workflow whose jobs value is not a mapping', async () => {
 test('rejects passWithNoTests in an active package manifest', async () => {
   // Given a repository fixture with an empty-suite escape in an active package
   const result = await runRepositoryCheck({
-    '.github/workflows/ci.yml': workflowWithAction('actions/checkout@v4.2.2'),
+    '.github/workflows/ci.yml': workflowWithAction('actions/checkout@0123456789abcdef0123456789abcdef01234567'),
     'package.json': '{"name":"fixture","private":true}',
     'apps/engine/package.json': '{"scripts":{"test":"vitest run --passWithNoTests"}}',
   });
@@ -70,10 +70,7 @@ test('requires Turbo to resolve the concierge build command', async () => {
   assert.match(result.stdout, /callie#build resolved to .+eve:build/);
 });
 
-for (const action of [
-  'actions/checkout@v4.2.2',
-  'actions/checkout@0123456789abcdef0123456789abcdef01234567',
-]) {
+for (const action of ['actions/checkout@0123456789abcdef0123456789abcdef01234567']) {
   test(`accepts the exact action reference ${action}`, async () => {
     // Given a workflow pinned to an exact action reference
     const workflow = workflowWithAction(action);

@@ -50,6 +50,8 @@ export async function withMigratedDb(
             telegram: migrations.some((migration) => migration.name === '0006_telegram_ingress.sql'),
             settlementProofJobs: migrations.some((migration) => migration.name === '0007_settlement_proof_jobs.sql'),
             publicProductViews: migrations.some((migration) => migration.name === '0008_public_product_views.sql'),
+            botOnboarding: migrations.some((migration) => migration.name === '0009_bot_onboarding.sql'),
+            proofSubmissionOutbox: migrations.some((migration) => migration.name === '0010_proof_submission_outbox.sql'),
           });
         }),
       });

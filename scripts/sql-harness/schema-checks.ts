@@ -63,6 +63,10 @@ const PRODUCT_PRIVATE_TABLES = ['onboarding_events'] as const;
 
 const SETTLEMENT_PROOF_TABLES = ['settlement_proof_jobs'] as const;
 
+const BOT_ONBOARDING_TABLES = ['bot_group_ready_markers'] as const;
+
+const PROOF_SUBMISSION_OUTBOX_TABLES = ['proof_submission_outbox'] as const;
+
 const SETTLEMENT_PROOF_FUNCTIONS = [
   'settlement_record_terminal(uuid,text,bigint,bigint[],text,timestamp with time zone,integer,integer,integer,integer)',
   'settlement_mark_posted(uuid,timestamp with time zone)',
@@ -89,6 +93,28 @@ const SETTLEMENT_PROOF_FUNCTION_NAMES = [
   'settlement_terminal_gaps',
   'settlement_reconcile_terminal_jobs',
   'settlement_proof_backlog',
+] as const;
+
+const BOT_ONBOARDING_FUNCTIONS = [
+  'bot_mark_group_ready(bigint,text)',
+] as const;
+
+const BOT_ONBOARDING_FUNCTION_NAMES = ['bot_mark_group_ready'] as const;
+
+const PROOF_SUBMISSION_OUTBOX_FUNCTIONS = [
+  'proof_submission_get(uuid)',
+  'proof_submission_prepare(uuid,text,text,bigint,jsonb,timestamp with time zone)',
+  'proof_submission_mark_broadcast(uuid,integer,text,timestamp with time zone)',
+  'proof_submission_mark_landed(uuid,integer,text,timestamp with time zone)',
+  'proof_submission_mark_expired(uuid,integer,text,timestamp with time zone)',
+] as const;
+
+const PROOF_SUBMISSION_OUTBOX_FUNCTION_NAMES = [
+  'proof_submission_get',
+  'proof_submission_prepare',
+  'proof_submission_mark_broadcast',
+  'proof_submission_mark_landed',
+  'proof_submission_mark_expired',
 ] as const;
 
 const BASE_FUNCTIONS = [
@@ -135,10 +161,20 @@ type PublicationMemberRow = {
   readonly tablename: string;
 };
 
+type TablePrivilegeRow = {
+  readonly relname: string;
+  readonly service_role_can_access: boolean;
+  readonly anon_can_access: boolean;
+  readonly authenticated_can_access: boolean;
+  readonly public_can_access: boolean;
+};
+
 export interface SchemaCheckOptions {
   readonly telegram?: boolean;
   readonly settlementProofJobs?: boolean;
   readonly publicProductViews?: boolean;
+  readonly botOnboarding?: boolean;
+  readonly proofSubmissionOutbox?: boolean;
 }
 
 export async function validateCalledItSchema(
@@ -148,6 +184,11 @@ export async function validateCalledItSchema(
   const telegram = options.telegram ?? true;
   const settlementProofJobs = options.settlementProofJobs ?? options.telegram === undefined;
   const publicProductViews = options.publicProductViews ?? true;
+  const usesLegacyMigrationOptions = options.telegram !== undefined
+    || options.settlementProofJobs !== undefined
+    || options.publicProductViews !== undefined;
+  const botOnboarding = options.botOnboarding ?? !usesLegacyMigrationOptions;
+  const proofSubmissionOutbox = options.proofSubmissionOutbox ?? !usesLegacyMigrationOptions;
   const expectedViews = publicProductViews ? PRODUCT_EXPECTED_VIEWS : LEGACY_EXPECTED_VIEWS;
   const expectedRealtimeMembers = publicProductViews
     ? PRODUCT_REALTIME_MEMBERS
@@ -157,17 +198,27 @@ export async function validateCalledItSchema(
     ...(telegram ? TELEGRAM_TABLES : []),
     ...(settlementProofJobs ? SETTLEMENT_PROOF_TABLES : []),
     ...(publicProductViews ? PRODUCT_PRIVATE_TABLES : []),
+    ...(botOnboarding ? BOT_ONBOARDING_TABLES : []),
+    ...(proofSubmissionOutbox ? PROOF_SUBMISSION_OUTBOX_TABLES : []),
   ];
   const privateTables = [
     ...BASE_PRIVATE_TABLES,
     ...(telegram ? TELEGRAM_TABLES : []),
     ...(settlementProofJobs ? SETTLEMENT_PROOF_TABLES : []),
     ...(publicProductViews ? PRODUCT_PRIVATE_TABLES : []),
+    ...(botOnboarding ? BOT_ONBOARDING_TABLES : []),
+    ...(proofSubmissionOutbox ? PROOF_SUBMISSION_OUTBOX_TABLES : []),
+  ];
+  const directTableAccessRestricted = [
+    ...(botOnboarding ? BOT_ONBOARDING_TABLES : []),
+    ...(proofSubmissionOutbox ? PROOF_SUBMISSION_OUTBOX_TABLES : []),
   ];
   const expectedFunctions = [
     ...BASE_FUNCTIONS,
     ...(telegram ? TELEGRAM_FUNCTIONS : []),
     ...(settlementProofJobs ? SETTLEMENT_PROOF_FUNCTIONS : []),
+    ...(botOnboarding ? BOT_ONBOARDING_FUNCTIONS : []),
+    ...(proofSubmissionOutbox ? PROOF_SUBMISSION_OUTBOX_FUNCTIONS : []),
   ];
   const functionNames = telegram
     ? [
@@ -194,13 +245,43 @@ export async function validateCalledItSchema(
         'wager_cancel_stake_intent',
       ];
   functionNames.push(...(settlementProofJobs ? SETTLEMENT_PROOF_FUNCTION_NAMES : []));
+  functionNames.push(...(botOnboarding ? BOT_ONBOARDING_FUNCTION_NAMES : []));
+  functionNames.push(...(proofSubmissionOutbox ? PROOF_SUBMISSION_OUTBOX_FUNCTION_NAMES : []));
   const relationRows = await loadRelations(client, expectedTables, expectedViews);
   assertRelations(relationRows, expectedTables, 'r');
   assertRelations(relationRows, expectedViews, 'v');
   assertPrivateTableRls(relationRows, privateTables);
   await assertNoPrivateTablePolicies(client, privateTables);
+  await assertNoDirectTableAccess(client, directTableAccessRestricted);
   await assertRealtimePublication(client, expectedRealtimeMembers);
   await assertFunctionPrivileges(client, expectedFunctions, functionNames);
+}
+
+async function assertNoDirectTableAccess(client: Client, tableNames: readonly string[]): Promise<void> {
+  if (tableNames.length === 0) {
+    return;
+  }
+  const result = await client.query<TablePrivilegeRow>(
+    `select
+       c.relname,
+       has_table_privilege('service_role', c.oid, 'select, insert, update, delete, truncate, references, trigger') as service_role_can_access,
+       has_table_privilege('anon', c.oid, 'select, insert, update, delete, truncate, references, trigger') as anon_can_access,
+       has_table_privilege('authenticated', c.oid, 'select, insert, update, delete, truncate, references, trigger') as authenticated_can_access,
+       has_table_privilege('public', c.oid, 'select, insert, update, delete, truncate, references, trigger') as public_can_access
+     from pg_class c
+     join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relname = any($1::text[])`,
+    [tableNames],
+  );
+  const accessible = result.rows.filter(
+    (row) => row.service_role_can_access
+      || row.anon_can_access
+      || row.authenticated_can_access
+      || row.public_can_access,
+  );
+  if (accessible.length > 0) {
+    throw new Error(`private tables with direct role access: ${accessible.map((row) => row.relname).join(', ')}`);
+  }
 }
 
 async function loadRelations(

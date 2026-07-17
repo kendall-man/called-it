@@ -19,7 +19,7 @@ type Workflow = {
   }[];
 };
 
-const FLOATING_ACTION = /@(?:[a-z]+|v\d+)$/i;
+const PINNED_ACTION = /@[a-f0-9]{40}$/i;
 
 async function main(): Promise<void> {
   const [ciWorkflow, securityWorkflow] = await Promise.all([
@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   const floatingActions = [...ciSteps, ...securitySteps]
     .map((step) => step.uses)
     .filter((uses): uses is string => uses !== undefined)
-    .filter((uses) => FLOATING_ACTION.test(uses));
+    .filter((uses) => !PINNED_ACTION.test(uses));
 
   if (floatingActions.length > 0) {
     throw new Error(`workflow uses floating actions: ${floatingActions.join(', ')}`);
