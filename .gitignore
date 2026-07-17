@@ -42,3 +42,11 @@ wallet.json
 # Reproducible local runtime state and local Git bundles (never credentials in Git).
 .calledit-local/
 .calledit-backups/
+
+# Local workflow/test artifacts; plans and evidence may contain runtime data.
+.omo/
+.tmp-telegram-evidence-test/
+.superstack/
+.surfpool/
+playwright-report/
+test-results/
