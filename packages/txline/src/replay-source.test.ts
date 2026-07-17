@@ -106,6 +106,35 @@ describe('ReplaySource.stepOnce — snapshot diffing', () => {
     expect(oddsSeen).toEqual(['m1', 'm2']);
   });
 
+  it('drains canonical records published after the first terminal record', async () => {
+    const postWhistle = scoresRecord({
+      seq: 7,
+      ts: KICKOFF_MS + 96 * MINUTE_MS,
+      statusSoccerId: 'F',
+      scoreSoccer: scoreSoccer({ Total: period(1) }, { Total: period(0) }),
+    });
+    const source = new ReplaySource({
+      client: snapshotClient([...SCORES_HISTORY, postWhistle], []),
+      fixtureId: FIXTURE_ID,
+      speed: 30,
+      startMs: KICKOFF_MS - 10 * MINUTE_MS,
+      tickVirtualMs: 10 * MINUTE_MS,
+      logger: silentLogger,
+    });
+
+    const emitted: MatchEvent[] = [];
+    let done = false;
+    for (let step = 0; step < 30 && !done; step += 1) {
+      const result = await source.stepOnce();
+      emitted.push(...result.events);
+      done = result.done;
+    }
+
+    expect(done).toBe(true);
+    expect(emitted.map((event) => event.seq)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(emitted.at(-1)?.phase).toBe('F');
+  });
+
   it('probes kickoff from the scores snapshot when startMs is omitted', async () => {
     const source = new ReplaySource({
       client: snapshotClient(),

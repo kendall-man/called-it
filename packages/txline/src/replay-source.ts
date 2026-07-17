@@ -202,7 +202,25 @@ export class ReplaySource implements MatchEventSource {
       this.onOddsInputs?.(this.fixtureId, inputs);
     }
 
-    const reachedEndPhase = events.some((event) => REPLAY_END_PHASES.has(event.phase));
+    let reachedEndPhase = events.some((event) => REPLAY_END_PHASES.has(event.phase));
+    if (reachedEndPhase) {
+      // A terminal phase is not necessarily the provider's final record. Drain
+      // the canonical latest snapshot once so post-whistle score/stat
+      // corrections are processed before replay settlement is considered
+      // complete and oracle signers see the same terminal evidence root.
+      const finalRecords = await this.client.scoresSnapshot(this.fixtureId);
+      const trailingRecords = finalRecords.filter((record) => !this.seenSeqs.has(record.seq));
+      for (const record of trailingRecords) this.seenSeqs.add(record.seq);
+      events.push(
+        ...normalizeScores(trailingRecords, receivedAtMs, {
+          seqByEventId: this.seqByEventId,
+          lastPhaseByFixture: this.lastPhaseByFixture,
+          lastScoreByFixture: this.lastScoreByFixture,
+          logger: this.logger,
+        }),
+      );
+      reachedEndPhase = events.some((event) => REPLAY_END_PHASES.has(event.phase));
+    }
     const exhaustedClock = virtualNowMs - virtualStartMs >= this.maxVirtualMs;
     if (exhaustedClock && !reachedEndPhase) {
       this.logger('replay hit max virtual duration without a terminal phase', {

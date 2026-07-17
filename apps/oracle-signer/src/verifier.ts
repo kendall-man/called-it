@@ -58,7 +58,7 @@ export interface OracleChainReader {
 }
 
 export interface OracleFeedReader {
-  scores(fixtureId: number): Promise<readonly MatchEvent[]>;
+  scores(fixtureId: number, asOfMs?: number): Promise<readonly MatchEvent[]>;
 }
 
 function equal(left: Uint8Array, right: Uint8Array): boolean {
@@ -112,8 +112,9 @@ export function createOracleChainReader(env: OracleSignerEnv): OracleChainReader
 
 export function createOracleFeedReader(env: OracleSignerEnv, fetchImpl: typeof fetch = fetch): OracleFeedReader {
   return {
-    async scores(fixtureId) {
+    async scores(fixtureId, asOfMs) {
       const url = new URL(`/api/scores/snapshot/${fixtureId}`, env.TXLINE_API_BASE);
+      if (asOfMs !== undefined) url.searchParams.set('asOf', String(asOfMs));
       const response = await fetchImpl(url, {
         headers: {
           authorization: `Bearer ${env.TXLINE_GUEST_JWT}`,
@@ -285,7 +286,15 @@ export class OracleAttestationVerifier {
       createHash('sha256').update(claimSpecificationJson).digest('hex') !== bytesToHex(market.claimSpecificationHash)
     ) throw new Error('claim specification hash mismatch');
 
-    const events = [...await this.options.feed.scores(spec.fixtureId)].sort((left, right) => left.seq - right.seq);
+    // Replay events can disappear from the provider's compact latest snapshot
+    // after a correction. Verify feed transitions against the exact provider
+    // snapshot that contained the observed event; settlement and void still
+    // use the unbounded latest snapshot so later reversals remain authoritative.
+    const asOfMs = request.kind === 'feed_event'
+      ? safeNumber(request.attestation.observedAt * 1_000n + 999n, 'feed evidence as-of')
+      : undefined;
+    const events = [...await this.options.feed.scores(spec.fixtureId, asOfMs)]
+      .sort((left, right) => left.seq - right.seq);
     if (events.length === 0 || events.some((event, index) => index > 0 && event.seq <= events[index - 1]!.seq)) {
       throw new Error('oracle evidence ordering mismatch');
     }

@@ -11,6 +11,7 @@ import {
   escrowEvidenceSequenceCommitmentV2,
   normalizedEscrowEvidenceHashV2,
   settlementEvidenceHashV2,
+  type FeedEventAttestationV1,
   type MarketAccount,
   type OracleSetAccount,
   type PositionInvalidationAttestationV1,
@@ -325,6 +326,57 @@ describe('independent oracle signer', () => {
   it('parses exact canonical bytes and independently verifies the settlement', async () => {
     const parsed = parseOracleSigningEnvelope(envelope());
     await expect(verifier().verify(parsed.request, CLAIM_JSON)).resolves.toBeUndefined();
+  });
+
+  it('verifies replay feed evidence against its exact provider-time snapshot', async () => {
+    const base = attestation();
+    const value: FeedEventAttestationV1 = {
+      clusterGenesisHash: base.clusterGenesisHash,
+      escrowProgramId: base.escrowProgramId,
+      marketPda: base.marketPda,
+      marketDocumentHash: base.marketDocumentHash,
+      fixtureId: base.fixtureId,
+      oracleSetEpoch: base.oracleSetEpoch,
+      issuedAt: base.issuedAt,
+      expiresAt: base.expiresAt,
+      evidenceHash: normalizedEscrowEvidenceHashV2(PRICE_MOVING_EVENT),
+      eventKind: 'freeze',
+      eventEpoch: 1n,
+      decidingSequence: BigInt(PRICE_MOVING_EVENT.seq),
+      observedAt: BigInt(Math.floor(PRICE_MOVING_EVENT.tsMs / 1_000)),
+    };
+    const signer = environment();
+    const signers = [signer.signer, Keypair.generate(), Keypair.generate()]
+      .map((item) => item.publicKey.toBase58());
+    const asOfCalls: Array<number | undefined> = [];
+    const candidate = new OracleAttestationVerifier({
+      env: signer,
+      clock: () => NOW_MS,
+      chain: {
+        async loadMarket() {
+          return {
+            slot: 100n,
+            config: {} as ProtocolConfigAccount,
+            oracleSet: {
+              epoch: 9n, activationSlot: 1n, retirementSlot: null, version: 1, bump: 1,
+              signers, signatureThreshold: 2,
+            } as OracleSetAccount,
+            market: market(base),
+          };
+        },
+        async loadLot() { throw new Error('unused'); },
+      },
+      feed: {
+        async scores(_fixtureId, asOfMs) {
+          asOfCalls.push(asOfMs);
+          return [PRICE_MOVING_EVENT];
+        },
+      },
+    });
+
+    await expect(candidate.verify({ kind: 'feed_event', attestation: value }, CLAIM_JSON))
+      .resolves.toBeUndefined();
+    expect(asOfCalls).toEqual([Number(value.observedAt * 1_000n + 999n)]);
   });
 
   it('continues signing markets pinned to an already-activated retired oracle epoch', async () => {
