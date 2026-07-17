@@ -63,6 +63,20 @@ Web local smoke:
 npx -y pnpm@10.33.0 --dir apps/web exec next dev --hostname 127.0.0.1 --port 3020
 ```
 
+Deterministic local Telegram loop:
+
+```bash
+npx -y pnpm@10.33.0 local:preflight
+npx -y pnpm@10.33.0 local:stack -- --webhook
+npx -y pnpm@10.33.0 local:tunnel -- start
+npx -y pnpm@10.33.0 local:webhook -- set
+```
+
+Read `.agents/skills/calledit-local-telegram/SKILL.md` before running this flow.
+Runtime credentials belong only in `.calledit-local/runtime.env`; commands must
+report variable presence, never values. Use `pnpm recovery -- report` before
+discarding a worktree and `pnpm recovery -- bundle` for a committed-state backup.
+
 ## Verified 2026-07-08
 
 - Forced typecheck and tests: `npx -y pnpm@10.33.0 exec turbo run typecheck test --force`

@@ -27,3 +27,18 @@ wallet.json
 
 # Local agent tooling (generic skill packs, not project content)
 .agents/
+
+# Track only Called It project skills/workflows; keep generic installed packs ignored.
+!.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/calledit-*/
+!.agents/skills/calledit-*/**
+!.agents/workflows/
+.agents/workflows/*
+!.agents/workflows/calledit-*.md
+
+# Reproducible local runtime state and local Git bundles (never credentials in Git).
+.calledit-local/
+.calledit-backups/

@@ -8,6 +8,11 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "local:preflight": "node .agents/skills/calledit-local-telegram/scripts/preflight.mjs",
+    "local:stack": "node .agents/skills/calledit-local-telegram/scripts/stack.mjs",
+    "local:tunnel": "node .agents/skills/calledit-local-telegram/scripts/tunnel.mjs",
+    "local:webhook": "node .agents/skills/calledit-local-telegram/scripts/webhook.mjs",
+    "recovery": "node .agents/skills/calledit-recovery-checkpoint/scripts/recovery.mjs",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "bootstrap:txline": "tsx scripts/bootstrap-txline.ts"
