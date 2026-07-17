@@ -10,7 +10,12 @@
     "dev": "turbo run dev",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "bootstrap:txline": "tsx scripts/bootstrap-txline.ts"
+    "bootstrap:txline": "tsx scripts/bootstrap-txline.ts",
+    "staging:keys": "tsx scripts/staging-keys.ts",
+    "staging:mockline": "pnpm --filter @calledit/mockline dev",
+    "staging:engine": "pnpm --filter @calledit/engine dev",
+    "staging:web": "pnpm --filter @calledit/web exec next dev --port 3020",
+    "staging:concierge": "pnpm --filter callie dev"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

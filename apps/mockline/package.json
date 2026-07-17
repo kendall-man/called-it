@@ -1,0 +1,21 @@
+{
+  "name": "@calledit/mockline",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Staging-only scripted TxLINE feed emulator — serves the same API surface as txline-dev.txodds.com from authored match scripts. NEVER deployed to production; never merged into the hackathon submission.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@calledit/market-engine": "workspace:*",
+    "@calledit/txline": "workspace:*",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^3.0.0"
+  }
+}

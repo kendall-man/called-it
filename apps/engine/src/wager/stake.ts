@@ -8,6 +8,7 @@
 import { TUNABLES } from '@calledit/market-engine';
 import { WAGER_TUNABLES } from './constants.js';
 import { WAGER_COPY, sideLabel } from './copy.js';
+import { assertSafeLamports } from './format.js';
 import type {
   WagerModuleDeps,
   WagerStakeErrorCode,
@@ -54,6 +55,30 @@ export async function handleStakeTap(
 
   if (lamports <= 0n) return { reply: WAGER_COPY.staleTap(), placed: false };
 
+  // ── STAGING SEAM (flag-gated; 0n in production = dead code) ─────────────
+  // "No real devnet" mode: the first stake auto-links a synthetic wallet
+  // handle and posts a one-time play-money credit through the SAME idempotent
+  // ledger insert a real deposit uses — every path below stays production.
+  if (deps.stagingGrantLamports > 0n) {
+    if ((await deps.db.getWalletLink(userId)) === null) {
+      await deps.db.linkWallet({ user_id: userId, pubkey: `staging-play-${userId}` });
+    }
+    const grant = await deps.db.postWagerLedger({
+      user_id: userId,
+      group_id: null,
+      market_id: null,
+      kind: 'deposit',
+      lamports: deps.stagingGrantLamports,
+      idempotency_key: `staging-grant:${userId}`,
+    });
+    if (grant.inserted) {
+      deps.log.info('staging_grant_posted', {
+        userId,
+        lamports: deps.stagingGrantLamports.toString(),
+      });
+    }
+  }
+
   // Gate 1: a linked wallet is the onboarding handle — without it the user has
   // no way to have funded (or to ever cash out) a stack.
   const link = await deps.db.getWalletLink(userId);
@@ -64,6 +89,33 @@ export async function handleStakeTap(
   // lock round-trip while the desk is paused.
   const status = await deps.db.getWagerStatus();
   if (status.paused) return { reply: WAGER_COPY.paused(), placed: false };
+
+  // Gate 3: one position per member per market. A second tap is a double-click
+  // (or a change of heart), and both get a nudge instead of more exposure;
+  // the RPC's client-key dedup below stays as the concurrency backstop.
+  const held = (await deps.db.positionsForMarket(market.id)).filter(
+    (position) => position.user_id === userId && position.state !== 'void',
+  );
+  const firstHeld = held[0];
+  if (firstHeld !== undefined) {
+    const heldLamports = held.reduce(
+      (sum, position) => sum + assertSafeLamports(position.stake, `position ${position.id}`),
+      0n,
+    );
+    deps.log.info('wager_stake_repeat_tap', {
+      marketId: market.id,
+      userId,
+      side,
+      heldSide: firstHeld.side,
+    });
+    return {
+      reply:
+        firstHeld.side === side
+          ? WAGER_COPY.alreadyIn(firstHeld.side, heldLamports)
+          : WAGER_COPY.pickALane(),
+      placed: false,
+    };
+  }
 
   // Multiplier lock — back gets the quoted multiplier, doubt its complement.
   const lockedMultiplier =

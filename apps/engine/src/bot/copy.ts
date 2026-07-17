@@ -65,6 +65,9 @@ export type TemplateKey =
   | 'replay_blocked_active'
   | 'replay_unknown_fixture'
   | 'replay_stopped'
+  | 'settle_now_started'
+  | 'settle_now_cleared'
+  | 'settle_now_none'
   | 'bookit_needs_reply'
   | 'window_closed'
   | 'detection_enabled'
@@ -81,89 +84,94 @@ function v(vars: CopyVars, key: string, fallback = ''): string {
  * vocabulary deny-list.
  */
 export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string> = {
-  intro: (vars) =>
-    `Evening, legends — I'm Called It, the broker for your hot takes. Someone makes a big shout, I price it off the live feed and offer a bet: back it or bet against it in devnet SOL. The feed settles it and posts a public receipt. Get set with /wallet to link, /deposit to load your stack, /withdraw to cash out. Devnet SOL only — test tokens, not real money. Receipts live at ${v(vars, 'webUrl', 'the web link')}.`,
+  intro: () =>
+    `Evening, legends. I'm Called It, the broker for your hot takes. Someone makes a big shout, I price it off the live feed and offer a bet: back it or bet against it in SOL. The feed settles it the moment the stat lands. First tap sets you up with a stack. Test tokens, not real money.`,
   help: () =>
     [
       'How this works:',
-      '• Someone makes a call — I price it off the feed and post an offer card straight away.',
-      '• Back it (it happens) or bet against it, in devnet SOL. Your stake is matched against the other side at the feed price.',
-      '• I settle from the official data feed the moment the stat lands, and post a provable receipt.',
+      '• Someone makes a call. I price it off the feed and post an offer card straight away.',
+      '• Back it (it happens) or bet against it, in SOL. Your stake is matched against the other side at the feed price.',
+      '• I settle from the official data feed the moment the stat lands.',
       '',
-      'Get set: /wallet <address> · /deposit · /withdraw',
-      'Commands: /bookit (reply to a claim) · /settings (admins) · /replay <fixtureId> (admins) · /help',
+      'Commands: /status (live board) · /bookit (reply to a claim) · /settings (admins) · /help',
     ].join('\n'),
   dm_start: (vars) =>
-    `I live in group chats — add me to yours and the banter starts pricing itself. ${v(vars, 'addLink')}`,
+    `I live in group chats. Add me to yours and the banter starts pricing itself. ${v(vars, 'addLink')}`,
   nudge_priced: (vars) =>
-    `Big shout from ${v(vars, 'claimer', 'someone')}. Data says ${v(vars, 'probabilityPct')}% — anyone want to make them prove it?`,
+    `Big shout from ${v(vars, 'claimer', 'someone')}. Data says ${v(vars, 'probabilityPct')}%. Anyone want to make them prove it?`,
   nudge_unpriced: (vars) =>
     `Big shout from ${v(vars, 'claimer', 'someone')}. Anyone want to make them prove it?`,
-  prove_ack: () => 'On it — checking the data.',
-  clarify: (vars) => `One thing before we lock it in — ${v(vars, 'question')}`,
+  prove_ack: () => 'On it, checking the data.',
+  clarify: (vars) => `One thing before we lock it in: ${v(vars, 'question')}`,
   counter_offer: (vars) =>
     `${v(vars, 'reason')} Your move: book it as stated (Oracle-resolved), or take the upgrade (Chain-proven).`,
-  reject: (vars) => v(vars, 'message', "Can't put a number on that one — next shout."),
+  reject: (vars) => v(vars, 'message', "Can't put a number on that one. Next shout."),
   confirm_gate: (vars) =>
-    `Here's the call: ${v(vars, 'terms')}. Data says ${v(vars, 'probabilityPct')}% — that's ×${v(vars, 'multiplier')} Rep if it lands. ${v(vars, 'claimer')}, is that your shout?`,
-  confirm_declined: () => 'No harm — the call stays banter.',
+    `Here's the call: ${v(vars, 'terms')}. Data says ${v(vars, 'probabilityPct')}%, that's ×${v(vars, 'multiplier')} Rep if it lands. ${v(vars, 'claimer')}, is that your shout?`,
+  confirm_declined: () => 'No harm, the call stays banter.',
   no_price: () =>
-    "Can't get a clean number on that right now — give it a moment and hit Run it again.",
+    "Can't get a clean number on that right now. Give it a moment and hit Run it again.",
   no_line: () =>
-    "No line on this one yet — the numbers desk hasn't published for this match. Worth another go nearer kickoff.",
+    "No line on this one yet, the numbers desk hasn't published for this match. Worth another go nearer kickoff.",
   unpriceable: () =>
-    "Can't put a clean number on that one with the data I've got. If there's another option on the table, pick that — otherwise give me a different call.",
+    "Can't put a clean number on that one with the data I've got. If there's another option on the table, pick that. Otherwise give me a different call.",
   already_decided: () =>
-    "Data says that one's a done deal — no game in a sure thing. Pick a different option or give me a fresh call.",
-  prove_retry: () => 'The data desk wobbled mid-check — tap "Run it back" and I\'ll price it again.',
-  hiccup: () => 'Hiccup on my end — tap that one again.',
-  hold_on: () => "Easy, legend — I'm already on it.",
-  budget_spent: () => "I've done all the thinking I can in here for today — catch me tomorrow.",
-  market_live: (vars) => `Locked in. ${v(vars, 'claimer')} is on the record — pick a side below.`,
+    "Data says that one's a done deal, and there's no game in a sure thing. Pick a different option or give me a fresh call.",
+  prove_retry: () => 'The data desk wobbled mid-check. Tap "Run it back" and I\'ll price it again.',
+  hiccup: () => 'Hiccup on my end. Tap that one again.',
+  hold_on: () => "Easy, legend. I'm already on it.",
+  budget_spent: () => "I've done all the thinking I can in here for today. Catch me tomorrow.",
+  market_live: (vars) => `Locked in. ${v(vars, 'claimer')} is on the record. Pick a side below.`,
   offer_live: (vars) =>
-    `🎙 ${v(vars, 'claimer', 'someone')}'s call is on the board. Back it or bet against below — the feed settles it.`,
+    `🎙 ${v(vars, 'claimer', 'someone')}'s call is on the board. Back it or bet against below. The feed settles it.`,
   offer_taken: () =>
-    "Too late to pull it — there's already money on this one. It rides to the final whistle now.",
+    "Too late to pull it, there's already money on this one. It rides to the final whistle now.",
   pending_lineup_note: () =>
-    'Held until lineups drop — if the name is on the sheet this goes live, otherwise all SOL comes back.',
-  lineup_activated: () => 'Lineups are in — the call is live. Pick a side.',
-  var_freeze: () => 'VAR check — calls locked. Nobody breathe.',
-  calls_unlocked: () => "We're back — calls open again.",
+    'Held until lineups drop. If the name is on the sheet this goes live, otherwise all SOL comes back.',
+  lineup_activated: () => 'Lineups are in, the call is live. Pick a side.',
+  var_freeze: () => 'VAR check. Calls locked, nobody breathe.',
+  calls_unlocked: () => "We're back. Calls open again.",
   goal_alert: (vars) =>
-    `GOAL — ${v(vars, 'scorer', 'unconfirmed scorer')} (${v(vars, 'minute', '?')}'). ${v(vars, 'note', 'Open calls are feeling it.')}`,
+    `GOAL! ${v(vars, 'scorer', 'unconfirmed scorer')} (${v(vars, 'minute', '?')}'). ${v(vars, 'note', 'Open calls are feeling it.')}`,
   settle_won: (vars) =>
     `CALLED IT. ${v(vars, 'claimer')} said it and the data backs it. ${v(vars, 'payouts', '')}`,
   settle_lost: (vars) =>
-    `Not this time — the call goes down. ${v(vars, 'payouts', '')}`,
+    `Not this time. The call goes down. ${v(vars, 'payouts', '')}`,
   void_market: (vars) =>
-    `Call off — ${v(vars, 'reason', 'the match got away from us')}. Every SOL stake is back where it started.`,
+    `Call off: ${v(vars, 'reason', 'the match got away from us')}. Every SOL stake is back where it started.`,
   after_the_moment: (vars) =>
-    `After the moment — no SOL moved. ${v(vars, 'names', 'Those taps')} came in once the pitch already knew; their SOL returned.`,
-  positions_activated: () => 'Window cleared — those calls are locked in at their price.',
+    `After the moment, so no SOL moved. ${v(vars, 'names', 'Those taps')} came in once the pitch already knew; their SOL returned.`,
+  positions_activated: () => 'Window cleared. Those calls are locked in at their price.',
   pick_a_lane: () => "You can't back it and doubt it. Pick a lane.",
-  insufficient_rep: (vars) => `Not enough Rep on your card — you're holding ${v(vars, 'balance')}.`,
-  cap_reached: (vars) => `You're maxed on this call — ${v(vars, 'cap')} Rep is the ceiling per market.`,
+  insufficient_rep: (vars) => `Not enough Rep on your card. You're holding ${v(vars, 'balance')}.`,
+  cap_reached: (vars) => `You're maxed on this call. ${v(vars, 'cap')} Rep is the ceiling per market.`,
   stake_locked: (vars) =>
-    `${v(vars, 'name')} is in — ${v(vars, 'side')} with ${v(vars, 'stake')} Rep at ×${v(vars, 'multiplier')}.`,
+    `${v(vars, 'name')} is in: ${v(vars, 'side')} with ${v(vars, 'stake')} Rep at ×${v(vars, 'multiplier')}.`,
   stale: () => 'That ship has sailed.',
   not_your_shout: (vars) => `Only ${v(vars, 'claimer', 'the claimer')} can lock this one in.`,
   claimer_only_terms: (vars) => `The terms are ${v(vars, 'claimer', 'the claimer')}'s to pick.`,
   admin_only: () => "That's an admin move.",
   settings_intro: () => 'How chatty should I be in here?',
-  settings_updated: (vars) => `Done — ${v(vars, 'summary')}.`,
-  table_header: (vars) => `THE TABLE — ${v(vars, 'groupTitle', 'this group')}`,
-  slate_intro: (vars) => `Morning, legends — today's card: ${v(vars, 'fixtures', 'check back soon')}`,
+  settings_updated: (vars) => `Done: ${v(vars, 'summary')}.`,
+  table_header: (vars) => `THE TABLE, ${v(vars, 'groupTitle', 'this group')}`,
+  slate_intro: (vars) => `Morning, legends. Today's card: ${v(vars, 'fixtures', 'check back soon')}`,
   replay_started: (vars) =>
-    `Replay running: ${v(vars, 'fixture')}. Same rules, same data, full speed ahead — replay calls stay off the season table.`,
-  replay_finished: (vars) => `Replay finished: ${v(vars, 'fixture')}. Receipts are on the web page.`,
-  replay_blocked_live: () => 'Not while live calls are open in here — let those settle first.',
-  replay_blocked_active: () => 'One replay at a time — this group already has one running.',
-  replay_unknown_fixture: () => "Can't find that fixture. Usage: /replay <fixtureId>",
-  replay_stopped: () => 'Replay stopped.',
+    `🔴 We're LIVE: ${v(vars, 'fixture')}. The feed is on and calls are open. Make your shouts.`,
+  replay_finished: (vars) =>
+    `That's full time: ${v(vars, 'fixture')}. Nobody made a call this match. Next one, bring the shouts.`,
+  replay_blocked_live: () => 'Not while calls are open in here. Let those settle first.',
+  replay_blocked_active: () => 'One match at a time in here. This group already has one on.',
+  replay_unknown_fixture: () => "Can't find that fixture. Usage: /kickoff <fixtureId>",
+  replay_stopped: () => 'Match stopped.',
+  settle_now_started: () =>
+    '⏱ The fast whistle: straight to full time. Every open call settles off the feed.',
+  settle_now_cleared: (vars) =>
+    `Board cleared: ${v(vars, 'calls', 'the open calls')} called off, every SOL stake returned. Fresh slate for the next match.`,
+  settle_now_none: () => 'No match on in here right now, so nothing to settle.',
   bookit_needs_reply: () => 'Reply /bookit to the claim you want on the record.',
-  window_closed: () => 'Too late for that one — the window is closed.',
+  window_closed: () => 'Too late for that one. The window is closed.',
   detection_enabled: () =>
-    "Always-on detection is live — big shouts get priced automatically. I'll keep the rest of the chat out of it.",
+    "Always-on detection is live. Big shouts get priced automatically, and I'll keep the rest of the chat out of it.",
   detection_disabled: () =>
     'Always-on detection is off. Reply /bookit to any claim and I still work everywhere.',
 };

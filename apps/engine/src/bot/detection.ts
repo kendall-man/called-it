@@ -9,7 +9,7 @@
 
 import type { Bot } from 'grammy';
 import { TUNABLES } from '@calledit/market-engine';
-import { ensureChatContext, ensureUserSeen, type HandlerCtx } from './context.js';
+import { ensureChatContext, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
 import { offerClaim } from '../pipeline/offer.js';
 
 function escapeRegExp(text: string): string {
@@ -17,6 +17,35 @@ function escapeRegExp(text: string): string {
 }
 
 const BOOK_IT_RE = /^book\s*it\W*$/i;
+
+/** Re-check Telegram for a missed promotion at most once a minute per group. */
+const ADMIN_PROBE_COOLDOWN_MS = 60_000;
+const adminProbeLastAtMs = new Map<number, number>();
+
+/**
+ * groups.is_admin flips on the my_chat_member promotion update, which never
+ * arrives when the bot is promoted while the engine is down. That leaves the
+ * row false forever and passive detection dark even though Telegram is
+ * delivering every message. When the row says false, re-check Telegram live
+ * (throttled per group) and heal the row, so detection turns on without a
+ * demote/re-promote ceremony.
+ */
+export async function probeAdminPromotion(
+  h: HandlerCtx,
+  chatId: number,
+  getSelfMember: () => Promise<{ status: string }>,
+): Promise<boolean> {
+  const nowMs = h.deps.now();
+  const lastProbeMs = adminProbeLastAtMs.get(chatId);
+  if (lastProbeMs !== undefined && nowMs - lastProbeMs < ADMIN_PROBE_COOLDOWN_MS) return false;
+  adminProbeLastAtMs.set(chatId, nowMs);
+  const promoted = await isGroupAdmin(h, getSelfMember);
+  if (promoted) {
+    await h.deps.db.setGroupAdmin(chatId, true);
+    h.deps.log.info('admin_status_healed', { groupId: chatId });
+  }
+  return promoted;
+}
 
 export function registerDetection(bot: Bot, h: HandlerCtx): void {
   bot.on('message:text', async (ctx) => {
@@ -79,7 +108,11 @@ export function registerDetection(bot: Bot, h: HandlerCtx): void {
     }
 
     // Passive path: consent (admin) + chattiness + prefilter + budget + classifier.
-    if (!group.is_admin || group.chattiness === 'trigger_only') return;
+    if (group.chattiness === 'trigger_only') return;
+    const consent =
+      group.is_admin ||
+      (await probeAdminPromotion(h, chat.id, () => ctx.getChatMember(ctx.me.id)));
+    if (!consent) return;
     const entities = await h.entities.get();
     if (!h.deps.agent.prefilter(text, entities)) return;
     if (!h.budget.allow(group.id)) {

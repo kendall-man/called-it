@@ -42,6 +42,13 @@ export function retryQuoteKeyboard(claimId: string, optionKey: string): InlineKe
   );
 }
 
+/** /status menu: pick between the open-calls board and the match scoreline. */
+export function statusKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('📊 Open calls', encodeCallback({ t: 'status', view: 'board' }))
+    .text('⚽ Match now', encodeCallback({ t: 'status', view: 'match' }));
+}
+
 /** Back / Bet-against rows with the three SOL preset amounts. */
 export function stakeKeyboard(
   marketId: string,
@@ -87,7 +94,7 @@ export function settingsKeyboard(current: Chattiness, webEnabled: boolean): Inli
     .text(mark('trigger_only', 'Trigger only (/bookit)'), encodeCallback({ t: 'chattiness', mode: 'trigger_only' }))
     .row()
     .text(
-      webEnabled ? 'Web pages: ON — tap to hide' : 'Web pages: OFF — tap to show',
+      webEnabled ? 'Web pages: ON (tap to hide)' : 'Web pages: OFF (tap to show)',
       encodeCallback({ t: 'web', enabled: !webEnabled }),
     );
 }

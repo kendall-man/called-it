@@ -106,7 +106,7 @@ describe('handleStakeTap placement', () => {
     expect(db.lastStakeArgs?.state).toBe('pending');
   });
 
-  it('forwards the client idempotency key and reports a replay without re-staking', async () => {
+  it('forwards the client idempotency key on the first stake', async () => {
     const { deps, db } = makeFakeDeps();
     db.seedLink(USER, WALLET);
     db.seedBalance(USER, 1_000_000_000n);
@@ -114,12 +114,68 @@ describe('handleStakeTap placement', () => {
     const first = await handleStakeTap(deps, tap({ idempotencyKey: 'call-abc' }));
     expect(first.placed).toBe(true);
     expect(db.lastStakeArgs?.idempotency_key).toBe('call-abc');
+  });
 
+  it('a second tap on the same market nudges instead of stacking a position', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.seedLink(USER, WALLET);
+    db.seedBalance(USER, 1_000_000_000n);
+
+    const first = await handleStakeTap(deps, tap({ side: 'back' }));
+    expect(first.placed).toBe(true);
     const positionsAfterFirst = db.positions.length;
+
+    const repeat = await handleStakeTap(deps, tap({ side: 'back' }));
+    expect(repeat.placed).toBe(false);
+    expect(repeat.reply).toBe(WAGER_COPY.alreadyIn('back', PRESET_SMALL));
+    expect(db.positions.length).toBe(positionsAfterFirst); // still one position
+    expect(await db.balanceLamports(USER)).toBe(1_000_000_000n - PRESET_SMALL); // charged once
+  });
+
+  it('the nudge totals every held stake and reads the held side, not the tapped one', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.seedLink(USER, WALLET);
+    db.seedPosition({ market_id: 'm1', user_id: USER, side: 'doubt', stake: 10_000_000 });
+    db.seedPosition({ market_id: 'm1', user_id: USER, side: 'doubt', stake: 40_000_000 });
+
+    const repeat = await handleStakeTap(deps, tap({ side: 'doubt' }));
+    expect(repeat.reply).toBe(WAGER_COPY.alreadyIn('doubt', 50_000_000n));
+    expect(db.lastStakeArgs).toBeNull(); // never reached the RPC
+  });
+
+  it('tapping the opposite side of a held position gets pick-a-lane, no RPC', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.seedLink(USER, WALLET);
+    db.seedPosition({ market_id: 'm1', user_id: USER, side: 'back', stake: 10_000_000 });
+
+    const flip = await handleStakeTap(deps, tap({ side: 'doubt' }));
+    expect(flip.placed).toBe(false);
+    expect(flip.reply).toBe(WAGER_COPY.pickALane());
+    expect(db.lastStakeArgs).toBeNull();
+  });
+
+  it('a voided position does not block a fresh stake', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.seedLink(USER, WALLET);
+    db.seedBalance(USER, 1_000_000_000n);
+    db.seedPosition({ market_id: 'm1', user_id: USER, side: 'back', state: 'void' });
+
+    const result = await handleStakeTap(deps, tap({ side: 'back' }));
+    expect(result.placed).toBe(true);
+  });
+
+  it('RPC client-key dedup still backstops a race the position read missed', async () => {
+    const { deps, db } = makeFakeDeps();
+    db.seedLink(USER, WALLET);
+    db.seedBalance(USER, 1_000_000_000n);
+
+    await handleStakeTap(deps, tap({ idempotencyKey: 'call-abc' }));
+    // Simulate the read-then-stake race: the position is not visible to the
+    // pre-check yet, so the tap falls through to the RPC's key dedup.
+    db.positions.length = 0;
     const replay = await handleStakeTap(deps, tap({ idempotencyKey: 'call-abc' }));
     expect(replay.placed).toBe(false);
     expect(replay.reply).toBe(WAGER_COPY.stakeReplayed());
-    expect(db.positions.length).toBe(positionsAfterFirst); // no second position
   });
 
   it('remembers the group for deposit/cashout notifications', async () => {

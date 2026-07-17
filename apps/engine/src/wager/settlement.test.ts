@@ -122,7 +122,7 @@ describe('applySettlement — peer-matched', () => {
 });
 
 describe('settlementPayoutsLine', () => {
-  it('names each winner with exact SOL and a devnet stamp', async () => {
+  it('names each winner with exact SOL', async () => {
     const { deps, db } = makeFakeDeps();
     db.users.set(1, 'Sana');
     db.seedMarketProbability('m1', EVEN);
@@ -132,7 +132,6 @@ describe('settlementPayoutsLine', () => {
     expect(line).toContain('Sana');
     // 10M stake + 10M matched-and-won = 20M = 0.02 SOL.
     expect(line).toContain('0.02 SOL');
-    expect(line).toContain('(devnet)');
   });
 
   it('void and no-winner lines are distinct', async () => {
@@ -140,8 +139,6 @@ describe('settlementPayoutsLine', () => {
     const voidLine = await settlementPayoutsLine(deps, 'm1', 'void');
     const noneLine = await settlementPayoutsLine(deps, 'm1', 'claim_won');
     expect(voidLine).not.toBe(noneLine);
-    expect(voidLine).toContain('(devnet)');
-    expect(noneLine).toContain('(devnet)');
   });
 });
 

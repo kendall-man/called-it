@@ -151,6 +151,30 @@ describe('ReplaySource.stepOnce — snapshot diffing', () => {
     expect(steps).toBe(4); // start, +10, +20, +30 minutes
   });
 
+  it('fastForward() jumps the clock to the end and drains the whole tail in one step', async () => {
+    const maxVirtualMs = 120 * MINUTE_MS;
+    const startMs = KICKOFF_MS - 10 * MINUTE_MS;
+    const source = new ReplaySource({
+      client: snapshotClient(),
+      fixtureId: FIXTURE_ID,
+      speed: 30,
+      startMs,
+      tickVirtualMs: 10 * MINUTE_MS,
+      maxVirtualMs,
+      logger: silentLogger,
+    });
+
+    const first = await source.stepOnce();
+    expect(first.events.map((e) => e.seq)).toEqual([1]);
+
+    source.fastForward();
+    const jumped = await source.stepOnce();
+    expect(jumped.virtualNowMs).toBe(startMs + maxVirtualMs);
+    expect(jumped.done).toBe(true);
+    expect(jumped.events.map((e) => e.seq)).toEqual([2, 3, 4, 5, 6]);
+    expect(jumped.events.at(-1)?.phase).toBe('F');
+  });
+
   it('emits a single odds_suspension edge event during replay', async () => {
     const odds = [
       oddsRecord({ MessageId: 'm1', Ts: KICKOFF_MS - 10 * MINUTE_MS }),
@@ -203,6 +227,33 @@ describe('ReplaySource.start — virtual clock pacing', () => {
       const count = emitted.length;
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(emitted.length).toBe(count); // loop ended at the terminal phase
+    } finally {
+      source.stop();
+    }
+  });
+
+  it('fastForward() wakes a sleeping run loop and finishes the match immediately', async () => {
+    const source = new ReplaySource({
+      client: snapshotClient(),
+      fixtureId: FIXTURE_ID,
+      // Real time: without the jump this match would take over an hour.
+      speed: 1,
+      startMs: KICKOFF_MS - 10 * MINUTE_MS,
+      tickVirtualMs: 10 * MINUTE_MS,
+      logger: silentLogger,
+    });
+    const emitted: MatchEvent[] = [];
+    source.start(async (event) => {
+      emitted.push(event);
+    });
+    try {
+      await vi.waitFor(() => expect(emitted.map((e) => e.seq)).toEqual([1]), { timeout: 3_000 });
+      source.fastForward();
+      await vi.waitFor(() => expect(emitted.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6]), {
+        timeout: 3_000,
+      });
+      expect(emitted.at(-1)?.phase).toBe('F');
+      expect(emitted.at(-1)?.kind).toBe('phase_change');
     } finally {
       source.stop();
     }

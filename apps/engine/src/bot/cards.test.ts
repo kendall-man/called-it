@@ -68,10 +68,9 @@ describe('cards', () => {
     doubt: { count: 1, stakeLamports: 30_000_000n },
     matchedPct: 60,
     isReplay: false,
-    receiptUrl: 'https://example.test/r/abc',
   });
 
-  it('claim card carries terms, feed price, SOL pots, matched %, and the receipt link', () => {
+  it('claim card carries terms, feed price, SOL pots and matched %', () => {
     expect(card).toContain('France to score 2 or more goals');
     expect(card).toContain('42%');
     // Full-match multipliers derive from the feed ratio (p=0.42): back ×2.4, against ×1.7.
@@ -81,28 +80,29 @@ describe('cards', () => {
     expect(card).toContain('0.05 SOL'); // backing pot
     expect(card).toContain('0.03 SOL'); // against pot
     expect(card).toContain('Matched: 60%');
-    expect(card).toContain('https://example.test/r/abc');
   });
 
-  it('cards carry no fiat currency and no odds notation', () => {
-    const receipt = receiptCardText({
+  it('cards carry no links, fiat currency, odds notation, replay tells or em dashes', () => {
+    const settled = receiptCardText({
       quotedText: 'France score twice today, easy',
       claimerName: 'Dee',
       spec: TEAM_SPEC,
       outcome: 'claim_won',
       probability: 0.42,
       provenance: 'modelled',
-      payoutsLine: 'Dee collects 0.08 SOL. (devnet)',
+      payoutsLine: 'Dee collects 0.08 SOL.',
       isReplay: true,
-      receiptUrl: 'https://example.test/r/abc',
     });
-    for (const text of [card, receipt]) {
+    for (const text of [card, settled]) {
       expect(text).not.toMatch(/[$£€]/);
       expect(text).not.toMatch(/\bRep\b/); // no play-money leftovers
       expect(text).not.toMatch(/\b\d+\s*\/\s*\d+\b/); // no "11/2" odds notation
+      expect(text).not.toMatch(/https?:\/\//); // demo build: no receipt links
+      expect(text).not.toMatch(/REPLAY|[Rr]eplay/); // every match reads as live
+      expect(text).not.toContain('—'); // house style: no em dashes in chat copy
     }
-    expect(receipt).toContain('REPLAY');
-    expect(receipt).toContain('CALLED IT');
-    expect(receipt).toContain('0.08 SOL');
+    expect(settled).toContain('SETTLED');
+    expect(settled).toContain('CALLED IT');
+    expect(settled).toContain('0.08 SOL');
   });
 });

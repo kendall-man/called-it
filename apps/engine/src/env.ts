@@ -45,6 +45,12 @@ const EnvSchema = z.object({
   WAGER_TREASURY_KEYPAIR_B58: z.string().optional(),
   /** Optional ops chat for wager solvency alerts. */
   WAGER_OPS_CHAT_ID: z.string().optional(),
+  /**
+   * STAGING-ONLY: play-money lamports auto-credited on a user's first stake
+   * ("no real devnet" mode — nobody needs a wallet or a faucet). 0 = off;
+   * must stay 0/unset anywhere production-like.
+   */
+  WAGER_STAGING_GRANT_LAMPORTS: z.coerce.bigint().nonnegative().default(0n),
 }).superRefine((env, ctx) => {
   // Sponsor terms: TxL is never wagering collateral. The wager treasury must
   // be its own plain-SOL keypair — refuse to boot on reuse of the TxL wallet.

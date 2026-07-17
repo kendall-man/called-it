@@ -278,6 +278,8 @@ export interface EngineDb {
   }): Promise<void>;
   unpostedSettlements(): Promise<SettlementRow[]>;
   markSettlementPosted(marketId: string): Promise<void>;
+  /** Settlements with settled_at >= sinceIso, oldest first (full-time recap). */
+  settlementsSince(sinceIso: string): Promise<SettlementRow[]>;
 
   // proofs
   upsertProof(input: {
@@ -358,6 +360,9 @@ export interface EventSourceLike {
   /** Replay sources report their virtual clock so mid-replay mints price off
    *  the same point-in-time odds; live sources omit it (always current). */
   currentAsOfMs?(): number | null;
+  /** Replay sources: jump the virtual clock to full time so the whole event
+   *  tail lands now and open calls settle; live sources omit it. */
+  fastForward?(): void;
 }
 
 /**

@@ -163,7 +163,7 @@ describe('/wallet command', () => {
 });
 
 describe('/deposit command', () => {
-  it('names the treasury and warns devnet-only', async () => {
+  it('names the treasury and warns about mainnet sends', async () => {
     const { deps, db, chain } = makeFakeDeps();
     db.seedLink(USER, VALID_PUBKEY);
     const bot = fakeBot();
@@ -171,7 +171,7 @@ describe('/deposit command', () => {
     const ctx = groupCtx('');
     await invoke(bot, 'deposit', ctx);
     expect(ctx.replies[0]).toContain(chain.treasuryPubkey());
-    expect(ctx.replies[0]).toContain('DEVNET ONLY');
+    expect(ctx.replies[0]).toContain('Test tokens only');
     expect(db.links.get(USER)?.last_wager_group_id).toBe(GROUP);
   });
 });

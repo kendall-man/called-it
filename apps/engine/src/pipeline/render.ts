@@ -57,7 +57,6 @@ export async function composeClaimCard(deps: Deps, market: MarketRow): Promise<C
     doubt,
     matchedPct: pots.matchedPct,
     isReplay: market.is_replay,
-    receiptUrl: receiptUrl(deps, market.id),
     ...(footer !== undefined ? { footer } : {}),
   });
   return { chatId: market.group_id, messageId: market.card_tg_message_id, text };

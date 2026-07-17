@@ -11,8 +11,9 @@ import { TUNABLES } from '@calledit/market-engine';
 import type { ClaimRow, GroupRow, MarketRow } from '../ports.js';
 import { decodeCallback, type CallbackAction } from './callbackData.js';
 import { displayName, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
-import { marketStakeKeyboard, settingsKeyboard } from './keyboards.js';
+import { marketStakeKeyboard, settingsKeyboard, statusKeyboard } from './keyboards.js';
 import { statusLine } from './cards.js';
+import { boardAttribution, buildMatchNow, buildOpenCallsBoard } from './statusBoard.js';
 import { readEnvelope } from '../pipeline/claims.js';
 import { mintOffer, retryOffer } from '../pipeline/offer.js';
 import { voidAbandonedMarket } from '../pipeline/void.js';
@@ -363,6 +364,48 @@ export async function dispatchCallback(
     case 'web':
       await handleWeb(h, ctx, action.enabled);
       break;
+    case 'status':
+      await handleStatusView(h, ctx, action.view);
+      break;
+  }
+}
+
+/**
+ * Renders the picked /status view into the SAME message the button lives on,
+ * so tap-happy members flip one board in place instead of flooding the chat
+ * with a new post per tap. The footer names the tapper.
+ */
+async function handleStatusView(
+  h: HandlerCtx,
+  ctx: Context,
+  view: 'board' | 'match',
+): Promise<void> {
+  const chat = ctx.chat;
+  const from = ctx.callbackQuery?.from;
+  if (!chat || !from) {
+    await stale(h, ctx);
+    return;
+  }
+  const group = await h.deps.db.getGroup(chat.id);
+  if (!group) {
+    await stale(h, ctx);
+    return;
+  }
+  const body =
+    view === 'board'
+      ? await buildOpenCallsBoard(h.deps, group)
+      : await buildMatchNow(h.deps, group, h.supervisor.replayFixture(group.id));
+  const text = `${body}\n\n${boardAttribution(displayName(from))}`;
+  await answer(ctx, view === 'board' ? 'The board, coming up.' : 'Checking the pitch.');
+  try {
+    await ctx.editMessageText(text, { reply_markup: statusKeyboard() });
+  } catch (err) {
+    // "message is not modified" means same view, same money, same tapper: the
+    // toast above already answered. Any other edit failure (message evicted,
+    // too old) falls back to a fresh post so the button never goes dead.
+    if (!String(err).includes('message is not modified')) {
+      h.poster.post(chat.id, text, { keyboard: statusKeyboard() });
+    }
   }
 }
 

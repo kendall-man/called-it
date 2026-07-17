@@ -22,6 +22,7 @@ import { createSay } from './bot/copy.js';
 import { EntityCache } from './bot/entities.js';
 import { LlmBudget } from './bot/budget.js';
 import { BOT_COMMANDS, registerBotHandlers } from './bot/bot.js';
+import { buildFullTimeShout } from './bot/fullTimeShout.js';
 import type { HandlerCtx } from './bot/context.js';
 import { ProofWorker } from './proofs/worker.js';
 import { Settler } from './settle/settler.js';
@@ -93,11 +94,27 @@ async function main(): Promise<void> {
     budget: new LlmBudget(),
   };
 
-  supervisor.onReplayFinished = (groupId, fixtureId) => {
+  const wagerModule = deps.wager;
+  supervisor.onReplayFinished = (groupId, fixtureId, startedAtMs) => {
     void (async () => {
-      const fixture = await deps.db.getFixture(fixtureId);
-      const label = fixture ? `${fixture.p1_name} vs ${fixture.p2_name}` : `fixture ${fixtureId}`;
-      poster.post(groupId, await say('replay_finished', { fixture: label }));
+      try {
+        // The winners' shout: praise whoever's calls paid out. When nobody in
+        // the group had a call settle, fall back to the plain full-time line.
+        const shout = await buildFullTimeShout(deps.db, wagerModule, {
+          groupId,
+          fixtureId,
+          matchStartedAtMs: startedAtMs,
+        });
+        if (shout !== null) {
+          poster.post(groupId, shout);
+          return;
+        }
+        const fixture = await deps.db.getFixture(fixtureId);
+        const label = fixture ? `${fixture.p1_name} vs ${fixture.p2_name}` : `fixture ${fixtureId}`;
+        poster.post(groupId, await say('replay_finished', { fixture: label }));
+      } catch (err) {
+        log.error('full_time_post_failed', { groupId, fixtureId, error: String(err) });
+      }
     })();
   };
 

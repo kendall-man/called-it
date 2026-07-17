@@ -61,6 +61,7 @@ describe('copy bank hygiene', () => {
       WAGER_COPY.capReached(1n),
       WAGER_COPY.stakePlaced('A', 'Backing', 1n, '2'),
       WAGER_COPY.stakeReplayed(),
+      WAGER_COPY.alreadyIn('back', 1n),
       WAGER_COPY.staleTap(),
       WAGER_COPY.walletUsage(),
       WAGER_COPY.walletInvalid(),
@@ -89,18 +90,23 @@ describe('copy bank hygiene', () => {
     }
   });
 
-  it('the deposit explainer carries the devnet-only warning and the treasury address', () => {
+  it('the deposit explainer carries the test-token warning and the treasury address', () => {
     const line = WAGER_COPY.depositInstructions('TreasuryAddr', true);
     expect(line).toContain('TreasuryAddr');
-    expect(line).toContain('DEVNET ONLY');
+    expect(line).toContain('Test tokens only');
     expect(line).toContain('mainnet');
   });
 
-  it('value-moving lines are stamped (devnet)', () => {
-    expect(WAGER_COPY.depositCredited('A', 1n, 2n)).toContain('(devnet)');
-    expect(WAGER_COPY.withdrawConfirmed('A', 1n, 'u')).toContain('(devnet)');
-    expect(WAGER_COPY.payoutsLineVoid()).toContain('(devnet)');
-    expect(WAGER_COPY.payoutsLineNone()).toContain('(devnet)');
-    expect(WAGER_COPY.payoutsLine(['x'])).toContain('(devnet)');
+  it('value-moving lines are exact and carry no em dashes (demo house style)', () => {
+    for (const line of [
+      WAGER_COPY.depositCredited('A', 1n, 2n),
+      WAGER_COPY.withdrawConfirmed('A', 1n, 'u'),
+      WAGER_COPY.payoutsLineVoid(),
+      WAGER_COPY.payoutsLineNone(),
+      WAGER_COPY.payoutsLine(['x']),
+      WAGER_COPY.alreadyIn('doubt', 1n),
+    ]) {
+      expect(line).not.toContain('\u2014');
+    }
   });
 });

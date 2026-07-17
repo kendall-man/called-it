@@ -41,86 +41,86 @@ export type PersonaVars = Record<string, string | number>;
 
 export const PERSONA_TEMPLATES: Record<PersonaTemplateKey, readonly string[]> = {
   intro_disclosure: [
-    '🎙️ {botName} in the chat — I’m the broker for your group’s hot takes. Someone makes a call, I put a price on it from the live feed and offer a bet: back it or bet against it in devnet SOL. The feed settles it before the argument ends, and every result gets a public receipt. Heads up: your admins switched on always-on listening (they can turn it off any time). One honest note — this runs on devnet SOL: test tokens, not real money. Type /help for the rules.',
+    '🎙️ {botName} in the chat. I’m the broker for your group’s hot takes: someone makes a call, I put a price on it from the live feed and offer a bet. Back it or bet against it in SOL, and the feed settles it before the argument ends. Heads up: your admins switched on always-on listening (they can turn it off any time). One honest note: test tokens, not real money. Type /help for the rules.',
   ],
   priced_nudge: [
-    'Big call from {claimer}! “{quote}” — the feed makes it {probability}%. Back it or bet against below.',
+    'Big call from {claimer}! “{quote}”. The feed makes it {probability}%. Back it or bet against below.',
     '{claimer} said it out loud: “{quote}”. Feed says {probability}%. Who’s backing it, who’s fading it?',
   ],
   clarify_question: [
     'One thing before I book it, {claimer}: {question}',
-    'Almost there, {claimer} — quick ruling first: {question}',
+    'Almost there, {claimer}. Quick ruling first: {question}',
   ],
   counter_offer: [
-    'Can’t book that exactly as said, {claimer} — {reason}. Closest call I can settle clean: {offer}. Take it?',
+    'Can’t book that exactly as said, {claimer}: {reason}. Closest call I can settle clean: {offer}. Take it?',
     'Straight with you, {claimer}: {reason}. Here’s the nearest call I can prove: {offer}. Deal?',
   ],
   confirm_gate: [
-    'Here it is, {claimer}: {terms} — the feed makes it {probability}%. It’s on the board; back it below.',
-    'Read it back, {claimer}: {terms} at {probability}%. Booked — pick your side below.',
+    'Here it is, {claimer}: {terms}. The feed makes it {probability}%. It’s on the board, back it below.',
+    'Read it back, {claimer}: {terms} at {probability}%. Booked. Pick your side below.',
   ],
   claim_card: [
-    '📋 THE CALL — {claimer}: “{quote}”\nTerms: {terms}\nFeed says {probability}% · {provenance}\nBacking: {backers} · Against: {doubters} · Matched: {matched}',
+    '📋 THE CALL from {claimer}: “{quote}”\nTerms: {terms}\nFeed says {probability}% · {provenance}\nBacking: {backers} · Against: {doubters} · Matched: {matched}',
   ],
   back_ack: [
-    '{user} backs it — {amount} on the line. Locked in.',
+    '{user} backs it, {amount} on the line. Locked in.',
     '{user} is a believer: {amount} riding on it. Locked.',
   ],
   doubt_ack: [
-    '{user} bets against — {amount} says it won’t. Locked in.',
+    '{user} bets against. {amount} says it won’t happen. Locked in.',
     '{user} fades it: {amount} against. Locked.',
   ],
   freeze: [
-    '⚠️ {reason} — bets locked on {market}. Nobody moves until the ruling.',
+    '⚠️ {reason}. Bets locked on {market}. Nobody moves until the ruling.',
     '⏸️ Hold everything: {reason}. {market} is locked while we wait it out.',
   ],
   unfreeze: [
-    '✅ All clear — {market} is back open. Back it or bet against.',
+    '✅ All clear. {market} is back open. Back it or bet against.',
     '▶️ Ruling’s in, drama’s over: {market} reopens. Pick your side.',
   ],
   goal_narration: [
-    '⚽ {minute}′ — {scorer} scores for {team}! {impact}',
+    '⚽ {minute}′ {scorer} scores for {team}! {impact}',
     '⚽ It’s in! {scorer}, minute {minute}, {team} on the board. {impact}',
   ],
   settlement_receipt_won: [
-    '🏆 CALLED IT. {claimer}’s shout lands: {terms}. {payouts} Receipt: {url}',
-    '🏆 Take a bow, {claimer}. {terms} — done and settled. {payouts} Receipt: {url}',
+    '🏆 CALLED IT. {claimer}’s shout lands: {terms}. {payouts}',
+    '🏆 Take a bow, {claimer}. {terms}. Done and settled. {payouts}',
   ],
   settlement_receipt_lost: [
-    '❌ Not this time. {claimer}’s call — {terms} — doesn’t land. {payouts} Receipt: {url}',
-    '❌ The feed says no, {claimer}. {terms} falls short. {payouts} Receipt: {url}',
+    '❌ Not this time. {claimer}’s call ({terms}) doesn’t land. {payouts}',
+    '❌ The feed says no, {claimer}. {terms} falls short. {payouts}',
   ],
   void_refund: [
-    '🚫 {reason} — this call is off. Every SOL stake goes straight back. Nobody wins, nobody loses.',
+    '🚫 {reason}. This call is off. Every SOL stake goes straight back. Nobody wins, nobody loses.',
     '🚫 Ruling from upstairs: {reason}. Call voided, all SOL refunded in full.',
   ],
   stale_tap: [
-    'That ship has sailed, {user} — this one is already {state}. Catch the next call.',
+    'That ship has sailed, {user}. This one is already {state}. Catch the next call.',
     'Too slow, {user}! This call is {state} now. There’ll be another along in a minute.',
   ],
   insufficient_rep: [
-    'Not enough SOL on your stack, {user} — you’re holding {balance}. Top up with /deposit.',
-    'Big spirit, {user}, light stack: {balance}. Load up with /deposit and come back.',
+    'Not enough SOL on your stack, {user}. You’re holding {balance}.',
+    'Big spirit, {user}, light stack: {balance}. Sit the next one out or go smaller.',
   ],
   pick_a_lane: [
-    'Pick a lane, {user} — you’re already on the other side of this one.',
+    'Pick a lane, {user}. You’re already on the other side of this one.',
     'You can’t back it and bet against it, {user}. Pick a side and stay in it.',
   ],
   forfeit_prompt: [
-    'Feeling it, {claimer}? Put some SOL where your mouth is — back your own call below.',
+    'Feeling it, {claimer}? Put some SOL where your mouth is. Back your own call below.',
     'Believe it, {claimer}? Back your own shout below and let the group come at you.',
   ],
   forfeit_callout: [
-    '📣 The feed has spoken on {loser}’s call: “{forfeit}”. Receipts don’t forget.',
-    '📣 On the record, {loser}: “{forfeit}”. The receipt page has it forever.',
+    '📣 The feed has spoken on {loser}’s call: “{forfeit}”. The group remembers.',
+    '📣 On the record, {loser}: “{forfeit}”. Said with full chest, settled with full data.',
   ],
   morning_slate: [
     '☀️ Matchday! On today’s card: {fixtures}. Bring your big calls. {pending}',
     '☀️ Wake up, it’s matchday. Today: {fixtures}. Who’s calling it? {pending}',
   ],
   leaderboard_header: [
-    '🏆 {groupName} — every call on the record. Receipts don’t lie.',
-    '🏆 The receipts for {groupName}. Talk is free — the feed is not fooled.',
+    '🏆 {groupName}: every call on the record. The feed doesn’t lie.',
+    '🏆 The record for {groupName}. Talk is free, the feed is not fooled.',
   ],
 };
 

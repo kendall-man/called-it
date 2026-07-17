@@ -62,7 +62,8 @@ describe('fallback copy bank', () => {
   it('speaks the broker/SOL register where it matters', () => {
     expect(renderFallback('var_freeze')).toMatch(/calls locked/i);
     expect(renderFallback('offer_live', SAMPLE_VARS)).toMatch(/back it|bet against/i);
-    expect(renderFallback('intro', SAMPLE_VARS)).toMatch(/devnet SOL/i);
+    expect(renderFallback('intro', SAMPLE_VARS)).toMatch(/in SOL/i);
+    expect(renderFallback('intro', SAMPLE_VARS)).toMatch(/test tokens/i);
     expect(renderFallback('void_market', SAMPLE_VARS)).not.toMatch(/\bRep\b/);
   });
 });

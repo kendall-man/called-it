@@ -237,16 +237,28 @@ function oddsInputs() {
   };
 }
 
-function fakeCtx(userId = CLAIMER_ID): { ctx: Context; toasts: string[] } {
+function fakeCtx(
+  userId = CLAIMER_ID,
+  editBehavior: 'ok' | 'not_modified' | 'fail' = 'ok',
+): { ctx: Context; toasts: string[]; edits: string[] } {
   const toasts: string[] = [];
+  const edits: string[] = [];
   const ctx = {
     chat: { id: CHAT_ID },
     from: { id: userId, first_name: 'Dee' },
+    callbackQuery: { from: { id: userId, first_name: 'Dee' } },
     answerCallbackQuery: async (payload: { text: string }) => {
       toasts.push(payload.text);
     },
+    editMessageText: async (text: string) => {
+      if (editBehavior === 'not_modified') {
+        throw new Error('400: Bad Request: message is not modified');
+      }
+      if (editBehavior === 'fail') throw new Error('400: message to edit not found');
+      edits.push(text);
+    },
   } as unknown as Context;
-  return { ctx, toasts };
+  return { ctx, toasts, edits };
 }
 
 function keyboardData(post: RecordedPost): string[] {
@@ -502,5 +514,32 @@ describe('decline — pre-mint kill, post-mint void', () => {
     await dispatchCallback(harness.h, other.ctx, { t: 'decline', claimId: CLAIM_ID });
     expect(harness.getClaim().status).toBe('clarifying');
     expect(other.toasts.some((t) => t.toLowerCase().includes('dee'))).toBe(true);
+  });
+});
+
+describe('status view taps (finding: every tap posted a fresh board and flooded the chat)', () => {
+  it('flips the tapped message in place and credits the tapper', async () => {
+    const harness = makeHarness({ claim: claimRow('clarifying') });
+    const tap = fakeCtx();
+    await dispatchCallback(harness.h, tap.ctx, { t: 'status', view: 'board' });
+    expect(tap.edits).toHaveLength(1);
+    expect(tap.edits[0]).toContain('Pulled up by Dee.');
+    expect(harness.posts).toHaveLength(0);
+  });
+
+  it('stays quiet on a no-change tap instead of reposting the board', async () => {
+    const harness = makeHarness({ claim: claimRow('clarifying') });
+    const tap = fakeCtx(CLAIMER_ID, 'not_modified');
+    await dispatchCallback(harness.h, tap.ctx, { t: 'status', view: 'board' });
+    expect(harness.posts).toHaveLength(0);
+    expect(tap.toasts).toContain('The board, coming up.');
+  });
+
+  it('falls back to one fresh post when the message cannot be edited', async () => {
+    const harness = makeHarness({ claim: claimRow('clarifying') });
+    const tap = fakeCtx(CLAIMER_ID, 'fail');
+    await dispatchCallback(harness.h, tap.ctx, { t: 'status', view: 'match' });
+    expect(harness.posts).toHaveLength(1);
+    expect(harness.posts[0]?.text).toContain('Pulled up by Dee.');
   });
 });

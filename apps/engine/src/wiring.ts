@@ -232,6 +232,7 @@ async function buildWagerModule(
     log,
     now: () => Date.now(),
     opsChatId: parseOpsChatId(env, log),
+    stagingGrantLamports: env.WAGER_STAGING_GRANT_LAMPORTS,
   });
 }
 

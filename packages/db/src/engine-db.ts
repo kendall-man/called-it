@@ -135,6 +135,8 @@ export interface EngineDb {
   insertSettlement(input: SettlementInsert): Promise<void>;
   unpostedSettlements(): Promise<SettlementRow[]>;
   markSettlementPosted(marketId: string): Promise<void>;
+  /** Settlements with settled_at >= sinceIso, oldest first (full-time recap). */
+  settlementsSince(sinceIso: string): Promise<SettlementRow[]>;
 
   // proofs
   upsertProof(input: ProofUpsert): Promise<void>;
@@ -499,6 +501,17 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
           .from('settlements')
           .update({ posted_at: new Date().toISOString() })
           .eq('market_id', marketId),
+      );
+    },
+
+    async settlementsSince(sinceIso) {
+      return unwrapRows<SettlementRow[]>(
+        'settlementsSince',
+        await client
+          .from('settlements')
+          .select('*')
+          .gte('settled_at', sinceIso)
+          .order('settled_at', { ascending: true }),
       );
     },
 

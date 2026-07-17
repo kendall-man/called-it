@@ -21,7 +21,9 @@ export type CallbackAction =
   /** /settings chattiness pick. */
   | { t: 'chattiness'; mode: Chattiness }
   /** /settings web-pages toggle. */
-  | { t: 'web'; enabled: boolean };
+  | { t: 'web'; enabled: boolean }
+  /** /status view pick — the open-calls board or the match-now scoreline. */
+  | { t: 'status'; view: 'board' | 'match' };
 
 const MODE_TO_CODE: Record<Chattiness, string> = {
   nudge: 'n',
@@ -56,6 +58,9 @@ export function encodeCallback(action: CallbackAction): string {
       break;
     case 'web':
       data = `sw:${action.enabled ? '1' : '0'}`;
+      break;
+    case 'status':
+      data = `ss:${action.view === 'board' ? 'b' : 'm'}`;
       break;
   }
   if (Buffer.byteLength(data, 'utf8') > CALLBACK_DATA_MAX_BYTES) {
@@ -116,6 +121,12 @@ export function decodeCallback(data: string): CallbackAction | null {
       const flag = parts[1];
       return parts.length === 2 && (flag === '0' || flag === '1')
         ? { t: 'web', enabled: flag === '1' }
+        : null;
+    }
+    case 'ss': {
+      const view = parts[1];
+      return parts.length === 2 && (view === 'b' || view === 'm')
+        ? { t: 'status', view: view === 'b' ? 'board' : 'match' }
         : null;
     }
     default:

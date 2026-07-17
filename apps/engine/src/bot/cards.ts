@@ -65,8 +65,8 @@ export function provenanceChip(provenance: 'market' | 'modelled'): string {
 
 export function trustTierLine(tier: MarketSpec['trustTier']): string {
   return tier === 'chain_proven'
-    ? 'Chain-proven — Merkle proof lands on the receipt page'
-    : 'Oracle-resolved — settled from the signed data feed';
+    ? 'Chain-proven: Merkle-verified against the on-chain root'
+    : 'Oracle-resolved: settled from the signed data feed';
 }
 
 export function statusLine(status: MarketStatus): string {
@@ -82,7 +82,7 @@ export function statusLine(status: MarketStatus): string {
     case 'settled':
       return 'Settled';
     case 'voided':
-      return 'Call off — SOL returned';
+      return 'Call off, SOL returned';
   }
 }
 
@@ -103,8 +103,8 @@ export interface ClaimCardInput {
   doubt: SideTally;
   /** 0..100 — matched fraction of the total staked pot. */
   matchedPct: number;
+  /** Kept for settlement semantics; the demo card renders every match as live. */
   isReplay: boolean;
-  receiptUrl: string;
   /** Set by the wager module cardFooter — the devnet-SOL disclosure. */
   footer?: string;
 }
@@ -113,18 +113,16 @@ export function claimCardText(input: ClaimCardInput): string {
   const backMult = formatMultiplier(fullMatchMultiplier(input.probability, 'back'));
   const againstMult = formatMultiplier(fullMatchMultiplier(input.probability, 'doubt'));
   const lines = [
-    `🎙 THE CALL${input.isReplay ? ' · REPLAY' : ''}`,
-    `“${input.quotedText}” — ${input.claimerName}`,
+    `🎙 THE CALL from ${input.claimerName}`,
+    `“${input.quotedText}”`,
     '',
     `📋 ${describeTerms(input.spec)}`,
-    `📈 Feed says ${formatProbabilityPct(input.probability)}% — back pays ${backMult}, against ${againstMult} if matched (${provenanceChip(input.provenance)})`,
+    `📈 Feed says ${formatProbabilityPct(input.probability)}%: back pays ${backMult}, against ${againstMult} if matched (${provenanceChip(input.provenance)})`,
     `🚦 ${statusLine(input.status)}`,
     '',
     `⚡ Backing it: ${formatSolAmount(input.back.stakeLamports)} (${input.back.count} in)`,
     `🛑 Against it: ${formatSolAmount(input.doubt.stakeLamports)} (${input.doubt.count} in)`,
     `🤝 Matched: ${input.matchedPct}%`,
-    '',
-    `Receipt: ${input.receiptUrl}`,
   ];
   if (input.footer !== undefined && input.footer.length > 0) lines.push('', input.footer);
   return lines.join('\n');
@@ -138,33 +136,34 @@ export interface ReceiptCardInput {
   probability: number;
   provenance: 'market' | 'modelled';
   payoutsLine: string;
+  /** Kept for settlement semantics; the demo card renders every match as live. */
   isReplay: boolean;
-  receiptUrl: string;
 }
 
 export function outcomeLine(outcome: SettlementOutcome, claimerName: string): string {
   switch (outcome) {
     case 'claim_won':
-      return `CALLED IT — ${claimerName} was right.`;
+      return `CALLED IT. ${claimerName} was right.`;
     case 'claim_lost':
-      return `Not this time — the call goes down.`;
+      return `Not this time. The call goes down.`;
     case 'void':
-      return `Call off — every SOL stake returned.`;
+      return `Call off. Every SOL stake returned.`;
   }
 }
 
+/** The full-time settlement card (historically the "receipt card"). */
 export function receiptCardText(input: ReceiptCardInput): string {
   const backMult = formatMultiplier(fullMatchMultiplier(input.probability, 'back'));
   const againstMult = formatMultiplier(fullMatchMultiplier(input.probability, 'doubt'));
   const lines = [
-    `🧾 RECEIPT${input.isReplay ? ' · REPLAY' : ''}`,
-    `“${input.quotedText}” — ${input.claimerName}`,
+    `🏁 SETTLED`,
+    `“${input.quotedText}”, called by ${input.claimerName}`,
     '',
     `📋 ${describeTerms(input.spec)}`,
-    `📈 Locked at the call: ${formatProbabilityPct(input.probability)}% — back ${backMult}, against ${againstMult} (${provenanceChip(input.provenance)})`,
-    `🏁 ${outcomeLine(input.outcome, input.claimerName)}`,
+    `📈 Locked at the call: ${formatProbabilityPct(input.probability)}%, back ${backMult}, against ${againstMult} (${provenanceChip(input.provenance)})`,
+    `🎯 ${outcomeLine(input.outcome, input.claimerName)}`,
   ];
   if (input.payoutsLine.length > 0) lines.push(`💠 ${input.payoutsLine}`);
-  lines.push(`🔏 ${trustTierLine(input.spec.trustTier)}`, '', `Receipt: ${input.receiptUrl}`);
+  lines.push(`🔏 ${trustTierLine(input.spec.trustTier)}`);
   return lines.join('\n');
 }

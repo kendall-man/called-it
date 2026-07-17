@@ -79,6 +79,7 @@ export class ReplaySource implements MatchEventSource {
 
   private started = false;
   private stopped = false;
+  private fastForwarded = false;
   private readonly lifecycle = new AbortController();
 
   private virtualStartMs: number | null = null;
@@ -129,14 +130,29 @@ export class ReplaySource implements MatchEventSource {
   }
 
   /**
+   * Jump the virtual clock to the end of the match. Snapshots are cumulative,
+   * so the next tick sees every remaining record at once and emits the whole
+   * tail (in seq order) up to the terminal phase; the replay then finishes
+   * exactly as if it had run out the clock. Aborting the lifecycle wakes the
+   * run loop out of its inter-tick sleep so the jump happens immediately.
+   */
+  fastForward(): void {
+    this.fastForwarded = true;
+    this.lifecycle.abort();
+  }
+
+  /**
    * Advances the virtual clock one tick and returns the newly-visible events.
    * Exposed so the engine (and tests) can drive replay deterministically.
    */
   async stepOnce(): Promise<ReplayStepResult> {
     const virtualStartMs = this.virtualStartMs ?? (await this.resolveVirtualStart());
     this.virtualStartMs = virtualStartMs;
-    const virtualNowMs =
-      this.virtualNowMs === null ? virtualStartMs : this.virtualNowMs + this.tickVirtualMs;
+    const virtualNowMs = this.fastForwarded
+      ? virtualStartMs + this.maxVirtualMs
+      : this.virtualNowMs === null
+        ? virtualStartMs
+        : this.virtualNowMs + this.tickVirtualMs;
     this.virtualNowMs = virtualNowMs;
     const receivedAtMs = Date.now();
     const events: MatchEvent[] = [];
@@ -205,6 +221,15 @@ export class ReplaySource implements MatchEventSource {
         if (this.virtualStartMs === null) {
           // Could not even resolve the clock origin — nothing to replay.
           this.logger('replay could not start', { fixtureId: this.fixtureId, error: String(error) });
+          return;
+        }
+        if (this.fastForwarded) {
+          // The aborted lifecycle makes every sleep instant, so retrying here
+          // would hot-spin. The admin asked to end the match; end it.
+          this.logger('replay fast-forward failed', {
+            fixtureId: this.fixtureId,
+            error: String(error),
+          });
           return;
         }
         this.logger('replay tick failed — continuing', {

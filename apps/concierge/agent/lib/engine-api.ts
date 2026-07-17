@@ -153,16 +153,27 @@ export const engineApi = {
  * model wrote. This is the N4 invariant: nobody can stake as someone else by
  * naming them.
  */
+type TelegramPrincipal = { authenticator?: string; attributes?: Record<string, unknown> };
+
+/** Only webhook-derived principals are trusted; anything else reads as absent. */
+function trustedTelegramPrincipal(principal: TelegramPrincipal | null | undefined) {
+  return principal?.authenticator === 'telegram-webhook' ? principal : null;
+}
+
 export function telegramIdentity(
   session: unknown,
 ): { chatId: number; userId: number; username: string | null } | null {
-  const current = (
-    session as {
-      auth?: { current?: { authenticator?: string; attributes?: Record<string, unknown> } };
-    }
-  )?.auth?.current;
-  if (!current || current.authenticator !== 'telegram-webhook') return null;
-  const attributes = current.attributes ?? {};
+  const auth = (
+    session as { auth?: { current?: TelegramPrincipal | null; initiator?: TelegramPrincipal | null } }
+  )?.auth;
+  // eve resumes HITL-approval turns with `auth: null`, clearing `current` for
+  // exactly the turn that executes the approved tool. The `initiator` is the
+  // same webhook-derived principal that opened the session (never
+  // model-writable), so falling back to it keeps the N4 invariant intact.
+  const principal =
+    trustedTelegramPrincipal(auth?.current) ?? trustedTelegramPrincipal(auth?.initiator);
+  if (!principal) return null;
+  const attributes = principal.attributes ?? {};
   const chatId = Number(attributes['chat_id']);
   const userId = Number(attributes['user_id']);
   if (!Number.isFinite(chatId) || !Number.isFinite(userId)) return null;

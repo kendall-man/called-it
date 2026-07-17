@@ -482,6 +482,7 @@ export function makeFakeDeps(overrides: Partial<WagerModuleDeps> = {}): FakeDeps
     log: silentLog,
     now: () => 1_720_000_000_000,
     opsChatId: null,
+    stagingGrantLamports: 0n, // staging seam OFF by default — tests exercise prod paths
     ...overrides,
   };
   return { deps, db, chain, poster, trace };

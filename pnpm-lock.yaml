@@ -83,6 +83,24 @@ importers:
         specifier: ^3.0.0
         version: 3.2.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.5)
 
+  apps/mockline:
+    devDependencies:
+      '@calledit/market-engine':
+        specifier: workspace:*
+        version: link:../../packages/market-engine
+      '@calledit/txline':
+        specifier: workspace:*
+        version: link:../../packages/txline
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.5
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.5)
+
   apps/web:
     dependencies:
       '@calledit/solana':

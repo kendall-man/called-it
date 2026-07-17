@@ -1,14 +1,16 @@
 /**
- * Commands: /start /help /settings /replay /bookit.
- * /bookit and @mention are the consent-free trigger path (privacy mode ON
- * delivers commands and replies in every group).
+ * Commands: /start /help /status /settings /kickoff (alias /replay) /settle
+ * /bookit. /bookit and @mention are the consent-free trigger path (privacy
+ * mode ON delivers commands and replies in every group).
  */
 
 import type { Bot } from 'grammy';
-import { ensureChatContext, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
-import { settingsKeyboard } from './keyboards.js';
+import { displayName, ensureChatContext, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
+import { settingsKeyboard, statusKeyboard } from './keyboards.js';
 import { offerClaim } from '../pipeline/offer.js';
 import { tableUrl } from '../pipeline/render.js';
+import { voidAbandonedMarket } from '../pipeline/void.js';
+import { boardAttribution, buildOpenCallsBoard } from './statusBoard.js';
 
 function isGroup(chatType: string): boolean {
   return chatType === 'group' || chatType === 'supergroup';
@@ -32,6 +34,17 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
     h.poster.post(ctx.chat.id, line);
   });
 
+  // Public live board: opens on the open-calls view with a toggle keyboard.
+  // Deliberately group-visible (never private) — the board IS the banter.
+  bot.command('status', async (ctx) => {
+    if (!isGroup(ctx.chat.type) || !ctx.from) return;
+    const group = await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', ctx.from);
+    const board = await buildOpenCallsBoard(h.deps, group);
+    h.poster.post(ctx.chat.id, `${board}\n\n${boardAttribution(displayName(ctx.from))}`, {
+      keyboard: statusKeyboard(),
+    });
+  });
+
   bot.command('settings', async (ctx) => {
     if (!isGroup(ctx.chat.type) || !ctx.from) return;
     const group = await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', ctx.from);
@@ -47,7 +60,8 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
     });
   });
 
-  bot.command('replay', async (ctx) => {
+  // /kickoff is the on-camera name; /replay stays as the historical alias.
+  bot.command(['kickoff', 'replay'], async (ctx) => {
     if (!isGroup(ctx.chat.type) || !ctx.from) return;
     const group = await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', ctx.from);
     const admin = await isGroupAdmin(h, () => ctx.getChatMember(ctx.from!.id));
@@ -101,6 +115,39 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
       await h.say('replay_started', { fixture: `${fixture.p1_name} vs ${fixture.p2_name}` }),
       { replyToMessageId: replyTo },
     );
+  });
+
+  // Admin fast whistle, two modes. Match running: jump the replay to full
+  // time so every open call settles through the normal feed pipeline (and the
+  // winners' shout posts). No match running: clear the decks — call off every
+  // in-flight market and refund all stakes, so leftover bets (the exact thing
+  // the /kickoff guard blocks on) never strand a test group. Deliberately
+  // absent from BOT_COMMANDS: a testing lever, not on-camera furniture.
+  bot.command('settle', async (ctx) => {
+    if (!isGroup(ctx.chat.type) || !ctx.from) return;
+    const group = await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', ctx.from);
+    const admin = await isGroupAdmin(h, () => ctx.getChatMember(ctx.from!.id));
+    const replyTo = ctx.message?.message_id;
+    if (!admin) {
+      h.poster.post(ctx.chat.id, await h.say('admin_only'), { replyToMessageId: replyTo });
+      return;
+    }
+    if (h.supervisor.fastForwardReplay(group.id)) {
+      h.poster.post(ctx.chat.id, await h.say('settle_now_started'), { replyToMessageId: replyTo });
+      return;
+    }
+    const inFlight = await h.deps.db.openMarketsForGroup(group.id);
+    if (inFlight.length === 0) {
+      h.poster.post(ctx.chat.id, await h.say('settle_now_none'), { replyToMessageId: replyTo });
+      return;
+    }
+    for (const market of inFlight) {
+      await voidAbandonedMarket(h.deps, market);
+    }
+    const calls = inFlight.length === 1 ? '1 call' : `${inFlight.length} calls`;
+    h.poster.post(ctx.chat.id, await h.say('settle_now_cleared', { calls }), {
+      replyToMessageId: replyTo,
+    });
   });
 
   bot.command('bookit', async (ctx) => {

@@ -12,13 +12,16 @@ import type { Settler } from '../settle/settler.js';
 interface ActiveReplay {
   fixtureId: number;
   source: EventSourceLike;
+  /** Wall-clock start; the full-time recap only shouts settlements after this. */
+  startedAtMs: number;
 }
 
 export class IngestSupervisor {
   private readonly liveSources = new Map<number, EventSourceLike>();
   private readonly replays = new Map<number, ActiveReplay>();
   /** Called when a replay's fixture reaches a terminal phase. */
-  onReplayFinished: ((groupId: number, fixtureId: number) => void) | null = null;
+  onReplayFinished: ((groupId: number, fixtureId: number, startedAtMs: number) => void) | null =
+    null;
 
   constructor(
     private readonly deps: Deps,
@@ -61,15 +64,30 @@ export class IngestSupervisor {
     // market — otherwise a replay of a previously-watched fixture is a no-op.
     await this.deps.db.resetFixtureForReplay(fixtureId);
     const source = this.deps.tx.createReplaySource(fixtureId, speed);
-    this.replays.set(groupId, { fixtureId, source });
+    const startedAtMs = this.deps.now();
+    this.replays.set(groupId, { fixtureId, source, startedAtMs });
     this.deps.log.info('replay_started', { groupId, fixtureId, speed });
     source.start(async (event) => {
       await this.handleEvent(event);
       if (event.kind === 'phase_change' && TERMINAL_PHASES.includes(event.phase)) {
         this.stopReplay(groupId);
-        this.onReplayFinished?.(groupId, fixtureId);
+        this.onReplayFinished?.(groupId, fixtureId, startedAtMs);
       }
     });
+  }
+
+  /**
+   * Jump an active replay straight to full time: the source drains every
+   * remaining feed event through the normal settle pipeline, so open calls
+   * pay out exactly as they would have at the whistle (and the full-time
+   * shout still posts). False when the group has no replay to end.
+   */
+  fastForwardReplay(groupId: number): boolean {
+    const replay = this.replays.get(groupId);
+    if (!replay || replay.source.fastForward === undefined) return false;
+    replay.source.fastForward();
+    this.deps.log.info('replay_fast_forwarded', { groupId, fixtureId: replay.fixtureId });
+    return true;
   }
 
   stopReplay(groupId: number): boolean {

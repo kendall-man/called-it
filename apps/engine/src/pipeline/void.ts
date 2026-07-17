@@ -1,12 +1,14 @@
 /**
- * Void an abandoned SOL market — a claim that got minted but never drew a
- * single bet. Records a 'void' settlement (which refunds every escrowed stake
- * through the wager module) but deliberately does NOT post a receipt: the
- * existing sweepUnpostedSettlements cron owns receipt posting, so leaving
- * posted_at null lets it post exactly once (no double-post race).
+ * Call off a SOL market: records a 'void' settlement, which refunds every
+ * escrowed stake through the wager module (idempotently, via the single
+ * money-movement path). Deliberately does NOT post a receipt: the existing
+ * sweepUnpostedSettlements cron owns receipt posting, so leaving posted_at
+ * null lets it post exactly once (no double-post race).
  *
- * Used by the claimer's "Not mine" decline (post-mint, zero bets) and the
- * kickoff sweep (non-replay markets whose fixture started with no positions).
+ * Callers: the claimer's "Not mine" decline (post-mint, zero bets), the
+ * kickoff sweep (non-replay markets whose fixture started with no positions),
+ * and the admin /settle clear-decks path (in-flight markets WITH stakes, all
+ * refunded in full).
  */
 
 import type { Deps, MarketRow } from '../ports.js';

@@ -352,4 +352,13 @@ export interface WagerModuleDeps {
   now(): number;
   /** WAGER_OPS_CHAT_ID — solvency alerts route here when set. */
   opsChatId: number | null;
+  /**
+   * STAGING-ONLY free onboarding (worktree branch, never merged): when > 0n,
+   * a user's first stake auto-links a synthetic wallet handle and posts a
+   * one-time play-money credit of this many lamports through the same
+   * idempotent ledger path a real deposit uses. 0n = off, production paths
+   * byte-identical. Grants count toward solvency like any deposit, so the
+   * treasury must cover (grant × expected members).
+   */
+  stagingGrantLamports: bigint;
 }
