@@ -47,12 +47,13 @@ const telegramCall = async (runtime, method, body) => {
 };
 
 if (area === 'profile') {
-  const profile = loadJourneyProfile(profilePath, workspace, { allowMissingPublicOrigin: true });
+  const profile = loadJourneyProfile(profilePath, workspace, { allowMissingWebhookOrigin: true });
   console.log(JSON.stringify({
-    ok: profile.publicOrigin !== null,
+    ok: true,
     profile: profile.profilePath,
     runtimeEnv: profile.runtimePath,
-    publicOriginReady: profile.publicOrigin !== null,
+    canonicalWebOrigin: profile.canonicalWebOrigin,
+    webhookOriginReady: profile.webhookOrigin !== null,
     services: profile.services,
     tunnel: profile.tunnel,
     telegram: profile.telegram,
@@ -60,23 +61,25 @@ if (area === 'profile') {
     replay: profile.replay,
   }, null, 2));
 } else if (area === 'preflight') {
-  const profile = loadJourneyProfile(profilePath, workspace, { allowMissingPublicOrigin: true });
+  const profile = loadJourneyProfile(profilePath, workspace, { allowMissingWebhookOrigin: true });
   const required = ['TELEGRAM_BOT_TOKEN', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'TELEGRAM_WEBHOOK_SECRET_TOKEN'];
   const missing = required.filter((name) => !profile.runtime[name]);
   const mode = (statSync(profile.runtimePath).mode & 0o777).toString(8).padStart(3, '0');
   const report = {
     ok: missing.length === 0 && mode === '600' && commandExists('node') && commandExists('npx') && commandExists('cloudflared'),
-    profileReady: profile.publicOrigin !== null,
+    profileReady: true,
+    canonicalWebOrigin: profile.canonicalWebOrigin,
+    webhookOriginReady: profile.webhookOrigin !== null,
     runtimeEnv: { mode, configuredKeys: Object.values(profile.runtime).filter(Boolean).length, missing },
     commands: { node: commandExists('node'), npx: commandExists('npx'), cloudflared: commandExists('cloudflared') },
   };
   console.log(JSON.stringify(report, null, 2));
   if (!report.ok) process.exitCode = 1;
 } else if (area === 'tunnel') {
-  const profile = loadJourneyProfile(profilePath, workspace, { allowMissingPublicOrigin: true });
+  const profile = loadJourneyProfile(profilePath, workspace, { allowMissingWebhookOrigin: true });
   if (action === 'status') {
     const pid = savedPid();
-    console.log(JSON.stringify({ running: safeTunnelPid(pid), pid, publicOriginReady: existsSync(urlPath), target: profile.tunnel.target }, null, 2));
+    console.log(JSON.stringify({ running: safeTunnelPid(pid), pid, webhookOriginReady: existsSync(urlPath), target: profile.tunnel.target }, null, 2));
     if (!safeTunnelPid(pid)) process.exitCode = 1;
   } else if (action === 'stop') {
     const pid = savedPid();
@@ -95,18 +98,25 @@ if (area === 'profile') {
     closeSync(fd);
     child.unref();
     writeFileSync(pidPath, `${child.pid}\n`, { mode: 0o600 });
-    let publicOrigin = null;
+    let webhookOrigin = null;
     for (let attempt = 0; attempt < 80; attempt += 1) {
       await delay(250);
       const log = existsSync(logPath) ? readFileSync(logPath, 'utf8') : '';
-      publicOrigin = log.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i)?.[0] ?? null;
-      if (publicOrigin !== null) break;
+      webhookOrigin = log.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i)?.[0] ?? null;
+      if (webhookOrigin !== null) break;
       if (!alive(child.pid)) throw new Error(`cloudflared exited; inspect ${logPath}`);
     }
-    if (publicOrigin === null) throw new Error(`Tunnel URL deadline exceeded; inspect ${logPath}`);
-    writeFileSync(urlPath, `${publicOrigin}\n`, { mode: 0o600 });
+    if (webhookOrigin === null) throw new Error(`Tunnel URL deadline exceeded; inspect ${logPath}`);
+    writeFileSync(urlPath, `${webhookOrigin}\n`, { mode: 0o600 });
     const resolved = loadJourneyProfile(profilePath, workspace);
-    console.log(JSON.stringify({ running: true, pid: child.pid, publicOrigin: resolved.publicOrigin, target: resolved.tunnel.target, restartStack: true }, null, 2));
+    console.log(JSON.stringify({
+      running: true,
+      pid: child.pid,
+      canonicalWebOrigin: resolved.canonicalWebOrigin,
+      webhookOrigin: resolved.webhookOrigin,
+      target: resolved.tunnel.target,
+      restartStack: false,
+    }, null, 2));
   } else {
     throw new Error('Usage: pnpm local:journey tunnel <start|status|stop>');
   }

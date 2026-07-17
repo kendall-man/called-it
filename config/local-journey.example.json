@@ -1,10 +1,7 @@
 {
   "version": 1,
   "runtimeEnv": ".calledit-local/runtime.env",
-  "publicOrigin": {
-    "source": "file",
-    "path": ".calledit-local/web-tunnel-url"
-  },
+  "canonicalWebOrigin": "https://called-it-snowy.vercel.app",
   "services": {
     "engine": { "host": "127.0.0.1", "port": 8790 },
     "web": {
@@ -17,6 +14,10 @@
     "target": "http://127.0.0.1:3020"
   },
   "telegram": {
+    "webhookOrigin": {
+      "source": "file",
+      "path": ".calledit-local/web-tunnel-url"
+    },
     "webhookPath": "/api/telegram-webhook",
     "allowedUpdates": ["message", "callback_query", "my_chat_member"],
     "dropPendingUpdates": true

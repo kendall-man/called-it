@@ -75,26 +75,11 @@ export const loadJourneyProfile = (profilePath, workspace, options = {}) => {
   if (!existsSync(runtimePath)) fail(`runtimeEnv does not exist: ${runtimePath}`);
   const runtime = parseEnv(readFileSync(runtimePath, 'utf8'));
 
-  const originConfig = object(raw.publicOrigin, 'publicOrigin');
-  let origin = null;
-  if (originConfig.source === 'url') {
-    origin = url(originConfig.url, 'publicOrigin.url', ['https:']);
-  } else if (originConfig.source === 'file') {
-    const originPath = localPath(workspace, originConfig.path, 'publicOrigin.path');
-    if (!existsSync(originPath)) {
-      if (options.allowMissingPublicOrigin !== true) fail(`public origin file does not exist: ${originPath}`);
-    } else {
-      origin = url(readFileSync(originPath, 'utf8').trim(), 'public origin file', ['https:']);
-    }
-  } else {
-    fail('publicOrigin.source must be "url" or "file"');
-  }
-  if (origin !== null) {
-    origin.pathname = '/';
-    origin.search = '';
-    origin.hash = '';
-  }
-  const publicOrigin = origin?.toString().replace(/\/$/, '') ?? null;
+  const canonicalOrigin = url(raw.canonicalWebOrigin, 'canonicalWebOrigin', ['https:']);
+  canonicalOrigin.pathname = '/';
+  canonicalOrigin.search = '';
+  canonicalOrigin.hash = '';
+  const canonicalWebOrigin = canonicalOrigin.toString().replace(/\/$/, '');
 
   const services = object(raw.services, 'services');
   const engine = object(services.engine, 'services.engine');
@@ -118,6 +103,29 @@ export const loadJourneyProfile = (profilePath, workspace, options = {}) => {
     if (!telegramUpdateNames.has(update)) fail(`unsupported Telegram update: ${String(update)}`);
   }
 
+  const webhookOriginConfig = object(telegram.webhookOrigin, 'telegram.webhookOrigin');
+  let webhookOrigin = null;
+  if (webhookOriginConfig.source === 'url') {
+    webhookOrigin = url(webhookOriginConfig.url, 'telegram.webhookOrigin.url', ['https:']);
+  } else if (webhookOriginConfig.source === 'file') {
+    const webhookOriginPath = localPath(workspace, webhookOriginConfig.path, 'telegram.webhookOrigin.path');
+    if (!existsSync(webhookOriginPath)) {
+      if (options.allowMissingWebhookOrigin !== true) {
+        fail(`telegram webhook origin file does not exist: ${webhookOriginPath}`);
+      }
+    } else {
+      webhookOrigin = url(readFileSync(webhookOriginPath, 'utf8').trim(), 'telegram webhook origin file', ['https:']);
+    }
+  } else {
+    fail('telegram.webhookOrigin.source must be "url" or "file"');
+  }
+  if (webhookOrigin !== null) {
+    webhookOrigin.pathname = '/';
+    webhookOrigin.search = '';
+    webhookOrigin.hash = '';
+  }
+  const resolvedWebhookOrigin = webhookOrigin?.toString().replace(/\/$/, '') ?? null;
+
   const environment = raw.environment === undefined ? {} : object(raw.environment, 'environment');
   for (const [name, value] of Object.entries(environment)) {
     if (credentialName.test(name)) fail(`credential-like setting ${name} belongs in runtimeEnv`);
@@ -129,14 +137,17 @@ export const loadJourneyProfile = (profilePath, workspace, options = {}) => {
   const network = string(chain.network, 'chain.network');
   if (!solanaNetworks.has(network)) fail('chain.network must be "devnet" or "mainnet-beta"');
   const replaySpeed = integer(replay.speed, 'replay.speed', { min: 1, max: 1_000 });
-  const webhookUrl = publicOrigin === null ? null : new URL(webhookPath, `${publicOrigin}/`);
-  if (webhookUrl !== null && webhookUrl.origin !== publicOrigin) {
-    fail('telegram.webhookPath must remain on publicOrigin');
+  const webhookUrl = resolvedWebhookOrigin === null
+    ? null
+    : new URL(webhookPath, `${resolvedWebhookOrigin}/`);
+  if (webhookUrl !== null && webhookUrl.origin !== resolvedWebhookOrigin) {
+    fail('telegram.webhookPath must remain on telegram.webhookOrigin');
   }
   const resolvedRuntime = {
     ...runtime,
     ...environment,
-    ...(publicOrigin === null ? {} : { WEB_BASE_URL: publicOrigin, WALLET_LINK_DOMAIN: origin?.hostname }),
+    WEB_BASE_URL: canonicalWebOrigin,
+    WALLET_LINK_DOMAIN: canonicalOrigin.hostname,
     SOLANA_RPC_URL: rpcUrl,
     SOLANA_NETWORK: network,
     ESCROW_LOCAL_FORK_INDEXER: String(boolean(chain.localForkIndexer, 'chain.localForkIndexer')),
@@ -146,7 +157,8 @@ export const loadJourneyProfile = (profilePath, workspace, options = {}) => {
   return Object.freeze({
     profilePath,
     runtimePath,
-    publicOrigin,
+    canonicalWebOrigin,
+    webhookOrigin: resolvedWebhookOrigin,
     runtime: Object.freeze(resolvedRuntime),
     services: Object.freeze({
       engine: Object.freeze({ host: string(engine.host, 'services.engine.host'), port: integer(engine.port, 'services.engine.port') }),
