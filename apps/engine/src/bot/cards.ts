@@ -109,6 +109,37 @@ export function statusLine(status: MarketStatus, asset: WagerAsset = 'sol'): str
   }
 }
 
+/**
+ * The 150s on-chain anti-snipe delay, rendered as one honest sentence while
+ * finalized-but-pending escrow lots wait for activation. Uses the
+ * escrowPlacementStatusText vocabulary (pending → activate).
+ */
+export const FAIR_PLAY_PENDING_LINE =
+  'Fair-play check — new positions activate after a short delay.';
+
+export interface SkeletonCardInput {
+  quotedText: string;
+  claimerName: string;
+  isReplay: boolean;
+}
+
+/**
+ * The card shell posted the instant the market row exists, before pricing
+ * details and buttons are ready. The same message is later EDITED into the
+ * full offer card (or a failure state), so the header lines must match
+ * claimCardText exactly — the edit should read as the card filling in.
+ */
+export function skeletonCardText(input: SkeletonCardInput): string {
+  const quote = normalizeInlineText(input.quotedText, QUOTED_TEXT_LIMIT, 'Call unavailable');
+  const claimer = normalizeInlineText(input.claimerName, PERSON_NAME_LIMIT, 'the claimer');
+  return telegramMessageBody([
+    `🎙 THE CALL${input.isReplay ? ' · REPLAY' : ''}`,
+    `“${quote}” — ${claimer}`,
+    '',
+    '⏳ Pricing this call off the live feed…',
+  ].join('\n'));
+}
+
 /** Per-side card tally: how many bettors and the pooled stake in lamports. */
 export interface SideTally {
   count: number;
@@ -132,6 +163,8 @@ export interface ClaimCardInput {
   readonly doubtParticipantCount?: number;
   /** 0..100 — matched fraction of the total staked pot. */
   matchedPct: number;
+  /** Finalized-but-pending escrow lots still inside the fair-play delay. */
+  readonly pendingActivationCount?: number;
   isReplay: boolean;
   readonly custodyMode?: 'legacy' | 'escrow';
   readonly solanaNetwork?: SolanaNetwork;
@@ -165,6 +198,9 @@ export function claimCardText(input: ClaimCardInput): string {
       : input.custodyMode === 'escrow'
         ? [`🔐 On-chain escrow · ${escrowNetworkLabel(input.solanaNetwork ?? 'devnet')} · ${currency.toUpperCase()}`]
         : []),
+    ...(input.custodyMode === 'escrow' && (input.pendingActivationCount ?? 0) > 0
+      ? [`⏳ ${FAIR_PLAY_PENDING_LINE}`]
+      : []),
     ...(input.positionsAvailable === false
       ? [`⏸ New ${currency.toUpperCase()} positions are temporarily paused. No ${currency.toUpperCase()} can move.`]
       : []),
@@ -270,5 +306,82 @@ export function receiptCardText(input: ReceiptCardInput): string {
   const transactionUrl = publicEscrowActionUrl(input.transactionUrl);
   if (transactionUrl !== null) lines.push('', `Transaction: ${transactionUrl}`);
   lines.push('', `Receipt: ${input.receiptUrl}`);
+  return telegramMessageBody(lines.join('\n'));
+}
+
+/** Escrow runtime health, collapsed to plain words for the group board. */
+export type EscrowRuntimeStatusLabel =
+  | 'ready'
+  | 'rpc_unavailable'
+  | 'indexer_lagging'
+  | 'degraded';
+
+/**
+ * Collapse the in-process escrow readiness reasons to the one board label.
+ * Raw reason codes never reach the chat — only these plain phrasings do.
+ */
+export function escrowRuntimeStatusLabel(report: {
+  readonly status: 'ready' | 'not_ready';
+  readonly reasons: readonly string[];
+}): EscrowRuntimeStatusLabel {
+  if (report.status === 'ready') return 'ready';
+  if (report.reasons.includes('rpc_unavailable')) return 'rpc_unavailable';
+  if (report.reasons.includes('indexer_lagging') || report.reasons.includes('indexer_unavailable')) {
+    return 'indexer_lagging';
+  }
+  return 'degraded';
+}
+
+function escrowRuntimeStatusLine(label: EscrowRuntimeStatusLabel): string {
+  switch (label) {
+    case 'ready':
+      return '🔐 Escrow desk: all clear';
+    case 'rpc_unavailable':
+      return '🔐 Escrow desk: chain connection catching up';
+    case 'indexer_lagging':
+      return '🔐 Escrow desk: receipts catching up';
+    case 'degraded':
+      return '🔐 Escrow desk: catching up';
+  }
+}
+
+export interface StatusBoardInput {
+  readonly feed:
+    | { readonly kind: 'live' }
+    | {
+        readonly kind: 'replay';
+        readonly fixtureLabel: string;
+        readonly virtualMinute: number | null;
+      };
+  readonly openMarketCount: number;
+  readonly pendingActivationCount: number;
+  /** Omitted when the process runs without the escrow runtime. */
+  readonly escrowRuntime?: EscrowRuntimeStatusLabel;
+  readonly solanaNetwork: SolanaNetwork;
+}
+
+/**
+ * The admin /status board: one compact message, aggregate numbers only, no
+ * keyboard. Raw reason codes and anything user-identifying stay out.
+ */
+export function statusBoardText(input: StatusBoardInput): string {
+  const feedLine = input.feed.kind === 'live'
+    ? '📡 Feed: live matches'
+    : `📡 Feed: completed-match replay of ${
+      normalizeInlineText(input.feed.fixtureLabel, ENTITY_NAME_LIMIT, 'a finished match')
+    }${input.feed.virtualMinute === null ? '' : ` · minute ${input.feed.virtualMinute}`}`;
+  const lines = [
+    '📟 STATUS',
+    feedLine,
+    `🎙 Open calls here: ${input.openMarketCount}`,
+    `⏳ Positions in the fair-play wait: ${input.pendingActivationCount}`,
+    ...(input.escrowRuntime === undefined
+      ? []
+      : [escrowRuntimeStatusLine(input.escrowRuntime)]),
+    '',
+    input.solanaNetwork === 'mainnet-beta'
+      ? 'SOL positions settle on Solana mainnet.'
+      : 'Test SOL has no monetary value. (devnet)',
+  ];
   return telegramMessageBody(lines.join('\n'));
 }

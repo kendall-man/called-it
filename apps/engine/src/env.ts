@@ -144,6 +144,16 @@ const EnvSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(10, 'BotFather token required'),
   TELEGRAM_BOT_USERNAME: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{3,30}[Bb][Oo][Tt]$/),
   TELEGRAM_WEBHOOK_SECRET_TOKEN: z.string().min(32).optional(),
+  /**
+   * Optional direct-link Mini App short name registered via BotFather /newapp
+   * (gives t.me/<bot>/<short>). When set under escrow custody, offer cards use
+   * in-group URL signing buttons; absent, behaviour is unchanged (callback
+   * buttons + DM signing), which is the deployment safety switch.
+   */
+  TELEGRAM_MINIAPP_SHORT_NAME: z.preprocess(
+    (value) => typeof value === 'string' && value.trim() === '' ? undefined : value,
+    z.string().regex(/^[A-Za-z0-9_]{3,64}$/).optional(),
+  ),
   BETA_ALLOWED_GROUP_IDS: BetaGroupAllowlistSchema,
   GLM_API_KEY: z.string().min(1, 'GLM (Z.ai) key required for the agent'),
   GLM_BASE_URL: z.string().url().optional(),
@@ -206,7 +216,7 @@ const EnvSchema = z.object({
   ESCROW_ORACLE_LOCAL_KEYPAIRS_B58_JSON: EscrowOracleLocalKeypairsSchema,
   ESCROW_INDEXER_MAX_LAG_SLOTS: OptionalUnsignedBigIntSchema,
   /** Bound transaction-history reads so public RPC rate limits cannot starve cursor progress. */
-  ESCROW_INDEXER_PAGE_SIZE: z.coerce.number().int().min(1).max(100).default(1),
+  ESCROW_INDEXER_PAGE_SIZE: z.coerce.number().int().min(1).max(100).default(10),
   /** Development-only: keep a Surfpool fork's finalized cursor in process. */
   ESCROW_LOCAL_FORK_INDEXER: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),

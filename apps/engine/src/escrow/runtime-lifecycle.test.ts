@@ -93,6 +93,53 @@ describe('escrow runtime lifecycle', () => {
     await lifecycle.stop();
   });
 
+  it('hands each relayer cycle result to the observer without changing the cycle', async () => {
+    const observed: Array<readonly { jobId: string }[]> = [];
+    const calls: string[] = [];
+    const results = [{ kind: 'terminal', jobId: 'job-1', errorCode: 'user_signature_expired' }] as const;
+    const lifecycle = createEscrowRuntimeLifecycle({
+      attestations: { async runOnce() { calls.push('attestations'); } },
+      relayer: { async runOnce() { calls.push('relayer'); return results; } },
+      indexer: { async runOnce() { calls.push('indexer'); } },
+      onRelayerResults: (batch) => observed.push(batch),
+      clock: () => '2026-07-15T00:00:00.000Z',
+      intervalMs: 1_000,
+      relayerLimit: 10,
+      attestationLimit: 5,
+      indexerLimit: 20,
+      log: { info() {}, error() {} },
+    });
+
+    await lifecycle.runOnce();
+
+    expect(observed).toEqual([results]);
+    expect(calls).toEqual(['attestations', 'relayer', 'indexer']);
+    await lifecycle.stop();
+  });
+
+  it('logs and continues when the relayer observer itself throws', async () => {
+    const errors: string[] = [];
+    const calls: string[] = [];
+    const lifecycle = createEscrowRuntimeLifecycle({
+      attestations: { async runOnce() { calls.push('attestations'); } },
+      relayer: { async runOnce() { calls.push('relayer'); return []; } },
+      indexer: { async runOnce() { calls.push('indexer'); } },
+      onRelayerResults: () => { throw new Error('observer exploded'); },
+      clock: () => '2026-07-15T00:00:00.000Z',
+      intervalMs: 1_000,
+      relayerLimit: 10,
+      attestationLimit: 5,
+      indexerLimit: 20,
+      log: { info() {}, error(event) { errors.push(event); } },
+    });
+
+    await lifecycle.runOnce();
+
+    expect(errors).toEqual(['escrow_relayer_observer_failed']);
+    expect(calls).toEqual(['attestations', 'relayer', 'indexer']);
+    await lifecycle.stop();
+  });
+
   it('starts, runs, and drains restart reconciliation with the primary workers', async () => {
     const calls: string[] = [];
     let reconciliationActive = 0;

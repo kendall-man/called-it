@@ -261,6 +261,7 @@ export class Settler {
       });
     }
     this.deps.log.info('settled', { marketId: market.id, outcome, decidingSeq, tier });
+    await this.reactToSettledClaim(market, outcome);
 
     // Money moves ONLY through the wager module for SOL/USDC markets. Its
     // applySettlement is idempotent (per-position/per-user keys plus the
@@ -302,6 +303,23 @@ export class Settler {
       }
     }
     this.states.delete(market.id);
+  }
+
+  /**
+   * Zero-clutter "called it" ack on the original claim message when it lands.
+   * Presentation only and best-effort — a missing claim row or reaction API
+   * failure must never block or reverse settlement. Fires in every chattiness
+   * mode because reactions are budget-free. Telegram's reaction set has no 🎯,
+   * so the trophy stands in for a landed call.
+   */
+  private async reactToSettledClaim(market: MarketRow, outcome: SettlementOutcome): Promise<void> {
+    if (outcome !== 'claim_won') return;
+    try {
+      const claim = await this.deps.db.getClaim(market.claim_id);
+      if (claim) this.poster.react(market.group_id, claim.tg_message_id, '🏆');
+    } catch {
+      this.deps.log.warn('settled_claim_reaction_skipped', { marketId: market.id });
+    }
   }
 
   async postReceipt(

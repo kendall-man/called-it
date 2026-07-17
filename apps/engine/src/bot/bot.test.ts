@@ -232,6 +232,7 @@ describe('onboarding scopes and lifecycle', () => {
       'mystats',
       'table',
       'settings',
+      'status',
       'currency',
       'testmatch',
       'help',

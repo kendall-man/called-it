@@ -12,7 +12,7 @@ import { Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
 import { run } from '@grammyjs/runner';
 import { loadEnv } from './env.js';
-import { createLogger } from './log.js';
+import { createLogger, type Logger } from './log.js';
 import { createDeps, createProductionEscrowRuntime } from './wiring.js';
 import { classifySendFailure, createEngineSendQueue } from './bot/send-failure.js';
 import { classifyEngineStartFailure } from './startup-failure.js';
@@ -55,10 +55,18 @@ import {
   createEscrowPrivatePointsParticipants,
 } from './escrow/points-projection.js';
 import { createSupabaseEscrowPrivateBridge } from './escrow/private-bridge.js';
-import { createEscrowMarketProvisioner } from './escrow/market-provisioning.js';
+import {
+  createEscrowMarketProvisioner,
+  type EscrowMarketProvisioner,
+} from './escrow/market-provisioning.js';
 import { registerEscrowMarketProvisioner } from './pipeline/escrow-market-provisioning.js';
-import { composeClaimCard } from './pipeline/render.js';
+import { composeClaimCard, receiptUrl } from './pipeline/render.js';
 import { marketStakeKeyboard } from './bot/keyboards.js';
+import {
+  createEscrowProgressObserver,
+  createEscrowSignerCompletionDmOutbox,
+  enqueueEscrowSignerCompletionDm,
+} from './bot/escrow-ux.js';
 import { createEscrowEventWorkflowScheduler } from './escrow/event-workflow-scheduler.js';
 import { createProductionEscrowEventWorkflowPort } from './escrow/event-workflow-runtime.js';
 import { EscrowIntegratedSettler } from './background/escrow-settler.js';
@@ -71,6 +79,17 @@ import { createEscrowReadinessHealthCheck } from './escrow/readiness-health.js';
  * from `src` (tsx) or `dist` (node) and regardless of the caller's cwd. Values
  * already present in the environment win, so platform overrides are respected.
  */
+/** Mirrors the wager module's parser: a bad value downgrades to "no ops chat". */
+function parseOpsChatId(raw: string | undefined, log: Logger): number | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isSafeInteger(parsed)) {
+    log.warn('wager_ops_chat_invalid', { reason: 'not_safe_integer' });
+    return null;
+  }
+  return parsed;
+}
+
 function loadDotEnv(): void {
   if (process.env.CALLEDIT_ENV_PRELOADED === 'true') return;
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -118,6 +137,11 @@ async function main(): Promise<void> {
   );
   const points = createGroupPointsService({ db: backgroundDeps.db, log });
 
+  // Signer completion DMs: one per finalized position event, deduped by the
+  // event key in-process; the copy tolerates an at-least-once redelivery.
+  const escrowCompletionDms = createEscrowSignerCompletionDmOutbox({
+    post: (chatId, text) => poster.post(chatId, text),
+  });
   const escrowPrivateBridge = env.WAGER_CUSTODY_MODE === 'escrow'
     ? createSupabaseEscrowPrivateBridge({
         supabaseUrl: env.SUPABASE_URL,
@@ -125,8 +149,38 @@ async function main(): Promise<void> {
         network: env.SOLANA_NETWORK,
         markets: deps.db,
         clock: deps.now,
+        positionEvents: {
+          async onFinalizedPositionEvent(event) {
+            // 'activated' stays silent: the card's fair-play line covers it,
+            // and the signer already got the finalized DM for this lot.
+            if (event.eventKind === 'activated') return;
+            try {
+              await enqueueEscrowSignerCompletionDm(escrowCompletionDms, {
+                idempotencyKey:
+                  `${event.signature}:${event.lotNonce.toString()}:${event.eventKind}`,
+                telegramUserId: event.telegramUserId,
+                network: env.SOLANA_NETWORK,
+                asset: event.asset,
+                amountAtomic: event.amountAtomic,
+                side: event.side,
+                state: event.eventKind === 'placed' ? 'finalized' : 'recoverable',
+                receiptUrl: receiptUrl(deps, event.marketId),
+              });
+            } catch {
+              log.warn('escrow_completion_dm_enqueue_failed');
+            }
+          },
+        },
       })
     : null;
+
+  const escrowProgressObserver = escrowPrivateBridge === null ? null : createEscrowProgressObserver({
+    opsChatId: parseOpsChatId(env.WAGER_OPS_CHAT_ID, log),
+    post: (chatId, text) => poster.post(chatId, text),
+    resolveDeadLetterSigner: (jobId) => escrowPrivateBridge.resolveRelayerJobSigner(jobId),
+    now: deps.now,
+    log,
+  });
 
   // `legacy` is the pre-enable mode. Once escrow liabilities exist, keep this
   // runtime enabled and roll intake back per group so recovery remains live.
@@ -142,6 +196,10 @@ async function main(): Promise<void> {
           }),
           identities: escrowPrivateBridge,
           walletSessions: escrowPrivateBridge,
+          ...(escrowProgressObserver === null ? {} : {
+            onRelayerResults: (results) =>
+              escrowProgressObserver.observeRelayerResults(results),
+          }),
           projectionSink: {
             async afterFinalizedTransaction(transaction) {
               await escrowPrivateBridge.project(transaction);
@@ -186,8 +244,9 @@ async function main(): Promise<void> {
       })()
     : null;
 
+  let escrowProvisioner: EscrowMarketProvisioner | null = null;
   if (escrowRuntime !== null) {
-    registerEscrowMarketProvisioner(deps, createEscrowMarketProvisioner({
+    escrowProvisioner = createEscrowMarketProvisioner({
       db: deps.db,
       initialize: (input) => escrowRuntime.initialization.initialize(input),
       allowedGroupIds: env.ESCROW_ALLOWED_GROUP_IDS,
@@ -201,7 +260,8 @@ async function main(): Promise<void> {
           iso: new Date(milliseconds).toISOString(),
         };
       },
-    }));
+    });
+    registerEscrowMarketProvisioner(deps, escrowProvisioner);
   }
 
   const escrowScheduler = escrowRuntime === null ? null : createEscrowEventWorkflowScheduler({
@@ -237,10 +297,40 @@ async function main(): Promise<void> {
   });
   const settlementReconciler = createSettlementReconciler(backgroundDeps, log);
 
+  // Bounded escrow readiness snapshot shared by the /status board and the
+  // minute-grade ops probe; a slow or failing probe reads as "not ready".
+  const probeEscrowReadiness = async (): Promise<{
+    readonly status: 'ready' | 'not_ready';
+    readonly reasons: readonly string[];
+  }> => {
+    const unavailable = {
+      status: 'not_ready',
+      reasons: ['readiness_probe_unavailable'],
+    } as const;
+    if (escrowRuntime === null) return unavailable;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<typeof unavailable>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve(unavailable);
+      }, env.READINESS_CHECK_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([
+        escrowRuntime.readiness('intake', controller.signal).catch(() => unavailable),
+        timedOut,
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  };
+
   const handlerCtx: HandlerCtx = {
     deps, queue, poster, say, supervisor,
     entities: new EntityCache(deps.db), budget: new LlmBudget(),
     ...(escrowRuntime === null ? {} : { escrow: escrowRuntime.telegram }),
+    ...(escrowRuntime === null ? {} : { status: { escrowReadiness: probeEscrowReadiness } }),
   };
 
   supervisor.onReplayConfirmationScheduled = ({ groupId, fixtureId }) => {
@@ -280,8 +370,27 @@ async function main(): Promise<void> {
     log.warn('set_commands_failed', classifySendFailure(err));
   });
 
+  const provisionerForRecovery = escrowProvisioner;
   const crons = startCrons({
     deps: backgroundDeps, poster, say, settler, supervisor, settlementReconciler,
+    ...(provisionerForRecovery === null ? {} : {
+      escrowPausedCards: {
+        async ready(market) {
+          try {
+            return await provisionerForRecovery.ensure(market);
+          } catch {
+            return false;
+          }
+        },
+      },
+    }),
+    ...(escrowProgressObserver === null ? {} : {
+      escrowOps: {
+        async tick() {
+          escrowProgressObserver.observeEscrowReadiness(await probeEscrowReadiness());
+        },
+      },
+    }),
   });
   escrowRuntime?.lifecycle.start();
   const webhookIngress = env.TELEGRAM_INGRESS === 'webhook';
@@ -347,7 +456,9 @@ async function main(): Promise<void> {
     log,
     readiness,
     drainState,
-    ...(escrowRuntime === null ? {} : { escrowPositions: escrowRuntime.placement }),
+    ...(escrowRuntime === null
+      ? {}
+      : { escrowPositions: escrowRuntime.placement, escrowSessions: escrowRuntime.telegram }),
     ...(env.WEB_CONCIERGE_TOKEN_SHA256 === undefined
       ? {}
       : { escrowWebTokenSha256: env.WEB_CONCIERGE_TOKEN_SHA256 }),

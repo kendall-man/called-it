@@ -22,6 +22,8 @@ export async function escrowMarketPositionsReady(
   deps: Deps,
   market: MarketRow,
   wait: Sleep = sleep,
+  /** Presence hook: called once per replay poll attempt (1-based) so the caller can re-fire "typing". */
+  onPollTick?: (attempt: number) => void,
 ): Promise<boolean> {
   if (deps.env.WAGER_CUSTODY_MODE !== 'escrow') return true;
   const provisioner = provisioners.get(deps);
@@ -35,6 +37,7 @@ export async function escrowMarketPositionsReady(
     // accelerated historical events can overtake market initialization.
     for (let attempt = 1; attempt < REPLAY_PROVISION_ATTEMPTS; attempt += 1) {
       await wait(REPLAY_PROVISION_POLL_MS);
+      onPollTick?.(attempt);
       if (await provisioner.ensure(market)) return true;
     }
     return false;

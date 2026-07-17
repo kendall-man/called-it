@@ -14,6 +14,8 @@ export type WalletApplicationProps = {
   readonly canonicalUsdcMint?: string;
   readonly escrowGenesisHash?: string;
   readonly telegramInitData: string;
+  readonly sessionToken?: string;
+  readonly onLinked?: () => void;
 };
 
 export function WalletApplication(props: WalletApplicationProps) {
@@ -29,6 +31,8 @@ export function WalletApplication(props: WalletApplicationProps) {
         canonicalUsdcMint={props.canonicalUsdcMint}
         escrowGenesisHash={props.escrowGenesisHash}
         telegramInitData={props.telegramInitData}
+        sessionToken={props.sessionToken}
+        onLinked={props.onLinked}
       />
     </WalletProvider>
   );

@@ -34,6 +34,11 @@ type WalletManagerProps = {
   readonly canonicalUsdcMint?: string;
   readonly escrowGenesisHash?: string;
   readonly telegramInitData: string;
+  // Mini App entry (/app) supplies the wallet-link token directly instead of
+  // via the /wallet/[token] URL, and observes link completion to offer a
+  // "Back to your call" continuation.
+  readonly sessionToken?: string;
+  readonly onLinked?: () => void;
 };
 
 type SessionState =
@@ -86,7 +91,7 @@ export function WalletManager(props: WalletManagerProps) {
 
   useEffect(() => {
     let cancelled = false;
-    const token = walletSessionTokenFromLocation(window.location);
+    const token = props.sessionToken ?? walletSessionTokenFromLocation(window.location);
     if (token === null) {
       setSession({ kind: 'invalid' });
       return;
@@ -102,7 +107,7 @@ export function WalletManager(props: WalletManagerProps) {
     return () => {
       cancelled = true;
     };
-  }, [props.telegramInitData]);
+  }, [props.sessionToken, props.telegramInitData]);
 
   useEffect(() => {
     if (session.kind !== 'valid' || operation === 'failed' || operation === 'ready') return;
@@ -164,12 +169,17 @@ export function WalletManager(props: WalletManagerProps) {
           })
         ).signature,
       });
-      window.history.replaceState(null, '', '/wallet');
+      // Only URL-borne tokens need scrubbing from the address bar; the Mini
+      // App entry keeps its own /app URL.
+      if (props.sessionToken === undefined) {
+        window.history.replaceState(null, '', '/wallet');
+      }
       setOperation('ready');
+      props.onLinked?.();
     } catch (cause) {
       fail(walletClientErrorMessage(cause));
     }
-  }, [fail, getAccessToken, signMessage]);
+  }, [fail, getAccessToken, props.onLinked, props.sessionToken, signMessage]);
 
   useEffect(() => {
     if (

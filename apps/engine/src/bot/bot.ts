@@ -26,6 +26,7 @@ import {
 } from './onboarding.js';
 import { isBetaGroupAllowed } from './beta-access.js';
 import { renderFallback } from './copy.js';
+import { configureMiniAppOfferKeyboards } from './keyboards.js';
 
 export interface BotErrorRegistrar {
   catch(handler: (error: { readonly error: unknown }) => unknown): void;
@@ -63,8 +64,9 @@ export const GROUP_BOT_COMMANDS = [
   { command: 'mystats', description: 'View your group stats' },
   { command: 'table', description: 'Open the group board' },
   { command: 'settings', description: 'Manage group call settings' },
+  { command: 'status', description: 'Live group status board (admins)' },
   { command: 'currency', description: 'Choose SOL or USDC for new calls' },
-  { command: 'testmatch', description: 'Run a completed-match replay (admins)' },
+  { command: 'testmatch', description: 'Replay a completed match (admins)' },
   { command: 'help', description: 'How Called It works' },
 ] as const;
 
@@ -202,6 +204,13 @@ export function registerGroupLifecycleHandlers(bot: GroupLifecycleBot, h: GroupL
 
 export function registerBotHandlers(bot: Bot, h: HandlerCtx): void {
   registerBotErrorHandler(bot, h.deps.log);
+  // The username getter stays lazy: keyboards built before grammY init
+  // resolves getMe fall back to callback buttons instead of a broken t.me link.
+  configureMiniAppOfferKeyboards({
+    custodyMode: h.deps.env.WAGER_CUSTODY_MODE,
+    miniAppShortName: h.deps.env.TELEGRAM_MINIAPP_SHORT_NAME,
+    botUsername: () => (bot.isInited() ? bot.botInfo.username : undefined),
+  });
   void configureScopedBotCommands(
     bot.api,
     h.deps.env.SOLANA_NETWORK,

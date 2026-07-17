@@ -6,6 +6,7 @@ import type { MarketSpec } from '@calledit/market-engine';
 import { registerDetection } from './detection.js';
 import { renderFallback } from './copy.js';
 import type { HandlerCtx } from './context.js';
+import type { PostOptions } from './poster.js';
 import type { ClaimRow, Deps, FixtureRow, GroupRow, MarketRow } from '../ports.js';
 import type { LogFields } from '../log.js';
 import { createPointMethodStubs } from '../points/point-methods.test-support.js';
@@ -53,6 +54,7 @@ interface DetectionHarness {
   readonly claims: ClaimRow[];
   readonly markets: MarketRow[];
   readonly posts: string[];
+  readonly cardEdits: string[];
   readonly logs: readonly RecordedLog[];
 }
 
@@ -101,6 +103,7 @@ function makeHarness(config: DetectionHarnessConfig = {}): DetectionHarness {
   const claims: ClaimRow[] = [];
   const markets: MarketRow[] = [];
   const posts: string[] = [];
+  const cardEdits: string[] = [];
   const logs: RecordedLog[] = [];
   const db = {
     ...createPointMethodStubs({ kind: 'empty', groupId: CHAT_ID }),
@@ -204,11 +207,17 @@ function makeHarness(config: DetectionHarnessConfig = {}): DetectionHarness {
   const h = {
     deps,
     poster: {
-      post: (_chatId: number, text: string) => {
+      post: (_chatId: number, text: string, options?: PostOptions) => {
         posts.push(text);
+        // Deliver like the real queue would so skeleton-card senders resolve.
+        void options?.onSent?.(posts.length);
       },
-      editCard: () => undefined,
+      editCard: (_chatId: number, _marketId: string, _messageId: number, text: string) => {
+        cardEdits.push(text);
+      },
       stripKeyboard: () => undefined,
+      react: () => undefined,
+      chatAction: () => undefined,
     },
     say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
     supervisor: {
@@ -237,7 +246,7 @@ function makeHarness(config: DetectionHarnessConfig = {}): DetectionHarness {
     },
   });
   registerDetection(bot, h);
-  return { bot, claims, markets, posts, logs };
+  return { bot, claims, markets, posts, cardEdits, logs };
 }
 
 function logsFor(harness: DetectionHarness, event: string): readonly RecordedLog[] {

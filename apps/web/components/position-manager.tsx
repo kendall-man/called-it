@@ -44,8 +44,16 @@ import {
   positionStatusCopy,
   type PositionFailurePresentation,
 } from '@/lib/position-flow';
-import { formatWalletAmount } from '@/lib/wallet-transfers';
+import type { PositionIndexedStatus } from '@/lib/position-contract';
+import { positionProgress } from '@/lib/position-stepper';
+import {
+  closeTelegramWebApp,
+  setTelegramClosingConfirmation,
+  triggerTelegramHapticNotification,
+} from '@/lib/telegram-web-app-client';
+import { explorerTransactionUrl, formatWalletAmount } from '@/lib/wallet-transfers';
 import { isPrivySolanaWalletAccount } from '@/lib/wallet-flow';
+import { PositionProgress } from './position-progress';
 import { WalletButton, WalletState } from './wallet-ui';
 
 export type PositionManagerProps = {
@@ -67,8 +75,8 @@ type FlowState =
   | { readonly kind: 'opening' }
   | { readonly kind: 'ready'; readonly preparation: VerifiedPositionPreparation; readonly title: string; readonly choice: string }
   | { readonly kind: 'signing'; readonly preparation: VerifiedPositionPreparation; readonly title: string; readonly choice: string }
-  | { readonly kind: 'confirming'; readonly signature: string | null; readonly positionState: 'pending' | 'active' | 'invalidated' | 'refundable' | 'claimed' | null }
-  | { readonly kind: 'finalized'; readonly signature: string; readonly positionState: 'pending' | 'active' | 'invalidated' | 'refundable' | 'claimed' | null }
+  | { readonly kind: 'confirming'; readonly signature: string | null; readonly positionState: PositionIndexedStatus['positionState']; readonly commitment: PositionIndexedStatus['commitment'] }
+  | { readonly kind: 'finalized'; readonly signature: string; readonly positionState: PositionIndexedStatus['positionState']; readonly commitment: PositionIndexedStatus['commitment'] }
   | { readonly kind: 'failed'; readonly failure: PositionFailurePresentation };
 
 const AUTH_TIMEOUT_MS = 25_000;
@@ -163,6 +171,7 @@ export function PositionManager(props: PositionManagerProps) {
           kind: 'finalized',
           signature: current.signature,
           positionState: current.positionState,
+          commitment: current.commitment,
         });
         return;
       }
@@ -171,6 +180,7 @@ export function PositionManager(props: PositionManagerProps) {
           kind: 'confirming',
           signature: current.signature,
           positionState: current.positionState,
+          commitment: current.commitment,
         });
         return;
       }
@@ -237,6 +247,7 @@ export function PositionManager(props: PositionManagerProps) {
             kind: 'finalized',
             signature: status.signature,
             positionState: status.positionState,
+            commitment: status.commitment,
           });
         } else if (status.stage === 'unknown_confirmation') {
           fail('unknown_confirmation');
@@ -245,6 +256,7 @@ export function PositionManager(props: PositionManagerProps) {
             kind: 'confirming',
             signature: status.signature,
             positionState: status.positionState,
+            commitment: status.commitment,
           });
         }
       } catch (cause) {
@@ -296,7 +308,7 @@ export function PositionManager(props: PositionManagerProps) {
         pubkey: activeWallet.address,
         rawTransactionBase64: transactionToBase64(signed),
       });
-      setFlow({ kind: 'confirming', signature: accepted.signature, positionState: null });
+      setFlow({ kind: 'confirming', signature: accepted.signature, positionState: null, commitment: null });
     } catch (cause) {
       const code = clientErrorCode(cause);
       if (code === 'unknown_confirmation') {
@@ -310,8 +322,8 @@ export function PositionManager(props: PositionManagerProps) {
             });
             if (status.stage === 'confirming' || status.stage === 'finalized') {
               setFlow(status.stage === 'finalized' && status.signature !== null
-                ? { kind: 'finalized', signature: status.signature, positionState: status.positionState }
-                : { kind: 'confirming', signature: status.signature, positionState: status.positionState });
+                ? { kind: 'finalized', signature: status.signature, positionState: status.positionState, commitment: status.commitment }
+                : { kind: 'confirming', signature: status.signature, positionState: status.positionState, commitment: status.commitment });
               return;
             }
           }
@@ -331,6 +343,23 @@ export function PositionManager(props: PositionManagerProps) {
     window.location.assign(`https://t.me/${encodeURIComponent(props.botUsername)}`);
   }, [props.botUsername]);
 
+  // Closing the Mini App lands back in the originating chat, so prefer the
+  // native close over a t.me hop when the bridge supports it.
+  const finishInTelegram = useCallback(() => {
+    if (!closeTelegramWebApp(window)) returnToTelegram();
+  }, [returnToTelegram]);
+
+  useEffect(() => {
+    if (flow.kind === 'finalized') triggerTelegramHapticNotification(window, 'success');
+    if (flow.kind === 'failed') triggerTelegramHapticNotification(window, 'error');
+  }, [flow.kind]);
+
+  useEffect(() => {
+    if (flow.kind !== 'signing') return;
+    setTelegramClosingConfirmation(window, true);
+    return () => setTelegramClosingConfirmation(window, false);
+  }, [flow.kind]);
+
   const recoverStatus = useCallback(async () => {
     if (activeWallet === null) {
       fail('unknown_confirmation');
@@ -349,6 +378,7 @@ export function PositionManager(props: PositionManagerProps) {
           kind: 'finalized',
           signature: status.signature,
           positionState: status.positionState,
+          commitment: status.commitment,
         });
         return;
       }
@@ -357,6 +387,7 @@ export function PositionManager(props: PositionManagerProps) {
           kind: 'confirming',
           signature: status.signature,
           positionState: status.positionState,
+          commitment: status.commitment,
         });
         return;
       }
@@ -385,22 +416,46 @@ export function PositionManager(props: PositionManagerProps) {
       />
     );
   }
-  if (flow.kind === 'confirming') {
-    const copy = positionStatusCopy('confirming', flow.positionState);
-    return <WalletState title={copy.title} text={copy.text} loading />;
-  }
-  if (flow.kind === 'finalized') {
-    const copy = positionStatusCopy('finalized', flow.positionState);
+  if (flow.kind === 'confirming' || flow.kind === 'finalized') {
+    const copy = positionStatusCopy(flow.kind, flow.positionState);
+    const model = positionProgress({
+      stage: flow.kind,
+      commitment: flow.commitment,
+      positionState: flow.positionState,
+    });
     return (
       <WalletState
         title={copy.title}
         text={copy.text}
         action={(
-          <div className="mt-5">
-            <WalletButton icon={<ArrowLeft size={18} />} onClick={returnToTelegram}>
-              Return to Telegram
-            </WalletButton>
-          </div>
+          <>
+            <PositionProgress model={model} />
+            {model.fairPlayNote !== null && (
+              <p role="status" className="mt-3 flex items-center justify-center gap-2 text-sm font-semibold text-flood-300">
+                <ShieldCheck aria-hidden size={16} />{model.fairPlayNote}
+              </p>
+            )}
+            {flow.signature !== null && (
+              <div className="mt-4">
+                <p className="break-all font-mono text-xs text-fog">{flow.signature}</p>
+                <a
+                  className="mt-1 block break-all text-sm text-sky-400 underline underline-offset-4"
+                  href={explorerTransactionUrl(flow.signature, props.network)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View transaction
+                </a>
+              </div>
+            )}
+            {flow.kind === 'finalized' && (
+              <div className="mt-5">
+                <WalletButton icon={<CheckCircle2 size={18} />} onClick={finishInTelegram}>
+                  Done
+                </WalletButton>
+              </div>
+            )}
+          </>
         )}
       />
     );

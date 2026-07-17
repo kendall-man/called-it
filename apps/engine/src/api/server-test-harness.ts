@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 import type { Env } from '../env.js';
 import type { Logger } from '../log.js';
 import type { Deps, EngineDb, FixtureRow, MarketRow } from '../ports.js';
+import type { EscrowTelegramPort } from '../bot/escrow-ux.js';
 import type { Poster } from '../bot/poster.js';
 import { createPointMethodStubs } from '../points/point-methods.test-support.js';
 import { createWagerModule } from '../wager/module.js';
@@ -213,6 +214,7 @@ export async function startHarness(options: {
   telegramIngress?: TelegramIngressPort;
   handleTelegramUpdate?: (update: Record<string, unknown>) => Promise<void>;
   escrowPositions?: EscrowPositionAcceptApi;
+  escrowSessions?: EscrowTelegramPort;
   escrowWebTokenSha256?: string;
 } = {}): Promise<ApiHarness> {
   const wagerBundle = makeFakeDeps({ now: () => NOW });
@@ -242,6 +244,8 @@ export async function startHarness(options: {
     post: () => undefined,
     editCard: () => undefined,
     stripKeyboard: () => undefined,
+    react: () => undefined,
+    chatAction: () => undefined,
   };
   const server = startEngineApi({
     deps,
@@ -259,6 +263,9 @@ export async function startHarness(options: {
     ...(options.escrowPositions === undefined
       ? {}
       : { escrowPositions: options.escrowPositions }),
+    ...(options.escrowSessions === undefined
+      ? {}
+      : { escrowSessions: options.escrowSessions }),
     ...(options.escrowWebTokenSha256 === undefined
       ? {}
       : { escrowWebTokenSha256: options.escrowWebTokenSha256 }),

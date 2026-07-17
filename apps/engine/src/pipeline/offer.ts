@@ -10,11 +10,12 @@
 
 import type { User } from 'grammy/types';
 import { TUNABLES } from '@calledit/market-engine';
-import type { ClaimRow, Deps, FixtureRow, GroupRow } from '../ports.js';
+import type { ClaimRow, Deps, FixtureRow, GroupRow, MarketRow } from '../ports.js';
 import type { HandlerCtx } from '../bot/context.js';
-import { describeTerms } from '../bot/cards.js';
+import { describeTerms, skeletonCardText } from '../bot/cards.js';
 import {
   confirmKeyboard,
+  marketStakeKeyboard,
   offerKeyboard,
   optionsKeyboard,
   retryParseKeyboard,
@@ -35,6 +36,19 @@ import {
   type ParseEnvelope,
   type ProveOutcome,
 } from './claims.js';
+
+/**
+ * The provisioning poll runs every 1.5s; Telegram clears a "typing" status
+ * after ~5s, so every third poll attempt (4.5s) re-arms it just in time.
+ */
+const TYPING_REFRESH_POLL_ATTEMPTS = 3;
+
+/**
+ * How long the full-card step waits for the skeleton send to land before
+ * falling back to posting the full card as a fresh message. Generous because
+ * the send queue may be rate-limited behind a goal burst.
+ */
+const SKELETON_SEND_TIMEOUT_MS = 30_000;
 
 /** The claim TTL is an inactivity deadline; every meaningful step pushes it out. */
 function extendedClaimExpiry(deps: Deps): string {
@@ -86,6 +100,59 @@ function replayContext(
 }
 
 /**
+ * Post the card shell the moment the market row exists so the group sees
+ * progress instead of dead air during the (up to 60s) escrow provisioning
+ * wait. Resolves with the persisted card message id once the send lands, or
+ * null when the send fails or times out — callers then fall back to posting
+ * the full card as a fresh message (the pre-skeleton behavior).
+ */
+async function postSkeletonCard(
+  h: HandlerCtx,
+  claim: ClaimRow,
+  market: MarketRow,
+): Promise<number | null> {
+  const claimer = await h.deps.db.getUser(claim.claimer_user_id);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), SKELETON_SEND_TIMEOUT_MS);
+    timer.unref();
+    h.poster.post(claim.group_id, skeletonCardText({
+      quotedText: claim.quoted_text,
+      claimerName: claimer?.display_name ?? 'the claimer',
+      isReplay: market.is_replay,
+    }), {
+      replyToMessageId: claim.tg_message_id,
+      onSent: async (messageId) => {
+        // Persist BEFORE resolving so a crash after this point finds the id
+        // and a retry edits this message instead of posting a second card.
+        await h.deps.db.setMarketCardMessage(market.id, messageId);
+        clearTimeout(timer);
+        resolve(messageId);
+      },
+      onSendFailed: () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+    });
+  });
+}
+
+/**
+ * A retry that finds the market already minted may be recovering from a crash
+ * between the skeleton post and the full-card edit — finish that edit from
+ * persisted state (the settler's refresh shape) instead of leaving the card
+ * stuck on "pricing". Editing an already-complete card is a Telegram no-op.
+ */
+async function repairExistingCard(h: HandlerCtx, market: MarketRow): Promise<void> {
+  if (market.card_tg_message_id === null) return;
+  const card = await composeClaimCard(h.deps, market);
+  if (!card || card.messageId === null) return;
+  const keyboard = market.status === 'open' || market.status === 'pending_lineup'
+    ? marketStakeKeyboard(h.deps, market)
+    : undefined;
+  h.poster.editCard(card.chatId, market.id, card.messageId, card.text, keyboard);
+}
+
+/**
  * Price the chosen spec and, if it holds, mint the market and post the offer
  * card. Shared by the detect path (kind 'ok') and the option-pick tap. Returns
  * whether a market was minted so the tap handler can ack correctly.
@@ -100,6 +167,8 @@ export async function mintOffer(
   const option = envelope.options.find((candidate) => candidate.key === optionKey);
   if (!option) return { minted: false };
   const spec = option.spec;
+  // Presence, not narration: the group sees work happening without a message.
+  h.poster.chatAction(claim.group_id, 'typing');
   const replay = replayContext(h, claim.group_id, spec.fixtureId);
 
   // This quote LOCKS the settlement ratio — never mint on a failed/degenerate price.
@@ -146,8 +215,10 @@ export async function mintOffer(
   // One market per claim — belt-and-braces against a double mint (crash between
   // the market insert and the status flip). Runs inside the caller's claim lock.
   const openMarkets = await h.deps.db.openMarketsForGroup(group.id);
-  if (openMarkets.some((market) => market.claim_id === claim.id)) {
+  const existingMarket = openMarkets.find((market) => market.claim_id === claim.id);
+  if (existingMarket !== undefined) {
     await h.deps.db.updateClaim(claim.id, { status: 'confirmed' });
+    await repairExistingCard(h, existingMarket);
     return { minted: false };
   }
 
@@ -190,8 +261,15 @@ export async function mintOffer(
       fixture: mintFixture,
     });
     await h.deps.db.updateClaim(claim.id, { parse: pricedEnvelope });
-    const escrowReady = await escrowMarketPositionsReady(h.deps, market);
-    return { kind: 'minted' as const, market, escrowReady };
+    // The skeleton send rides the queue without blocking the lock; the edit
+    // into the full card below awaits its message id.
+    const skeletonMessageId = postSkeletonCard(h, claim, market);
+    const escrowReady = await escrowMarketPositionsReady(h.deps, market, undefined, (attempt) => {
+      if (attempt % TYPING_REFRESH_POLL_ATTEMPTS === 0) {
+        h.poster.chatAction(claim.group_id, 'typing');
+      }
+    });
+    return { kind: 'minted' as const, market, escrowReady, skeletonMessageId };
   });
   if (mintResult.kind === 'closed') {
     await h.deps.db.updateClaim(claim.id, { status: 'expired' });
@@ -200,7 +278,7 @@ export async function mintOffer(
     });
     return { minted: false };
   }
-  const { market, escrowReady } = mintResult;
+  const { market, escrowReady, skeletonMessageId } = mintResult;
   const currency = market.currency === 'usdc' ? 'usdc' : 'sol';
 
   const positionsAvailable = escrowReady && (
@@ -208,7 +286,15 @@ export async function mintOffer(
     || (h.deps.wager !== null && await h.deps.wager.stakesAvailable(currency))
   );
   const card = await composeClaimCard(h.deps, market, { positionsAvailable });
-  if (!card) return { minted: true };
+  const cardMessageId = await skeletonMessageId;
+  if (!card) {
+    // The claim or group row vanished mid-mint. Do not leave the shell
+    // claiming it is still pricing — no positions changed, no SOL moved.
+    if (cardMessageId !== null) {
+      h.poster.editCard(claim.group_id, market.id, cardMessageId, await h.say('hiccup'));
+    }
+    return { minted: true };
+  }
   const claimer = await h.deps.db.getUser(claim.claimer_user_id);
   const garnish = await h.say('offer_live', {
     claimer: claimer?.display_name ?? 'legend',
@@ -216,13 +302,21 @@ export async function mintOffer(
       ?? (currency === 'usdc' ? '1 USDC' : '0.01 SOL'),
   });
   const pendingNote = market.status === 'pending_lineup' ? await h.say('pending_lineup_note') : '';
-  h.poster.post(claim.group_id, composeTelegramMessage({
+  const fullCardText = composeTelegramMessage({
     body: card.text,
     garnish,
     note: pendingNote,
-  }), {
+  });
+  const keyboard = positionsAvailable ? offerKeyboard(market) : undefined;
+  if (cardMessageId !== null) {
+    // Edit the skeleton into the full offer card (or its paused/failure
+    // state) — the market keeps one group surface for its whole life.
+    h.poster.editCard(claim.group_id, market.id, cardMessageId, fullCardText, keyboard);
+    return { minted: true };
+  }
+  h.poster.post(claim.group_id, fullCardText, {
     replyToMessageId: claim.tg_message_id,
-    ...(positionsAvailable ? { keyboard: offerKeyboard(market) } : {}),
+    ...(keyboard ? { keyboard } : {}),
     onSent: async (messageId) => {
       await h.deps.db.setMarketCardMessage(market.id, messageId);
     },
@@ -355,6 +449,11 @@ export async function offerClaim(h: HandlerCtx, args: OfferArgs): Promise<void> 
     classifier_confidence: args.confidence,
     expires_at: consent === 'explicit' ? extendedClaimExpiry(h.deps) : confirmationExpiry(h.deps),
   });
+  // Every path that commits to a claim funnels through this insert (mention,
+  // "book it"/bookit reply, passive detection past the classifier), so this
+  // one reaction is the zero-clutter "seen it" ack — once per claim, in every
+  // chattiness mode, because reactions are budget-free.
+  h.poster.react(args.chatId, args.sourceMessageId, '👀');
   h.deps.log.info('offer_claim', {
     claimId: claim.id,
     confidence: args.confidence,
@@ -370,6 +469,7 @@ export async function offerClaim(h: HandlerCtx, args: OfferArgs): Promise<void> 
   const replay = replayFixtureId === undefined
     ? undefined
     : replayContext(h, args.chatId, replayFixtureId);
+  h.poster.chatAction(args.chatId, 'typing');
   const outcome = await proveClaim(h.deps, claim, replayFixtureId, replay);
   await routeProveOutcome(h, claim, args.group, outcome, args.announce);
 }
@@ -380,6 +480,7 @@ export async function retryOffer(h: HandlerCtx, claim: ClaimRow, group: GroupRow
   const replay = replayFixtureId === undefined
     ? undefined
     : replayContext(h, group.id, replayFixtureId);
+  h.poster.chatAction(group.id, 'typing');
   const outcome = await proveClaim(h.deps, claim, replayFixtureId, replay);
   await routeProveOutcome(h, claim, group, outcome, true);
 }

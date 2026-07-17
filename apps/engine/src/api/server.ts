@@ -25,9 +25,14 @@ import {
 } from './server-read.js';
 import { handleQuoteRequest } from './server-write.js';
 import {
+  createEscrowSessionRateLimiter,
   handleEscrowPositionAccept,
+  handleEscrowPositionSession,
+  handleEscrowWalletSession,
   type EscrowPositionAcceptApi,
+  type EscrowSessionRouteDeps,
 } from './server-escrow.js';
+import type { EscrowTelegramPort } from '../bot/escrow-ux.js';
 
 export type {
   EscrowPositionAcceptApi,
@@ -48,6 +53,8 @@ export interface EngineApiOptions {
   drainState: DrainState;
   telegramIngress?: TelegramIngressPort;
   escrowPositions?: EscrowPositionAcceptApi;
+  /** Mini App session minting; the same port the group-tap DM flow uses. */
+  escrowSessions?: EscrowTelegramPort;
   /** SHA-256 digest of WEB_CONCIERGE_TOKEN; never pass the bearer plaintext here. */
   escrowWebTokenSha256?: string;
 }
@@ -55,9 +62,13 @@ export interface EngineApiOptions {
 export function startEngineApi(options: EngineApiOptions): Server {
   const credentials = createRouteCredentialBoundary(routeCredentials(options));
   const quoteBudget = new LlmBudget(undefined, options.deps.now);
+  const sessionLimiters = {
+    positions: createEscrowSessionRateLimiter(options.deps.now),
+    wallet: createEscrowSessionRateLimiter(options.deps.now),
+  };
   const server = createServer((req, res) => {
     const requestId = randomUUID();
-    void route(options, quoteBudget, credentials, req, res).catch((err) => {
+    void route(options, quoteBudget, sessionLimiters, credentials, req, res).catch((err) => {
       options.log.error('engine_api_unhandled', {
         requestId,
         reason: redactedFailureReason(err),
@@ -71,9 +82,15 @@ export function startEngineApi(options: EngineApiOptions): Server {
   return server;
 }
 
+interface EscrowSessionRateLimiters {
+  readonly positions: EscrowSessionRouteDeps['rateLimiter'];
+  readonly wallet: EscrowSessionRouteDeps['rateLimiter'];
+}
+
 async function route(
   options: EngineApiOptions,
   quoteBudget: LlmBudget,
+  sessionLimiters: EscrowSessionRateLimiters,
   credentials: RouteCredentialBoundary,
   req: IncomingMessage,
   res: ServerResponse,
@@ -212,7 +229,38 @@ async function route(
     });
     return;
   }
+  if (req.method === 'POST' && path === '/api/escrow/positions/session') {
+    await handleEscrowPositionSession({
+      body: body.value,
+      deps: escrowSessionRouteDeps(options, sessionLimiters.positions),
+      res,
+    });
+    return;
+  }
+  if (req.method === 'POST' && path === '/api/escrow/wallet/session') {
+    await handleEscrowWalletSession({
+      body: body.value,
+      deps: escrowSessionRouteDeps(options, sessionLimiters.wallet),
+      res,
+    });
+    return;
+  }
   sendJson(res, 404, { error: 'not_found' });
+}
+
+function escrowSessionRouteDeps(
+  options: EngineApiOptions,
+  rateLimiter: EscrowSessionRouteDeps['rateLimiter'],
+): EscrowSessionRouteDeps {
+  return {
+    custodyMode: options.env.WAGER_CUSTODY_MODE,
+    sessions: options.escrowSessions,
+    network: options.env.SOLANA_NETWORK,
+    markets: options.deps.db,
+    users: options.deps.db,
+    rateLimiter,
+    log: options.log,
+  };
 }
 
 function telegramWebhookSecretMatches(req: IncomingMessage, expected: string): boolean {
@@ -244,6 +292,8 @@ function allowedScopes(method: string, path: string): ReadonlySet<RouteScope> | 
   if (method === 'POST' && path === '/api/telegram-ingress') return telegram();
   if (method === 'GET' && path === '/api/ops/status') return ops();
   if (method === 'POST' && path === '/api/escrow/positions/accept') return escrowWeb();
+  if (method === 'POST' && path === '/api/escrow/positions/session') return escrowWeb();
+  if (method === 'POST' && path === '/api/escrow/wallet/session') return escrowWeb();
   return null;
 }
 

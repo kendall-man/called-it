@@ -6,7 +6,7 @@
 
 // allow: SIZE_OK - base pure LOC 563; only feature delta is the typed/bounded point-method test stub needed by EngineDb/card refresh.
 import { describe, expect, it } from 'vitest';
-import type { Context } from 'grammy';
+import type { Context, InlineKeyboard } from 'grammy';
 import { TUNABLES } from '@calledit/market-engine';
 import type { MarketSpec, PriceQuote } from '@calledit/market-engine';
 import { dispatchCallback } from './callbacks.js';
@@ -110,6 +110,14 @@ interface RecordedPost {
   options: PostOptions;
 }
 
+interface RecordedCardEdit {
+  chatId: number;
+  marketId: string;
+  messageId: number;
+  text: string;
+  keyboard?: InlineKeyboard;
+}
+
 interface RecordedLog {
   readonly event: string;
   readonly fields: LogFields | undefined;
@@ -118,6 +126,7 @@ interface RecordedLog {
 interface Harness {
   h: HandlerCtx;
   posts: RecordedPost[];
+  cardEdits: RecordedCardEdit[];
   patches: Array<Record<string, unknown>>;
   markets: MarketRow[];
   settlements: Array<Record<string, unknown>>;
@@ -141,6 +150,8 @@ interface HarnessConfig {
 function makeHarness(config: HarnessConfig): Harness {
   let claim = { ...config.claim };
   const posts: RecordedPost[] = [];
+  const cardEdits: RecordedCardEdit[] = [];
+  let nextPostedMessageId = 900;
   const patches: Array<Record<string, unknown>> = [];
   const markets: MarketRow[] = [];
   const settlements: Array<Record<string, unknown>> = [];
@@ -225,11 +236,23 @@ function makeHarness(config: HarnessConfig): Harness {
     poster: {
       post: (chatId: number, text: string, options: PostOptions = {}) => {
         posts.push({ chatId, text, options });
+        // Deliver like the real queue would so skeleton-card senders resolve.
+        void options.onSent?.(nextPostedMessageId++);
       },
-      editCard: () => undefined,
+      editCard: (
+        chatId: number,
+        marketId: string,
+        messageId: number,
+        text: string,
+        keyboard?: InlineKeyboard,
+      ) => {
+        cardEdits.push({ chatId, marketId, messageId, text, ...(keyboard ? { keyboard } : {}) });
+      },
       stripKeyboard: (_chatId: number, messageId: number) => {
         strippedKeyboardMessageIds.push(messageId);
       },
+      react: () => undefined,
+      chatAction: () => undefined,
     },
     say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
     supervisor: {
@@ -243,6 +266,7 @@ function makeHarness(config: HarnessConfig): Harness {
   return {
     h,
     posts,
+    cardEdits,
     patches,
     markets,
     settlements,
@@ -288,16 +312,16 @@ function fakeCtx(
   return { ctx, toasts, editedTexts };
 }
 
-function keyboardData(post: RecordedPost): string[] {
-  const keyboard = post.options.keyboard;
+function keyboardData(post: RecordedPost | RecordedCardEdit): string[] {
+  const keyboard = 'options' in post ? post.options.keyboard : post.keyboard;
   if (!keyboard) return [];
   return keyboard.inline_keyboard.flat().map((button) => {
     return 'callback_data' in button ? button.callback_data : '';
   });
 }
 
-function keyboardLabels(post: RecordedPost): string[] {
-  const keyboard = post.options.keyboard;
+function keyboardLabels(post: RecordedPost | RecordedCardEdit): string[] {
+  const keyboard = 'options' in post ? post.options.keyboard : post.keyboard;
   if (!keyboard) return [];
   return keyboard.inline_keyboard.flat().map((button) => button.text);
 }
@@ -327,7 +351,13 @@ describe('option pick prices and mints', () => {
     expect(harness.markets).toHaveLength(1);
     expect(harness.markets[0]).toMatchObject({ currency: 'sol', quote_probability: 0.6 });
     expect(harness.getClaim().status).toBe('confirmed');
-    const offer = harness.posts.at(-1)!;
+    // The skeleton posts first (no keyboard), then the same message is edited
+    // into the full offer card carrying the two fixed outcomes.
+    const skeleton = harness.posts.at(-1)!;
+    expect(skeleton.text).toContain('Pricing this call off the live feed');
+    expect(skeleton.options.keyboard).toBeUndefined();
+    const offer = harness.cardEdits.at(-1)!;
+    expect(offer.text).toContain('🎙 THE CALL');
     expect(keyboardLabels(offer)).toEqual([
       'It happens · 0.01 SOL',
       'It does not · 0.01 SOL',

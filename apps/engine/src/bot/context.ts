@@ -14,6 +14,15 @@ import type { EntityCache } from './entities.js';
 import type { LlmBudget } from './budget.js';
 import type { EscrowTelegramPort } from './escrow-ux.js';
 
+/** In-process live probes backing the admin /status board. */
+export interface EngineStatusProbes {
+  /** Escrow runtime readiness snapshot; absent without the escrow runtime. */
+  readonly escrowReadiness?: () => Promise<{
+    readonly status: 'ready' | 'not_ready';
+    readonly reasons: readonly string[];
+  }>;
+}
+
 export interface HandlerCtx {
   deps: Deps;
   queue: SendQueue;
@@ -24,6 +33,8 @@ export interface HandlerCtx {
   budget: LlmBudget;
   /** Optional until the escrow wiring wave binds identity and placement services. */
   escrow?: EscrowTelegramPort;
+  /** Optional live-status probes for the admin /status board. */
+  status?: EngineStatusProbes;
 }
 
 export function displayName(user: Pick<User, 'first_name' | 'last_name'>): string {

@@ -1,6 +1,7 @@
 import {
   createTelegramFetch,
   telegramJsonResponse,
+  type TelegramFetchInput,
 } from '../points/telegram-points-flow-fetch.test-support.js';
 
 type FetchBody = NonNullable<Parameters<typeof fetch>[1]>['body'] | undefined;
@@ -51,7 +52,11 @@ export class TelegramTransport {
     this.failuresRemaining += 1;
   }
 
-  readonly fetch = createTelegramFetch(async (_input, init) => {
+  readonly fetch = createTelegramFetch(async (input, init) => {
+    // Presence traffic (reactions, chat actions) is budget-free and
+    // best-effort; keep it out of the delivery timeline, retry gates, and
+    // message-id sequence these settlement tests assert on.
+    if (isPresenceMethod(input)) return telegramJsonResponse({ ok: true, result: true });
     this.attempts += 1;
     const gate = this.nextGate;
     this.nextGate = null;
@@ -75,6 +80,18 @@ export class TelegramTransport {
       },
     });
   });
+}
+
+function isPresenceMethod(input: TelegramFetchInput): boolean {
+  const url = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.href
+      : 'url' in input
+        ? input.url
+        : input.href;
+  const method = url.split('/').at(-1) ?? '';
+  return method === 'setMessageReaction' || method === 'sendChatAction';
 }
 
 function requestText(body: FetchBody): string | null {

@@ -98,6 +98,91 @@ describe('private escrow Telegram/read-model bridge', () => {
     expect(writes[2]?.body).toEqual({ state: 'active' });
   });
 
+  it('emits one resolved position event per projected write and survives a throwing hook', async () => {
+    const events: Array<{ eventKind: string; telegramUserId: number; marketId: string }> = [];
+    let hookCalls = 0;
+    const bridge = createSupabaseEscrowPrivateBridge({
+      supabaseUrl: 'https://db.test', serviceRoleKey: 'service-role', network: 'devnet',
+      markets: { async getMarket() { return MARKET; } }, clock: () => NOW,
+      positionEvents: {
+        async onFinalizedPositionEvent(event) {
+          hookCalls += 1;
+          if (hookCalls === 2) throw new Error('notification transport down');
+          events.push({
+            eventKind: event.eventKind,
+            telegramUserId: event.telegramUserId,
+            marketId: event.marketId,
+          });
+        },
+      },
+      async fetch(input, init) {
+        const url = new URL(input);
+        if (url.pathname.endsWith('/escrow_signing_sessions')) return response([{ user_id: 42 }]);
+        return init?.method === 'PATCH' ? response([{ id: 'updated' }]) : response(null);
+      },
+    });
+
+    await bridge.project(transaction('placed'));
+    // The throwing hook must not fail the projection behind the cursor.
+    await expect(bridge.project(transaction('activated'))).resolves.toBeUndefined();
+    await bridge.project(transaction('invalidated'));
+
+    expect(hookCalls).toBe(3);
+    expect(events).toEqual([
+      { eventKind: 'placed', telegramUserId: 42, marketId: MARKET_ID },
+      { eventKind: 'invalidated', telegramUserId: 42, marketId: MARKET_ID },
+    ]);
+  });
+
+  it('joins a dead-lettered placement job back to its Telegram signer', async () => {
+    const jobId = '9f14d0ab-9605-4a62-a9e4-5ed26688389b';
+    const bridge = createSupabaseEscrowPrivateBridge({
+      supabaseUrl: 'https://db.test', serviceRoleKey: 'service-role', network: 'devnet',
+      markets: { async getMarket() { return MARKET; } }, clock: () => NOW,
+      async fetch(input) {
+        const url = new URL(input);
+        if (url.pathname.endsWith('/escrow_relayer_jobs')) {
+          expect(url.searchParams.get('id')).toBe(`eq.${jobId}`);
+          return response([{ kind: 'position_placement', market_id: MARKET_ID, owner_pubkey: 'owner' }]);
+        }
+        if (url.pathname.endsWith('/escrow_signing_sessions')) return response([{ user_id: 42 }]);
+        return response(null);
+      },
+    });
+
+    await expect(bridge.resolveRelayerJobSigner(jobId)).resolves.toEqual({
+      kind: 'position_placement',
+      telegramUserId: 42,
+    });
+    await expect(bridge.resolveRelayerJobSigner('not-a-job-id')).resolves.toBeNull();
+  });
+
+  it('never attributes a non-placement job or a failed lookup to a user', async () => {
+    const jobId = '9f14d0ab-9605-4a62-a9e4-5ed26688389b';
+    const freezeBridge = createSupabaseEscrowPrivateBridge({
+      supabaseUrl: 'https://db.test', serviceRoleKey: 'service-role', network: 'devnet',
+      markets: { async getMarket() { return MARKET; } }, clock: () => NOW,
+      async fetch(input) {
+        const url = new URL(input);
+        if (url.pathname.endsWith('/escrow_relayer_jobs')) {
+          return response([{ kind: 'freeze', market_id: MARKET_ID, owner_pubkey: null }]);
+        }
+        throw new Error('unexpected lookup');
+      },
+    });
+    await expect(freezeBridge.resolveRelayerJobSigner(jobId)).resolves.toEqual({
+      kind: 'freeze',
+      telegramUserId: null,
+    });
+
+    const failingBridge = createSupabaseEscrowPrivateBridge({
+      supabaseUrl: 'https://db.test', serviceRoleKey: 'service-role', network: 'devnet',
+      markets: { async getMarket() { return MARKET; } }, clock: () => NOW,
+      async fetch() { return response(null, false); },
+    });
+    await expect(failingBridge.resolveRelayerJobSigner(jobId)).resolves.toBeNull();
+  });
+
   it('does not invent a Telegram identity for a direct on-chain position', async () => {
     let writes = 0;
     const bridge = createSupabaseEscrowPrivateBridge({

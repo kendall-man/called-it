@@ -77,6 +77,8 @@ export interface EscrowSignerCompletionDmInput {
   readonly amountAtomic: bigint;
   readonly side: 'back' | 'doubt';
   readonly state: 'finalized' | 'recoverable';
+  /** Optional public receipt page URL. Private signing tokens are rejected. */
+  readonly receiptUrl?: string;
   /** Optional public recovery route. Private signing tokens are rejected. */
   readonly recoveryUrl?: string;
 }
@@ -85,6 +87,7 @@ export interface EscrowSignerCompletionDmInput {
  * Explicit parent integration hook for finalized escrow projections. Telegram
  * handlers cannot observe finalizer events directly, so the finalized-indexer
  * bridge must call this after it resolves the signer Telegram user id.
+ * Both texts state facts, so an at-least-once redelivery reads fine twice.
  */
 export async function enqueueEscrowSignerCompletionDm(
   outbox: EscrowSignerCompletionDmOutbox,
@@ -95,16 +98,55 @@ export async function enqueueEscrowSignerCompletionDm(
   }
   const side = input.side === 'back' ? 'It happens' : 'It does not';
   const prefix = `${side} · ${formatAssetAmount(input.amountAtomic, input.asset)} · On-chain escrow · ${escrowNetworkLabel(input.network)}`;
+  const receiptUrl = publicEscrowActionUrl(input.receiptUrl);
   const recoveryUrl = publicEscrowActionUrl(input.recoveryUrl);
   const text = input.state === 'finalized'
-    ? `${prefix}\nYour position is finalized on-chain. The group card refreshes from finalized chain data.`
-    : `${prefix}\nRecovery is available. Open /wallet in private chat.`;
+    ? [
+        prefix,
+        'Your position is finalized on-chain. The group card refreshes from finalized chain data.',
+        ...(receiptUrl === null ? [] : [`Receipt: ${receiptUrl}`]),
+      ].join('\n')
+    : [
+        prefix,
+        `That position was rolled back on-chain and will not count. Your ${input.asset.toUpperCase()} is not lost — it comes back through the escrow refund.`,
+        'Open /wallet in private chat to track the refund.',
+      ].join('\n');
   await outbox.enqueue({
     idempotencyKey: input.idempotencyKey,
     telegramUserId: input.telegramUserId,
     text,
     ...(recoveryUrl === null ? {} : { recoveryUrl }),
   });
+}
+
+/** Caps the in-memory completion-DM dedupe set so it cannot grow unbounded. */
+const COMPLETION_DM_DEDUPE_LIMIT = 4_096;
+
+/**
+ * Per-process completion-DM outbox. Idempotency is the event key: a redelivered
+ * projection (indexer replay, restart) sends at most one DM per process, and
+ * the copy stays safe to receive twice across restarts. Delivery failures
+ * (user never started the bot) are swallowed and logged by the send queue,
+ * exactly like the custodial deposit DMs.
+ */
+export function createEscrowSignerCompletionDmOutbox(options: {
+  readonly post: (chatId: number, text: string) => void;
+}): EscrowSignerCompletionDmOutbox {
+  const delivered = new Set<string>();
+  return {
+    async enqueue(input) {
+      if (delivered.has(input.idempotencyKey)) return;
+      if (delivered.size >= COMPLETION_DM_DEDUPE_LIMIT) {
+        const oldest = delivered.values().next().value;
+        if (oldest !== undefined) delivered.delete(oldest);
+      }
+      delivered.add(input.idempotencyKey);
+      options.post(
+        input.telegramUserId,
+        input.recoveryUrl === undefined ? input.text : `${input.text}\n${input.recoveryUrl}`,
+      );
+    },
+  };
 }
 
 export type EscrowPlacementStatus =
@@ -207,6 +249,142 @@ export function escrowPlacementRejectionText(code: EscrowPlacementRejectionCode)
     case 'temporarily_unavailable':
       return 'Secure signing is temporarily unavailable. No assets moved. Try the same choice again shortly.';
   }
+}
+
+/**
+ * Sent to a signer whose approved placement dead-lettered before landing
+ * (blockhash died pre-broadcast). The relayer never re-signs user
+ * transactions, so a fresh tap is the only recovery.
+ */
+export function escrowApprovalLapsedDmText(): string {
+  return 'That approval lapsed before it reached the chain. No SOL moved. Tap your choice on the card again for a fresh approval.';
+}
+
+/** Dead-letter codes the affected signer can act on by simply re-tapping. */
+export const ESCROW_USER_ATTRIBUTABLE_DEAD_LETTERS: readonly string[] = [
+  'user_signature_expired',
+  'user_signature_invalid_or_expired',
+];
+
+/** Ops chat line for a dead-lettered relayer job (internal surface, code included). */
+export function escrowOpsDeadLetterAlertText(errorCode: string): string {
+  return [
+    `ESCROW OPS — a relayer job dead-lettered (code: ${errorCode}).`,
+    'No SOL is lost; escrowed funds stay recoverable from durable state.',
+    'Check the engine logs for the affected jobs.',
+  ].join('\n');
+}
+
+/** Ops chat line for a degraded escrow runtime signal (internal surface). */
+export function escrowOpsRuntimeAlertText(reason: string): string {
+  switch (reason) {
+    case 'oracle_threshold_unavailable':
+      return 'ESCROW OPS — oracle attestation quorum is unavailable. Settlement work waits until enough oracle signers respond. Check the oracle signer endpoints.';
+    case 'indexer_lagging':
+    case 'indexer_unavailable':
+      return 'ESCROW OPS — the finalized indexer is behind the chain. Cards and receipts update late until it catches up. Check RPC health and the indexer cursor.';
+    case 'rpc_unavailable':
+      return 'ESCROW OPS — the Solana RPC connection is failing. Escrow work pauses until it recovers. Check the RPC endpoint.';
+    default:
+      return `ESCROW OPS — escrow runtime degraded (reason: ${reason}). Check the engine logs.`;
+  }
+}
+
+/** Readiness reasons worth an ops page (the rest fail loudly at boot). */
+export const ESCROW_OPS_ALERT_READINESS_REASONS: readonly string[] = [
+  'oracle_threshold_unavailable',
+  'indexer_lagging',
+  'indexer_unavailable',
+  'rpc_unavailable',
+];
+
+export const ESCROW_OPS_ALERT_WINDOW_MS = 10 * 60_000;
+
+/** Structural twin of the relayer worker's per-job run result. */
+export type EscrowRelayerObservedResult =
+  | {
+      readonly kind: 'submitted' | 'retrying' | 'complete';
+      readonly jobId: string;
+      readonly signature: string;
+    }
+  | { readonly kind: 'terminal'; readonly jobId: string; readonly errorCode: string };
+
+export interface EscrowProgressObserver {
+  /** Sees every relayer cycle's results; presentation only, never throws. */
+  observeRelayerResults(results: readonly EscrowRelayerObservedResult[]): void;
+  /** Feeds periodic escrow readiness reports into the same ops alert stream. */
+  observeEscrowReadiness(report: {
+    readonly status: 'ready' | 'not_ready';
+    readonly reasons: readonly string[];
+  }): void;
+}
+
+/**
+ * Maps discarded runtime signals to humans: terminal placement failures the
+ * signer caused become a private "tap again" DM, and every dead letter plus
+ * degraded-runtime reason becomes a rate-limited ops chat alert (at most one
+ * message per error code per window, in-memory).
+ */
+export function createEscrowProgressObserver(options: {
+  readonly opsChatId: number | null;
+  readonly post: (chatId: number, text: string) => void;
+  /** Joins a dead-lettered job to its signer; null when the join is unavailable. */
+  readonly resolveDeadLetterSigner: (jobId: string) => Promise<{
+    readonly kind: string;
+    readonly telegramUserId: number | null;
+  } | null>;
+  readonly now: () => number;
+  readonly log: {
+    info(event: string, fields?: Readonly<Record<string, unknown>>): void;
+    warn(event: string, fields?: Readonly<Record<string, unknown>>): void;
+  };
+  readonly alertWindowMs?: number;
+}): EscrowProgressObserver {
+  const windowMs = options.alertWindowMs ?? ESCROW_OPS_ALERT_WINDOW_MS;
+  const lastAlertAtMs = new Map<string, number>();
+
+  function opsAlert(code: string, text: string): void {
+    if (options.opsChatId === null) return;
+    const nowMs = options.now();
+    const last = lastAlertAtMs.get(code);
+    if (last !== undefined && nowMs - last < windowMs) return;
+    lastAlertAtMs.set(code, nowMs);
+    options.post(options.opsChatId, text);
+  }
+
+  async function dmLapsedSigner(jobId: string, errorCode: string): Promise<void> {
+    let signer: Awaited<ReturnType<typeof options.resolveDeadLetterSigner>>;
+    try {
+      signer = await options.resolveDeadLetterSigner(jobId);
+    } catch {
+      signer = null;
+    }
+    if (signer === null || signer.kind !== 'position_placement' || signer.telegramUserId === null) {
+      options.log.warn('escrow_dead_letter_signer_unresolved', { errorCode });
+      return;
+    }
+    options.post(signer.telegramUserId, escrowApprovalLapsedDmText());
+    options.log.info('escrow_dead_letter_signer_notified', { errorCode });
+  }
+
+  return {
+    observeRelayerResults(results) {
+      for (const result of results) {
+        if (result.kind !== 'terminal') continue;
+        opsAlert(result.errorCode, escrowOpsDeadLetterAlertText(result.errorCode));
+        if (ESCROW_USER_ATTRIBUTABLE_DEAD_LETTERS.includes(result.errorCode)) {
+          void dmLapsedSigner(result.jobId, result.errorCode);
+        }
+      }
+    },
+    observeEscrowReadiness(report) {
+      if (report.status === 'ready') return;
+      for (const reason of report.reasons) {
+        if (!ESCROW_OPS_ALERT_READINESS_REASONS.includes(reason)) continue;
+        opsAlert(reason, escrowOpsRuntimeAlertText(reason));
+      }
+    },
+  };
 }
 
 export function escrowPlacementStatusText(input: EscrowPlacementStatusInput): string {

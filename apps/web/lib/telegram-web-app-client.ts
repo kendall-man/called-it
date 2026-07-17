@@ -5,6 +5,43 @@ export function telegramInitDataFromWebApp(value: unknown): string | null {
     : null;
 }
 
+// Routing hint only: authoritative start_param parsing happens server-side
+// from the HMAC-verified initData string.
+export function telegramStartParamFromWebApp(value: unknown): string | null {
+  const unsafe = record(telegramWebApp(value)?.initDataUnsafe);
+  const startParam = unsafe?.start_param;
+  return typeof startParam === 'string' && startParam.length > 0 ? startParam : null;
+}
+
+export function triggerTelegramHapticNotification(
+  value: unknown,
+  type: 'success' | 'error',
+): void {
+  const haptic = record(telegramWebApp(value)?.HapticFeedback);
+  const notify = haptic?.notificationOccurred;
+  if (typeof notify !== 'function') return;
+  try { notify.call(haptic, type); } catch { /* Optional feedback; older clients may reject it. */ }
+}
+
+export function setTelegramClosingConfirmation(value: unknown, enabled: boolean): void {
+  const webApp = telegramWebApp(value);
+  if (webApp === null) return;
+  call(webApp, enabled ? 'enableClosingConfirmation' : 'disableClosingConfirmation');
+}
+
+/** Returns true only when the Telegram bridge accepted the close request. */
+export function closeTelegramWebApp(value: unknown): boolean {
+  const webApp = telegramWebApp(value);
+  const close = webApp?.close;
+  if (webApp === null || typeof close !== 'function') return false;
+  try {
+    close.call(webApp);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function initializeTelegramWebApp(value: unknown): (() => void) | null {
   const webApp = telegramWebApp(value);
   if (webApp === null) return null;

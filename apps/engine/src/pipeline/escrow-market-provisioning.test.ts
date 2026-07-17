@@ -42,6 +42,49 @@ describe('escrow market card gate', () => {
     expect(waits).toEqual([1_500, 1_500]);
   });
 
+  it('reports each replay poll attempt through the presence hook', async () => {
+    const ticks: number[] = [];
+    let attempts = 0;
+    const escrow = {
+      env: { WAGER_CUSTODY_MODE: 'escrow' },
+      log: { error() {} },
+    } as unknown as Deps;
+    registerEscrowMarketProvisioner(escrow, {
+      async ensure() {
+        attempts += 1;
+        return attempts === 5;
+      },
+    });
+
+    await expect(escrowMarketPositionsReady(
+      escrow,
+      { id: 'replay-market', is_replay: true } as MarketRow,
+      async () => undefined,
+      (attempt) => { ticks.push(attempt); },
+    )).resolves.toBe(true);
+
+    // One tick per retry poll; the initial pre-poll ensure has no tick.
+    expect(ticks).toEqual([1, 2, 3, 4]);
+  });
+
+  it('never ticks the presence hook when provisioning is ready at once', async () => {
+    const ticks: number[] = [];
+    const escrow = {
+      env: { WAGER_CUSTODY_MODE: 'escrow' },
+      log: { error() {} },
+    } as unknown as Deps;
+    registerEscrowMarketProvisioner(escrow, { async ensure() { return true; } });
+
+    await expect(escrowMarketPositionsReady(
+      escrow,
+      { id: 'replay-market', is_replay: true } as MarketRow,
+      async () => undefined,
+      (attempt) => { ticks.push(attempt); },
+    )).resolves.toBe(true);
+
+    expect(ticks).toEqual([]);
+  });
+
   it('does not block a live call while its market is queued', async () => {
     let attempts = 0;
     const escrow = {

@@ -12,6 +12,7 @@ import type { Env } from '../env.js';
 import type { Poster } from './poster.js';
 import { displayName, ensureChatContext, ensureUserSeen, isGroupAdmin, type HandlerCtx } from './context.js';
 import { ENGINE } from '../engineConstants.js';
+import { escrowRuntimeStatusLabel, statusBoardText, type StatusBoardInput } from './cards.js';
 import { settingsKeyboard, voidReplayBlockerKeyboard } from './keyboards.js';
 import { offerClaim } from '../pipeline/offer.js';
 import type { Say } from './copy.js';
@@ -273,6 +274,48 @@ export function registerNavigationCommands(bot: NavigationCommandBot, h: Navigat
   });
 }
 
+/**
+ * Aggregate the admin /status board from in-process state and persisted rows:
+ * feed mode (with the replay's virtual minute), this group's open-call and
+ * fair-play-pending counts, and the escrow runtime's plain-words health.
+ */
+export async function composeStatusBoard(
+  h: HandlerCtx,
+  groupId: number,
+): Promise<StatusBoardInput> {
+  const replay = h.supervisor.hasActiveReplay(groupId)
+    ? h.supervisor.replaySnapshot(groupId)
+    : null;
+  const openMarkets = await h.deps.db.openMarketsForGroup(groupId);
+  const positionsPerMarket = await Promise.all(
+    openMarkets.map((market) => h.deps.db.positionsForMarket(market.id)),
+  );
+  const pendingActivationCount = positionsPerMarket
+    .flat()
+    .filter((position) => position.state === 'pending').length;
+  let escrowRuntime: StatusBoardInput['escrowRuntime'];
+  if (h.status?.escrowReadiness !== undefined) {
+    try {
+      escrowRuntime = escrowRuntimeStatusLabel(await h.status.escrowReadiness());
+    } catch {
+      escrowRuntime = 'degraded';
+    }
+  }
+  return {
+    feed: replay === null
+      ? { kind: 'live' }
+      : {
+          kind: 'replay',
+          fixtureLabel: `${replay.p1_name} vs ${replay.p2_name}`,
+          virtualMinute: replay.minute,
+        },
+    openMarketCount: openMarkets.length,
+    pendingActivationCount,
+    ...(escrowRuntime === undefined ? {} : { escrowRuntime }),
+    solanaNetwork: h.deps.env.SOLANA_NETWORK,
+  };
+}
+
 export function registerCommands(bot: Bot, h: HandlerCtx): void {
   if (h.deps.env.WAGER_CUSTODY_MODE === 'escrow') {
     registerEscrowAccountCommands(bot, {
@@ -313,6 +356,30 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
     h.poster.post(ctx.chat.id, await h.say('settings_intro'), {
       keyboard: settingsKeyboard(group.chattiness, group.web_enabled),
     });
+  });
+
+  bot.command('status', async (ctx) => {
+    if (!isGroup(ctx.chat.type) || !ctx.from) return;
+    if (!isBetaGroupAllowed(h.deps.env, ctx.chat.id)) return;
+    const from = ctx.from;
+    await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', from);
+    const admin = await isGroupAdmin(h, () => ctx.getChatMember(from.id));
+    if (!admin) {
+      h.poster.post(ctx.chat.id, await h.say('admin_only'), {
+        replyToMessageId: ctx.message?.message_id,
+      });
+      return;
+    }
+    try {
+      h.poster.post(ctx.chat.id, statusBoardText(await composeStatusBoard(h, ctx.chat.id)), {
+        replyToMessageId: ctx.message?.message_id,
+      });
+    } catch {
+      h.deps.log.warn('status_board_failed');
+      h.poster.post(ctx.chat.id, await h.say('hiccup'), {
+        replyToMessageId: ctx.message?.message_id,
+      });
+    }
   });
 
   bot.command('currency', async (ctx) => {

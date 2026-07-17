@@ -34,11 +34,17 @@ function safeWorkerErrorFields(error: unknown): Readonly<Record<string, unknown>
   return fields;
 }
 
-export function createEscrowRuntimeLifecycle(options: {
+export function createEscrowRuntimeLifecycle<RelayerResults = unknown>(options: {
   readonly attestations: { runOnce(nowIso: string, limit: number): Promise<unknown> };
-  readonly relayer: { runOnce(nowIso: string, limit: number): Promise<unknown> };
+  readonly relayer: { runOnce(nowIso: string, limit: number): Promise<RelayerResults> };
   readonly indexer: { runOnce(limit: number): Promise<unknown> };
   readonly reconciliation?: EscrowAuxiliaryRuntimeLifecycle;
+  /**
+   * Presentation-only observer of each relayer cycle's results (which are
+   * otherwise discarded). Never affects retry or dead-letter handling; an
+   * observer exception is logged and the cycle continues.
+   */
+  readonly onRelayerResults?: (results: RelayerResults) => void;
   readonly clock: () => string;
   readonly intervalMs: number;
   readonly relayerLimit: number;
@@ -64,9 +70,19 @@ export function createEscrowRuntimeLifecycle(options: {
     }
   }
 
+  async function relayerPass(): Promise<void> {
+    const results = await options.relayer.runOnce(options.clock(), options.relayerLimit);
+    if (options.onRelayerResults === undefined) return;
+    try {
+      options.onRelayerResults(results);
+    } catch (error) {
+      options.log.error('escrow_relayer_observer_failed', safeWorkerErrorFields(error));
+    }
+  }
+
   async function cycle(): Promise<void> {
     await runWorker('attestations', () => options.attestations.runOnce(options.clock(), options.attestationLimit));
-    await runWorker('relayer', () => options.relayer.runOnce(options.clock(), options.relayerLimit));
+    await runWorker('relayer', relayerPass);
     await runWorker('indexer', () => options.indexer.runOnce(options.indexerLimit));
   }
 

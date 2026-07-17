@@ -30,6 +30,8 @@ class LimitPoster implements Poster {
 
   editCard(): void {}
   stripKeyboard(): void {}
+  react(): void {}
+  chatAction(): void {}
   idle(): Promise<void> { return this.completion; }
 }
 

@@ -125,6 +125,8 @@ interface StakeHandler {
     post: (chatId: number, text: string, options?: unknown) => void;
     editCard: (chatId: number, marketId: string, messageId: number) => void;
     stripKeyboard: () => void;
+    react: (chatId: number, messageId: number, emoji: string) => void;
+    chatAction: (chatId: number, action: string) => void;
   };
   say: (key: Parameters<typeof renderFallback>[0], vars?: Parameters<typeof renderFallback>[1]) => Promise<string>;
   supervisor: object;
@@ -271,6 +273,8 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
         cardEdits.push({ chatId, marketId, messageId });
       },
       stripKeyboard: () => undefined,
+      react: () => undefined,
+      chatAction: () => undefined,
     },
     say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
     supervisor: {
@@ -306,9 +310,12 @@ export function makeStakeContext(
 ): {
   ctx: Context;
   toasts: string[];
+  /** The subset of answers sent as modal alerts (show_alert: true). */
+  alerts: string[];
   privateMessages: Array<{ readonly chatId: number; readonly text: string; readonly options: unknown }>;
 } {
   const toasts: string[] = [];
+  const alerts: string[] = [];
   const privateMessages: Array<{
     readonly chatId: number;
     readonly text: string;
@@ -320,7 +327,11 @@ export function makeStakeContext(
     callbackQuery: { id: callbackId },
     answerCallbackQuery: async (payload) => {
       if (typeof payload !== 'string' && payload !== undefined && 'text' in payload) {
-        toasts.push(typeof payload.text === 'string' ? payload.text : '');
+        const text = typeof payload.text === 'string' ? payload.text : '';
+        toasts.push(text);
+        if ((payload as { readonly show_alert?: boolean }).show_alert === true) {
+          alerts.push(text);
+        }
       }
       return true;
     },
@@ -331,7 +342,7 @@ export function makeStakeContext(
       },
     },
   });
-  return { ctx, toasts, privateMessages };
+  return { ctx, toasts, alerts, privateMessages };
 }
 
 export const stakeAction = (side: 'back' | 'doubt', presetIndex: 0) =>

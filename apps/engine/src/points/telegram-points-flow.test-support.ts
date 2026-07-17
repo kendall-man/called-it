@@ -175,11 +175,16 @@ export class TelegramPointsFlowHarness {
   }
 
   outboundSequence(): readonly OutboundStep[] {
-    return this.runtime.transport.calls.map((call) => ({
-      method: call.method,
-      chatId: call.chatId,
-      kind: outboundKind(call.method, call.text),
-    }));
+    return this.runtime.transport.calls
+      // Presence traffic (reactions, chat actions) is fire-and-forget and
+      // bypasses the send queue, so its interleaving with queued sends is
+      // not deterministic — the sequence contract covers messages only.
+      .filter((call) => call.method !== 'setMessageReaction' && call.method !== 'sendChatAction')
+      .map((call) => ({
+        method: call.method,
+        chatId: call.chatId,
+        kind: outboundKind(call.method, call.text),
+      }));
   }
 
   private async requiredMarket(marketId: string): Promise<MarketRow> {

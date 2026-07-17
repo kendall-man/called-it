@@ -67,12 +67,16 @@ describe('Telegram group points flow', () => {
       ],
       settlementPosted: false,
     });
-    expect(harness.runtime.transport.calls.slice(outboundBeforeSettlement).map((call) => ({
-      method: call.method,
-      chatId: call.chatId,
-      locked: call.text?.includes('🚦 Calls locked') === true,
-      receipt: call.text?.includes('🧾 RECEIPT') === true,
-    }))).toEqual([
+    expect(harness.runtime.transport.calls.slice(outboundBeforeSettlement)
+      // Presence traffic (the budget-free settled-claim reaction) is not a
+      // message send; this assertion is about the delivery budget.
+      .filter((call) => call.method !== 'setMessageReaction' && call.method !== 'sendChatAction')
+      .map((call) => ({
+        method: call.method,
+        chatId: call.chatId,
+        locked: call.text?.includes('🚦 Calls locked') === true,
+        receipt: call.text?.includes('🧾 RECEIPT') === true,
+      }))).toEqual([
       { method: 'editMessageText', chatId: GROUP_ONE_ID, locked: true, receipt: false },
     ]);
     expect(harness.runtime.log.events.some((event) => event.event === 'group_points_applied')).toBe(false);
@@ -160,6 +164,7 @@ describe('Telegram group points flow', () => {
     // Then the exact outbound channel order is deterministic and every text is bounded and redacted
     expect(harness.outboundSequence()).toEqual([
       { method: 'sendMessage', chatId: GROUP_ONE_ID, kind: 'call' },
+      { method: 'editMessageText', chatId: GROUP_ONE_ID, kind: 'card-open' },
       { method: 'answerCallbackQuery', chatId: null, kind: 'choice-toast' },
       { method: 'editMessageText', chatId: GROUP_ONE_ID, kind: 'card-open' },
       { method: 'answerCallbackQuery', chatId: null, kind: 'choice-toast' },
@@ -168,6 +173,7 @@ describe('Telegram group points flow', () => {
       { method: 'sendMessage', chatId: GROUP_ONE_ID, kind: 'receipt' },
       { method: 'editMessageText', chatId: GROUP_ONE_ID, kind: 'card-settled' },
       { method: 'sendMessage', chatId: GROUP_ONE_ID, kind: 'call' },
+      { method: 'editMessageText', chatId: GROUP_ONE_ID, kind: 'card-open' },
       { method: 'answerCallbackQuery', chatId: null, kind: 'choice-toast' },
       { method: 'editMessageText', chatId: GROUP_ONE_ID, kind: 'card-open' },
       { method: 'answerCallbackQuery', chatId: null, kind: 'choice-toast' },
@@ -176,6 +182,7 @@ describe('Telegram group points flow', () => {
       { method: 'sendMessage', chatId: GROUP_ONE_ID, kind: 'receipt' },
       { method: 'editMessageText', chatId: GROUP_ONE_ID, kind: 'card-settled' },
       { method: 'sendMessage', chatId: GROUP_TWO_ID, kind: 'call' },
+      { method: 'editMessageText', chatId: GROUP_TWO_ID, kind: 'card-open' },
       { method: 'answerCallbackQuery', chatId: null, kind: 'choice-toast' },
       { method: 'editMessageText', chatId: GROUP_TWO_ID, kind: 'card-open' },
       { method: 'answerCallbackQuery', chatId: null, kind: 'choice-toast' },

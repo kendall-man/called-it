@@ -66,7 +66,7 @@ describe('loadEnv', () => {
       WAGER_RUNTIME_MODE: 'disabled',
       WAGER_CUSTODY_MODE: 'legacy',
       WAGER_MODE_ENABLED: 'false',
-      ESCROW_INDEXER_PAGE_SIZE: 1,
+      ESCROW_INDEXER_PAGE_SIZE: 10,
       ESCROW_WORKER_INTERVAL_MS: 5_000,
       ESCROW_MAINNET_ENABLED: false,
       ESCROW_ALLOWED_GROUP_IDS: [],
@@ -76,6 +76,30 @@ describe('loadEnv', () => {
 
   it('parses a configurable local replay speed', () => {
     expect(loadEnv({ ...BASE_ENV, CALLEDIT_REPLAY_SPEED: '8' }).CALLEDIT_REPLAY_SPEED).toBe(8);
+  });
+
+  it('leaves the Mini App short name unset when absent or blank', () => {
+    expect(loadEnv({ ...BASE_ENV }).TELEGRAM_MINIAPP_SHORT_NAME).toBeUndefined();
+    expect(loadEnv({ ...BASE_ENV, TELEGRAM_MINIAPP_SHORT_NAME: '' }).TELEGRAM_MINIAPP_SHORT_NAME)
+      .toBeUndefined();
+    expect(loadEnv({ ...BASE_ENV, TELEGRAM_MINIAPP_SHORT_NAME: '  ' }).TELEGRAM_MINIAPP_SHORT_NAME)
+      .toBeUndefined();
+  });
+
+  it('parses a BotFather-shaped Mini App short name', () => {
+    expect(loadEnv({ ...BASE_ENV, TELEGRAM_MINIAPP_SHORT_NAME: 'app' }).TELEGRAM_MINIAPP_SHORT_NAME)
+      .toBe('app');
+    expect(
+      loadEnv({ ...BASE_ENV, TELEGRAM_MINIAPP_SHORT_NAME: 'called_it_App2' })
+        .TELEGRAM_MINIAPP_SHORT_NAME,
+    ).toBe('called_it_App2');
+  });
+
+  it('rejects Mini App short names outside the t.me path charset', () => {
+    for (const invalid of ['@app', 'my/app', 'ab', 'a'.repeat(65), 'app name']) {
+      expect(() => loadEnv({ ...BASE_ENV, TELEGRAM_MINIAPP_SHORT_NAME: invalid }))
+        .toThrowError('Engine environment invalid: TELEGRAM_MINIAPP_SHORT_NAME');
+    }
   });
 
   it('fails closed when escrow custody is selected without its deployment contract', () => {

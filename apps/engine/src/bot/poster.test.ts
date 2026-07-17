@@ -27,6 +27,74 @@ function posterHarness(): {
   return { api, poster: createPoster(api, queue, log), queue, warnings };
 }
 
+async function flushMicrotasks(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+describe('poster presence (react / chatAction)', () => {
+  it('sends reactions and chat actions even when the send queue is stopped', async () => {
+    // Given a queue that will never run another task (proves budget bypass)
+    const harness = posterHarness();
+    harness.queue.stop();
+    const react = vi.spyOn(harness.api, 'setMessageReaction').mockResolvedValue(true as never);
+    const action = vi.spyOn(harness.api, 'sendChatAction').mockResolvedValue(true as never);
+
+    // When presence signals fire
+    harness.poster.react(-100, 42, '👀');
+    harness.poster.chatAction(-100, 'typing');
+    await flushMicrotasks();
+
+    // Then both hit the API directly, without consuming a queue slot
+    expect(react).toHaveBeenCalledWith(-100, 42, [{ type: 'emoji', emoji: '👀' }]);
+    expect(action).toHaveBeenCalledWith(-100, 'typing');
+  });
+
+  it('swallows reaction failures with an identity-free warning', async () => {
+    const harness = posterHarness();
+    vi.spyOn(harness.api, 'setMessageReaction').mockRejectedValue(
+      new Error('chatId=-100 messageId=42 name=Private Group'),
+    );
+
+    harness.poster.react(-100, 42, '🏆');
+    await flushMicrotasks();
+
+    expect(harness.warnings).toEqual([{ event: 'reaction_failed', fields: undefined }]);
+  });
+
+  it('swallows chat action failures with an identity-free warning', async () => {
+    const harness = posterHarness();
+    vi.spyOn(harness.api, 'sendChatAction').mockRejectedValue(
+      new Error('chatId=-100 name=Private Group'),
+    );
+
+    harness.poster.chatAction(-100, 'typing');
+    await flushMicrotasks();
+
+    expect(harness.warnings).toEqual([{ event: 'chat_action_failed', fields: undefined }]);
+  });
+
+  it('invokes onSendFailed (and not onSent) when a post send fails', async () => {
+    const harness = posterHarness();
+    vi.spyOn(harness.api, 'sendMessage').mockRejectedValue(new Error('boom'));
+    let failed = false;
+    let sent = false;
+
+    harness.poster.post(-100, 'Card shell', {
+      onSent: async () => {
+        sent = true;
+      },
+      onSendFailed: () => {
+        failed = true;
+      },
+    });
+    await harness.queue.idle();
+    harness.queue.stop();
+
+    expect(failed).toBe(true);
+    expect(sent).toBe(false);
+  });
+});
+
 describe('poster failure logging', () => {
   it('explicitly removes stale buttons when a card edit has no keyboard', async () => {
     const harness = posterHarness();

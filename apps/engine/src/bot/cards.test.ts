@@ -3,9 +3,13 @@ import type { MarketSpec } from '@calledit/market-engine';
 import {
   claimCardText,
   describeTerms,
+  escrowRuntimeStatusLabel,
+  FAIR_PLAY_PENDING_LINE,
   formatMultiplier,
   formatProbabilityPct,
   receiptCardText,
+  skeletonCardText,
+  statusBoardText,
   type ClaimCardInput,
   type ReceiptCardInput,
 } from './cards.js';
@@ -81,6 +85,42 @@ describe('describeTerms', () => {
   it('describes a comeback with its anchored deficit', () => {
     expect(describeTerms(COMEBACK_SPEC)).toContain('from 1-0 down');
     expect(describeTerms(COMEBACK_SPEC)).toContain('Brazil');
+  });
+});
+
+describe('skeleton card', () => {
+  const skeleton = skeletonCardText({
+    quotedText: CLAIM_INPUT.quotedText,
+    claimerName: CLAIM_INPUT.claimerName,
+    isReplay: false,
+  });
+
+  it('shares the full card header so the edit reads as the card filling in', () => {
+    const full = claimCardText(CLAIM_INPUT);
+    const skeletonHeader = skeleton.split('\n').slice(0, 2);
+
+    expect(full.split('\n').slice(0, 2)).toEqual(skeletonHeader);
+    expect(skeleton).toContain('⏳ Pricing this call off the live feed…');
+  });
+
+  it('carries no money lines, no buttons vocabulary, and no receipt link yet', () => {
+    expect(skeleton).not.toContain('SOL');
+    expect(skeleton).not.toContain('Receipt:');
+    expect(skeleton).not.toContain('It happens');
+    expect(skeleton).not.toMatch(/[$£€]/);
+    expect(skeleton).not.toMatch(/\b\d+\s*\/\s*\d+\b/); // no odds notation
+  });
+
+  it('marks replays and sanitizes hostile quoted text within the message limit', () => {
+    const hostile = skeletonCardText({
+      quotedText: `\u0000\u202e France \u{1F3C6} ${'x'.repeat(2_000)}`,
+      claimerName: '\u202eDee\u0000',
+      isReplay: true,
+    });
+
+    expect(hostile).toContain('\u{1F399} THE CALL \u00b7 REPLAY');
+    expect(hostile).not.toMatch(/[\u0000\u202e]/u);
+    expect(hostile.length).toBeLessThanOrEqual(4_096);
   });
 });
 
@@ -278,6 +318,27 @@ describe('cards', () => {
     expect(replay).not.toContain('No SOL or USDC moves');
   });
 
+  it('shows the fair-play line only while escrow lots are pending activation', () => {
+    const pending = claimCardText({
+      ...CLAIM_INPUT,
+      custodyMode: 'escrow',
+      solanaNetwork: 'devnet',
+      pendingActivationCount: 2,
+    });
+    const activated = claimCardText({
+      ...CLAIM_INPUT,
+      custodyMode: 'escrow',
+      solanaNetwork: 'devnet',
+      pendingActivationCount: 0,
+    });
+    const legacyPending = claimCardText({ ...CLAIM_INPUT, pendingActivationCount: 2 });
+
+    expect(pending).toContain(`⏳ ${FAIR_PLAY_PENDING_LINE}`);
+    expect(activated).not.toContain(FAIR_PLAY_PENDING_LINE);
+    expect(claimCardText(CLAIM_INPUT)).not.toContain(FAIR_PLAY_PENDING_LINE);
+    expect(legacyPending).not.toContain(FAIR_PLAY_PENDING_LINE);
+  });
+
   it('never renders Points on an escrow replay receipt', () => {
     const replay = receiptCardText({
       ...RECEIPT_INPUT,
@@ -298,5 +359,94 @@ describe('cards', () => {
     expect(replay).toContain('Completed-match replay · No Points changed');
     expect(replay).not.toContain('+10 points');
     expect(replay).not.toContain('Group leaderboard');
+  });
+});
+
+describe('status board', () => {
+  it('renders live feed, aggregate counts, escrow health, and the devnet footer', () => {
+    const board = statusBoardText({
+      feed: { kind: 'live' },
+      openMarketCount: 3,
+      pendingActivationCount: 2,
+      escrowRuntime: 'ready',
+      solanaNetwork: 'devnet',
+    });
+
+    expect(board).toContain('📟 STATUS');
+    expect(board).toContain('📡 Feed: live matches');
+    expect(board).toContain('🎙 Open calls here: 3');
+    expect(board).toContain('⏳ Positions in the fair-play wait: 2');
+    expect(board).toContain('🔐 Escrow desk: all clear');
+    expect(board).toContain('Test SOL has no monetary value. (devnet)');
+  });
+
+  it('names the replayed fixture with its virtual minute', () => {
+    const board = statusBoardText({
+      feed: {
+        kind: 'replay',
+        fixtureLabel: 'France vs Morocco',
+        virtualMinute: 34,
+      },
+      openMarketCount: 1,
+      pendingActivationCount: 0,
+      solanaNetwork: 'devnet',
+    });
+    const preKickoff = statusBoardText({
+      feed: { kind: 'replay', fixtureLabel: 'France vs Morocco', virtualMinute: null },
+      openMarketCount: 1,
+      pendingActivationCount: 0,
+      solanaNetwork: 'devnet',
+    });
+
+    expect(board).toContain('completed-match replay of France vs Morocco · minute 34');
+    expect(preKickoff).toContain('completed-match replay of France vs Morocco');
+    expect(preKickoff).not.toContain('minute');
+    expect(board).not.toContain('Escrow desk');
+  });
+
+  it('translates degraded escrow health to plain words, never raw reason codes', () => {
+    expect(escrowRuntimeStatusLabel({ status: 'ready', reasons: [] })).toBe('ready');
+    expect(escrowRuntimeStatusLabel({
+      status: 'not_ready',
+      reasons: ['indexer_lagging', 'rpc_unavailable'],
+    })).toBe('rpc_unavailable');
+    expect(escrowRuntimeStatusLabel({ status: 'not_ready', reasons: ['indexer_lagging'] }))
+      .toBe('indexer_lagging');
+    expect(escrowRuntimeStatusLabel({ status: 'not_ready', reasons: ['indexer_unavailable'] }))
+      .toBe('indexer_lagging');
+    expect(escrowRuntimeStatusLabel({ status: 'not_ready', reasons: ['program_paused'] }))
+      .toBe('degraded');
+
+    for (const [label, phrase] of [
+      ['rpc_unavailable', 'chain connection catching up'],
+      ['indexer_lagging', 'receipts catching up'],
+      ['degraded', 'catching up'],
+    ] as const) {
+      const board = statusBoardText({
+        feed: { kind: 'live' },
+        openMarketCount: 0,
+        pendingActivationCount: 0,
+        escrowRuntime: label,
+        solanaNetwork: 'devnet',
+      });
+      expect(board).toContain(`🔐 Escrow desk: ${phrase}`);
+      expect(board).not.toContain('not_ready');
+      expect(board).not.toContain('indexer_');
+      expect(board).not.toContain('rpc_');
+    }
+  });
+
+  it('stamps the mainnet footer on mainnet and carries no fiat or odds notation', () => {
+    const board = statusBoardText({
+      feed: { kind: 'live' },
+      openMarketCount: 5,
+      pendingActivationCount: 1,
+      escrowRuntime: 'ready',
+      solanaNetwork: 'mainnet-beta',
+    });
+
+    expect(board).toContain('SOL positions settle on Solana mainnet.');
+    expect(board).not.toMatch(/[$£€]/);
+    expect(board).not.toMatch(/\b\d+\s*\/\s*\d+\b/);
   });
 });

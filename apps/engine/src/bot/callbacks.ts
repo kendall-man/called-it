@@ -42,6 +42,20 @@ async function answer(ctx: Context, text: string): Promise<void> {
   }
 }
 
+/**
+ * Modal alert for money-path FAILURES (missed wallet, closed market, rejected
+ * stake, broken signing session): a toast auto-dismisses in seconds, and a
+ * user who misses it has no other record that their money tap did nothing.
+ * Success acks stay toasts.
+ */
+async function answerAlert(ctx: Context, text: string): Promise<void> {
+  try {
+    await ctx.answerCallbackQuery({ text: text.slice(0, 190), show_alert: true });
+  } catch {
+    // stale query ids are expected after restarts — nothing to do
+  }
+}
+
 async function stale(h: HandlerCtx, ctx: Context): Promise<void> {
   await answer(ctx, await h.say('stale'));
 }
@@ -327,7 +341,7 @@ async function handleReplayStake(
     const placeReplayPosition = h.deps.db.placeReplayPosition;
     if (placeReplayPosition === undefined) {
       h.deps.log.warn('replay_position_unavailable', { marketId: market.id });
-      await answer(ctx, await h.say('hiccup'));
+      await answerAlert(ctx, await h.say('hiccup'));
       return;
     }
     const multiplier = side === 'back'
@@ -346,11 +360,11 @@ async function handleReplayStake(
       placed_at_ms: h.deps.now(),
     });
     if (!result.ok) {
-      await answer(ctx, await h.say(result.code === 'closed' ? 'window_closed' : 'stale'));
+      await answerAlert(ctx, await h.say(result.code === 'closed' ? 'window_closed' : 'stale'));
       return;
     }
     if (result.duplicate) {
-      await answer(ctx, await h.say('replay_position_exists'));
+      await answerAlert(ctx, await h.say('replay_position_exists'));
       return;
     }
     h.deps.log.info('replay_position_placed', { marketId: market.id, side });
@@ -358,7 +372,7 @@ async function handleReplayStake(
     await refreshStakeCard(h, market.group_id, market.id);
   } catch {
     h.deps.log.warn('replay_position_failed', { marketId: market.id });
-    await answer(ctx, await h.say('hiccup'));
+    await answerAlert(ctx, await h.say('hiccup'));
   } finally {
     replayStakeLocks.delete(key);
   }
@@ -379,7 +393,7 @@ async function handleEscrowStake(
 ): Promise<void> {
   const escrow = h.escrow;
   if (escrow === undefined) {
-    await answer(ctx, escrowPlacementRejectionText('temporarily_unavailable'));
+    await answerAlert(ctx, escrowPlacementRejectionText('temporarily_unavailable'));
     return;
   }
   const result = await escrow.createPlacementSession({
@@ -401,13 +415,13 @@ async function handleEscrowStake(
     if (result.code === 'market_closed') {
       await refreshStakeCard(h, input.groupId, input.marketId, { forceLocked: true });
     }
-    await answer(ctx, escrowPlacementRejectionText(result.code));
+    await answerAlert(ctx, escrowPlacementRejectionText(result.code));
     return;
   }
   const url = privateEscrowUrl(h.deps.env.WEB_BASE_URL, 'position', result.token);
   const expiresAtMs = Date.parse(result.expiresAt);
   if (url === null || !Number.isFinite(expiresAtMs) || expiresAtMs <= h.deps.now()) {
-    await answer(ctx, escrowPlacementRejectionText('callback_expired'));
+    await answerAlert(ctx, escrowPlacementRejectionText('callback_expired'));
     return;
   }
   const prompt = escrowSigningPrompt({
@@ -428,7 +442,7 @@ async function handleEscrowStake(
     h.deps.log.warn('escrow_private_link_delivery_failed', {
       reason: error instanceof Error ? 'telegram_api_exception' : 'unknown_exception',
     });
-    await answer(ctx, 'Open my private chat, run /wallet, then tap your choice again. No assets moved.');
+    await answerAlert(ctx, 'Open my private chat, run /wallet, then tap your choice again. No assets moved.');
     return;
   }
   h.deps.log.info('escrow_signing_link_issued', {
@@ -469,14 +483,14 @@ async function handleStake(
   }
   const wagerMarket = { ...market, currency: market.currency };
   if (market.status !== 'open' && market.status !== 'pending_lineup') {
-    await answer(ctx, `${statusLine(market.status)}.`);
+    await answerAlert(ctx, `${statusLine(market.status)}.`);
     return;
   }
   if (market.is_replay) {
     const admission = await h.supervisor.admitReplayPosition(market);
     if (admission.kind === 'stale') {
       await refreshStakeCard(h, chatId, market.id, { forceLocked: true });
-      await answer(ctx, 'That test call is no longer active. No assets moved.');
+      await answerAlert(ctx, 'That test call is no longer active. No assets moved.');
       return;
     }
   }
@@ -502,7 +516,7 @@ async function handleStake(
     : await h.deps.db.getFixture(market.fixture_id);
   const inPlay = fixture !== null && fixture.phase !== 'NS';
   if (inPlay && fixture.minute !== null && fixture.minute >= TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE) {
-    await answer(ctx, await h.say('window_closed'));
+    await answerAlert(ctx, await h.say('window_closed'));
     return;
   }
   await ensureUserSeen(h, chatId, from);
@@ -543,7 +557,7 @@ async function handleStake(
       callbackId,
     });
     if (!prepared.ok) {
-      await answer(ctx, prepared.reply);
+      await answerAlert(ctx, prepared.reply);
       if (!(await wager.stakesAvailable(market.currency))) {
         await refreshStakeCard(h, chatId, market.id);
       }
@@ -582,7 +596,13 @@ async function handleStake(
         ? { kind: 'telegram_default_card', callbackId }
         : { kind: 'telegram_card', callbackId },
   });
-  await answer(ctx, result.reply);
+  // accepted covers placed and idempotent replays; anything else is a
+  // rejection the tapper must not miss.
+  if (result.accepted === true) {
+    await answer(ctx, result.reply);
+  } else {
+    await answerAlert(ctx, result.reply);
+  }
   if (result.placed || !(await wager.stakesAvailable(market.currency))) {
     await refreshStakeCard(h, chatId, market.id);
   }
@@ -611,7 +631,7 @@ async function handleStakeConfirmation(
   const intent = await wager.getStakeConfirmation(from.id, intentId);
   const copy = createWagerCopy(h.deps.env.SOLANA_NETWORK, intent?.asset ?? 'sol');
   if (intent === null || ctx.chat?.id !== intent.groupId) {
-    await answer(ctx, copy.confirmationExpired());
+    await answerAlert(ctx, copy.confirmationExpired());
     return;
   }
   if (!confirm) {
@@ -629,7 +649,7 @@ async function handleStakeConfirmation(
     await wager.cancelStakeConfirmation(from.id, intentId);
     const expired = copy.confirmationExpired();
     await finishStakeConfirmationMessage(ctx, expired);
-    await answer(ctx, expired);
+    await answerAlert(ctx, expired);
     return;
   }
   const replayFixture = market.is_replay
@@ -643,7 +663,7 @@ async function handleStakeConfirmation(
     await wager.cancelStakeConfirmation(from.id, intentId);
     const closed = await h.say('window_closed');
     await finishStakeConfirmationMessage(ctx, closed);
-    await answer(ctx, closed);
+    await answerAlert(ctx, closed);
     return;
   }
   await ensureUserSeen(h, intent.groupId, from);
@@ -658,7 +678,13 @@ async function handleStakeConfirmation(
     nowMs: h.deps.now(),
   });
   await finishStakeConfirmationMessage(ctx, result.reply);
-  await answer(ctx, result.reply);
+  // The prompt message itself was edited to the result, so the un-placed
+  // outcome still needs the unmissable ack; a placed one reads fine as a toast.
+  if (result.placed) {
+    await answer(ctx, result.reply);
+  } else {
+    await answerAlert(ctx, result.reply);
+  }
   await refreshStakeCard(h, intent.groupId, market.id);
 }
 

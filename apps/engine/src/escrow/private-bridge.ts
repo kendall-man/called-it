@@ -23,6 +23,35 @@ export interface EscrowPrivateFinalizedBridge {
   project(transaction: EscrowFinalizedTransactionProjection): Promise<void>;
 }
 
+/** A finalized position event whose signer resolved to a Telegram user. */
+export interface EscrowPrivateFinalizedPositionEvent {
+  readonly signature: string;
+  readonly marketId: string;
+  readonly telegramUserId: number;
+  readonly lotNonce: bigint;
+  readonly eventKind: 'placed' | 'activated' | 'invalidated';
+  readonly side: 'back' | 'doubt';
+  readonly asset: 'sol' | 'usdc';
+  readonly amountAtomic: bigint;
+}
+
+/**
+ * Presentation hook fired after a position projection has been durably
+ * written. Implementations own their failures — a throwing hook is swallowed
+ * here so notification problems can never wedge the finalized indexer cursor.
+ */
+export interface EscrowPrivatePositionEventObserver {
+  onFinalizedPositionEvent(event: EscrowPrivateFinalizedPositionEvent): Promise<void>;
+}
+
+/** Joins a dead-lettered relayer job back to the Telegram user who signed it. */
+export interface EscrowPrivateRelayerJobSignerResolver {
+  resolveRelayerJobSigner(jobId: string): Promise<{
+    readonly kind: string;
+    readonly telegramUserId: number | null;
+  } | null>;
+}
+
 export class EscrowPrivateBridgeError extends Error {
   readonly name = 'EscrowPrivateBridgeError';
 
@@ -87,7 +116,9 @@ export function createSupabaseEscrowPrivateBridge(options: {
   readonly clock: () => number;
   readonly fetch?: FetchPort;
   readonly token?: () => string;
-}): EscrowPrivateWalletIdentityProvider & EscrowPrivateWalletSessionProvider & EscrowPrivateFinalizedBridge {
+  readonly positionEvents?: EscrowPrivatePositionEventObserver;
+}): EscrowPrivateWalletIdentityProvider & EscrowPrivateWalletSessionProvider
+  & EscrowPrivateFinalizedBridge & EscrowPrivateRelayerJobSignerResolver {
   const request = options.fetch ?? fetch;
   const headers = databaseHeaders(options.serviceRoleKey);
   const endpoint = (path: string) => new URL(path, options.supabaseUrl);
@@ -258,11 +289,52 @@ export function createSupabaseEscrowPrivateBridge(options: {
             throw new EscrowPrivateBridgeError('market_unavailable');
           }
           await insertPlacedPosition({ transaction, projection, market, userId });
+        } else if (projection.eventKind === 'activated' || projection.eventKind === 'invalidated') {
+          await transitionPosition({ projection });
+        } else {
           continue;
         }
-        if (projection.eventKind === 'activated' || projection.eventKind === 'invalidated') {
-          await transitionPosition({ projection });
+        if (options.positionEvents === undefined) continue;
+        try {
+          await options.positionEvents.onFinalizedPositionEvent({
+            signature: transaction.signature,
+            marketId: projection.marketId,
+            telegramUserId: userId,
+            lotNonce: projection.lotNonce,
+            eventKind: projection.eventKind,
+            side: projection.side,
+            asset: projection.asset,
+            amountAtomic: projection.amountAtomic,
+          });
+        } catch {
+          // Presentation only — a notification failure must never fail (and
+          // so re-run) the durable projection behind the indexer cursor.
         }
+      }
+    },
+
+    async resolveRelayerJobSigner(jobId) {
+      if (!/^[0-9a-fA-F-]{36}$/.test(jobId)) return null;
+      try {
+        const url = endpoint('/rest/v1/escrow_relayer_jobs');
+        url.searchParams.set('select', 'kind,market_id,owner_pubkey');
+        url.searchParams.set('id', `eq.${jobId}`);
+        url.searchParams.set('limit', '1');
+        const result = rows(await json(url));
+        const job = result?.[0];
+        if (job === undefined || typeof job.kind !== 'string') return null;
+        if (
+          job.kind !== 'position_placement' ||
+          typeof job.market_id !== 'string' || typeof job.owner_pubkey !== 'string' ||
+          job.market_id.length === 0 || job.owner_pubkey.length === 0
+        ) return { kind: job.kind, telegramUserId: null };
+        return {
+          kind: job.kind,
+          telegramUserId: await telegramUserForSession(job.market_id, job.owner_pubkey),
+        };
+      } catch (error) {
+        if (error instanceof EscrowPrivateBridgeError) return null;
+        throw error;
       }
     },
   };

@@ -102,6 +102,9 @@ export async function composeClaimCard(
   ]);
   if (!claim || !group) return null;
   const nonVoid = positions.filter((p) => p.state !== 'void');
+  // Finalized-but-pending lots drive the card's fair-play delay line; it
+  // disappears on the activation projection's refresh of this same card.
+  const pendingActivationCount = nonVoid.filter((p) => p.state === 'pending').length;
   const claimer = await deps.db.getUser(claim.claimer_user_id);
   const identities = participantSides(participants, market);
   const { back, doubt } = tally(nonVoid);
@@ -123,6 +126,7 @@ export async function composeClaimCard(
     backParticipantCount: identities.backCount,
     doubtParticipantCount: identities.doubtCount,
     matchedPct: pots.matchedPct,
+    pendingActivationCount,
     isReplay: market.is_replay,
     custodyMode: deps.env.WAGER_CUSTODY_MODE,
     solanaNetwork: deps.env.SOLANA_NETWORK,

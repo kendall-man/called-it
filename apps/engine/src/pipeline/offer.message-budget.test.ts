@@ -48,7 +48,10 @@ describe('offer Telegram message budget', () => {
     await runtime.queue.idle();
 
     const market = runtime.db.marketList().find((candidate) => candidate.group_id === group.id);
-    const sent = runtime.transport.calls.find((call) => call.text?.includes('🎙 THE CALL'));
+    // The full card arrives as an EDIT of the skeleton card message.
+    const sent = runtime.transport.calls.find(
+      (call) => call.method === 'editMessageText' && call.text?.includes('🎙 THE CALL'),
+    );
     if (market === undefined || sent?.text === null || sent === undefined) {
       const events = runtime.log.events.map((entry) => entry.event).join(',');
       const calls = runtime.transport.calls.map((call) => `${call.method}:${call.text?.slice(0, 20)}`).join(',');

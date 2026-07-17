@@ -9,6 +9,54 @@ import type { Chattiness } from '../localTypes.js';
 import type { Deps, MarketRow } from '../ports.js';
 
 /**
+ * Direct-link Mini App signing buttons (shared startapp contract with
+ * apps/web): active only when custody is escrow, TELEGRAM_MINIAPP_SHORT_NAME
+ * is configured, and the runtime bot identity is known. Every miss falls back
+ * to the callback-button flow, so an unconfigured deploy is byte-identical.
+ */
+export interface MiniAppOfferKeyboardConfig {
+  readonly custodyMode: 'legacy' | 'escrow';
+  /** BotFather /newapp short name; undefined keeps the flag off. */
+  readonly miniAppShortName: string | undefined;
+  /** Runtime bot identity; undefined until grammY init resolves getMe. */
+  readonly botUsername: () => string | undefined;
+}
+
+let miniAppOfferConfig: MiniAppOfferKeyboardConfig | null = null;
+
+/** Startup wiring hook; pass null to reset (tests). */
+export function configureMiniAppOfferKeyboards(
+  config: MiniAppOfferKeyboardConfig | null,
+): void {
+  miniAppOfferConfig = config;
+}
+
+const MINIAPP_MARKET_ID_HEX_PATTERN = /^[0-9a-f]{32}$/;
+
+/**
+ * Shared contract with apps/web: "p-<marketId as 32 lowercase hex chars>-<b|d>"
+ * (b backs the call, d goes against). Carries no secret — the Mini App mints
+ * its session against verified initData, never from this param.
+ */
+export function miniAppStartParam(marketId: string, side: 'back' | 'doubt'): string | null {
+  const hex = marketId.toLowerCase().replaceAll('-', '');
+  if (!MINIAPP_MARKET_ID_HEX_PATTERN.test(hex)) return null;
+  return `p-${hex}-${side === 'back' ? 'b' : 'd'}`;
+}
+
+function miniAppPositionUrl(market: MarketRow, side: 'back' | 'doubt'): string | null {
+  const config = miniAppOfferConfig;
+  if (config === null || config.custodyMode !== 'escrow' || config.miniAppShortName === undefined) {
+    return null;
+  }
+  const username = config.botUsername();
+  if (username === undefined || username.length === 0) return null;
+  const param = miniAppStartParam(market.id, side);
+  if (param === null) return null;
+  return `https://t.me/${username}/${config.miniAppShortName}?startapp=${param}`;
+}
+
+/**
  * Single-button retry after an infrastructure blip during the parse: re-runs
  * the claim through the parser with no re-detection. Its `t:'prove'` guard
  * already accepts the 'nudged' status offerClaim leaves behind.
@@ -49,14 +97,21 @@ export function confirmKeyboard(claimId: string): InlineKeyboard {
 /** The beta exposes exactly the two fixed 0.01 SOL choices. */
 export function offerKeyboard(market: MarketRow): InlineKeyboard {
   const amount = market.currency === 'usdc' ? '1 USDC' : '0.01 SOL';
+  const backLabel = `It happens · ${amount}`;
+  const doubtLabel = `It does not · ${amount}`;
+  const backUrl = miniAppPositionUrl(market, 'back');
+  const doubtUrl = miniAppPositionUrl(market, 'doubt');
+  if (backUrl !== null && doubtUrl !== null) {
+    return new InlineKeyboard().url(backLabel, backUrl).row().url(doubtLabel, doubtUrl);
+  }
   return new InlineKeyboard()
     .text(
-      `It happens · ${amount}`,
+      backLabel,
       encodeCallback({ t: 'stake', marketId: market.id, side: 'back', presetIndex: 0 }),
     )
     .row()
     .text(
-      `It does not · ${amount}`,
+      doubtLabel,
       encodeCallback({ t: 'stake', marketId: market.id, side: 'doubt', presetIndex: 0 }),
     );
 }

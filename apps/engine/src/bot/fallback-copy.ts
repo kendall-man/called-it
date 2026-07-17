@@ -99,7 +99,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     '• Use /wallet in private chat for funding, claims, refunds, and recovery.',
     '• Legacy /deposit and /withdraw remain available only for older Called It balances.',
     '',
-    'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /testmatch · /help',
+    'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /help',
   ].join('\n') : [
     'How this works:',
     '• Add Called It to a Telegram group.',
@@ -110,8 +110,8 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     '• Correct choices earn 10 points automatically.',
     '',
     isMainnet(vars)
-      ? 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /testmatch · /help. Wallet commands are available in private chat.'
-      : 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /testmatch · /help',
+      ? 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /help. Wallet commands are available in private chat.'
+      : 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /help',
     isMainnet(vars)
       ? 'SOL and native Circle USDC deposits and withdrawals use Solana mainnet.'
       : 'Test SOL and test USDC are devnet-only and have no monetary value.',

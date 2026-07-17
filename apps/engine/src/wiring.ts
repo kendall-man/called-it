@@ -62,7 +62,10 @@ import {
 } from './escrow/recovery-workflows.js';
 import { createEscrowRecoveryTransactionBuilder } from './escrow/recovery-relayer.js';
 import { createEscrowRecoveryFinalityVerifier } from './escrow/recovery-finality.js';
-import { createEscrowRelayerWorker } from './escrow/relayer-worker.js';
+import {
+  createEscrowRelayerWorker,
+  type EscrowRelayerRunResult,
+} from './escrow/relayer-worker.js';
 import { EscrowEventProjectionError, SolanaEscrowEventProjector } from './escrow/event-projector.js';
 import { SolanaFinalizedEscrowEventSource } from './escrow/solana-finalized-source.js';
 import { createFinalizedEscrowIndexer } from './escrow/finalized-indexer.js';
@@ -431,6 +434,8 @@ export function createEscrowWave4Runtime(options: {
   readonly projectionSink: {
     afterFinalizedTransaction(transaction: EscrowFinalizedTransactionProjection): Promise<void>;
   };
+  /** Presentation-only tap on each relayer cycle's otherwise-discarded results. */
+  readonly onRelayerResults?: (results: readonly EscrowRelayerRunResult[]) => void;
   readonly worker: {
     readonly intervalMs: number;
     readonly relayerLimit: number;
@@ -698,6 +703,9 @@ export function createEscrowWave4Runtime(options: {
     relayer,
     indexer,
     reconciliation: periodicReconciliation,
+    ...(options.onRelayerResults === undefined
+      ? {}
+      : { onRelayerResults: options.onRelayerResults }),
     clock: () => options.clock().iso,
     intervalMs: options.worker.intervalMs,
     relayerLimit: options.worker.relayerLimit,
@@ -813,6 +821,8 @@ export async function createProductionEscrowRuntime(options: {
   readonly projectionSink: {
     afterFinalizedTransaction(transaction: EscrowFinalizedTransactionProjection): Promise<void>;
   };
+  /** Presentation-only tap on each relayer cycle's otherwise-discarded results. */
+  readonly onRelayerResults?: (results: readonly EscrowRelayerRunResult[]) => void;
   readonly identities: EscrowPrivateWalletIdentityProvider;
   readonly walletSessions: EscrowPrivateWalletSessionProvider;
   readonly oracleAttestationProvider?: EscrowOracleAttestationProvider;
@@ -1036,6 +1046,9 @@ export async function createProductionEscrowRuntime(options: {
     retryAt: (nowIso) => new Date(Date.parse(nowIso) + env.QUEUE_RETRY_BASE_MS).toISOString(),
     pointsProjection: options.pointsProjection,
     projectionSink: options.projectionSink,
+    ...(options.onRelayerResults === undefined
+      ? {}
+      : { onRelayerResults: options.onRelayerResults }),
     worker: {
       intervalMs: env.ESCROW_WORKER_INTERVAL_MS,
       relayerLimit: 25,

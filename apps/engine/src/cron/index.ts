@@ -13,11 +13,23 @@ import type { Say } from '../bot/copy.js';
 import type { Settler } from '../settle/settler.js';
 import type { IngestSupervisor } from '../ingest/supervisor.js';
 import { voidAbandonedMarket } from '../pipeline/void.js';
+import { composeClaimCard } from '../pipeline/render.js';
+import { marketStakeKeyboard } from '../bot/keyboards.js';
 import type { WagerCronRegistry, WagerModule } from '../wager/module.js';
 import { createAllowlistedBackgroundDb } from '../background/allowlisted-db.js';
 
 export interface CronHandles {
   stop(): void;
+}
+
+/** Periodic escrow ops probe (readiness → ops-chat alerts) owned by main. */
+export interface EscrowOpsMonitor {
+  tick(): Promise<void>;
+}
+
+/** Re-checks escrow provisioning for a market's positions (single attempt). */
+export interface EscrowPausedCardRecoveryPorts {
+  ready(market: MarketRow): Promise<boolean>;
 }
 
 /** Durable settlement/proof work is injected by Task16's runtime composition. */
@@ -138,6 +150,53 @@ async function voidAbandonedMarkets(deps: Deps): Promise<void> {
   }
 }
 
+/**
+ * Re-arm cards born paused: a live escrow market whose provisioning failed at
+ * mint posts its card with positions paused and no keyboard, and nothing ever
+ * re-enables it. Once provisioning reports ready, re-edit the card WITH the
+ * stake keyboard. `recovered` remembers finished markets so each costs at most
+ * one card edit per process lifetime (editing an already-live card is a
+ * Telegram "not modified" no-op); replay markets provision under the mint lock
+ * and are skipped so this sweep never long-polls.
+ */
+export async function recoverPausedEscrowCards(
+  deps: Deps,
+  poster: Poster,
+  recovery: EscrowPausedCardRecoveryPorts,
+  recovered: Set<string>,
+): Promise<void> {
+  if (deps.env.WAGER_CUSTODY_MODE !== 'escrow') return;
+  try {
+    const backgroundDb = createAllowlistedBackgroundDb(deps.db, deps.env);
+    const groups = await backgroundDb.listGroups();
+    for (const group of groups) {
+      const openMarkets = await backgroundDb.openMarketsForGroup(group.id);
+      for (const market of openMarkets) {
+        if (
+          market.is_replay ||
+          market.card_tg_message_id === null ||
+          recovered.has(market.id) ||
+          (market.status !== 'open' && market.status !== 'pending_lineup')
+        ) continue;
+        if (!(await recovery.ready(market))) continue;
+        const currency = market.currency === 'usdc' ? 'usdc' : 'sol';
+        if (deps.wager !== null && !(await deps.wager.stakesAvailable(currency))) continue;
+        const card = await composeClaimCard(
+          { ...deps, db: backgroundDb },
+          market,
+          { positionsAvailable: true },
+        );
+        if (card === null || card.messageId === null) continue;
+        poster.editCard(card.chatId, market.id, card.messageId, card.text, marketStakeKeyboard(deps, market));
+        recovered.add(market.id);
+        deps.log.info('escrow_paused_card_recovered', { marketId: market.id });
+      }
+    }
+  } catch {
+    deps.log.warn('paused_card_recovery_failed');
+  }
+}
+
 /** Today's fixtures posted to nudge-mode groups. */
 async function runMorningSlate(deps: Deps, poster: Poster, say: Say): Promise<void> {
   const { fromMs, toMs } = utcDayBounds(deps.now());
@@ -165,10 +224,18 @@ export function startCrons(args: {
   supervisor: IngestSupervisor;
   settlementReconciler: BetaSettlementReconciler;
   durableRecovery?: DurableRecoveryCron;
+  /** Re-arms escrow cards that posted with positions paused (escrow custody only). */
+  escrowPausedCards?: EscrowPausedCardRecoveryPorts;
+  /** Minute-grade escrow readiness probe feeding the ops chat alerts. */
+  escrowOps?: EscrowOpsMonitor;
 }): CronHandles {
-  const { deps, poster, say, settler, supervisor, settlementReconciler, durableRecovery } = args;
+  const {
+    deps, poster, say, settler, supervisor, settlementReconciler, durableRecovery,
+    escrowPausedCards, escrowOps,
+  } = args;
   const timers: Array<ReturnType<typeof setInterval>> = [];
   const sweeperInFlight = new Map<string, number>();
+  const recoveredPausedCards = new Set<string>();
   let slateDoneFor = '';
 
   // Boot-time kick so a fresh deploy is immediately useful.
@@ -218,6 +285,12 @@ export function startCrons(args: {
         await expireClaims(deps);
         await sweepUnpostedSettlements(deps, settler, sweeperInFlight);
         await voidAbandonedMarkets(deps);
+        if (escrowPausedCards !== undefined) {
+          await recoverPausedEscrowCards(deps, poster, escrowPausedCards, recoveredPausedCards);
+        }
+        if (escrowOps !== undefined) {
+          await escrowOps.tick().catch(() => deps.log.warn('escrow_ops_probe_failed'));
+        }
 
         const nowMs = deps.now();
         const hour = new Date(nowMs).getUTCHours();

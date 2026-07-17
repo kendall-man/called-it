@@ -62,7 +62,7 @@ const EXPECTED_STARTER_HELP = [
   '• Choices and named results are visible to everyone in this Telegram group.',
   '• Correct choices earn 10 points automatically.',
   '',
-  'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /currency · /testmatch · /help',
+  'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /help',
   'Test SOL and test USDC are devnet-only and have no monetary value.',
 ].join('\n');
 
