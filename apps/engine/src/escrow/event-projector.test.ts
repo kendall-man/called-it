@@ -36,6 +36,30 @@ function projector(chainState: 'settled' | 'voided') {
 const context = { signature: 'signature-a', instructionIndex: 0, slot: 42n };
 
 describe('Wave 3 escrow event projection', () => {
+  it('ignores child events for markets owned by another public-cluster deployment', async () => {
+    const value = new SolanaEscrowEventProjector(
+      {
+        async market() { throw new Error('must not read an untracked market'); },
+        async position() { throw new Error('must not read an untracked position'); },
+      },
+      {
+        async getMarketLink() { return { ok: true as const, found: false as const }; },
+      },
+      {
+        cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID,
+        canonicalUsdcMint: 'mint-pubkey', custodyVersion: 1,
+      },
+    );
+    const event: EscrowProgramEvent = {
+      kind: 'PositionPlaced', market: 'foreign-market', position: 'foreign-position', lot: 'foreign-lot',
+      owner: 'foreign-owner', nonce: 0n, side: 'back', amount: 1n, asset: 'sol',
+      pending: false, eventEpoch: 1n, activationAfter: 0n,
+      clientIntentHash: new Uint8Array(32),
+    };
+
+    await expect(value.project(event, context)).resolves.toBeNull();
+  });
+
   it.each([
     ['settled', 'payout'],
     ['voided', 'refund'],

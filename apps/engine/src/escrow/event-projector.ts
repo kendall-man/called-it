@@ -61,8 +61,9 @@ export class SolanaEscrowEventProjector implements EscrowEventProjector {
       cluster: this.deployment.cluster, genesisHash: this.deployment.genesisHash,
       programId: this.deployment.programId, marketPda: address,
     });
+    if (link.ok && !link.found) return null;
     if (
-      !link.ok || !link.found || link.marketPda !== address ||
+      !link.ok || link.marketPda !== address ||
       link.cluster !== this.deployment.cluster || link.genesisHash !== this.deployment.genesisHash ||
       link.programId !== this.deployment.programId || link.commitment !== 'finalized' || link.projectionStale
     ) throw new EscrowEventProjectionError('history_unavailable');
@@ -132,6 +133,7 @@ export class SolanaEscrowEventProjector implements EscrowEventProjector {
       }
       case 'PositionPlaced': {
         const market = await this.historicalMarket(event.market);
+        if (market === null) return null;
         this.positionSides.set(event.position, event.side);
         return {
           kind: 'position', marketId: market.marketId, positionPda: event.position,
@@ -143,6 +145,7 @@ export class SolanaEscrowEventProjector implements EscrowEventProjector {
       case 'PositionActivated':
       case 'PositionInvalidated': {
         const market = await this.historicalMarket(event.market);
+        if (market === null) return null;
         const cachedSide = this.positionSides.get(event.position);
         const position = cachedSide === undefined ? await this.position(event.position) : null;
         const side = cachedSide ?? position?.value.side;
@@ -162,6 +165,7 @@ export class SolanaEscrowEventProjector implements EscrowEventProjector {
       case 'MarketSettled':
       case 'MarketVoided': {
         const market = await this.historicalMarket(event.market);
+        if (market === null) return null;
         const voided = event.kind === 'MarketVoided';
         const outcome = voided ? 'void' : event.outcome;
         if (outcome === null) throw new EscrowEventProjectionError('event_mismatch');
@@ -174,6 +178,7 @@ export class SolanaEscrowEventProjector implements EscrowEventProjector {
       }
       case 'PositionClaimed': {
         const market = await this.historicalMarket(event.market);
+        if (market === null) return null;
         if (market.asset !== event.asset || (market.chainState !== 'settled' && market.chainState !== 'voided')) {
           throw new EscrowEventProjectionError('event_mismatch');
         }
@@ -185,6 +190,7 @@ export class SolanaEscrowEventProjector implements EscrowEventProjector {
       }
       case 'MarketClosed': {
         const market = await this.historicalMarket(event.market);
+        if (market === null) return null;
         if (market.asset !== event.asset) throw new EscrowEventProjectionError('event_mismatch');
         return {
           kind: 'market_closed', marketId: market.marketId, marketPda: event.market,
@@ -195,6 +201,7 @@ export class SolanaEscrowEventProjector implements EscrowEventProjector {
       case 'MarketFrozen':
       case 'MarketUnfrozen': {
         const market = await this.historicalMarket(event.market);
+        if (market === null) return null;
         if (event.eventEpoch <= market.eventEpoch) throw new EscrowEventProjectionError('event_mismatch');
         return {
           kind: 'market_state',
