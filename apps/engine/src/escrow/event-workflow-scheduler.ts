@@ -321,7 +321,9 @@ export function createEscrowEventWorkflowScheduler(options: {
   }
 
   async function reduce(market: MarketRow, event: MatchEvent): Promise<void> {
-    if (event.seq <= (eventWatermarks.get(market.id) ?? -1)) return;
+    // Odds events use epoch milliseconds as seq; score events use a small provider sequence.
+    const usesScoreSequence = event.kind !== 'odds_suspension';
+    if (usesScoreSequence && event.seq <= (eventWatermarks.get(market.id) ?? -1)) return;
     const state = await hydrate(market);
     const result = options.deps.engine.reduceMarket(state, event);
     if (result.state === state && result.effects.length === 0) return;
@@ -334,7 +336,7 @@ export function createEscrowEventWorkflowScheduler(options: {
       for (const effect of result.effects) await applyEffect(effect, market, context, event);
       await persistNewPending(state.pendingSettlement, result.state.pendingSettlement, market, context, event);
     }
-    eventWatermarks.set(market.id, event.seq);
+    if (usesScoreSequence) eventWatermarks.set(market.id, event.seq);
     if (result.state.status === 'settled' || result.state.status === 'voided') states.delete(market.id);
     else states.set(market.id, result.state);
   }
