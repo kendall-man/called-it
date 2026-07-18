@@ -1,9 +1,14 @@
 /**
- * N-step stepper (STAKE_LADDER_ENABLED). Verifies the side tap moves no SOL and
- * opens the stepper at the 0.01 anchor, that ± steps re-size without moving SOL,
- * that the explicit confirm commits (legacy) or the escrow sign URL carries the
- * shown amount, that Back is lossless, over-cap rungs are refused, and —
- * critically — that with the flag OFF the single-tap flow is unchanged.
+ * Multi-participant stake stepper (STAKE_LADDER_ENABLED). The SHARED market card
+ * ALWAYS keeps its two side buttons for every member; a side tap NEVER morphs it.
+ * Instead it sends a PER-USER ephemeral message (visible only to the tapper)
+ * carrying the stepper. These tests verify: the shared card is untouched on a
+ * side tap, the ephemeral sender is called with receiver_user_id +
+ * callback_query_id, ± steps edit the per-user ephemeral in place without moving
+ * SOL, the commit stakes the chosen amount and closes the ephemeral, Back closes
+ * it, over-cap rungs are refused, per-user state is keyed by (market, user), an
+ * ephemeral failure degrades to the single-tap flow without touching the shared
+ * card, and — critically — with the flag OFF the single-tap flow is unchanged.
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,8 +16,10 @@ import type { InlineKeyboard } from 'grammy';
 import { dispatchCallback } from './callbacks.js';
 import { decodeCallback } from './callbackData.js';
 import { configureMiniAppOfferKeyboards } from './keyboards.js';
+import { STEPPER_CLOSED_LINE } from './stake-step-cards.js';
 import type { EscrowTelegramPort } from './escrow-ux.js';
 import {
+  CHAT_ID,
   MARKET_ID,
   PRESET_01,
   USER_A,
@@ -24,11 +31,17 @@ import {
   stakeValueAction as value,
 } from './callbacks.stake.test-support.js';
 
+const USER_B = 8002;
+
 function keyboardRows(keyboard: InlineKeyboard | undefined): string[][] {
   return (keyboard?.inline_keyboard ?? []).map((row) => row.map((button) => button.text));
 }
 function keyboardLabels(keyboard: InlineKeyboard | undefined): string[] {
   return keyboardRows(keyboard).flat();
+}
+function signUrlOf(keyboard: InlineKeyboard | undefined): string | undefined {
+  const button = (keyboard?.inline_keyboard ?? []).flat().find((b) => 'url' in b && b.url);
+  return button !== undefined && 'url' in button ? button.url : undefined;
 }
 
 function recordingEscrowPort(): { port: EscrowTelegramPort; readonly calls: number } {
@@ -52,7 +65,7 @@ function recordingEscrowPort(): { port: EscrowTelegramPort; readonly calls: numb
 
 afterEach(() => configureMiniAppOfferKeyboards(null));
 
-describe('n-step stepper — flag off parity', () => {
+describe('multi-participant stepper — flag off parity', () => {
   it('with the flag OFF the side tap still places a position (single-tap flow)', async () => {
     const harness = makeHarness({
       stakeAcceptanceEnabled: true,
@@ -63,11 +76,12 @@ describe('n-step stepper — flag off parity', () => {
     await dispatchCallback(harness.h, ctx, stake('back', PRESET_01));
     expect(harness.wagerDb.positions).toHaveLength(1);
     expect(harness.uiState).toBeNull();
+    expect(harness.ephemeral).toBeNull();
   });
 });
 
-describe('n-step stepper — flag on', () => {
-  it('the side tap moves ZERO SOL: opens the stepper at the 0.01 anchor', async () => {
+describe('multi-participant stepper — flag on', () => {
+  it('the side tap keeps the shared card and opens a PER-USER ephemeral at 0.01', async () => {
     const harness = makeHarness({
       stakeAcceptanceEnabled: true,
       refreshableCard: true,
@@ -76,78 +90,91 @@ describe('n-step stepper — flag on', () => {
     const { ctx, toasts } = stakeCtx(USER_A, 'on-side');
     await dispatchCallback(harness.h, ctx, stake('back', PRESET_01));
 
-    // No position and no stake/grant ledger movement — the side tap is free.
+    // No position, no ledger movement — the side tap is free.
     expect(harness.wagerDb.positions).toHaveLength(0);
-    expect(harness.wagerDb.ledger.filter((entry) => entry.kind === 'stake' || entry.kind === 'starter_grant'))
+    expect(harness.wagerDb.ledger.filter((e) => e.kind === 'stake' || e.kind === 'starter_grant'))
       .toHaveLength(0);
-    // The card evolved into the stepper, urgently, on the same message, at 0.01.
-    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 1 });
-    const edit = harness.cardSurfaces.at(-1);
-    expect(edit?.messageId).toBe(900);
-    expect(edit?.urgent).toBe(true);
-    // Amount row omits − at the base rung; action confirms; back is last.
-    expect(keyboardRows(edit?.keyboard)).toEqual([
+    // The SHARED card is untouched — it never morphs into the stepper.
+    expect(harness.cardSurfaces).toHaveLength(0);
+    // A per-user ephemeral was sent with receiver_user_id + the tap's callback id.
+    expect(harness.ephemeral?.sends).toHaveLength(1);
+    const sent = harness.ephemeral?.sends[0];
+    expect(sent?.chatId).toBe(CHAT_ID);
+    expect(sent?.receiverUserId).toBe(USER_A);
+    expect(sent?.callbackQueryId).toBe('on-side');
+    // The ephemeral carries the stepper: [amount 0.01] [+], confirm, back.
+    expect(keyboardRows(sent?.keyboard)).toEqual([
       ['0.01 SOL', '+'],
       ['Confirm 0.01 SOL'],
       ['← Back'],
     ]);
-    // The toast names the side, no amount.
+    // The small sizing copy rides along.
+    expect(sent?.text).toContain('base stake');
+    // Per-user ui state is keyed by (market, user) and carries the ephemeral id.
+    expect(harness.uiState?.get(MARKET_ID, USER_A)).toEqual({
+      kind: 'ladder', side: 'back', code: 1, ephemeralMessageId: sent?.ephemeralMessageId,
+    });
     expect(toasts.at(-1)).toBe('Brazil win it — now size it below.');
   });
 
-  it('± steps re-size the card WITHOUT moving SOL', async () => {
+  it('± steps EDIT the per-user ephemeral in place WITHOUT moving SOL', async () => {
     const harness = makeHarness({
       stakeAcceptanceEnabled: true,
       refreshableCard: true,
       ladderEnabled: true,
     });
     await dispatchCallback(harness.h, stakeCtx(USER_A, 's-side').ctx, stake('back', PRESET_01));
-    // + to 0.02, then + to 0.05 — codes carried by the buttons.
+    const ephemeralId = harness.ephemeral?.sends[0]?.ephemeralMessageId;
+    // + to 0.02, then + to 0.05 — each edits the SAME ephemeral, not the card.
     await dispatchCallback(harness.h, stakeCtx(USER_A, 's-up1').ctx, step('back', 2));
-    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 2 });
+    expect(harness.uiState?.get(MARKET_ID, USER_A)).toMatchObject({ code: 2, ephemeralMessageId: ephemeralId });
     await dispatchCallback(harness.h, stakeCtx(USER_A, 's-up2').ctx, step('back', 5));
-    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 5 });
-    // No position, no ledger movement across the steps.
+    expect(harness.uiState?.get(MARKET_ID, USER_A)).toMatchObject({ code: 5, ephemeralMessageId: ephemeralId });
+    // No position, no shared-card edit across the steps.
     expect(harness.wagerDb.positions).toHaveLength(0);
-    // Mid-ladder shows [−] amount [+]; at 0.05 (below the legacy cap) + remains.
-    expect(keyboardRows(harness.cardSurfaces.at(-1)?.keyboard)).toEqual([
+    expect(harness.cardSurfaces).toHaveLength(0);
+    // Two in-place ephemeral edits, the last showing [−] 0.05 [+].
+    expect(harness.ephemeral?.edits).toHaveLength(2);
+    const lastEdit = harness.ephemeral?.edits.at(-1);
+    expect(lastEdit?.ephemeralMessageId).toBe(ephemeralId);
+    expect(keyboardRows(lastEdit?.keyboard)).toEqual([
       ['−', '0.05 SOL', '+'],
       ['Confirm 0.05 SOL'],
       ['← Back'],
     ]);
   });
 
-  it('the middle amount tap keeps the surface alive without a redundant edit', async () => {
+  it('the middle amount tap keeps the ephemeral alive without a redundant edit', async () => {
     const harness = makeHarness({
       stakeAcceptanceEnabled: true,
       refreshableCard: true,
       ladderEnabled: true,
     });
     await dispatchCallback(harness.h, stakeCtx(USER_A, 'mid-side').ctx, stake('back', PRESET_01));
-    const editsAfterEntry = harness.cardSurfaces.length;
+    const editsAfterEntry = harness.ephemeral?.edits.length ?? 0;
     const { ctx, toasts } = stakeCtx(USER_A, 'mid-tap');
-    // Tap the amount (idempotent step to the current rung).
     await dispatchCallback(harness.h, ctx, step('back', 1));
-    expect(harness.cardSurfaces.length).toBe(editsAfterEntry); // no new edit
-    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 1 });
+    expect(harness.ephemeral?.edits.length).toBe(editsAfterEntry); // no new edit
+    expect(harness.uiState?.get(MARKET_ID, USER_A)).toMatchObject({ code: 1 });
     expect(toasts.at(-1)).toBe('Sizing 0.01 SOL.');
   });
 
-  it('the confirm commits the CHOSEN amount (legacy) and clears the stepper', async () => {
+  it('the confirm commits the CHOSEN amount (legacy) and closes the ephemeral', async () => {
     const harness = makeHarness({
       stakeAcceptanceEnabled: true,
       refreshableCard: true,
       ladderEnabled: true,
     });
-    // Open the stepper (side tap), step to 0.02, then confirm.
     await dispatchCallback(harness.h, stakeCtx(USER_A, 'v-side').ctx, stake('back', PRESET_01));
     await dispatchCallback(harness.h, stakeCtx(USER_A, 'v-step').ctx, step('back', 2));
     await dispatchCallback(harness.h, stakeCtx(USER_A, 'v-value').ctx, value('back', 2));
 
     expect(harness.wagerDb.positions).toHaveLength(1);
     expect(harness.wagerDb.lastStakeArgs).toMatchObject({ lamports: 20_000_000n, side: 'back' });
-    // The stepper is cleared; the card returned to the two-side offer.
-    expect(harness.uiState?.get(MARKET_ID)).toBeNull();
+    // The per-user stepper is cleared and its ephemeral closed.
+    expect(harness.uiState?.get(MARKET_ID, USER_A)).toBeNull();
+    expect(harness.ephemeral?.edits.at(-1)?.text).toBe(STEPPER_CLOSED_LINE);
+    // The SHARED card refreshed its tallies but keeps its two side buttons.
     expect(keyboardLabels(harness.cardSurfaces.at(-1)?.keyboard)).toEqual(['Brazil win it', "They don't"]);
   });
 
@@ -162,7 +189,7 @@ describe('n-step stepper — flag on', () => {
     expect(harness.wagerDb.lastStakeArgs).toMatchObject({ lamports: 10_000_000n, side: 'doubt' });
   });
 
-  it('Back losslessly returns to the two-side offer and clears the stepper', async () => {
+  it('Back closes the ephemeral and leaves the shared card untouched', async () => {
     const harness = makeHarness({
       stakeAcceptanceEnabled: true,
       refreshableCard: true,
@@ -173,12 +200,36 @@ describe('n-step stepper — flag on', () => {
     await dispatchCallback(harness.h, ctx, back());
 
     expect(harness.wagerDb.positions).toHaveLength(0);
-    expect(harness.uiState?.get(MARKET_ID)).toBeNull();
-    expect(keyboardLabels(harness.cardSurfaces.at(-1)?.keyboard)).toEqual(['Brazil win it', "They don't"]);
+    expect(harness.uiState?.get(MARKET_ID, USER_A)).toBeNull();
+    // Ephemeral edited to the one-line close; the shared card never touched.
+    expect(harness.ephemeral?.edits.at(-1)?.text).toBe(STEPPER_CLOSED_LINE);
+    expect(harness.cardSurfaces).toHaveLength(0);
     expect(toasts.at(-1)).toBe('Back to the call.');
   });
 
-  it('escrow: stepping updates the in-card sign URL and mints NO session', async () => {
+  it('two members size the SAME market independently (per-user state + ephemerals)', async () => {
+    const harness = makeHarness({
+      stakeAcceptanceEnabled: true,
+      refreshableCard: true,
+      ladderEnabled: true,
+    });
+    // A opens and steps to 0.02; B opens and stays at the anchor.
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 'ab-a-side').ctx, stake('back', PRESET_01));
+    await dispatchCallback(harness.h, stakeCtx(USER_B, 'ab-b-side').ctx, stake('doubt', PRESET_01));
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 'ab-a-up').ctx, step('back', 2));
+
+    // Each member has their own ephemeral and their own rung — no clobber.
+    const aState = harness.uiState?.get(MARKET_ID, USER_A);
+    const bState = harness.uiState?.get(MARKET_ID, USER_B);
+    expect(aState).toMatchObject({ side: 'back', code: 2 });
+    expect(bState).toMatchObject({ side: 'doubt', code: 1 });
+    expect(aState?.ephemeralMessageId).not.toBe(bState?.ephemeralMessageId);
+    // Two distinct sends, each to its own member; the shared card is untouched.
+    expect(harness.ephemeral?.sends.map((s) => s.receiverUserId)).toEqual([USER_A, USER_B]);
+    expect(harness.cardSurfaces).toHaveLength(0);
+  });
+
+  it('escrow: stepping updates the ephemeral sign URL and mints NO session', async () => {
     configureMiniAppOfferKeyboards({
       custodyMode: 'escrow',
       miniAppShortName: 'app',
@@ -193,28 +244,22 @@ describe('n-step stepper — flag on', () => {
       escrow: escrow.port,
     });
     await dispatchCallback(harness.h, stakeCtx(USER_A, 'e-side').ctx, stake('back', PRESET_01));
-    // Entry sign URL is the 0.01 anchor.
-    const entryButtons = (harness.cardSurfaces.at(-1)?.keyboard?.inline_keyboard ?? []).flat();
-    const entrySign = entryButtons.find((b) => 'url' in b);
-    const entryUrl = entrySign !== undefined && 'url' in entrySign ? entrySign.url : undefined;
-    expect(entryUrl).toContain('startapp=p-a1111111111141118111111111111111-b-1');
+    // Entry ephemeral sign URL is the 0.01 anchor.
+    expect(signUrlOf(harness.ephemeral?.sends[0]?.keyboard))
+      .toContain('startapp=p-a1111111111141118111111111111111-b-1');
     // Step up to the escrow devnet cap (0.05, code 5).
     await dispatchCallback(harness.h, stakeCtx(USER_A, 'e-up1').ctx, step('back', 2));
     await dispatchCallback(harness.h, stakeCtx(USER_A, 'e-up2').ctx, step('back', 5));
 
-    // No on-chain session is minted while stepping — the Mini App mints it.
+    // No on-chain session minted while stepping; the Mini App mints it.
     expect(escrow.calls).toBe(0);
     expect(harness.wagerDb.positions).toHaveLength(0);
-    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 5 });
-    // The surface shows the Mini App URL button carrying 0.05, no + (at the cap), + Back.
-    const edit = harness.cardSurfaces.at(-1);
-    expect(keyboardRows(edit?.keyboard).map((row) => row.length)).toEqual([2, 1, 1]);
-    const buttons = (edit?.keyboard?.inline_keyboard ?? []).flat();
-    const signButton = buttons.find((b) => 'url' in b && b.url);
-    const signUrl = signButton !== undefined && 'url' in signButton ? signButton.url : undefined;
-    expect(signUrl).toContain('startapp=p-a1111111111141118111111111111111-b-5');
-    expect(signButton?.text).toContain('Review & sign 0.05 SOL');
-    expect(buttons.at(-1)?.text).toBe('← Back');
+    expect(harness.cardSurfaces).toHaveLength(0);
+    expect(harness.uiState?.get(MARKET_ID, USER_A)).toMatchObject({ code: 5 });
+    const lastEdit = harness.ephemeral?.edits.at(-1);
+    // At the cap the amount row omits + (2 buttons), then the sign URL, then Back.
+    expect(keyboardRows(lastEdit?.keyboard).map((row) => row.length)).toEqual([2, 1, 1]);
+    expect(signUrlOf(lastEdit?.keyboard)).toContain('startapp=p-a1111111111141118111111111111111-b-5');
   });
 
   it('escrow: stepping over the 0.05 devnet cap is refused with no state change', async () => {
@@ -231,8 +276,49 @@ describe('n-step stepper — flag on', () => {
     await dispatchCallback(harness.h, stakeCtx(USER_A, 'cap-step').ctx, step('back', 10));
     expect(escrow.calls).toBe(0);
     // The stepper stays at the anchor; no forged over-cap rung is honored.
-    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 1 });
+    expect(harness.uiState?.get(MARKET_ID, USER_A)).toMatchObject({ code: 1 });
+    expect(harness.ephemeral?.edits).toHaveLength(0);
     expect(harness.wagerDb.positions).toHaveLength(0);
+  });
+
+  it('an ephemeral send failure degrades to the single-tap flow, shared card intact', async () => {
+    const harness = makeHarness({
+      stakeAcceptanceEnabled: true,
+      refreshableCard: true,
+      ladderEnabled: true,
+      ephemeralSendFails: true,
+    });
+    const { ctx } = stakeCtx(USER_A, 'fail-side');
+    await dispatchCallback(harness.h, ctx, stake('back', PRESET_01));
+
+    // The ephemeral sender was tried; it failed, so the base-stake single-tap ran.
+    expect(harness.ephemeral?.sendCalls).toBe(1);
+    expect(harness.wagerDb.positions).toHaveLength(1);
+    expect(harness.wagerDb.lastStakeArgs).toMatchObject({ lamports: 10_000_000n, side: 'back' });
+    // No per-user stepper state was set; the shared card refreshed to the plain
+    // two-side offer (never a stepper).
+    expect(harness.uiState?.get(MARKET_ID, USER_A)).toBeNull();
+    expect(keyboardLabels(harness.cardSurfaces.at(-1)?.keyboard)).toEqual(['Brazil win it', "They don't"]);
+  });
+
+  it('an ephemeral EDIT failure re-sends a fresh ephemeral so the stepper never strands', async () => {
+    const harness = makeHarness({
+      stakeAcceptanceEnabled: true,
+      refreshableCard: true,
+      ladderEnabled: true,
+      ephemeralEditFails: true,
+    });
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 'edit-side').ctx, stake('back', PRESET_01));
+    const firstId = harness.ephemeral?.sends[0]?.ephemeralMessageId;
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 'edit-up').ctx, step('back', 2));
+
+    // The edit was attempted and failed, so a fresh ephemeral was sent instead.
+    expect(harness.ephemeral?.editCalls).toBe(1);
+    expect(harness.ephemeral?.sends).toHaveLength(2);
+    const secondId = harness.ephemeral?.sends[1]?.ephemeralMessageId;
+    expect(secondId).not.toBe(firstId);
+    expect(harness.uiState?.get(MARKET_ID, USER_A)).toMatchObject({ code: 2, ephemeralMessageId: secondId });
+    expect(harness.cardSurfaces).toHaveLength(0);
   });
 
   it('the step/value/back callbacks round-trip through the codec', () => {

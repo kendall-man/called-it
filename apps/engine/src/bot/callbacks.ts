@@ -33,9 +33,9 @@ import {
 import { multiplierLabel, wagerDoubtMultiplier } from '../wager/stake.js';
 import { isBetaGroupAllowed } from './beta-access.js';
 import { createWagerCopy } from '../wager/copy.js';
-import { STAKE_LADDER_TTL_MS, type StakeUiState } from './stake-ui-state.js';
-import { editCardSurface, stakePositionsAvailable } from './stake-surface.js';
-import { sideLabelFor, stakeAmountLabel } from './stake-step-cards.js';
+import { STAKE_LADDER_TTL_MS } from './stake-ui-state.js';
+import { renderStepperEphemeral, stakePositionsAvailable } from './stake-surface.js';
+import { sideLabelFor, stakeAmountLabel, STEPPER_CLOSED_LINE } from './stake-step-cards.js';
 import {
   escrowPlacementRejectionText,
   escrowSigningPrompt,
@@ -643,19 +643,41 @@ async function commitLegacyStake(
 
 /**
  * A Back / Against tap (step 1). With the ladder flag OFF this is the whole
- * single-tap flow: resolve the default preset to lamports and dispatch straight
- * to escrow signing or the wager module. With the flag ON it mints nothing —
- * it opens the value ladder on the card (see handleLadderEntry).
+ * single-tap flow (commitSingleTap). With the flag ON it opens a PER-USER
+ * ephemeral stepper in the same group — the shared card keeps its two side
+ * buttons untouched so every member can still bet. If the ephemeral can't be
+ * shown (ports absent, or the ephemeral API fails), it falls back to the
+ * single-tap flow at the base stake so betting never breaks.
  */
 async function handleStake(
   h: HandlerCtx,
   ctx: Context,
   action: Extract<CallbackAction, { t: 'stake' }>,
 ): Promise<void> {
-  if (h.deps.env.STAKE_LADDER_ENABLED && h.uiState !== undefined) {
-    await handleLadderEntry(h, ctx, action.marketId, action.side);
-    return;
+  if (
+    h.deps.env.STAKE_LADDER_ENABLED
+    && h.uiState !== undefined
+    && h.ephemeral !== undefined
+  ) {
+    const opened = await openStepperEphemeral(h, ctx, action.marketId, action.side);
+    if (opened) return;
+    // The ephemeral path degraded (send failed / ports missing). Fall through
+    // to the single-tap flow so the tapper can still size+sign; the shared card
+    // is never morphed and other members keep their two side buttons.
   }
+  await commitSingleTap(h, ctx, action);
+}
+
+/**
+ * The single-tap money path (ladder flag OFF, or the ephemeral-unavailable
+ * fallback): resolve the base preset to lamports and dispatch straight to escrow
+ * signing or the wager module. Byte-for-byte the pre-ladder side-tap flow.
+ */
+async function commitSingleTap(
+  h: HandlerCtx,
+  ctx: Context,
+  action: Extract<CallbackAction, { t: 'stake' }>,
+): Promise<void> {
   const r = await resolveStake(h, ctx, action.marketId, (asset, escrowMode, wager) =>
     escrowMode
       ? presetStakes(asset)[action.presetIndex] ?? null
@@ -716,63 +738,83 @@ async function loadStepperMarket(
   return market;
 }
 
-/** Set the stepper state at `code` and urgent-edit the card to match. */
-async function renderStepper(
-  h: HandlerCtx,
-  market: MarketRow,
-  side: 'back' | 'doubt',
-  code: StakeUiState['code'],
-): Promise<void> {
-  const uiState: StakeUiState = { kind: 'ladder', side, code };
-  h.uiState?.set(market.id, uiState, STAKE_LADDER_TTL_MS);
-  await editCardSurface(
-    h.deps,
-    h.poster,
-    market,
-    { positionsAvailable: true, ladderEnabled: true, uiState },
-    { urgent: true },
-  );
-}
-
-/** Clear the stepper and urgent-edit the card back to the two-side offer. */
-async function revertToOffer(h: HandlerCtx, market: MarketRow): Promise<void> {
-  h.uiState?.clear(market.id);
-  await editCardSurface(
-    h.deps,
-    h.poster,
-    market,
-    {
-      positionsAvailable: await stakePositionsAvailable(h.deps, market),
-      ladderEnabled: true,
-      uiState: null,
-    },
-    { urgent: true },
-  );
+/**
+ * Close a member's ephemeral stepper (on Back, on commit, or on the auto-revert
+ * timer). Edits it to a one-line "closed" and clears the per-user ui state. The
+ * shared card is never touched. Best-effort: the ephemeral port swallows its own
+ * failures.
+ */
+async function closeStepperEphemeral(h: HandlerCtx, userId: number, marketId: string): Promise<void> {
+  const store = h.uiState;
+  const ephemeral = h.ephemeral;
+  if (store === undefined || ephemeral === undefined) return;
+  const state = store.get(marketId, userId);
+  store.clear(marketId, userId);
+  if (state === null) return;
+  await ephemeral.edit({
+    userId,
+    ephemeralMessageId: state.ephemeralMessageId,
+    text: STEPPER_CLOSED_LINE,
+  });
 }
 
 /**
- * Step 1 with the stepper ON: the side tap moves ZERO SOL. It opens the stepper
- * at the anchor rung (0.01, code 1 — never a higher preselection) in the shared
- * in-process store (20s auto-revert) and urgent-edits the card. Reversible via
- * "← Back" until the explicit sign/confirm.
+ * Step 1 with the stepper ON: the side tap moves ZERO SOL. It sends a PER-USER
+ * ephemeral message (visible only to the tapper) in the same group, showing the
+ * stepper at the anchor rung (0.01, code 1 — never a higher preselection). The
+ * SHARED card is untouched, so every other member still sees both side buttons.
+ *
+ * Returns true when the ephemeral (or a market gate) was handled, false when the
+ * ephemeral could not be sent so the caller degrades to the single-tap flow. It
+ * never morphs the shared card.
  */
-async function handleLadderEntry(
+async function openStepperEphemeral(
   h: HandlerCtx,
   ctx: Context,
   marketId: string,
   side: 'back' | 'doubt',
-): Promise<void> {
+): Promise<boolean> {
+  const store = h.uiState;
+  const ephemeral = h.ephemeral;
+  const from = ctx.from;
+  const chatId = ctx.chat?.id;
+  const callbackId = ctx.callbackQuery?.id;
+  if (store === undefined || ephemeral === undefined || !from || chatId === undefined || callbackId === undefined) {
+    return false;
+  }
   const market = await loadStepperMarket(h, ctx, marketId);
-  if (market === null) return;
-  await renderStepper(h, market, side, 1);
+  // A market gate (stale / closed / paused) already answered; treat as handled
+  // so the fallback single-tap flow does not double-dispatch.
+  if (market === null) return true;
+  const surface = renderStepperEphemeral(h.deps, market, side, 1);
+  const sent = await ephemeral.send({
+    chatId,
+    receiverUserId: from.id,
+    callbackQueryId: callbackId,
+    text: surface.text,
+    replyMarkup: surface.keyboard,
+  });
+  if (!sent.ok) {
+    h.deps.log.info('stake_ephemeral_send_failed', { marketId: market.id });
+    return false;
+  }
+  store.set(
+    market.id,
+    from.id,
+    { kind: 'ladder', side, code: 1, ephemeralMessageId: sent.ephemeralMessageId },
+    STAKE_LADDER_TTL_MS,
+  );
   await answer(ctx, `${sideLabelFor(market.spec, side)} — now size it below.`);
+  return true;
 }
 
 /**
- * A ± tap (or the middle amount tap) on the stepper. Moves ZERO SOL: it dials
- * the current rung to the tapped code and re-renders the same card. Requires an
- * active stepper for this side; an expired one lazily reverts to the offer so
- * the shared surface never sticks. The commit is the separate sign/confirm.
+ * A ± tap (or the middle amount tap) on a member's ephemeral stepper. Moves ZERO
+ * SOL: it dials the rung to the tapped code and edits THAT member's ephemeral in
+ * place (per-user, keyed by (market, user)). If there is no live ephemeral (the
+ * sizing window lapsed) or the in-place edit fails, it sends a fresh ephemeral so
+ * the stepper never strands. The shared card is untouched. Commit is the
+ * separate sign/confirm.
  */
 async function handleStakeStep(
   h: HandlerCtx,
@@ -780,7 +822,13 @@ async function handleStakeStep(
   action: Extract<CallbackAction, { t: 'stake_step' }>,
 ): Promise<void> {
   const store = h.uiState;
-  if (!h.deps.env.STAKE_LADDER_ENABLED || store === undefined) {
+  const ephemeral = h.ephemeral;
+  const from = ctx.from;
+  const callbackId = ctx.callbackQuery?.id;
+  if (
+    !h.deps.env.STAKE_LADDER_ENABLED || store === undefined || ephemeral === undefined
+    || !from || callbackId === undefined
+  ) {
     await stale(h, ctx);
     return;
   }
@@ -794,23 +842,51 @@ async function handleStakeStep(
     await stale(h, ctx);
     return;
   }
-  const current = store.get(market.id);
-  if (current === null || current.side !== action.side) {
-    // The sizing window closed (or this is a stale button from another side):
-    // revert to the offer rather than resurrect a stepper nobody is holding.
-    await revertToOffer(h, market);
-    await answer(ctx, 'That sizing step closed — tap a side to size again.');
-    return;
-  }
+  const current = store.get(market.id, from.id);
   const amountLabel = stakeAmountLabel(ladderAtomic(asset, action.amountCode), asset);
-  if (current.code === action.amountCode) {
-    // The middle amount tap (or a re-tap of the same rung): keep the surface
+  if (current !== null && current.side === action.side && current.code === action.amountCode) {
+    // The middle amount tap (or a re-tap of the same rung): keep the ephemeral
     // alive without a redundant edit.
-    store.set(market.id, current, STAKE_LADDER_TTL_MS);
+    store.set(market.id, from.id, current, STAKE_LADDER_TTL_MS);
     await answer(ctx, `Sizing ${amountLabel}.`);
     return;
   }
-  await renderStepper(h, market, action.side, action.amountCode);
+  const surface = renderStepperEphemeral(h.deps, market, action.side, action.amountCode);
+  let ephemeralMessageId: number | null = null;
+  if (current !== null) {
+    const edited = await ephemeral.edit({
+      userId: from.id,
+      ephemeralMessageId: current.ephemeralMessageId,
+      text: surface.text,
+      replyMarkup: surface.keyboard,
+    });
+    if (edited) ephemeralMessageId = current.ephemeralMessageId;
+  }
+  if (ephemeralMessageId === null) {
+    // No live ephemeral to edit (window lapsed) or the edit failed: send a fresh
+    // one. The step tap carries its own callback_query_id, so the send stays
+    // inside the 15s no-admin window.
+    const sent = await ephemeral.send({
+      chatId: market.group_id,
+      receiverUserId: from.id,
+      callbackQueryId: callbackId,
+      text: surface.text,
+      replyMarkup: surface.keyboard,
+    });
+    if (sent.ok) {
+      ephemeralMessageId = sent.ephemeralMessageId;
+    } else {
+      h.deps.log.info('stake_ephemeral_resize_failed', { marketId: market.id });
+    }
+  }
+  if (ephemeralMessageId !== null) {
+    store.set(
+      market.id,
+      from.id,
+      { kind: 'ladder', side: action.side, code: action.amountCode, ephemeralMessageId },
+      STAKE_LADDER_TTL_MS,
+    );
+  }
   await answer(ctx, `Sizing ${amountLabel}.`);
 }
 
@@ -818,8 +894,9 @@ async function handleStakeStep(
  * The explicit commit at the stepper's current rung (stepper ON). Reuses the
  * full stake guard chain, then for escrow issues the private DM signing link
  * (the fallback when the in-card Mini App URL is unavailable), and for legacy
- * commits the stake at the shown amount exactly like the single tap. The card
- * returns to the two-side offer either way.
+ * commits the stake at the shown amount exactly like the single tap. The member's
+ * ephemeral stepper is closed either way; the shared card refreshes its tallies
+ * through the normal refresh path and keeps its two side buttons.
  */
 async function handleStakeValue(
   h: HandlerCtx,
@@ -854,30 +931,25 @@ async function handleStakeValue(
       network: h.deps.env.SOLANA_NETWORK,
       replay: r.market.is_replay,
     });
-    await revertToOffer(h, r.market);
+    await closeStepperEphemeral(h, r.from.id, r.market.id);
     return;
   }
   // Legacy: the confirm tap IS the commit.
   await commitLegacyStake(h, ctx, r, action.side);
-  // Return the card to the two-side offer immediately (updated tallies), rather
-  // than leaving the stepper visible until the next passive refresh collapses.
-  await revertToOffer(h, r.market);
+  // Close the member's ephemeral stepper; the shared card already refreshed its
+  // tallies (and its two side buttons) via commitLegacyStake.
+  await closeStepperEphemeral(h, r.from.id, r.market.id);
 }
 
-/** "← Back" from the stepper to the two-side offer. Loses nothing. */
+/** "← Back" closes the member's ephemeral stepper. Loses nothing; the shared card stands. */
 async function handleStakeBack(h: HandlerCtx, ctx: Context, marketId: string): Promise<void> {
   const store = h.uiState;
-  const chatId = ctx.chat?.id;
-  if (!h.deps.env.STAKE_LADDER_ENABLED || store === undefined || chatId === undefined) {
+  const from = ctx.from;
+  if (!h.deps.env.STAKE_LADDER_ENABLED || store === undefined || h.ephemeral === undefined || !from) {
     await stale(h, ctx);
     return;
   }
-  const market = await h.deps.db.getMarket(marketId);
-  if (!market || market.group_id !== chatId) {
-    await stale(h, ctx);
-    return;
-  }
-  await revertToOffer(h, market);
+  await closeStepperEphemeral(h, from.id, marketId);
   await answer(ctx, 'Back to the call.');
 }
 

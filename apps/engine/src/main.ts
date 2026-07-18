@@ -23,7 +23,8 @@ import { LlmBudget } from './bot/budget.js';
 import { BOT_COMMANDS, registerBotHandlers } from './bot/bot.js';
 import type { HandlerCtx } from './bot/context.js';
 import { UiStateStore } from './bot/stake-ui-state.js';
-import { editCardSurface, stakePositionsAvailable } from './bot/stake-surface.js';
+import { createTelegramEphemeralPort } from './bot/ephemeral.js';
+import { STEPPER_CLOSED_LINE } from './bot/stake-step-cards.js';
 import { ClaimSurfaceStore } from './pipeline/claim-surface.js';
 import { Settler } from './settle/settler.js';
 import { createGroupPointsService } from './points/service.js';
@@ -329,22 +330,24 @@ async function main(): Promise<void> {
     }
   };
 
-  // Two-step stake ladder visual store (STAKE_LADDER_ENABLED). Built only when
-  // the flag is on so a flag-off deploy is the single-tap flow, byte-for-byte.
-  // onExpire auto-reverts the card back to the two-side offer when a member
-  // walks away mid-compose (a purely visual timeout — no money depends on it).
+  // Per-user ephemeral stepper surface (STAKE_LADDER_ENABLED). A raw Bot API
+  // client for the ephemeral group messages the stepper lives in; built only
+  // when the flag is on so a flag-off deploy loads zero of it and stays the
+  // single-tap flow, byte-for-byte.
+  const ephemeralPort = env.STAKE_LADDER_ENABLED
+    ? createTelegramEphemeralPort({ token: env.TELEGRAM_BOT_TOKEN, log })
+    : null;
+
+  // Per-user stepper visual store (STAKE_LADDER_ENABLED), keyed by (market,
+  // user). onExpire closes a member's ephemeral stepper when they walk away
+  // mid-compose (a purely visual timeout — no money depends on it). The SHARED
+  // card is never touched, so other members keep their two side buttons.
   const uiStateStore = env.STAKE_LADDER_ENABLED
     ? new UiStateStore({
-        onExpire: (marketId) => {
-          void (async () => {
-            const market = await deps.db.getMarket(marketId);
-            if (market === null) return;
-            await editCardSurface(deps, poster, market, {
-              positionsAvailable: await stakePositionsAvailable(deps, market),
-              ladderEnabled: true,
-              uiState: null,
-            });
-          })().catch(() => log.warn('stake_ui_revert_failed', { marketId }));
+        onExpire: (_marketId, userId, state) => {
+          void (ephemeralPort ?? undefined)
+            ?.edit({ userId, ephemeralMessageId: state.ephemeralMessageId, text: STEPPER_CLOSED_LINE })
+            .catch(() => log.warn('stake_ui_revert_failed'));
         },
       })
     : null;
@@ -362,6 +365,7 @@ async function main(): Promise<void> {
     ...(escrowRuntime === null ? {} : { escrow: escrowRuntime.telegram }),
     ...(escrowRuntime === null ? {} : { status: { escrowReadiness: probeEscrowReadiness } }),
     ...(uiStateStore === null ? {} : { uiState: uiStateStore }),
+    ...(ephemeralPort === null ? {} : { ephemeral: ephemeralPort }),
     ...(claimSurfaceStore === null ? {} : { claimSurface: claimSurfaceStore }),
   };
 

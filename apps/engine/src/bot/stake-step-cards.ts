@@ -25,6 +25,13 @@ export const STAKE_STEP_UP_LABEL = '+';
 
 const BASE_STAKE_NOTE = '0.01 is the base stake. Nothing moves until you sign.';
 
+/**
+ * The one-line the per-user ephemeral stepper collapses to on Back, on commit,
+ * or when its sizing window lapses. Terse, no urgency, no re-stake prompt; the
+ * shared card still carries the two side buttons for another try.
+ */
+export const STEPPER_CLOSED_LINE = 'Closed. Tap a side on the card to size again.';
+
 /** The compiled per-claim label for a side (deterministic, never LLM text). */
 export function sideLabelFor(spec: MarketSpec, side: 'back' | 'doubt'): string {
   const labels = sideLabels(spec);

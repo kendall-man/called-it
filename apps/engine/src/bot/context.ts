@@ -13,6 +13,7 @@ import type { IngestSupervisor } from '../ingest/supervisor.js';
 import type { EntityCache } from './entities.js';
 import type { LlmBudget } from './budget.js';
 import type { EscrowTelegramPort } from './escrow-ux.js';
+import type { EphemeralPort } from './ephemeral.js';
 import type { UiStateStore } from './stake-ui-state.js';
 import type { ClaimSurfaceStore } from '../pipeline/claim-surface.js';
 
@@ -42,6 +43,13 @@ export interface HandlerCtx {
    * present when the flag is on; its absence is the single-tap flow.
    */
   uiState?: UiStateStore;
+  /**
+   * Per-user ephemeral group-message surface for the stake stepper
+   * (STAKE_LADDER_ENABLED). Present only when the flag is on; its absence (or a
+   * runtime failure) degrades the side tap to the per-user single-tap signing
+   * path, never morphing the shared card.
+   */
+  ephemeral?: EphemeralPort;
   /**
    * In-process surface-message tracking for the single-message claim lifecycle
    * (STAKE_LADDER_ENABLED). Present only when the flag is on; its absence is

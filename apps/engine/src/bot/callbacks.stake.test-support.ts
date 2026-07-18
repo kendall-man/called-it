@@ -16,6 +16,7 @@ import { installAtomicStarterRpc } from './callbacks.starter-rpc.test-support.js
 import { EntityCache } from './entities.js';
 import { SendQueue } from './sendQueue.js';
 import type { EscrowTelegramPort } from './escrow-ux.js';
+import type { EphemeralPort } from './ephemeral.js';
 import { UiStateStore } from './stake-ui-state.js';
 import type { InlineKeyboard } from 'grammy';
 
@@ -81,6 +82,89 @@ export interface CardSurfaceRecord {
   urgent?: boolean;
 }
 
+/** A per-user ephemeral SEND capture (the stepper's group-scoped private message). */
+export interface EphemeralSendRecord {
+  chatId: number;
+  receiverUserId: number;
+  callbackQueryId: string;
+  text: string;
+  keyboard?: InlineKeyboard;
+  ephemeralMessageId: number;
+}
+
+/** A per-user ephemeral EDIT capture (an in-place stepper re-size or close). */
+export interface EphemeralEditRecord {
+  userId: number;
+  ephemeralMessageId: number;
+  text: string;
+  keyboard?: InlineKeyboard;
+}
+
+export interface FakeEphemeral {
+  port: EphemeralPort;
+  /** Successful sends (a failed send is counted in sendCalls but not recorded). */
+  sends: EphemeralSendRecord[];
+  /** Successful edits (a failed edit is counted in editCalls but not recorded). */
+  edits: EphemeralEditRecord[];
+  /** Every send attempt, including ones that returned ok:false. */
+  readonly sendCalls: number;
+  /** Every edit attempt, including ones that returned false. */
+  readonly editCalls: number;
+}
+
+/** Base id for fake ephemeral messages, so captured ids are recognizably distinct. */
+const EPHEMERAL_MESSAGE_ID_BASE = 5000;
+
+/**
+ * A recording ephemeral port. `sendFails` models the API being unavailable (the
+ * send throws / returns ok:false) so the fallback path can be asserted;
+ * `editFails` models a failed in-place edit so the re-send path is exercised.
+ */
+function makeFakeEphemeral(opts: { sendFails?: boolean; editFails?: boolean } = {}): FakeEphemeral {
+  const sends: EphemeralSendRecord[] = [];
+  const edits: EphemeralEditRecord[] = [];
+  let nextId = EPHEMERAL_MESSAGE_ID_BASE;
+  const counters = { sendCalls: 0, editCalls: 0 };
+  const port: EphemeralPort = {
+    async send(input) {
+      counters.sendCalls += 1;
+      if (opts.sendFails === true) return { ok: false };
+      const ephemeralMessageId = (nextId += 1);
+      sends.push({
+        chatId: input.chatId,
+        receiverUserId: input.receiverUserId,
+        callbackQueryId: input.callbackQueryId,
+        text: input.text,
+        keyboard: input.replyMarkup,
+        ephemeralMessageId,
+      });
+      return { ok: true, ephemeralMessageId };
+    },
+    async edit(input) {
+      counters.editCalls += 1;
+      if (opts.editFails === true) return false;
+      edits.push({
+        userId: input.userId,
+        ephemeralMessageId: input.ephemeralMessageId,
+        text: input.text,
+        keyboard: input.replyMarkup,
+      });
+      return true;
+    },
+  };
+  return {
+    port,
+    sends,
+    edits,
+    get sendCalls() {
+      return counters.sendCalls;
+    },
+    get editCalls() {
+      return counters.editCalls;
+    },
+  };
+}
+
 export interface StakeHarness {
   h: HandlerCtx;
   wagerDb: FakeWagerDb;
@@ -91,6 +175,8 @@ export interface StakeHarness {
   posts: Array<{ chatId: number; text: string; options: unknown }>;
   /** Present only when the two-step ladder flag is enabled. */
   uiState: UiStateStore | null;
+  /** The recording ephemeral port; present only when the ladder flag is enabled. */
+  ephemeral: FakeEphemeral | null;
 }
 
 export interface StakeHarnessOptions {
@@ -106,8 +192,12 @@ export interface StakeHarnessOptions {
   solanaNetwork?: 'devnet' | 'mainnet-beta';
   custodyMode?: 'legacy' | 'escrow';
   escrow?: EscrowTelegramPort;
-  /** Turns on the two-step stake ladder and attaches a UiStateStore. */
+  /** Turns on the two-step stake ladder and attaches a UiStateStore + ephemeral port. */
   ladderEnabled?: boolean;
+  /** Model the ephemeral send failing (API unavailable) to assert the fallback. */
+  ephemeralSendFails?: boolean;
+  /** Model the ephemeral in-place edit failing to assert the re-send path. */
+  ephemeralEditFails?: boolean;
 }
 
 type StakeDb = Pick<
@@ -155,6 +245,7 @@ interface StakeHandler {
     chatAction: (chatId: number, action: string) => void;
   };
   uiState?: UiStateStore;
+  ephemeral?: EphemeralPort;
   say: (key: Parameters<typeof renderFallback>[0], vars?: Parameters<typeof renderFallback>[1]) => Promise<string>;
   supervisor: object;
   budget: LlmBudget;
@@ -239,6 +330,9 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
   const uiStateStore = (opts.ladderEnabled ?? false)
     ? new UiStateStore({ now: () => NOW, schedule: () => () => undefined })
     : null;
+  const ephemeral = (opts.ladderEnabled ?? false)
+    ? makeFakeEphemeral({ sendFails: opts.ephemeralSendFails, editFails: opts.ephemeralEditFails })
+    : null;
   const db = asEngineDb({
     ...createPointMethodStubs({ kind: 'empty', groupId: CHAT_ID }),
     getMarket: async (id: string) => (id === market.id ? { ...market } : null),
@@ -319,6 +413,7 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
       chatAction: () => undefined,
     },
     ...(uiStateStore === null ? {} : { uiState: uiStateStore }),
+    ...(ephemeral === null ? {} : { ephemeral: ephemeral.port }),
     say: async (key: Parameters<typeof renderFallback>[0], vars = {}) => renderFallback(key, vars),
     supervisor: {
       replayFixture: () => opts.replayFixture?.fixture_id ?? null,
@@ -344,7 +439,7 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
     entities: new EntityCache(db, () => NOW),
     ...(opts.escrow === undefined ? {} : { escrow: opts.escrow }),
   });
-  return { h, wagerDb: wagerBundle.db, cardEdits, cardSurfaces, posts, uiState: uiStateStore };
+  return { h, wagerDb: wagerBundle.db, cardEdits, cardSurfaces, posts, uiState: uiStateStore, ephemeral };
 }
 
 export function makeStakeContext(
