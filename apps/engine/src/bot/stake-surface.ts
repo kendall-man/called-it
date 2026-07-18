@@ -54,7 +54,6 @@ export function renderStepperEphemeral(
       asset,
       custody,
       network,
-      sideLabel,
       signUrl,
     }),
   };

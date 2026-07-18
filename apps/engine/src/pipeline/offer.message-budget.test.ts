@@ -58,11 +58,11 @@ describe('offer Telegram message budget', () => {
       throw new TypeError(`Offer test did not post a market card; markets=${runtime.db.marketList().length}; events=${events}; calls=${calls}`);
     }
     const mandatoryLines = [
-      '⚡ Atlas FC win it: 0 SOL (0 in)',
-      "🛑 They don't: 0 SOL (0 in)",
+      '⚡ Atlas FC to win: 0 SOL (0 in)',
+      "🛑 Draw or loss: 0 SOL (0 in)",
       '🤝 Matched: 0%',
-      'Atlas FC win it: No one yet',
-      "They don't: No one yet",
+      'Atlas FC to win: No one yet',
+      "Draw or loss: No one yet",
       `Receipt: https://calledit.invalid/r/${market.id}`,
     ];
     expect(sent.text.length).toBeLessThanOrEqual(4_096);

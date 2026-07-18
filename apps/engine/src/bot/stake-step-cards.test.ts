@@ -63,9 +63,9 @@ describe('n-step stepper copy', () => {
     expect(amount).toBe('0.05 SOL');
     expect(confirmButtonLabel(amount)).toBe('Confirm 0.05 SOL');
     expect(confirmButtonLabel(amount)).not.toContain('!');
-    expect(signButtonLabel(amount, 'France score 2+')).toBe(
-      'Review & sign 0.05 SOL for France score 2+',
-    );
+    // The side is already locked (and named in the note), so the sign action
+    // confirms the AMOUNT only — it never re-presents the for/against choice.
+    expect(signButtonLabel(amount)).toBe('Review & sign 0.05 SOL');
   });
 
   it('settlement ping is compact, hype-free, and links the board/receipt', () => {

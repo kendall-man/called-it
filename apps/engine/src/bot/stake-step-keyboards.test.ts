@@ -21,7 +21,6 @@ function stepper(overrides: Partial<StakeStepperKeyboardInput> = {}): InlineKeyb
     asset: 'sol',
     custody: 'legacy',
     network: 'devnet',
-    sideLabel: 'Brazil win it',
     signUrl: null,
     ...overrides,
   });
@@ -57,7 +56,7 @@ describe('stake stepper keyboard', () => {
     // At the escrow cap (0.05) there is no + rung.
     expect(layout[0]?.map((b) => b.text)).toEqual(['−', '0.05 SOL']);
     // The action row is the Mini App URL button, carrying the current amount.
-    expect(layout[1]?.[0]?.text).toBe('Review & sign 0.05 SOL for Brazil win it');
+    expect(layout[1]?.[0]?.text).toBe('Review & sign 0.05 SOL');
     expect(layout[1]?.[0]?.url).toBe(url);
     expect(layout[1]?.[0]?.callback_data).toBeUndefined();
     expect(layout[2]?.map((b) => b.text)).toEqual(['← Back']);
@@ -76,7 +75,7 @@ describe('stake stepper keyboard', () => {
   it('escrow with no Mini App URL falls back to a signing confirm callback', () => {
     const layout = rows(stepper({ custody: 'escrow', network: 'devnet', code: 2, signUrl: null }));
     const action = layout[1]?.[0];
-    expect(action?.text).toBe('Review & sign 0.02 SOL for Brazil win it');
+    expect(action?.text).toBe('Review & sign 0.02 SOL');
     expect(action?.url).toBeUndefined();
     expect(decodeCallback(action?.callback_data ?? '')).toEqual<CallbackAction>({
       t: 'stake_value', marketId: MARKET, side: 'back', amountCode: 2,

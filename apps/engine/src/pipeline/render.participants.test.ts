@@ -132,11 +132,11 @@ describe('composeClaimCard participant projection', () => {
     expect(userReads).toEqual([USER_A]);
     expect(card?.text).toContain(
       [
-        '⚡ Brazil win it: 0.03 SOL (2 in)',
-        "🛑 They don't: 0.03 SOL (2 in)",
+        '⚡ Brazil to win: 0.03 SOL (2 in)',
+        "🛑 Draw or loss: 0.03 SOL (2 in)",
         '🤝 Matched: 100%',
-        'Brazil win it: @alice_calls, Cara',
-        "They don't: Bob",
+        'Brazil to win: @alice_calls, Cara',
+        "Draw or loss: Bob",
       ].join('\n'),
     );
     expect(card?.text.split('Bob')).toHaveLength(2);
@@ -187,8 +187,8 @@ describe('composeClaimCard participant projection', () => {
     expect(posts).toEqual([]);
     expect(edits.join('\n')).toContain(
       [
-        'Brazil win it: @alice_calls',
-        "They don't: No one yet",
+        'Brazil to win: @alice_calls',
+        "Draw or loss: No one yet",
       ].join('\n'),
     );
   });

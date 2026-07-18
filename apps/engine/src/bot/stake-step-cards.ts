@@ -44,17 +44,22 @@ export function stakeAmountLabel(amountAtomic: bigint, asset: WagerAsset): strin
 }
 
 /**
- * The small stepper note appended to the offer card: the current stake and the
- * base-stake anchor. The compiled terms line already lives in the card body, so
- * this stays to two short lines (less is more).
+ * The stepper note for the per-user ephemeral. The member already picked their
+ * side by tapping it, so this states that pick as a settled fact (never a fresh
+ * "choose for or against" prompt) alongside the current stake and the base-stake
+ * anchor. Two short lines: the compiled terms already live on the shared card.
  */
 export function stepperNote(sideLabel: string, amountLabel: string): string {
-  return [`Sizing ${sideLabel} · ${amountLabel}`, BASE_STAKE_NOTE].join('\n');
+  return [`${sideLabel} · ${amountLabel}`, BASE_STAKE_NOTE].join('\n');
 }
 
-/** Full-width escrow action: dial down/up, then sign the shown amount. */
-export function signButtonLabel(amountLabel: string, sideLabel: string): string {
-  return `Review & sign ${amountLabel} for ${sideLabel}`;
+/**
+ * Full-width escrow action: dial the amount, then sign it. The side is already
+ * locked (and named in the note above), so the button confirms the AMOUNT only
+ * rather than re-presenting the for/against choice.
+ */
+export function signButtonLabel(amountLabel: string): string {
+  return `Review & sign ${amountLabel}`;
 }
 
 /** Full-width legacy/replay action: commit the shown amount. No exclamation. */

@@ -114,7 +114,7 @@ describe('multi-participant stepper — flag on', () => {
     expect(harness.uiState?.get(MARKET_ID, USER_A)).toEqual({
       kind: 'ladder', side: 'back', code: 1, ephemeralMessageId: sent?.ephemeralMessageId,
     });
-    expect(toasts.at(-1)).toBe('Brazil win it — now size it below.');
+    expect(toasts.at(-1)).toBe('Brazil to win, now size it below.');
   });
 
   it('± steps EDIT the per-user ephemeral in place WITHOUT moving SOL', async () => {
@@ -175,7 +175,7 @@ describe('multi-participant stepper — flag on', () => {
     expect(harness.uiState?.get(MARKET_ID, USER_A)).toBeNull();
     expect(harness.ephemeral?.edits.at(-1)?.text).toBe(STEPPER_CLOSED_LINE);
     // The SHARED card refreshed its tallies but keeps its two side buttons.
-    expect(keyboardLabels(harness.cardSurfaces.at(-1)?.keyboard)).toEqual(['Brazil win it', "They don't"]);
+    expect(keyboardLabels(harness.cardSurfaces.at(-1)?.keyboard)).toEqual(['Brazil to win', "Draw or loss"]);
   });
 
   it('the base 0.01 rung still commits at exactly 0.01 SOL', async () => {
@@ -298,7 +298,7 @@ describe('multi-participant stepper — flag on', () => {
     // No per-user stepper state was set; the shared card refreshed to the plain
     // two-side offer (never a stepper).
     expect(harness.uiState?.get(MARKET_ID, USER_A)).toBeNull();
-    expect(keyboardLabels(harness.cardSurfaces.at(-1)?.keyboard)).toEqual(['Brazil win it', "They don't"]);
+    expect(keyboardLabels(harness.cardSurfaces.at(-1)?.keyboard)).toEqual(['Brazil to win', "Draw or loss"]);
   });
 
   it('an ephemeral EDIT failure re-sends a fresh ephemeral so the stepper never strands', async () => {

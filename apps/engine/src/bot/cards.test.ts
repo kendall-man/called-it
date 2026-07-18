@@ -90,7 +90,7 @@ describe('sideLabels', () => {
       claimType: 'match_winner',
       entityRef: { kind: 'team', participant: 1, name: 'Brazil' },
       threshold: 1,
-    }))).toEqual({ back: 'Brazil win it', doubt: "They don't" });
+    }))).toEqual({ back: 'Brazil to win', doubt: 'Draw or loss' });
     expect(sideLabels(TEAM_SPEC)).toEqual({ back: 'France score 2+', doubt: "They don't" });
     expect(sideLabels(specOf({ threshold: 1 })))
       .toEqual({ back: 'France score', doubt: "They don't" });
@@ -124,7 +124,7 @@ describe('sideLabels', () => {
       entityRef: { kind: 'team', participant: 1, name: 'Borussia Mönchengladbach' },
       threshold: 1,
     }));
-    expect(gladbach.back).toBe('Mönchengladbach win it');
+    expect(gladbach.back).toBe('Mönchengladbach to win');
     // A single overlong word cannot be shortened safely — binary wins.
     expect(sideLabels(specOf({
       claimType: 'match_winner',
@@ -159,7 +159,7 @@ describe('sideLabels', () => {
       threshold: 1,
     }));
     expect(hostile.back).not.toMatch(/[\u0000\u202e]/u);
-    expect(hostile.back).toContain('win it');
+    expect(hostile.back).toContain('to win');
   });
 });
 

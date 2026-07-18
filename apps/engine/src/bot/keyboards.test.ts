@@ -40,7 +40,7 @@ function labels(keyboard: ReturnType<typeof offerKeyboard>): string[][] {
   return keyboard.inline_keyboard.map((row) => row.map((button) => button.text));
 }
 
-const OFFER_LABELS = [['Brazil win it'], ["They don't"]];
+const OFFER_LABELS = [['Brazil to win'], ["Draw or loss"]];
 
 type OfferButton = { text: string; callback_data?: string; url?: string };
 
@@ -82,10 +82,10 @@ describe('offer keyboard', () => {
     expect(labels(keyboard)).toMatchInlineSnapshot(`
       [
         [
-          "Brazil win it",
+          "Brazil to win",
         ],
         [
-          "They don't",
+          "Draw or loss",
         ],
       ]
     `);

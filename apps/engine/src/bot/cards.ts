@@ -138,8 +138,8 @@ export function sideLabels(spec: MarketSpec): SideLabels {
   switch (spec.claimType) {
     case 'match_winner':
       return pairedSideLabels(
-        fitEntityLabel(spec.entityRef.name, (team) => `${team} win it`),
-        "They don't",
+        fitEntityLabel(spec.entityRef.name, (team) => `${team} to win`),
+        'Draw or loss',
       );
     case 'comeback':
       return pairedSideLabels(

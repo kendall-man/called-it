@@ -804,7 +804,7 @@ async function openStepperEphemeral(
     { kind: 'ladder', side, code: 1, ephemeralMessageId: sent.ephemeralMessageId },
     STAKE_LADDER_TTL_MS,
   );
-  await answer(ctx, `${sideLabelFor(market.spec, side)} — now size it below.`);
+  await answer(ctx, `${sideLabelFor(market.spec, side)}, now size it below.`);
   return true;
 }
 
@@ -1056,7 +1056,7 @@ async function handleChattiness(
       ? 'priced nudges are on'
       : mode === 'react_only'
         ? 'reactions only from here'
-        : 'trigger-only — reply /bookit when it matters';
+        : 'trigger-only, reply /bookit when it matters';
   await answer(ctx, await h.say('settings_updated', { summary }));
   try {
     await ctx.editMessageReplyMarkup({

@@ -40,8 +40,6 @@ export interface StakeStepperKeyboardInput {
   readonly asset: WagerAsset;
   readonly custody: 'legacy' | 'escrow';
   readonly network: SolanaNetwork;
-  /** The compiled side label, for the escrow action's "for <side>" phrasing. */
-  readonly sideLabel: string;
   /**
    * The direct-link Mini App signing URL for the current rung (escrow only),
    * or null. Null with escrow custody falls back to a signing callback so the
@@ -91,7 +89,7 @@ export function stakeStepperKeyboard(input: StakeStepperKeyboardInput): InlineKe
   // Action row: sign (escrow) or confirm (legacy/replay).
   keyboard.row();
   const actionLabel = input.custody === 'escrow'
-    ? signButtonLabel(amountLabel, input.sideLabel)
+    ? signButtonLabel(amountLabel)
     : confirmButtonLabel(amountLabel);
   if (input.signUrl !== null) {
     keyboard.url(actionLabel, input.signUrl);
