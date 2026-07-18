@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { MarketState, MatchEvent, SettlementOutcome } from '@calledit/market-engine';
 import type { Deps, MarketRow } from '../ports.js';
 import type { Poster } from '../bot/poster.js';
-import { Settler } from './settler.js';
+import { reactToSettledClaim, Settler } from './settler.js';
 
 const GROUP_ID = -100_800;
 const FIXTURE_ID = 18_209_282;
@@ -167,5 +167,49 @@ describe('Settler settled-claim reaction', () => {
     expect(harness.settlements).toEqual(['claim_won']);
     expect(harness.reactions).toEqual([]);
     expect(harness.warnings).toContain('settled_claim_reaction_skipped');
+  });
+});
+
+describe('escrow projection-sink settled-claim reaction', () => {
+  // The finalized-indexer projection sink (main.ts) calls the exported helper
+  // directly, so escrow-custody settlements celebrate like legacy ones.
+  function helperHarness(getClaim?: () => Promise<unknown>) {
+    const reactions: ReactCall[] = [];
+    const warnings: string[] = [];
+    const deps = {
+      db: {
+        getClaim: getClaim ?? (async () => ({ tg_message_id: CLAIM_MESSAGE_ID })),
+      },
+      log: { warn(event: string) { warnings.push(event); } },
+    } as unknown as Pick<Deps, 'db' | 'log'>;
+    const poster = {
+      react(chatId: number, messageId: number, emoji: string) {
+        reactions.push({ chatId, messageId, emoji });
+      },
+    };
+    return { deps, poster, reactions, warnings };
+  }
+
+  it('reacts on claim_won and stays silent otherwise', async () => {
+    const won = helperHarness();
+    await reactToSettledClaim(won.deps, won.poster, market(), 'claim_won');
+    expect(won.reactions).toEqual([
+      { chatId: GROUP_ID, messageId: CLAIM_MESSAGE_ID, emoji: '🏆' },
+    ]);
+
+    for (const outcome of ['claim_lost', 'void'] as const) {
+      const silent = helperHarness();
+      await reactToSettledClaim(silent.deps, silent.poster, market(), outcome);
+      expect(silent.reactions).toEqual([]);
+    }
+  });
+
+  it('swallows lookup failures with a warning', async () => {
+    const failing = helperHarness(async () => { throw new Error('claim row unavailable'); });
+
+    await reactToSettledClaim(failing.deps, failing.poster, market(), 'claim_won');
+
+    expect(failing.reactions).toEqual([]);
+    expect(failing.warnings).toContain('settled_claim_reaction_skipped');
   });
 });

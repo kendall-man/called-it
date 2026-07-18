@@ -26,7 +26,7 @@ import { UiStateStore } from './bot/stake-ui-state.js';
 import { createTelegramEphemeralPort } from './bot/ephemeral.js';
 import { STEPPER_CLOSED_LINE } from './bot/stake-step-cards.js';
 import { ClaimSurfaceStore } from './pipeline/claim-surface.js';
-import { Settler } from './settle/settler.js';
+import { reactToSettledClaim, Settler } from './settle/settler.js';
 import { createGroupPointsService } from './points/service.js';
 import { createSettlementReconciler } from './settle/settlement-reconciler.js';
 import { IngestSupervisor } from './ingest/supervisor.js';
@@ -232,6 +232,7 @@ async function main(): Promise<void> {
                     evidence_seqs: [],
                     tier: market.spec.trustTier,
                   });
+                  await reactToSettledClaim(deps, poster, market, settlement.outcome);
                 }
                 const current = await deps.db.getMarket(marketId);
                 if (current === null || current.card_tg_message_id === null) continue;

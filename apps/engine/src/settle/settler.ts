@@ -262,7 +262,7 @@ export class Settler {
       });
     }
     this.deps.log.info('settled', { marketId: market.id, outcome, decidingSeq, tier });
-    await this.reactToSettledClaim(market, outcome);
+    await reactToSettledClaim(this.deps, this.poster, market, outcome);
 
     // Money moves ONLY through the wager module for SOL/USDC markets. Its
     // applySettlement is idempotent (per-position/per-user keys plus the
@@ -304,23 +304,6 @@ export class Settler {
       }
     }
     this.states.delete(market.id);
-  }
-
-  /**
-   * Zero-clutter "called it" ack on the original claim message when it lands.
-   * Presentation only and best-effort — a missing claim row or reaction API
-   * failure must never block or reverse settlement. Fires in every chattiness
-   * mode because reactions are budget-free. Telegram's reaction set has no 🎯,
-   * so the trophy stands in for a landed call.
-   */
-  private async reactToSettledClaim(market: MarketRow, outcome: SettlementOutcome): Promise<void> {
-    if (outcome !== 'claim_won') return;
-    try {
-      const claim = await this.deps.db.getClaim(market.claim_id);
-      if (claim) this.poster.react(market.group_id, claim.tg_message_id, '🏆');
-    } catch {
-      this.deps.log.warn('settled_claim_reaction_skipped', { marketId: market.id });
-    }
   }
 
   async postReceipt(
@@ -475,5 +458,28 @@ export class Settler {
     if (!group || group.chattiness !== 'nudge') return;
     const line = await this.say(key, vars);
     this.poster.post(market.group_id, line);
+  }
+}
+
+/**
+ * Zero-clutter "called it" ack on the original claim message when it lands.
+ * Presentation only and best-effort — a missing claim row or reaction API
+ * failure must never block or reverse settlement. Fires in every chattiness
+ * mode because reactions are budget-free. Telegram's reaction set has no 🎯,
+ * so the trophy stands in for a landed call. Shared by the legacy settler and
+ * the escrow finalized-projection sink so both custody paths celebrate.
+ */
+export async function reactToSettledClaim(
+  deps: Pick<Deps, 'db' | 'log'>,
+  poster: Pick<Poster, 'react'>,
+  market: Pick<MarketRow, 'id' | 'group_id' | 'claim_id'>,
+  outcome: SettlementOutcome,
+): Promise<void> {
+  if (outcome !== 'claim_won') return;
+  try {
+    const claim = await deps.db.getClaim(market.claim_id);
+    if (claim) poster.react(market.group_id, claim.tg_message_id, '🏆');
+  } catch {
+    deps.log.warn('settled_claim_reaction_skipped', { marketId: market.id });
   }
 }
