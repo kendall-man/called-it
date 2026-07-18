@@ -213,6 +213,28 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
     });
   });
 
+  it('settles a replay after an epoch-millisecond odds suspension sequence', async () => {
+    const fixture = setup(true);
+    await fixture.scheduler.onReplayEvent(GROUP_ID, event(), 0);
+    await fixture.scheduler.onReplayEvent(GROUP_ID, event({
+      kind: 'odds_suspension', seq: 1_784_148_352_217,
+      tsMs: 1_784_148_352_217, receivedAtMs: 150_000,
+      phase: 'H2', minute: null,
+    }), 0);
+    await fixture.scheduler.onReplayEvent(GROUP_ID, event({
+      kind: 'phase_change', seq: 20, phase: 'F', minute: 90,
+      receivedAtMs: 200_000, tsMs: 199_000,
+      score: {
+        p1: { goals: 1, yellowCards: 0, redCards: 0, corners: 0 },
+        p2: { goals: 2, yellowCards: 0, redCards: 0, corners: 0 },
+        p1Goals90: 1, p2Goals90: 2,
+      },
+    }), 0);
+
+    expect(fixture.persisted.find((value) => value.request.operation === 'settle_market'))
+      .toMatchObject({ replay: true, request: { operation: 'settle_market' } });
+  });
+
   it('resumes a prior-run replay escrow market after the engine restarts', async () => {
     const fixture = setup(true);
 
