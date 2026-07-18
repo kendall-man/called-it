@@ -1,9 +1,9 @@
 /**
  * The single producer of the market card's surface (text + keyboard) for the
- * offer/compose states (4-7): offer_open, value_pick, sign_handoff. Callbacks,
- * the settler's refresh, and the projection sink all render through here so a
- * deferred passive edit re-renders the ACTIVE two-step state instead of
- * stomping it back to the two-side offer.
+ * offer/compose states: offer_open and the n-step stepper. Callbacks, the
+ * settler's refresh, and the projection sink all render through here so a
+ * deferred passive edit re-renders the ACTIVE stepper state instead of stomping
+ * it back to the two-side offer.
  *
  * With STAKE_LADDER_ENABLED off (or no active ui state), it returns exactly the
  * plain two-side offer surface the single-tap flow shows today.
@@ -16,13 +16,8 @@ import type { Poster } from './poster.js';
 import { composeClaimCard } from '../pipeline/render.js';
 import { composeTelegramMessage } from './message-budget.js';
 import { marketStakeKeyboard, miniAppPositionUrl } from './keyboards.js';
-import { stakeLadderKeyboard, stakeSignKeyboard } from './stake-step-keyboards.js';
-import {
-  sideLabelFor,
-  signHandoffBody,
-  stakeAmountLabel,
-  valuePickBody,
-} from './stake-step-cards.js';
+import { stakeStepperKeyboard } from './stake-step-keyboards.js';
+import { sideLabelFor, stakeAmountLabel, stepperNote } from './stake-step-cards.js';
 import { ladderAtomic } from '../wager/constants.js';
 import type { StakeUiState } from './stake-ui-state.js';
 
@@ -72,28 +67,24 @@ export async function renderCardSurface(
   const custody = deps.env.WAGER_CUSTODY_MODE;
   const network = deps.env.SOLANA_NETWORK;
   const sideLabel = sideLabelFor(market.spec, uiState.side);
-
-  const ladderSurface = (): CardSurface => ({
-    text: composeTelegramMessage({ body: card.text, note: valuePickBody(sideLabel) }),
-    keyboard: stakeLadderKeyboard(market.id, uiState.side, asset, custody, network),
-  });
-
-  if (uiState.kind === 'ladder') return ladderSurface();
-
-  // sign_handoff (escrow): the Mini App URL button carries the chosen amount.
-  const amountAtomic = ladderAtomic(asset, uiState.amountCode);
-  const url = miniAppPositionUrl(market, uiState.side, uiState.amountCode);
-  if (url === null) {
-    // The Mini App is not configured — never strand the surface on a dead
-    // handoff; fall back to the ladder so the member can still pick again.
-    return ladderSurface();
-  }
+  const amountAtomic = ladderAtomic(asset, uiState.code);
+  const amountLabel = stakeAmountLabel(amountAtomic, asset);
+  // Escrow signs in the Mini App; the URL carries the current rung and updates
+  // as the member steps. Null (Mini App unconfigured) drops to a signing
+  // callback in the keyboard, so the surface never strands on a dead handoff.
+  const signUrl = custody === 'escrow' ? miniAppPositionUrl(market, uiState.side, uiState.code) : null;
   return {
-    text: composeTelegramMessage({
-      body: card.text,
-      note: signHandoffBody(sideLabel, stakeAmountLabel(amountAtomic, asset)),
+    text: composeTelegramMessage({ body: card.text, note: stepperNote(sideLabel, amountLabel) }),
+    keyboard: stakeStepperKeyboard({
+      marketId: market.id,
+      side: uiState.side,
+      code: uiState.code,
+      asset,
+      custody,
+      network,
+      sideLabel,
+      signUrl,
     }),
-    keyboard: stakeSignKeyboard(market.id, url, amountAtomic, asset, sideLabel),
   };
 }
 

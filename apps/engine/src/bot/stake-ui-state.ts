@@ -1,38 +1,37 @@
 /**
- * In-process UI state for the two-step stake ladder (STAKE_LADDER_ENABLED).
+ * In-process UI state for the n-step stake stepper (STAKE_LADDER_ENABLED).
  *
  * The whole life of a claim is one evolving card message; while a member is
- * composing a stake the card shows a value ladder (or a sign handoff) instead
- * of the two-side offer. That transient visual is the ONLY thing kept here,
- * keyed by marketId and shared across the group (any member's rung tap is
- * honored). It is deliberately NOT durable: a restart loses only the visual —
- * no SOL, no session, no position depends on it. All money safety lives in the
- * escrow session, the wager RPC, and the reducer, none of which read this store.
+ * composing a stake the card shows a small editable stepper (−/amount/+, plus a
+ * sign-or-confirm action) instead of the two-side offer. That transient visual
+ * is the ONLY thing kept here, keyed by marketId and shared across the group
+ * (any member's ± tap is honored). It is deliberately NOT durable: a restart
+ * loses only the visual — no SOL, no session, no position depends on it. All
+ * money safety lives in the escrow session, the wager RPC, and the reducer,
+ * none of which read this store.
+ *
+ * `code` is the CURRENT rung (base units of 0.01 of the asset); a ± tap sets it
+ * and re-renders, and the explicit sign/confirm reads it. Entry is always the
+ * anchor rung (code 1 = 0.01), never a higher preselection.
  *
  * Two safety nets keep the shared surface from getting stuck on someone's
- * half-composed ladder: an auto-revert timer (onExpire re-renders the offer)
+ * half-composed stepper: an auto-revert timer (onExpire re-renders the offer)
  * and a lazy revert (an expired `get` clears and returns null so the next tap
  * re-renders the offer). Clock and scheduler are injectable for tests.
  */
 
-/** Value-ladder step: a side is picked, awaiting a rung. */
+/** Stepper step: a side is picked and a rung (`code`) is dialed but not committed. */
 export interface LadderUiState {
   readonly kind: 'ladder';
   readonly side: 'back' | 'doubt';
+  /** The current rung, in base units of 0.01 of the asset. */
+  readonly code: 1 | 2 | 5 | 10;
 }
 
-/** Sign handoff (escrow): a rung is picked, awaiting the Mini App signature. */
-export interface SignUiState {
-  readonly kind: 'sign';
-  readonly side: 'back' | 'doubt';
-  readonly amountCode: 1 | 2 | 5 | 10;
-}
+export type StakeUiState = LadderUiState;
 
-export type StakeUiState = LadderUiState | SignUiState;
-
-/** Auto-revert budgets: composing a value, and reviewing a sign handoff. */
+/** Auto-revert budget for a half-composed stepper (a purely visual timeout). */
 export const STAKE_LADDER_TTL_MS = 20_000;
-export const STAKE_SIGN_TTL_MS = 30_000;
 
 export interface UiStateStoreOptions {
   now?: () => number;

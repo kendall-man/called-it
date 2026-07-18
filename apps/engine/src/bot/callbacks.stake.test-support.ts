@@ -394,6 +394,9 @@ export const stakeAction = (side: 'back' | 'doubt', presetIndex: 0) =>
 export const stakeValueAction = (side: 'back' | 'doubt', amountCode: 1 | 2 | 5 | 10) =>
   ({ t: 'stake_value', marketId: MARKET_ID, side, amountCode }) as const;
 
+export const stakeStepAction = (side: 'back' | 'doubt', amountCode: 1 | 2 | 5 | 10) =>
+  ({ t: 'stake_step', marketId: MARKET_ID, side, amountCode }) as const;
+
 export const stakeBackAction = () => ({ t: 'stake_back', marketId: MARKET_ID }) as const;
 
 export const INPLAY_CUTOFF = TUNABLES.INPLAY_STAKE_CUTOFF_MINUTE;

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   STAKE_LADDER_TTL_MS,
-  STAKE_SIGN_TTL_MS,
   UiStateStore,
   type StakeUiState,
 } from './stake-ui-state.js';
@@ -46,45 +45,45 @@ function harness() {
 describe('UiStateStore', () => {
   it('stores and returns the current state before its TTL', () => {
     const { store } = harness();
-    store.set(MARKET, { kind: 'ladder', side: 'back' }, STAKE_LADDER_TTL_MS);
-    expect(store.get(MARKET)).toEqual({ kind: 'ladder', side: 'back' });
+    store.set(MARKET, { kind: 'ladder', side: 'back', code: 1 }, STAKE_LADDER_TTL_MS);
+    expect(store.get(MARKET)).toEqual({ kind: 'ladder', side: 'back', code: 1 });
   });
 
   it('fires onExpire exactly once when the TTL elapses (auto-revert)', () => {
     const { store, expired, advance } = harness();
-    store.set(MARKET, { kind: 'ladder', side: 'doubt' }, STAKE_LADDER_TTL_MS);
+    store.set(MARKET, { kind: 'ladder', side: 'doubt', code: 2 }, STAKE_LADDER_TTL_MS);
     advance(STAKE_LADDER_TTL_MS);
-    expect(expired).toEqual([{ marketId: MARKET, state: { kind: 'ladder', side: 'doubt' } }]);
+    expect(expired).toEqual([{ marketId: MARKET, state: { kind: 'ladder', side: 'doubt', code: 2 } }]);
     expect(store.get(MARKET)).toBeNull();
   });
 
   it('lazily reverts an expired entry on read even if the timer never ran', () => {
     const { store, setNow } = harness();
-    store.set(MARKET, { kind: 'ladder', side: 'back' }, STAKE_LADDER_TTL_MS);
+    store.set(MARKET, { kind: 'ladder', side: 'back', code: 1 }, STAKE_LADDER_TTL_MS);
     setNow(1_000 + STAKE_LADDER_TTL_MS + 1);
     expect(store.get(MARKET)).toBeNull();
   });
 
-  it('replacing a state cancels the old timer so no stale revert fires', () => {
+  it('stepping to a new rung re-arms the timer so no stale revert fires', () => {
     const { store, expired, advance } = harness();
-    store.set(MARKET, { kind: 'ladder', side: 'back' }, STAKE_LADDER_TTL_MS);
-    // Move to the sign step 5s later with a fresh, longer TTL.
+    store.set(MARKET, { kind: 'ladder', side: 'back', code: 1 }, STAKE_LADDER_TTL_MS);
+    // Step up 5s later; the fresh set() re-arms the auto-revert.
     advance(5_000);
-    store.set(MARKET, { kind: 'sign', side: 'back', amountCode: 5 }, STAKE_SIGN_TTL_MS);
-    // The original 20s ladder timer must not fire against the new sign state.
-    advance(STAKE_LADDER_TTL_MS);
+    store.set(MARKET, { kind: 'ladder', side: 'back', code: 5 }, STAKE_LADDER_TTL_MS);
+    // The original timer (armed at t0) must not fire against the new rung.
+    advance(STAKE_LADDER_TTL_MS - 5_000);
     expect(expired).toEqual([]);
-    expect(store.get(MARKET)).toEqual({ kind: 'sign', side: 'back', amountCode: 5 });
-    // The sign TTL still fires from its own set() time.
-    advance(STAKE_SIGN_TTL_MS);
+    expect(store.get(MARKET)).toEqual({ kind: 'ladder', side: 'back', code: 5 });
+    // The new rung's own TTL still fires from its set() time.
+    advance(5_000);
     expect(expired).toEqual([
-      { marketId: MARKET, state: { kind: 'sign', side: 'back', amountCode: 5 } },
+      { marketId: MARKET, state: { kind: 'ladder', side: 'back', code: 5 } },
     ]);
   });
 
   it('clear removes the state and disarms its revert', () => {
     const { store, expired, advance } = harness();
-    store.set(MARKET, { kind: 'ladder', side: 'doubt' }, STAKE_LADDER_TTL_MS);
+    store.set(MARKET, { kind: 'ladder', side: 'doubt', code: 2 }, STAKE_LADDER_TTL_MS);
     store.clear(MARKET);
     expect(store.get(MARKET)).toBeNull();
     advance(STAKE_LADDER_TTL_MS);
@@ -93,7 +92,7 @@ describe('UiStateStore', () => {
 
   it('stop cancels all pending reverts', () => {
     const { store, expired, advance } = harness();
-    store.set(MARKET, { kind: 'ladder', side: 'back' }, STAKE_LADDER_TTL_MS);
+    store.set(MARKET, { kind: 'ladder', side: 'back', code: 1 }, STAKE_LADDER_TTL_MS);
     store.stop();
     advance(STAKE_LADDER_TTL_MS);
     expect(expired).toEqual([]);
@@ -103,8 +102,8 @@ describe('UiStateStore', () => {
     vi.useFakeTimers();
     try {
       const store = new UiStateStore();
-      store.set(MARKET, { kind: 'ladder', side: 'back' }, STAKE_LADDER_TTL_MS);
-      expect(store.get(MARKET, Date.now())).toEqual({ kind: 'ladder', side: 'back' });
+      store.set(MARKET, { kind: 'ladder', side: 'back', code: 1 }, STAKE_LADDER_TTL_MS);
+      expect(store.get(MARKET, Date.now())).toEqual({ kind: 'ladder', side: 'back', code: 1 });
       store.stop();
     } finally {
       vi.useRealTimers();

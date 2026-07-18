@@ -1,8 +1,9 @@
 /**
- * Two-step stake ladder (STAKE_LADDER_ENABLED). Verifies the side tap moves no
- * SOL, the value tap commits (legacy) or hands off to signing (escrow), Back is
- * lossless, and — critically — that with the flag OFF the single-tap flow is
- * unchanged.
+ * N-step stepper (STAKE_LADDER_ENABLED). Verifies the side tap moves no SOL and
+ * opens the stepper at the 0.01 anchor, that ± steps re-size without moving SOL,
+ * that the explicit confirm commits (legacy) or the escrow sign URL carries the
+ * shown amount, that Back is lossless, over-cap rungs are refused, and —
+ * critically — that with the flag OFF the single-tap flow is unchanged.
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -19,11 +20,15 @@ import {
   makeStakeHarness as makeHarness,
   stakeAction as stake,
   stakeBackAction as back,
+  stakeStepAction as step,
   stakeValueAction as value,
 } from './callbacks.stake.test-support.js';
 
+function keyboardRows(keyboard: InlineKeyboard | undefined): string[][] {
+  return (keyboard?.inline_keyboard ?? []).map((row) => row.map((button) => button.text));
+}
 function keyboardLabels(keyboard: InlineKeyboard | undefined): string[] {
-  return (keyboard?.inline_keyboard ?? []).flat().map((button) => button.text);
+  return keyboardRows(keyboard).flat();
 }
 
 function recordingEscrowPort(): { port: EscrowTelegramPort; readonly calls: number } {
@@ -47,7 +52,7 @@ function recordingEscrowPort(): { port: EscrowTelegramPort; readonly calls: numb
 
 afterEach(() => configureMiniAppOfferKeyboards(null));
 
-describe('two-step stake ladder — flag off parity', () => {
+describe('n-step stepper — flag off parity', () => {
   it('with the flag OFF the side tap still places a position (single-tap flow)', async () => {
     const harness = makeHarness({
       stakeAcceptanceEnabled: true,
@@ -61,8 +66,8 @@ describe('two-step stake ladder — flag off parity', () => {
   });
 });
 
-describe('two-step stake ladder — flag on', () => {
-  it('the side tap moves ZERO SOL: opens the ladder and records the side only', async () => {
+describe('n-step stepper — flag on', () => {
+  it('the side tap moves ZERO SOL: opens the stepper at the 0.01 anchor', async () => {
     const harness = makeHarness({
       stakeAcceptanceEnabled: true,
       refreshableCard: true,
@@ -75,30 +80,75 @@ describe('two-step stake ladder — flag on', () => {
     expect(harness.wagerDb.positions).toHaveLength(0);
     expect(harness.wagerDb.ledger.filter((entry) => entry.kind === 'stake' || entry.kind === 'starter_grant'))
       .toHaveLength(0);
-    // The card evolved into the value ladder, urgently, on the same message.
-    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back' });
+    // The card evolved into the stepper, urgently, on the same message, at 0.01.
+    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 1 });
     const edit = harness.cardSurfaces.at(-1);
     expect(edit?.messageId).toBe(900);
     expect(edit?.urgent).toBe(true);
-    const labels = keyboardLabels(edit?.keyboard);
-    expect(labels).toEqual(['0.01 SOL', '0.02 SOL', '0.05 SOL', '0.1 SOL', '← Back']);
+    // Amount row omits − at the base rung; action confirms; back is last.
+    expect(keyboardRows(edit?.keyboard)).toEqual([
+      ['0.01 SOL', '+'],
+      ['Confirm 0.01 SOL'],
+      ['← Back'],
+    ]);
     // The toast names the side, no amount.
-    expect(toasts.at(-1)).toBe('Brazil win it — now pick a size below.');
+    expect(toasts.at(-1)).toBe('Brazil win it — now size it below.');
   });
 
-  it('the value tap commits the CHOSEN amount (legacy) and clears the ladder', async () => {
+  it('± steps re-size the card WITHOUT moving SOL', async () => {
     const harness = makeHarness({
       stakeAcceptanceEnabled: true,
       refreshableCard: true,
       ladderEnabled: true,
     });
-    // Open the ladder first (side tap), then pick 0.02 SOL (code 2).
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 's-side').ctx, stake('back', PRESET_01));
+    // + to 0.02, then + to 0.05 — codes carried by the buttons.
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 's-up1').ctx, step('back', 2));
+    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 2 });
+    const { toasts } = stakeCtx(USER_A, 's-up2');
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 's-up2b').ctx, step('back', 5));
+    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 5 });
+    // Not a single position, no ledger movement across the steps.
+    expect(harness.wagerDb.positions).toHaveLength(0);
+    // Mid-ladder shows [−] amount [+]; at 0.05 (below the legacy cap) + remains.
+    expect(keyboardRows(harness.cardSurfaces.at(-1)?.keyboard)).toEqual([
+      ['−', '0.05 SOL', '+'],
+      ['Confirm 0.05 SOL'],
+      ['← Back'],
+    ]);
+    void toasts;
+  });
+
+  it('the middle amount tap keeps the surface alive without a redundant edit', async () => {
+    const harness = makeHarness({
+      stakeAcceptanceEnabled: true,
+      refreshableCard: true,
+      ladderEnabled: true,
+    });
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 'mid-side').ctx, stake('back', PRESET_01));
+    const editsAfterEntry = harness.cardSurfaces.length;
+    const { ctx, toasts } = stakeCtx(USER_A, 'mid-tap');
+    // Tap the amount (idempotent step to the current rung).
+    await dispatchCallback(harness.h, ctx, step('back', 1));
+    expect(harness.cardSurfaces.length).toBe(editsAfterEntry); // no new edit
+    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 1 });
+    expect(toasts.at(-1)).toBe('Sizing 0.01 SOL.');
+  });
+
+  it('the confirm commits the CHOSEN amount (legacy) and clears the stepper', async () => {
+    const harness = makeHarness({
+      stakeAcceptanceEnabled: true,
+      refreshableCard: true,
+      ladderEnabled: true,
+    });
+    // Open the stepper (side tap), step to 0.02, then confirm.
     await dispatchCallback(harness.h, stakeCtx(USER_A, 'v-side').ctx, stake('back', PRESET_01));
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 'v-step').ctx, step('back', 2));
     await dispatchCallback(harness.h, stakeCtx(USER_A, 'v-value').ctx, value('back', 2));
 
     expect(harness.wagerDb.positions).toHaveLength(1);
     expect(harness.wagerDb.lastStakeArgs).toMatchObject({ lamports: 20_000_000n, side: 'back' });
-    // The ladder is cleared; the card returned to the two-side offer.
+    // The stepper is cleared; the card returned to the two-side offer.
     expect(harness.uiState?.get(MARKET_ID)).toBeNull();
     expect(keyboardLabels(harness.cardSurfaces.at(-1)?.keyboard)).toEqual(['Brazil win it', "They don't"]);
   });
@@ -114,7 +164,7 @@ describe('two-step stake ladder — flag on', () => {
     expect(harness.wagerDb.lastStakeArgs).toMatchObject({ lamports: 10_000_000n, side: 'doubt' });
   });
 
-  it('Back losslessly returns to the two-side offer and clears the ladder', async () => {
+  it('Back losslessly returns to the two-side offer and clears the stepper', async () => {
     const harness = makeHarness({
       stakeAcceptanceEnabled: true,
       refreshableCard: true,
@@ -130,7 +180,7 @@ describe('two-step stake ladder — flag on', () => {
     expect(toasts.at(-1)).toBe('Back to the call.');
   });
 
-  it('escrow: the value tap hands off to in-card signing and mints NO session', async () => {
+  it('escrow: stepping updates the in-card sign URL and mints NO session', async () => {
     configureMiniAppOfferKeyboards({
       custodyMode: 'escrow',
       miniAppShortName: 'app',
@@ -145,24 +195,31 @@ describe('two-step stake ladder — flag on', () => {
       escrow: escrow.port,
     });
     await dispatchCallback(harness.h, stakeCtx(USER_A, 'e-side').ctx, stake('back', PRESET_01));
-    // Escrow devnet ladder tops out at 0.05 (code 5).
-    await dispatchCallback(harness.h, stakeCtx(USER_A, 'e-value').ctx, value('back', 5));
+    // Entry sign URL is the 0.01 anchor.
+    const entryButtons = (harness.cardSurfaces.at(-1)?.keyboard?.inline_keyboard ?? []).flat();
+    const entrySign = entryButtons.find((b) => 'url' in b);
+    const entryUrl = entrySign !== undefined && 'url' in entrySign ? entrySign.url : undefined;
+    expect(entryUrl).toContain('startapp=p-a1111111111141118111111111111111-b-1');
+    // Step up to the escrow devnet cap (0.05, code 5).
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 'e-up1').ctx, step('back', 2));
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 'e-up2').ctx, step('back', 5));
 
-    // No on-chain session is minted at the value tap — the Mini App mints it.
+    // No on-chain session is minted while stepping — the Mini App mints it.
     expect(escrow.calls).toBe(0);
     expect(harness.wagerDb.positions).toHaveLength(0);
-    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'sign', side: 'back', amountCode: 5 });
-    // The surface shows a Mini App URL button carrying the amount code, + Back.
+    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 5 });
+    // The surface shows the Mini App URL button carrying 0.05, no + (at the cap), + Back.
     const edit = harness.cardSurfaces.at(-1);
+    expect(keyboardRows(edit?.keyboard).map((row) => row.length)).toEqual([2, 1, 1]);
     const buttons = (edit?.keyboard?.inline_keyboard ?? []).flat();
-    const first = buttons[0];
-    const firstUrl = first !== undefined && 'url' in first ? first.url : undefined;
-    expect(firstUrl).toContain('startapp=p-a1111111111141118111111111111111-b-5');
-    expect(first?.text).toContain('Review & sign 0.05 SOL');
+    const signButton = buttons.find((b) => 'url' in b && b.url);
+    const signUrl = signButton !== undefined && 'url' in signButton ? signButton.url : undefined;
+    expect(signUrl).toContain('startapp=p-a1111111111141118111111111111111-b-5');
+    expect(signButton?.text).toContain('Review & sign 0.05 SOL');
     expect(buttons.at(-1)?.text).toBe('← Back');
   });
 
-  it('escrow: an over-cap ladder code is refused with no state change', async () => {
+  it('escrow: stepping over the 0.05 devnet cap is refused with no state change', async () => {
     const escrow = recordingEscrowPort();
     const harness = makeHarness({
       stakeAcceptanceEnabled: true,
@@ -171,14 +228,19 @@ describe('two-step stake ladder — flag on', () => {
       ladderEnabled: true,
       escrow: escrow.port,
     });
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 'cap-side').ctx, stake('back', PRESET_01));
     // 0.1 SOL (code 10) exceeds the escrow devnet 0.05 cap.
-    await dispatchCallback(harness.h, stakeCtx(USER_A, 'cap-value').ctx, value('back', 10));
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 'cap-step').ctx, step('back', 10));
     expect(escrow.calls).toBe(0);
-    expect(harness.uiState?.get(MARKET_ID)).toBeNull();
+    // The stepper stays at the anchor; no forged over-cap rung is honored.
+    expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 1 });
     expect(harness.wagerDb.positions).toHaveLength(0);
   });
 
-  it('the value/back callbacks round-trip through the codec', () => {
+  it('the step/value/back callbacks round-trip through the codec', () => {
+    expect(decodeCallback(`ss:${MARKET_ID}:b:5`)).toEqual({
+      t: 'stake_step', marketId: MARKET_ID, side: 'back', amountCode: 5,
+    });
     expect(decodeCallback(`sv:${MARKET_ID}:b:5`)).toEqual({
       t: 'stake_value', marketId: MARKET_ID, side: 'back', amountCode: 5,
     });

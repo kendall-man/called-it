@@ -32,9 +32,9 @@ import {
 import { multiplierLabel, wagerDoubtMultiplier } from '../wager/stake.js';
 import { isBetaGroupAllowed } from './beta-access.js';
 import { createWagerCopy } from '../wager/copy.js';
-import { STAKE_LADDER_TTL_MS, STAKE_SIGN_TTL_MS } from './stake-ui-state.js';
+import { STAKE_LADDER_TTL_MS, type StakeUiState } from './stake-ui-state.js';
 import { editCardSurface, stakePositionsAvailable } from './stake-surface.js';
-import { sideLabelFor } from './stake-step-cards.js';
+import { sideLabelFor, stakeAmountLabel } from './stake-step-cards.js';
 import {
   escrowPlacementRejectionText,
   escrowSigningPrompt,
@@ -672,21 +672,19 @@ async function handleStake(
 }
 
 /**
- * Step 1 with the ladder ON: the side tap moves ZERO SOL. It records the picked
- * side in the in-process UI store (20s auto-revert) and urgent-edits the card
- * into the value ladder. Reversible via "← Back" until the sign.
+ * Load and guard a market for the stepper: it must belong to this chat, be an
+ * asset market, be open for positions, and not be paused. Answers ctx and
+ * returns null on any gate so callers early-return. Never mutates ui state.
  */
-async function handleLadderEntry(
+async function loadStepperMarket(
   h: HandlerCtx,
   ctx: Context,
   marketId: string,
-  side: 'back' | 'doubt',
-): Promise<void> {
-  const store = h.uiState;
+): Promise<MarketRow | null> {
   const chatId = ctx.chat?.id;
-  if (store === undefined || chatId === undefined) {
+  if (h.uiState === undefined || chatId === undefined) {
     await stale(h, ctx);
-    return;
+    return null;
   }
   const market = await h.deps.db.getMarket(marketId);
   if (
@@ -694,21 +692,30 @@ async function handleLadderEntry(
     || (market.currency !== 'sol' && market.currency !== 'usdc')
   ) {
     await stale(h, ctx);
-    return;
+    return null;
   }
   if (market.status !== 'open' && market.status !== 'pending_lineup') {
     await answerAlert(ctx, `${statusLine(market.status)}.`);
-    return;
+    return null;
   }
-  const positionsAvailable = await stakePositionsAvailable(h.deps, market);
-  if (!positionsAvailable) {
-    // Positions paused — keep the card honest instead of showing a dead ladder.
-    await refreshStakeCard(h, chatId, market.id);
+  if (!(await stakePositionsAvailable(h.deps, market))) {
+    // Positions paused — keep the card honest instead of showing a dead stepper.
+    await refreshStakeCard(h, market.group_id, market.id);
     await answerAlert(ctx, 'New positions are paused right now. No SOL moved.');
-    return;
+    return null;
   }
-  const uiState = { kind: 'ladder', side } as const;
-  store.set(market.id, uiState, STAKE_LADDER_TTL_MS);
+  return market;
+}
+
+/** Set the stepper state at `code` and urgent-edit the card to match. */
+async function renderStepper(
+  h: HandlerCtx,
+  market: MarketRow,
+  side: 'back' | 'doubt',
+  code: StakeUiState['code'],
+): Promise<void> {
+  const uiState: StakeUiState = { kind: 'ladder', side, code };
+  h.uiState?.set(market.id, uiState, STAKE_LADDER_TTL_MS);
   await editCardSurface(
     h.deps,
     h.poster,
@@ -716,14 +723,94 @@ async function handleLadderEntry(
     { positionsAvailable: true, ladderEnabled: true, uiState },
     { urgent: true },
   );
-  await answer(ctx, `${sideLabelFor(market.spec, side)} — now pick a size below.`);
+}
+
+/** Clear the stepper and urgent-edit the card back to the two-side offer. */
+async function revertToOffer(h: HandlerCtx, market: MarketRow): Promise<void> {
+  h.uiState?.clear(market.id);
+  await editCardSurface(
+    h.deps,
+    h.poster,
+    market,
+    {
+      positionsAvailable: await stakePositionsAvailable(h.deps, market),
+      ladderEnabled: true,
+      uiState: null,
+    },
+    { urgent: true },
+  );
 }
 
 /**
- * Step 2 (ladder ON): a rung pick. Reuses the full stake guard chain, then for
- * escrow shows the in-card sign handoff (the session is minted only when the
- * member opens the Mini App), and for legacy commits the stake at the chosen
- * amount exactly like the single tap.
+ * Step 1 with the stepper ON: the side tap moves ZERO SOL. It opens the stepper
+ * at the anchor rung (0.01, code 1 — never a higher preselection) in the shared
+ * in-process store (20s auto-revert) and urgent-edits the card. Reversible via
+ * "← Back" until the explicit sign/confirm.
+ */
+async function handleLadderEntry(
+  h: HandlerCtx,
+  ctx: Context,
+  marketId: string,
+  side: 'back' | 'doubt',
+): Promise<void> {
+  const market = await loadStepperMarket(h, ctx, marketId);
+  if (market === null) return;
+  await renderStepper(h, market, side, 1);
+  await answer(ctx, `${sideLabelFor(market.spec, side)} — now size it below.`);
+}
+
+/**
+ * A ± tap (or the middle amount tap) on the stepper. Moves ZERO SOL: it dials
+ * the current rung to the tapped code and re-renders the same card. Requires an
+ * active stepper for this side; an expired one lazily reverts to the offer so
+ * the shared surface never sticks. The commit is the separate sign/confirm.
+ */
+async function handleStakeStep(
+  h: HandlerCtx,
+  ctx: Context,
+  action: Extract<CallbackAction, { t: 'stake_step' }>,
+): Promise<void> {
+  const store = h.uiState;
+  if (!h.deps.env.STAKE_LADDER_ENABLED || store === undefined) {
+    await stale(h, ctx);
+    return;
+  }
+  const market = await loadStepperMarket(h, ctx, action.marketId);
+  if (market === null) return;
+  const asset = market.currency === 'usdc' ? 'usdc' : 'sol';
+  const custody = h.deps.env.WAGER_CUSTODY_MODE;
+  const network = h.deps.env.SOLANA_NETWORK;
+  if (!isLadderCodeAllowed(action.amountCode, asset, custody, network)) {
+    // A forged or over-cap rung — never render it, never move SOL.
+    await stale(h, ctx);
+    return;
+  }
+  const current = store.get(market.id);
+  if (current === null || current.side !== action.side) {
+    // The sizing window closed (or this is a stale button from another side):
+    // revert to the offer rather than resurrect a stepper nobody is holding.
+    await revertToOffer(h, market);
+    await answer(ctx, 'That sizing step closed — tap a side to size again.');
+    return;
+  }
+  const amountLabel = stakeAmountLabel(ladderAtomic(asset, action.amountCode), asset);
+  if (current.code === action.amountCode) {
+    // The middle amount tap (or a re-tap of the same rung): keep the surface
+    // alive without a redundant edit.
+    store.set(market.id, current, STAKE_LADDER_TTL_MS);
+    await answer(ctx, `Sizing ${amountLabel}.`);
+    return;
+  }
+  await renderStepper(h, market, action.side, action.amountCode);
+  await answer(ctx, `Sizing ${amountLabel}.`);
+}
+
+/**
+ * The explicit commit at the stepper's current rung (stepper ON). Reuses the
+ * full stake guard chain, then for escrow issues the private DM signing link
+ * (the fallback when the in-card Mini App URL is unavailable), and for legacy
+ * commits the stake at the shown amount exactly like the single tap. The card
+ * returns to the two-side offer either way.
  */
 async function handleStakeValue(
   h: HandlerCtx,
@@ -745,39 +832,30 @@ async function handleStakeValue(
   if (r === null) return;
   await ensureUserSeen(h, r.chatId, r.from);
   if (r.escrowMode) {
-    // Escrow: no session is minted here. Show the sign handoff (URL button); the
-    // engine mints the placement session when the member opens the Mini App.
-    const uiState = { kind: 'sign', side: action.side, amountCode: action.amountCode } as const;
-    store.set(r.market.id, uiState, STAKE_SIGN_TTL_MS);
-    await editCardSurface(
-      h.deps,
-      h.poster,
-      r.market,
-      { positionsAvailable: true, ladderEnabled: true, uiState },
-      { urgent: true },
-    );
-    await answer(ctx, 'Sized. Review and sign to place it — nothing moves until you sign.');
+    // Escrow signs in the Mini App; this callback is only reached when the
+    // in-card URL was unavailable, so fall back to the private DM signing link.
+    await handleEscrowStake(h, ctx, {
+      callbackId: r.callbackId,
+      telegramUserId: r.from.id,
+      groupId: r.chatId,
+      marketId: r.market.id,
+      side: action.side,
+      asset: r.asset,
+      amountAtomic: r.lamports,
+      network: h.deps.env.SOLANA_NETWORK,
+      replay: r.market.is_replay,
+    });
+    await revertToOffer(h, r.market);
     return;
   }
-  // Legacy: the value tap IS the commit.
+  // Legacy: the confirm tap IS the commit.
   await commitLegacyStake(h, ctx, r, action.side);
-  store.clear(r.market.id);
   // Return the card to the two-side offer immediately (updated tallies), rather
-  // than leaving the ladder visible until the next passive refresh collapses.
-  await editCardSurface(
-    h.deps,
-    h.poster,
-    r.market,
-    {
-      positionsAvailable: await stakePositionsAvailable(h.deps, r.market),
-      ladderEnabled: true,
-      uiState: null,
-    },
-    { urgent: true },
-  );
+  // than leaving the stepper visible until the next passive refresh collapses.
+  await revertToOffer(h, r.market);
 }
 
-/** "← Back" from the value ladder to the two-side offer. Loses nothing. */
+/** "← Back" from the stepper to the two-side offer. Loses nothing. */
 async function handleStakeBack(h: HandlerCtx, ctx: Context, marketId: string): Promise<void> {
   const store = h.uiState;
   const chatId = ctx.chat?.id;
@@ -790,18 +868,7 @@ async function handleStakeBack(h: HandlerCtx, ctx: Context, marketId: string): P
     await stale(h, ctx);
     return;
   }
-  store.clear(marketId);
-  await editCardSurface(
-    h.deps,
-    h.poster,
-    market,
-    {
-      positionsAvailable: await stakePositionsAvailable(h.deps, market),
-      ladderEnabled: true,
-      uiState: null,
-    },
-    { urgent: true },
-  );
+  await revertToOffer(h, market);
   await answer(ctx, 'Back to the call.');
 }
 
@@ -1054,6 +1121,10 @@ export async function dispatchCallback(
     case 'stake':
       // SOL stakes are serialized by the wager module's DB advisory locks.
       await handleStake(h, ctx, action);
+      break;
+    case 'stake_step':
+      // Zero-SOL re-size of the shared stepper surface; no money path touched.
+      await handleStakeStep(h, ctx, action);
       break;
     case 'stake_value':
       // Market-scoped shared surface; the money path keeps its own DB locks.

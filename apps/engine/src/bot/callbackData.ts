@@ -21,12 +21,20 @@ export type CallbackAction =
   /** The beta exposes one literal 0.01 test-SOL amount on either outcome. */
   | { t: 'stake'; marketId: string; side: 'back' | 'doubt'; presetIndex: 0 }
   /**
-   * Two-step ladder (STAKE_LADDER_ENABLED). `stake_value` is step 2: a rung
-   * pick after the side tap. `amountCode` is base units of 0.01 SOL
-   * (1/2/5/10), shared with the web startapp param — never a preset index.
+   * N-step stepper (STAKE_LADDER_ENABLED). `stake_step` re-sizes the compose
+   * card WITHOUT moving any SOL: the −/+ buttons and the amount display each
+   * carry the rung they land on, so a tap sets the current rung and re-renders.
+   * `amountCode` is base units of 0.01 SOL (1/2/5/10), shared with the web
+   * startapp param — never a preset index.
+   */
+  | { t: 'stake_step'; marketId: string; side: 'back' | 'doubt'; amountCode: 1 | 2 | 5 | 10 }
+  /**
+   * The explicit commit at the stepper's current rung (legacy `Confirm <amount>`,
+   * or the escrow DM-signing fallback when the in-card Mini App URL is
+   * unavailable). `amountCode` matches the shown amount — nothing moves earlier.
    */
   | { t: 'stake_value'; marketId: string; side: 'back' | 'doubt'; amountCode: 1 | 2 | 5 | 10 }
-  /** Lossless "← Back" from the value ladder to the two-side offer. */
+  /** Lossless "← Back" from the stepper to the two-side offer. */
   | { t: 'stake_back'; marketId: string }
   /** Mainnet second-tap confirmation backed by a durable stake intent. */
   | { t: 'stake_confirm'; intentId: string }
@@ -67,6 +75,9 @@ export function encodeCallback(action: CallbackAction): string {
       break;
     case 'stake':
       data = `st:${action.marketId}:${action.side === 'back' ? 'b' : 'd'}:${action.presetIndex}`;
+      break;
+    case 'stake_step':
+      data = `ss:${action.marketId}:${action.side === 'back' ? 'b' : 'd'}:${action.amountCode}`;
       break;
     case 'stake_value':
       data = `sv:${action.marketId}:${action.side === 'back' ? 'b' : 'd'}:${action.amountCode}`;
@@ -143,6 +154,20 @@ export function decodeCallback(data: string): CallbackAction | null {
         marketId,
         side: sideCode === 'b' ? 'back' : 'doubt',
         presetIndex: 0,
+      };
+    }
+    case 'ss': {
+      const marketId = parts[1];
+      const sideCode = parts[2];
+      const codeRaw = parts[3];
+      if (parts.length !== 4 || marketId === undefined || !UUID_RE.test(marketId)) return null;
+      if (sideCode !== 'b' && sideCode !== 'd') return null;
+      if (codeRaw !== '1' && codeRaw !== '2' && codeRaw !== '5' && codeRaw !== '10') return null;
+      return {
+        t: 'stake_step',
+        marketId,
+        side: sideCode === 'b' ? 'back' : 'doubt',
+        amountCode: Number(codeRaw) as 1 | 2 | 5 | 10,
       };
     }
     case 'sv': {

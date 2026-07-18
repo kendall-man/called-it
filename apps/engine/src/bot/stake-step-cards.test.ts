@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { MarketSpec } from '@calledit/market-engine';
 import {
+  confirmButtonLabel,
   settlementPingText,
   signButtonLabel,
-  signHandoffBody,
   sideLabelFor,
   stakeAmountLabel,
-  stakeProgressBlock,
   STAKE_BACK_LABEL,
-  valuePickBody,
+  STAKE_STEP_DOWN_LABEL,
+  STAKE_STEP_UP_LABEL,
+  stepperNote,
 } from './stake-step-cards.js';
 
 const TEAM_SPEC: MarketSpec = {
@@ -40,33 +41,28 @@ describe('two-step stake copy', () => {
     expect(sideLabelFor(TOTALS_SPEC, 'doubt')).toBe('It does not');
   });
 
-  it('back label carries no suffix', () => {
+  it('back label carries no suffix; step glyphs are minus and plus', () => {
     expect(STAKE_BACK_LABEL).toBe('← Back');
+    expect(STAKE_STEP_DOWN_LABEL).toBe('−');
+    expect(STAKE_STEP_UP_LABEL).toBe('+');
   });
 
-  it('progress block shows real completed steps and the one still to do', () => {
-    const value = stakeProgressBlock('value', 'France score 2+');
-    expect(value).toContain('✅ Priced');
-    expect(value).toContain('✅ Side · France score 2+');
-    expect(value).toContain('⬜ Stake');
-    const sign = stakeProgressBlock('sign', 'France score 2+');
-    expect(sign).toContain('✅ Stake');
+  it('stepper note stays small: current stake + the base-stake anchor', () => {
+    const note = stepperNote('France score 2+', '0.02 SOL');
+    expect(note).toContain('France score 2+');
+    expect(note).toContain('0.02 SOL');
+    expect(note).toContain('0.01 is the base stake');
+    expect(note).toContain('Nothing moves until you sign');
+    // Two short lines, no pressure, no hype, no exclamation.
+    expect(note.split('\n')).toHaveLength(2);
+    expect(note).not.toContain('!');
   });
 
-  it('value body names 0.01 the base stake and promises nothing moves until signing', () => {
-    const body = valuePickBody('France score 2+');
-    expect(body).toContain('0.01 is the base stake');
-    expect(body).toContain('Nothing moves until you sign');
-    // No pressure, no hype, no exclamation.
-    expect(body).not.toContain('!');
-  });
-
-  it('sign body and button render the exact chosen amount, no exclamation', () => {
+  it('confirm and sign actions render the exact shown amount, no exclamation', () => {
     const amount = stakeAmountLabel(50_000_000n, 'sol');
     expect(amount).toBe('0.05 SOL');
-    const body = signHandoffBody('France score 2+', amount);
-    expect(body).toContain('Review and sign 0.05 SOL for France score 2+');
-    expect(body).not.toContain('!');
+    expect(confirmButtonLabel(amount)).toBe('Confirm 0.05 SOL');
+    expect(confirmButtonLabel(amount)).not.toContain('!');
     expect(signButtonLabel(amount, 'France score 2+')).toBe(
       'Review & sign 0.05 SOL for France score 2+',
     );

@@ -1,61 +1,108 @@
 /**
- * Two-step stake ladder keyboards (STAKE_LADDER_ENABLED). Step 1 (the two side
- * buttons) is unchanged — it stays the existing `st` offer keyboard so the
- * codec and the labels contract never fork. These builders are step 2 (the
- * value ladder) and the escrow sign handoff, both reachable only after a side
- * tap and both reversible via "← Back".
+ * N-step stepper keyboard (STAKE_LADDER_ENABLED). Step 1 (the two side buttons)
+ * is unchanged — it stays the existing `st` offer keyboard so the codec and the
+ * labels contract never fork. This builder is step 2: a small editable card that
+ * a member dials up/down, reachable only after a side tap and reversible via
+ * "← Back".
  *
- * Rungs are DISCRETE buttons (never a slider, never a stepper), ascending, with
- * the anchor 0.01 leftmost but never preselected. All callback payloads go
- * through the codec so every tap resolves to a DB row.
+ * Rows:
+ *   1. Amount row — `[−]  0.02 SOL  [+]`. Each button carries the rung it lands
+ *      on (a `stake_step` tap moves ZERO SOL); `−` is omitted at the base rung
+ *      (0.01), `+` at the effective cap. The middle amount is an idempotent
+ *      step, so tapping it just keeps the surface alive.
+ *   2. Action row — escrow shows a Mini App URL button ("Review & sign …"), or,
+ *      when the Mini App URL is unavailable, an escrow-signing callback; legacy
+ *      shows a "Confirm <amount>" callback. Nothing commits before this tap.
+ *   3. Back row — a lossless "← Back" to the two-side offer.
+ *
+ * The anchor 0.01 is entered by position and copy, never preselected higher.
  */
 
 import { InlineKeyboard } from 'grammy';
 import type { WagerAsset } from '@calledit/market-engine';
 import { encodeCallback } from './callbackData.js';
-import { STAKE_BACK_LABEL, signButtonLabel } from './stake-step-cards.js';
-import { stakeLadder } from '../wager/constants.js';
+import {
+  confirmButtonLabel,
+  signButtonLabel,
+  STAKE_BACK_LABEL,
+  STAKE_STEP_DOWN_LABEL,
+  STAKE_STEP_UP_LABEL,
+} from './stake-step-cards.js';
+import { ladderAtomic, stakeLadder, type StakeLadderCode } from '../wager/constants.js';
 import { formatAssetAmount } from '../wager/format.js';
 import type { SolanaNetwork } from '../solana-network.js';
 
-/**
- * The value ladder: one row of ascending exact-amount rungs (escrow devnet
- * shows 0.01 / 0.02 / 0.05; legacy adds 0.1) plus a "← Back" row that re-opens
- * the two-side offer losslessly. No MAX, no %-of-wallet, no countdown.
- */
-export function stakeLadderKeyboard(
-  marketId: string,
-  side: 'back' | 'doubt',
-  asset: WagerAsset,
-  custody: 'legacy' | 'escrow',
-  network: SolanaNetwork,
-): InlineKeyboard {
-  const rungs = stakeLadder(asset, custody, network === 'mainnet-beta' ? 'mainnet-beta' : 'devnet');
-  const keyboard = new InlineKeyboard();
-  for (const rung of rungs) {
-    keyboard.text(
-      formatAssetAmount(rung.atomic, asset),
-      encodeCallback({ t: 'stake_value', marketId, side, amountCode: rung.code }),
-    );
-  }
-  keyboard.row().text(STAKE_BACK_LABEL, encodeCallback({ t: 'stake_back', marketId }));
-  return keyboard;
+export interface StakeStepperKeyboardInput {
+  readonly marketId: string;
+  readonly side: 'back' | 'doubt';
+  /** The rung currently shown (base units of 0.01 of the asset). */
+  readonly code: StakeLadderCode;
+  readonly asset: WagerAsset;
+  readonly custody: 'legacy' | 'escrow';
+  readonly network: SolanaNetwork;
+  /** The compiled side label, for the escrow action's "for <side>" phrasing. */
+  readonly sideLabel: string;
+  /**
+   * The direct-link Mini App signing URL for the current rung (escrow only),
+   * or null. Null with escrow custody falls back to a signing callback so the
+   * surface never strands on a dead handoff.
+   */
+  readonly signUrl: string | null;
 }
 
 /**
- * The escrow sign handoff: one URL button into the direct-link Mini App (the
- * amount + side are carried in the startapp param, no secret) plus "← Back" to
- * re-open the ladder. Nothing moves until the signature.
+ * The small editable stepper card. `stake_step` re-sizes without moving SOL;
+ * the explicit action row (`stake_value` callback or the Mini App URL) is the
+ * only commit.
  */
-export function stakeSignKeyboard(
-  marketId: string,
-  signUrl: string,
-  amountAtomic: bigint,
-  asset: WagerAsset,
-  sideLabel: string,
-): InlineKeyboard {
-  return new InlineKeyboard()
-    .url(signButtonLabel(formatAssetAmount(amountAtomic, asset), sideLabel), signUrl)
-    .row()
-    .text(STAKE_BACK_LABEL, encodeCallback({ t: 'stake_back', marketId }));
+export function stakeStepperKeyboard(input: StakeStepperKeyboardInput): InlineKeyboard {
+  const network = input.network === 'mainnet-beta' ? 'mainnet-beta' : 'devnet';
+  const rungs = stakeLadder(input.asset, input.custody, network);
+  const currentIndex = rungs.findIndex((rung) => rung.code === input.code);
+  // A code off the ladder should never reach here (callbacks validate first);
+  // clamp defensively so the stepper still renders a coherent row.
+  const index = currentIndex < 0 ? 0 : currentIndex;
+  const current = rungs[index] ?? rungs[0];
+  const currentAtomic = current !== undefined ? current.atomic : ladderAtomic(input.asset, input.code);
+  const amountLabel = formatAssetAmount(currentAtomic, input.asset);
+
+  const keyboard = new InlineKeyboard();
+
+  // Amount row: [−] amount [+]. Omit − at the base rung, + at the cap.
+  const previous = index > 0 ? rungs[index - 1] : undefined;
+  const next = index < rungs.length - 1 ? rungs[index + 1] : undefined;
+  if (previous !== undefined) {
+    keyboard.text(
+      STAKE_STEP_DOWN_LABEL,
+      encodeCallback({ t: 'stake_step', marketId: input.marketId, side: input.side, amountCode: previous.code }),
+    );
+  }
+  keyboard.text(
+    amountLabel,
+    encodeCallback({ t: 'stake_step', marketId: input.marketId, side: input.side, amountCode: input.code }),
+  );
+  if (next !== undefined) {
+    keyboard.text(
+      STAKE_STEP_UP_LABEL,
+      encodeCallback({ t: 'stake_step', marketId: input.marketId, side: input.side, amountCode: next.code }),
+    );
+  }
+
+  // Action row: sign (escrow) or confirm (legacy/replay).
+  keyboard.row();
+  const actionLabel = input.custody === 'escrow'
+    ? signButtonLabel(amountLabel, input.sideLabel)
+    : confirmButtonLabel(amountLabel);
+  if (input.signUrl !== null) {
+    keyboard.url(actionLabel, input.signUrl);
+  } else {
+    keyboard.text(
+      actionLabel,
+      encodeCallback({ t: 'stake_value', marketId: input.marketId, side: input.side, amountCode: input.code }),
+    );
+  }
+
+  // Back row: lossless return to the two-side offer.
+  keyboard.row().text(STAKE_BACK_LABEL, encodeCallback({ t: 'stake_back', marketId: input.marketId }));
+  return keyboard;
 }

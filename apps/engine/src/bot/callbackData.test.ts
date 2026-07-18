@@ -18,6 +18,10 @@ const ROUND_TRIPS: CallbackAction[] = [
   { t: 'decline', claimId: CLAIM_ID },
   { t: 'stake', marketId: MARKET_ID, side: 'back', presetIndex: 0 },
   { t: 'stake', marketId: MARKET_ID, side: 'doubt', presetIndex: 0 },
+  { t: 'stake_step', marketId: MARKET_ID, side: 'back', amountCode: 1 },
+  { t: 'stake_step', marketId: MARKET_ID, side: 'doubt', amountCode: 2 },
+  { t: 'stake_step', marketId: MARKET_ID, side: 'back', amountCode: 5 },
+  { t: 'stake_step', marketId: MARKET_ID, side: 'doubt', amountCode: 10 },
   { t: 'stake_value', marketId: MARKET_ID, side: 'back', amountCode: 1 },
   { t: 'stake_value', marketId: MARKET_ID, side: 'doubt', amountCode: 2 },
   { t: 'stake_value', marketId: MARKET_ID, side: 'back', amountCode: 5 },
@@ -57,6 +61,11 @@ describe('callback data codec', () => {
       `sv:${MARKET_ID}:x:1`, // bad side
       `sv:${MARKET_ID}:b`, // missing code
       `sv:not-a-uuid:b:1`,
+      `ss:${MARKET_ID}:b:0`, // 0 is not a rung
+      `ss:${MARKET_ID}:b:3`, // 3 is not on the 1-2-5 series
+      `ss:${MARKET_ID}:x:1`, // bad side
+      `ss:${MARKET_ID}:b`, // missing code
+      `ss:not-a-uuid:b:1`,
       `sb:not-a-uuid`,
       `sb:${MARKET_ID}:extra`,
       `op:${CLAIM_ID}:`,
