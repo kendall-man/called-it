@@ -187,6 +187,19 @@ function contextAllowed(
   );
 }
 
+// Guidance runbooks quote shell commands verbatim (e.g. pnpm script names);
+// fenced code in guidance markdown is operator tooling, not consumer copy.
+function fencedLineMask(lines: readonly string[]): readonly boolean[] {
+  let inFence = false;
+  return lines.map((line) => {
+    if (/^\s*(?:```|~~~)/u.test(line)) {
+      inFence = !inFence;
+      return true;
+    }
+    return inFence;
+  });
+}
+
 export function scanFile(
   path: string,
   surface: SurfaceName,
@@ -194,6 +207,8 @@ export function scanFile(
 ): readonly Violation[] {
   const violations: Violation[] = [];
   const lines = contents.split(/\r?\n/u);
+  const fenced =
+    surface === 'guidance' && path.endsWith('.md') ? fencedLineMask(lines) : null;
   for (const rule of RULES) {
     if (rule.surfaces !== undefined && !rule.surfaces.includes(surface)) continue;
     if (rule.fileWide === true) {
@@ -214,6 +229,7 @@ export function scanFile(
       continue;
     }
     for (const [index, line] of lines.entries()) {
+      if (fenced?.[index] === true) continue;
       const previousLine = index === 0 ? '' : (lines[index - 1] ?? '');
       if (!rule.pattern.test(line)) continue;
       if (contextAllowed(rule, path, surface, line, previousLine)) continue;

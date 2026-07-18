@@ -62,8 +62,8 @@ funding step, or a receipt). Never stamp it on every card.
 ## Words
 
 Use: call, offer, side, position, it happens, it does not, matched, unmatched, refund, settled,
-receipt, proof, and SOL. Prices are plain percentages, never odds notation. No fiat, and no
-"stack / cash out / first link wins" idioms a B1 reader has to decode.
+receipt, proof, and SOL. Prices are plain percentages, never odds notation. No fiat.
+Avoid "stack / cash out / first link wins" idioms a B1 reader has to decode.
 
 ## Examples
 

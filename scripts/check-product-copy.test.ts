@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
+import './check-product-copy.fences.test.js';
 import './check-product-copy.points.test.js';
 import { CHECKER_PATH, REPO_ROOT, runChecker } from './check-product-copy.test-support.js';
 

@@ -1,8 +1,8 @@
 # Called It House Rules
 
-Called It is SOL/test SOL on Solana devnet only. Test SOL has no monetary value. There is no
-mainnet, fiat, product fee, points balance, or personal ranking. State these facts only when
-they matter; do not recite them on every reply.
+Called It is SOL/test SOL on Solana devnet only. Test SOL has no monetary value.
+There is no mainnet, fiat, product fee, points balance, or personal ranking.
+State these facts only when they matter; do not recite them on every reply.
 
 ## Calls and consent
 

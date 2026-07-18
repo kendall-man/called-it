@@ -41,8 +41,8 @@ surface, not a marketing site or an analytics dashboard.
   disclaimers. The devnet test-token disclosure appears exactly once at onboarding
   (group-ready and wallet setup) and once on the public receipt page. Routine cards,
   acknowledgements, boards, and toasts carry no value disclaimers — an
-  `On-chain escrow · DEVNET` chip is identity, not a disclaimer, and may stay. No copy
-  anywhere may imply devnet SOL has monetary value.
+  `On-chain escrow · DEVNET` chip is identity, not a disclaimer, and may stay. Copy must
+  never imply devnet SOL has monetary value.
 
 ## Approved Target
 
