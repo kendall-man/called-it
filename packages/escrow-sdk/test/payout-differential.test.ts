@@ -7,6 +7,10 @@ import {
 } from '../src/math-reference.js';
 import type { SettlementOutcome } from '../src/domain.js';
 
+// The 4,096-case corpus replays every settlement through the reference math;
+// shared CI runners need well over vitest's 5s default to chew through it.
+const DIFFERENTIAL_CORPUS_TIMEOUT_MS = 60_000;
+
 interface DifferentialPosition {
   readonly user_key: number;
   readonly side: 'back' | 'doubt';
@@ -143,5 +147,5 @@ describe('Rust and TypeScript payout differential corpus', () => {
         resultSha256,
       })}\n`, { flag: 'wx' });
     }
-  });
+  }, DIFFERENTIAL_CORPUS_TIMEOUT_MS);
 });
