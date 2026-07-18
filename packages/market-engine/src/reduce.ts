@@ -1,14 +1,14 @@
 /**
  * The settlement state machine. Pure: (state, event) → (state', effects).
  * Time only ever flows in via event timestamps or the explicit `nowMs`
- * parameter of checkDebounce — never Date.now().
+ * parameter of checkDebounce, never Date.now().
  *
  * Core rules (PRD "the hard 20%"):
  * - Freezes: var_check / possible_event / unconfirmed goals / odds suspension
  *   lock calls immediately; minute-85 cutoff and kickoff (player markets) lock
  *   them permanently until settlement.
  * - Settlement candidates enter a debounce window. They settle when a later
- *   event arrives OR the debounce elapses — whichever is first. Reversals
+ *   event arrives OR the debounce elapses, whichever is first. Reversals
  *   (goal_discarded / goal_amended) and fresh VAR flags inside the window
  *   cancel the candidate instead.
  * - Terminal phases settle whole-match claims with FT vs FT_90 semantics; if
@@ -54,7 +54,7 @@ interface StandingGoal {
  * rebuilt from defaults when absent.
  */
 export interface ReducerScratch {
-  /** Last processed seq — duplicate-delivery guard. Starts at the comeback anchor. */
+  /** Last processed seq, duplicate-delivery guard. Starts at the comeback anchor. */
   lastSeq: number;
   goals: StandingGoal[];
   freezeReason: FreezeReason | null;
@@ -62,23 +62,23 @@ export interface ReducerScratch {
   cutoffReached: boolean;
 }
 
-/** MarketState plus the reducer's scratch — what reduceMarket actually returns. */
+/** MarketState plus the reducer's scratch, what reduceMarket actually returns. */
 export interface ReducibleMarketState extends MarketState {
   scratch?: ReducerScratch;
 }
 
 const VOID_REASON_BY_PHASE: Partial<Record<GamePhase, string>> = {
-  ABD: 'match abandoned — all Rep goes back',
-  CAN: 'match cancelled — all Rep goes back',
-  POST: 'match postponed — all Rep goes back',
-  COV_LOST: 'coverage lost — no fair market without the feed, all Rep goes back',
+  ABD: 'match abandoned, all Rep goes back',
+  CAN: 'match cancelled, all Rep goes back',
+  POST: 'match postponed, all Rep goes back',
+  COV_LOST: 'coverage lost, no fair market without the feed, all Rep goes back',
 };
 const COVERAGE_VOID_REASON =
-  'coverage went unreliable — no fair market without the feed, all Rep goes back';
+  'coverage went unreliable, no fair market without the feed, all Rep goes back';
 const LINEUP_DNP_VOID_REASON =
-  'left out of the lineup — all Rep goes back';
+  'left out of the lineup, all Rep goes back';
 const UNDECIDABLE_VOID_REASON =
-  'final data cannot decide this one — all Rep goes back';
+  'final data cannot decide this one, all Rep goes back';
 
 const INPLAY_PHASES: readonly GamePhase[] = [
   'H1',
@@ -231,7 +231,7 @@ function applyPositionGuards(
     // Live: a tap between the on-pitch moment (tsMs) and the feed's delivery
     // is the snipe being guarded against. Replay: tsMs is the original match
     // timeline (always in the past), so the emission clock is the on-pitch
-    // analog — without this, every pending in-play replay tap voids here.
+    // analog, without this, every pending in-play replay tap voids here.
     const snipeReferenceMs = isReplay ? event.receivedAtMs : event.tsMs;
     const sniped = next.filter(
       (p) => p.state === 'pending' && p.placedAtMs > snipeReferenceMs,
@@ -260,7 +260,7 @@ function applyPositionGuards(
   return next;
 }
 
-/** Remaining pending taps at settlement beat every deciding moment — activate. */
+/** Remaining pending taps at settlement beat every deciding moment, activate. */
 function activateRemainingPending(
   positions: Position[],
   effects: MarketEffect[],
@@ -383,7 +383,7 @@ function reducePendingLineup(
   }
 
   if (INPLAY_PHASES.includes(event.phase)) {
-    // Kickoff arrived and the lineup never named them — DNP void.
+    // Kickoff arrived and the lineup never named them, DNP void.
     return {
       state: voidMarket(next, LINEUP_DNP_VOID_REASON, effects),
       effects,
@@ -406,14 +406,14 @@ export function reduceMarket(
   }
   const scratch = scratchOf(state);
   // Odds-stream events carry epoch-ms `seq`s (normalize-odds keys them by the
-  // record's Ts) — a different sequence space from the small-integer score
+  // record's Ts), a different sequence space from the small-integer score
   // stream. Running one through the shared cursor would mark every later
   // score event stale and blind the market to goals and full time, so odds
   // events bypass the cursor; upstream (fixture, seq) dedupe still guards
   // re-delivery.
   if (event.kind !== 'odds_suspension') {
     if (event.seq <= scratch.lastSeq) {
-      // Duplicate or stale delivery — settlement must be idempotent.
+      // Duplicate or stale delivery, settlement must be idempotent.
       return { state, effects: [] };
     }
     scratch.lastSeq = event.seq;
@@ -478,7 +478,7 @@ export function reduceMarket(
       };
       scratch.freezeReason = scratch.cutoffReached ? 'cutoff' : null;
     } else {
-      // Any other later event confirms the candidate — settle now.
+      // Any other later event confirms the candidate, settle now.
       next = settleNow(next, effects);
       return { state: next, effects };
     }
@@ -502,7 +502,7 @@ export function reduceMarket(
   // (the possibility either materialized or evaporated).
   const possibleResolved =
     scratch.freezeReason === 'possible_event' && event.confirmed;
-  // A discard/amend IS the VAR verdict — no separate var_end required.
+  // A discard/amend IS the VAR verdict, no separate var_end required.
   const reversalResolved = doubtActive && isReversal(event);
   const suspensionLifted =
     event.kind === 'odds_suspension' &&
@@ -520,7 +520,7 @@ export function reduceMarket(
     }
   }
 
-  // 7. Settlement evaluation — only confirmed events, never under an open
+  // 7. Settlement evaluation, only confirmed events, never under an open
   //    VAR/possible-event doubt.
   const underDoubt =
     scratch.freezeReason === 'var' || scratch.freezeReason === 'possible_event';
@@ -549,7 +549,7 @@ export function reduceMarket(
     }
     if (TERMINAL_PHASES.includes(event.phase)) {
       // Terminal and still undecidable (e.g. advancing claim level after
-      // pens, or FT_90 in ET without a 90' split) — void honestly.
+      // pens, or FT_90 in ET without a 90' split), void honestly.
       return {
         state: voidMarket(next, UNDECIDABLE_VOID_REASON, effects),
         effects,

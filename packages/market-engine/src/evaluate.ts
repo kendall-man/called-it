@@ -5,7 +5,7 @@
  * Period semantics:
  * - FT_90 claims are decided by regulation-time goals. Once the match enters
  *   extra time the 90-minute result is final, so FT_90 claims become decidable
- *   at ET1 — but only via `p1Goals90`/`p2Goals90`; if the normalizer could not
+ *   at ET1, but only via `p1Goals90`/`p2Goals90`; if the normalizer could not
  *   split those out, the predicate stays undecided (the reducer voids at a
  *   terminal phase rather than guessing).
  * - FT claims (including ET/pens where the fixture goes there) are decided only
@@ -67,14 +67,14 @@ function goalsForPeriod(
   // FT_90 below.
   const goals90 = participant === 1 ? score.p1Goals90 : score.p2Goals90;
   if (phase === 'F') {
-    // Match ended at 90 — full goals ARE the 90-minute goals.
+    // Match ended at 90, full goals ARE the 90-minute goals.
     return goals90 ?? team.goals;
   }
   if (BEYOND_REGULATION_PHASES.includes(phase)) {
     // Extra time / pens: only an explicit 90' split is trustworthy.
     return goals90;
   }
-  // Regulation still running — the live tally is the 90-minute tally so far.
+  // Regulation still running, the live tally is the 90-minute tally so far.
   return team.goals;
 }
 
@@ -123,7 +123,7 @@ function winnerOutcome(
   if (gMine > gTheirs) return 'claim_won';
   if (gMine < gTheirs) return 'claim_lost';
   // Level.
-  if (spec.period === 'FT_90') return 'claim_lost'; // draw in 90 — the call was a win
+  if (spec.period === 'FT_90') return 'claim_lost'; // draw in 90, the call was a win
   if (phase === 'F') return 'claim_lost'; // match over at 90 with a draw
   // FET/FPE level: the advancing side is not derivable from team goal tallies.
   return null;

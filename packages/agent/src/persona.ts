@@ -1,5 +1,5 @@
 /**
- * persona() — every consumer-facing string flows through here.
+ * persona(), every consumer-facing string flows through here.
  *
  * The deterministic template bank is the source of truth; an optional
  * Haiku "garnish" may rephrase a line for flavour, but:
@@ -8,7 +8,7 @@
  *   - it must finish inside GARNISH_TIMEOUT_MS,
  *   - its output must keep every number from the template, stay short and
  *     pass the deny-list guard,
- *   - ANY failure — error, timeout, empty output, guard violation — falls
+ *   - ANY failure, error, timeout, empty output, guard violation, falls
  *     back to the rendered template. The bot is never blocked on a model.
  */
 
@@ -67,8 +67,8 @@ export const GARNISH_SYSTEM_PROMPT = [
   'football group chat where Callie brokers bets on the group’s calls. Hard',
   'rules: keep every fact, name, percentage and amount exactly as given; keep',
   'it one short message; betting language is welcome ("back it", "bet',
-  'against"). Amounts are devnet SOL — NEVER invent fiat currency or currency',
-  'symbols. Prices are plain percentages — NEVER odds notation (like 11/1 or',
+  'against"). Amounts are devnet SOL, NEVER invent fiat currency or currency',
+  'symbols. Prices are plain percentages, NEVER odds notation (like 11/1 or',
   '9-to-1). Reply with the rewritten message only.',
 ].join('\n');
 

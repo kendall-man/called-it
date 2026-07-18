@@ -1,5 +1,5 @@
 /**
- * Claim parse — the Sonnet-tier touchpoint.
+ * Claim parse, the Sonnet-tier touchpoint.
  *
  * Forced tool use against grounded tools whose executors are injected by the
  * caller (engine wires them to the DB; tests wire fakes). Entity IDs the
@@ -167,7 +167,7 @@ function coerceModelNulls(input: unknown): unknown {
   // GLM type drift, observed live (2026-07-08): numeric fields arrive as
   // strings ("2" for threshold, fixture ids quoted) and comparator sometimes
   // comes back as the strict form ("gt"/"lt") the closed taxonomy doesn't
-  // admit. Fold both at the boundary — LLM proposes, code disposes.
+  // admit. Fold both at the boundary, LLM proposes, code disposes.
   for (const key of ['threshold', 'fixtureId'] as const) {
     const value = coerced[key];
     if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) {
@@ -194,7 +194,7 @@ export const PARSE_SYSTEM_PROMPT = [
   'You MUST ground every reference through the tools: find the fixture with',
   `${SEARCH_FIXTURES_TOOL}; resolve player names with ${RESOLVE_PLAYER_TOOL};`,
   `check availability with ${GET_MARKET_MENU_TOOL} when unsure. Never invent`,
-  'ids or names — only values returned by tools may appear in the parse.',
+  'ids or names, only values returned by tools may appear in the parse.',
   '',
   'Parse faithfully, do not judge validity: capture what was said (comparator,',
   'threshold, period) and leave everything unstated as null. "in 90"/"in',
@@ -219,7 +219,7 @@ function describeContext(ctx: CompileContext): string {
         `, score ${f.score.p1Goals}-${f.score.p2Goals}`,
     );
   } else {
-    lines.push("Chat's active fixture: none known — search for one.");
+    lines.push("Chat's active fixture: none known, search for one.");
   }
   if (ctx.knownPlayers.length > 0) {
     const names = ctx.knownPlayers

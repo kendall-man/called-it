@@ -88,7 +88,7 @@ function bisectLambda(kOver: number, target: number): number {
 
 /**
  * Invert the quoted totals line to the expected total goals. Half-goal lines
- * quote an unconditional over probability — one bisection. Integer lines
+ * quote an unconditional over probability, one bisection. Integer lines
  * push at exactly `line` goals, so their Pct is P(over | no push); treating
  * it as unconditional overstates lambda ~15% on real feed data. De-condition
  * by fixed point: uncond = cond * (1 - P(total = line)) at the current
@@ -207,7 +207,7 @@ function quote(
 
 /**
  * Thrown when the feed simply has not published the odds input a claim type
- * requires — an expected data gap, not an engine failure. Callers should
+ * requires, an expected data gap, not an engine failure. Callers should
  * treat it as "no price available" (retryable), distinct from real bugs.
  */
 export class MissingOddsInputError extends Error {
@@ -224,7 +224,7 @@ function specParticipant(spec: MarketSpec): 1 | 2 {
   const participant = spec.entityRef.participant;
   if (participant === null) {
     throw new Error(
-      'priceSpec: player not yet bound to a side — cannot derive a team goal rate',
+      'priceSpec: player not yet bound to a side, cannot derive a team goal rate',
     );
   }
   return participant;
@@ -286,7 +286,7 @@ function priceTotals(
 ): PriceQuote {
   // Direct market read: FT_90, half-goal line matching the feed exactly, and a
   // pure over/under comparator (integer lines have push semantics we don't
-  // model — those go through Poisson).
+  // model, those go through Poisson).
   const direct =
     odds.totals !== null &&
     spec.period === 'FT_90' &&

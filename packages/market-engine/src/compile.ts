@@ -1,5 +1,5 @@
 /**
- * The MarketSpec compiler — the single deterministic gate between LLM output
+ * The MarketSpec compiler, the single deterministic gate between LLM output
  * and state. The LLM proposes a RawClaimParse; this module alone decides what
  * becomes a MarketSpec, what needs one clarifying question, what gets the
  * verifiability-negotiation counter-offer, and what is rejected.
@@ -34,7 +34,7 @@ const PLAYER_GOALS_THRESHOLD_MIN = 1;
 const PLAYER_GOALS_THRESHOLD_MAX = 5;
 const TOTALS_LINE_MIN = 0.5;
 const TOTALS_LINE_MAX = 9.5;
-/** Totals lines must land on half-goal steps (2, 2.5, 3 …) — no quarter lines. */
+/** Totals lines must land on half-goal steps (2, 2.5, 3 …), no quarter lines. */
 const TOTALS_LINE_STEP = 0.5;
 /** Offered when a totals claim arrives without a number ("goals galore"). */
 const TOTALS_CLARIFY_LINES: readonly number[] = [1.5, 2.5, 3.5];
@@ -92,30 +92,30 @@ function mentionsMonetaryStake(text: string | null): boolean {
 
 const REJECT_COPY: Record<RejectReason, string> = {
   no_fixture:
-    "Can't find that match on the card — call it when the fixture's on the slate.",
-  unknown_entity: "That name isn't on this card — who are we talking about?",
+    "Can't find that match on the card, call it when the fixture's on the slate.",
+  unknown_entity: "That name isn't on this card, who are we talking about?",
   unsupported_claim_type:
-    "That one's outside my playbook — call a winner, goals, or a scorer and I'm in.",
+    "That one's outside my playbook, call a winner, goals, or a scorer and I'm in.",
   monetary_forfeit:
-    'Rep only in this game — nothing with a price tag on the line. Keep it social and I will book it.',
-  window_closed: 'Calls are locked for this one — that ship has sailed.',
-  out_of_range: "That number's off the scale — keep it between the posts.",
+    'Rep only in this game, nothing with a price tag on the line. Keep it social and I will book it.',
+  window_closed: 'Calls are locked for this one, that ship has sailed.',
+  out_of_range: "That number's off the scale, keep it between the posts.",
   unresolvable:
-    "I couldn't pin the terms down — give it to me straight and I'll put a number on it.",
+    "I couldn't pin the terms down, give it to me straight and I'll put a number on it.",
 };
 
 const UNKNOWN_PLAYER_COPY =
-  "Can't ground him yet — try me once lineups drop.";
+  "Can't ground him yet, try me once lineups drop.";
 const PLAYER_WINDOW_COPY =
-  'Scorer calls lock at kickoff — catch him in the next match.';
+  'Scorer calls lock at kickoff, catch him in the next match.';
 const COMEBACK_PREMATCH_COPY =
-  'A comeback needs a deficit — call it once the match is live and your side is behind.';
+  'A comeback needs a deficit, call it once the match is live and your side is behind.';
 const COMEBACK_NOT_TRAILING_COPY =
-  "A comeback needs a deficit — you're not behind right now.";
+  "A comeback needs a deficit, you're not behind right now.";
 const MINT_CUTOFF_COPY =
-  'Too deep into the match to open a new call — calls lock at minute 75.';
+  'Too deep into the match to open a new call, calls lock at minute 75.';
 const COVERAGE_COPY =
-  'Coverage on this match is shaky — no fair market without a clean feed.';
+  'Coverage on this match is shaky, no fair market without a clean feed.';
 
 function reject(reason: RejectReason, message?: string): CompileResult {
   return { kind: 'reject', reason, message: message ?? REJECT_COPY[reason] };
@@ -295,14 +295,14 @@ function compileMatchWinner(
     // Knockout football: "win" is ambiguous between 90 minutes and advancing.
     return {
       kind: 'clarify',
-      question: `${team.name} to win — in 90 minutes, or advancing however it takes?`,
+      question: `${team.name} to win, in 90 minutes, or advancing however it takes?`,
       options: [
         {
           label: 'In 90 minutes',
           spec: buildSpec({ ...base, period: 'FT_90' }),
         },
         {
-          label: 'Advancing — extra time and shootout count',
+          label: 'Advancing, extra time and shootout count',
           spec: buildSpec({ ...base, period: 'FT' }),
         },
       ],
@@ -329,7 +329,7 @@ function compileTotals(
     const word = comparator === 'lte' ? 'Under' : 'Over';
     return {
       kind: 'clarify',
-      question: `Goals claim — where's the line?`,
+      question: `Goals claim, where's the line?`,
       options: TOTALS_CLARIFY_LINES.map((line) => ({
         label: `${word} ${line}`,
         spec: buildSpec({
@@ -352,7 +352,7 @@ function compileTotals(
   ) {
     return reject('out_of_range');
   }
-  // "Exactly N.5 goals" can never happen — an eq claim needs a whole number.
+  // "Exactly N.5 goals" can never happen, an eq claim needs a whole number.
   if (comparator === 'eq' && !Number.isInteger(line)) {
     return reject('out_of_range');
   }
@@ -498,7 +498,7 @@ function compilePlayerScoresN(
 
   // Verifiability negotiation: player stats are not chain-provable (on-chain
   // stat keys are team-level), so offer the honest as-stated tier plus a
-  // chain-proven team upgrade — but only when we know which side he plays for.
+  // chain-proven team upgrade, but only when we know which side he plays for.
   if (player.participant === null) {
     return { kind: 'ok', spec: asStated };
   }
@@ -517,7 +517,7 @@ function compilePlayerScoresN(
   return {
     kind: 'counter_offer',
     reason:
-      `I can't chain-prove ${player.name} personally — on-chain stats are team-level. ` +
+      `I can't chain-prove ${player.name} personally, on-chain stats are team-level. ` +
       `Book it Oracle-resolved as stated, or upgrade to "${teamName} scores ${threshold}+ ${plural}" Chain-proven?`,
     asStated,
     upgrade,

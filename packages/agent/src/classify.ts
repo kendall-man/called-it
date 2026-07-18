@@ -1,9 +1,9 @@
 /**
- * Claim classification — the Haiku-tier touchpoint behind the prefilter.
+ * Claim classification, the Haiku-tier touchpoint behind the prefilter.
  *
  * Strict JSON in/out: the model gets the message plus entity hints and must
  * answer only `{"is_claim", "confidence", "claim_type_guess"}`. Anything it
- * says is advisory — thresholds and all state changes live in the engine and
+ * says is advisory, thresholds and all state changes live in the engine and
  * compiler ("LLM proposes, code disposes").
  */
 
@@ -40,7 +40,7 @@ export interface ClassifyOptions {
 export const CLASSIFY_SYSTEM_PROMPT = [
   'You are the claim detector for a football group-chat game. A "claim" is a',
   'confident prediction about a specific upcoming or in-play match outcome that',
-  'friends could hold the speaker to — e.g. who wins, total goals, a team or',
+  'friends could hold the speaker to, e.g. who wins, total goals, a team or',
   'player scoring N, both teams scoring, or a losing team turning it around.',
   '',
   'NOT claims: commentary or reactions about events that already happened,',
@@ -48,7 +48,7 @@ export const CLASSIFY_SYSTEM_PROMPT = [
   '',
   `Known claim types: ${CLAIM_TYPE_VALUES.join(', ')}.`,
   '',
-  'Respond with ONLY a single JSON object — no prose, no code fences:',
+  'Respond with ONLY a single JSON object, no prose, no code fences:',
   '{"is_claim": boolean, "confidence": number between 0 and 1,',
   ' "claim_type_guess": one of the known claim types or null}',
 ].join('\n');
