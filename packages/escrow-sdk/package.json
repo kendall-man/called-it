@@ -21,6 +21,7 @@
     "@solana/web3.js": "1.98.4"
   },
   "devDependencies": {
+    "@calledit/market-engine": "workspace:*",
     "@types/node": "22.20.0",
     "typescript": "5.9.3",
     "vitest": "3.2.6"
