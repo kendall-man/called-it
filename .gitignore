@@ -50,6 +50,7 @@ test-ledger/
 !.agents/workflows/calledit-*.md
 
 # Local workflow/browser/runtime artifacts can include credentials or raw event data.
+artifacts/
 .omo/
 .tmp-telegram-evidence-test/
 .superstack/
