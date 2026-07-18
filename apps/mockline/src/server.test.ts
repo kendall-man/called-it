@@ -24,6 +24,9 @@ import type { MatchScript } from './types.js';
 
 const REPLAY_FIXTURE = MOCKLINE.REPLAY_FIXTURE_ID;
 const WAIT_TIMEOUT_MS = 10_000;
+// Shared CI runners run these end-to-end replays well past vitest's 5s
+// default; the ceiling must outlast every waitFor deadline in the file.
+const SLOW_RUNNER_TEST_TIMEOUT_MS = 30_000;
 const WAIT_POLL_MS = 25;
 
 async function waitFor(predicate: () => boolean, label: string): Promise<void> {
@@ -35,7 +38,7 @@ async function waitFor(predicate: () => boolean, label: string): Promise<void> {
   throw new Error(`timed out waiting for ${label}`);
 }
 
-describe('mockline server ⇄ real txline consumers', () => {
+describe('mockline server ⇄ real txline consumers', { timeout: SLOW_RUNNER_TEST_TIMEOUT_MS }, () => {
   let server: Server;
   let store: MatchStore;
   let apiBase: string;
