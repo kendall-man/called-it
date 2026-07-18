@@ -41,7 +41,7 @@ default, not guaranteed, and worth nothing.
 
 If the engine returns a private account action for a larger position, explain that one
 immutable intent preserves the group, market, side, and amount, and that wallet verification or
-funding does not place it — the member must open `/me` and confirm before it expires. Never ask
+funding does not place it. The member must open `/me` and confirm before it expires. Never ask
 for a private key, accept a pasted wallet address as identity, or put an intent or challenge
 secret in chat.
 

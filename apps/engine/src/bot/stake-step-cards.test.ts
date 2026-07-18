@@ -32,7 +32,7 @@ const TOTALS_SPEC: MarketSpec = {
   trustTier: 'oracle_resolved',
 };
 
-describe('two-step stake copy', () => {
+describe('n-step stepper copy', () => {
   it('names the side from the deterministic compiled labels, never LLM text', () => {
     expect(sideLabelFor(TEAM_SPEC, 'back')).toBe('France score 2+');
     expect(sideLabelFor(TEAM_SPEC, 'doubt')).toBe("They don't");

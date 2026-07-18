@@ -61,11 +61,6 @@ describe('callback data codec', () => {
       `sv:${MARKET_ID}:x:1`, // bad side
       `sv:${MARKET_ID}:b`, // missing code
       `sv:not-a-uuid:b:1`,
-      `ss:${MARKET_ID}:b:0`, // 0 is not a rung
-      `ss:${MARKET_ID}:b:3`, // 3 is not on the 1-2-5 series
-      `ss:${MARKET_ID}:x:1`, // bad side
-      `ss:${MARKET_ID}:b`, // missing code
-      `ss:not-a-uuid:b:1`,
       `sb:not-a-uuid`,
       `sb:${MARKET_ID}:extra`,
       `op:${CLAIM_ID}:`,

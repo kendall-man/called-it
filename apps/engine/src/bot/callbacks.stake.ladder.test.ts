@@ -105,10 +105,9 @@ describe('n-step stepper — flag on', () => {
     // + to 0.02, then + to 0.05 — codes carried by the buttons.
     await dispatchCallback(harness.h, stakeCtx(USER_A, 's-up1').ctx, step('back', 2));
     expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 2 });
-    const { toasts } = stakeCtx(USER_A, 's-up2');
-    await dispatchCallback(harness.h, stakeCtx(USER_A, 's-up2b').ctx, step('back', 5));
+    await dispatchCallback(harness.h, stakeCtx(USER_A, 's-up2').ctx, step('back', 5));
     expect(harness.uiState?.get(MARKET_ID)).toEqual({ kind: 'ladder', side: 'back', code: 5 });
-    // Not a single position, no ledger movement across the steps.
+    // No position, no ledger movement across the steps.
     expect(harness.wagerDb.positions).toHaveLength(0);
     // Mid-ladder shows [−] amount [+]; at 0.05 (below the legacy cap) + remains.
     expect(keyboardRows(harness.cardSurfaces.at(-1)?.keyboard)).toEqual([
@@ -116,7 +115,6 @@ describe('n-step stepper — flag on', () => {
       ['Confirm 0.05 SOL'],
       ['← Back'],
     ]);
-    void toasts;
   });
 
   it('the middle amount tap keeps the surface alive without a redundant edit', async () => {
