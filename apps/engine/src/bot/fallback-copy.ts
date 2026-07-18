@@ -88,7 +88,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     ? `Add Called It to a Telegram group. Reply /bookit to a football call, then pick a side using SOL or canonical USDC. Each live choice opens a private Privy wallet approval and settles through On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Named choices and results are visible in the group.`
     : isMainnet(vars)
     ? 'Add Called It to a Telegram group. Reply /bookit to your own football call, then pick a side using SOL or USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in the group. Use /wallet in private chat to review your verified wallet, and /leaderboard, /mystats, or /table in the group.'
-    : 'Add Called It to a Telegram group. Reply /bookit to your own football call, then pick a side using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet — these are test tokens.',
+    : 'Add Called It to a Telegram group. Reply /bookit to your own football call, then pick a side using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet, these are test tokens.',
   help: (vars) => isEscrow(vars) ? [
     'How On-chain escrow works:',
     '• Make or book a football call in the group.',
@@ -114,55 +114,55 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
       : 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /help',
     isMainnet(vars)
       ? 'SOL and native Circle USDC deposits and withdrawals use Solana mainnet.'
-      : 'Runs on Solana devnet — these are test tokens.',
+      : 'Runs on Solana devnet, these are test tokens.',
   ].join('\n'),
   dm_start: (vars) =>
-    `I live in group chats — add me to yours and the banter starts pricing itself. ${value(vars, 'addLink')}`,
+    `I live in group chats. Add me to yours and the banter starts pricing itself. ${value(vars, 'addLink')}`,
   nudge_priced: (vars) =>
-    `Big shout from ${value(vars, 'claimer', 'someone')}. Data says ${value(vars, 'probabilityPct')}% — anyone want to make them prove it?`,
+    `Big shout from ${value(vars, 'claimer', 'someone')}. Data says ${value(vars, 'probabilityPct')}%. Anyone want to make them prove it?`,
   nudge_unpriced: (vars) =>
     `Big shout from ${value(vars, 'claimer', 'someone')}. Anyone want to make them prove it?`,
-  prove_ack: () => 'On it — checking the data.',
-  clarify: (vars) => `One thing before we lock it in — ${value(vars, 'question')}`,
+  prove_ack: () => 'On it. Checking the data.',
+  clarify: (vars) => `One thing before we lock it in, ${value(vars, 'question')}`,
   counter_offer: (vars) =>
     `${value(vars, 'reason')} Your move: book it as stated (Oracle-resolved), or take the upgrade (Chain-proven).`,
-  reject: (vars) => value(vars, 'message', "Can't put a number on that one — next shout."),
+  reject: (vars) => value(vars, 'message', "Can't put a number on that one. Next shout."),
   confirm_gate: (vars) =>
     `Here's the call: ${value(vars, 'terms')}. Data says ${value(vars, 'probabilityPct')}%. ${value(vars, 'claimer')}, confirm this is your call. No offer goes live until you do.`,
-  confirm_declined: () => 'No harm — the call stays banter.',
+  confirm_declined: () => 'No harm. The call stays banter.',
   no_price: () =>
-    "Can't get a clean number on that right now — give it a moment and hit Run it again.",
+    "Can't get a clean number on that right now. Give it a moment and hit Run it again.",
   no_line: () =>
-    "No line on this one yet — the numbers desk hasn't published for this match. Worth another go nearer kickoff.",
+    "No line on this one yet. The numbers desk hasn't published for this match. Worth another go nearer kickoff.",
   unpriceable: () =>
-    "Can't put a clean number on that one with the data I've got. If there's another option on the table, pick that — otherwise give me a different call.",
+    "Can't put a clean number on that one with the data I've got. If there's another option on the table, pick that. Otherwise give me a different call.",
   already_decided: () =>
-    "Data says that one's a done deal — no game in a sure thing. Pick a different option or give me a fresh call.",
-  prove_retry: () => 'The data desk wobbled mid-check — tap "Run it back" and I\'ll price it again.',
-  hiccup: () => 'Hiccup on my end — tap that one again.',
-  hold_on: () => "Easy, legend — I'm already on it.",
-  budget_spent: () => "I've done all the thinking I can in here for today — catch me tomorrow.",
-  market_live: (vars) => `Locked in. ${value(vars, 'claimer')} is on the record — pick a side below.`,
+    "Data says that one's a done deal. No game in a sure thing. Pick a different option or give me a fresh call.",
+  prove_retry: () => 'The data desk wobbled mid-check. Tap "Run it back" and I\'ll price it again.',
+  hiccup: () => 'Hiccup on my end. Tap that one again.',
+  hold_on: () => "Easy, legend. I'm already on it.",
+  budget_spent: () => "I've done all the thinking I can in here for today. Catch me tomorrow.",
+  market_live: (vars) => `Locked in. ${value(vars, 'claimer')} is on the record. Pick a side below.`,
   offer_live: (vars) =>
-    `${value(vars, 'claimer', 'Someone')}'s call is on the board — pick a side below. Each tap books ${value(vars, 'amount', '0.01 SOL')}.`,
+    `${value(vars, 'claimer', 'Someone')}'s call is on the board. Pick a side below. Each tap books ${value(vars, 'amount', '0.01 SOL')}.`,
   offer_taken: () =>
-    "Too late to pull it — there's already money on this one. It rides to the final whistle now.",
+    "Too late to pull it. There's already money on this one. It rides to the final whistle now.",
   pending_lineup_note: () =>
-    'Held until lineups drop — if the name is on the sheet this goes live, otherwise all SOL comes back.',
-  lineup_activated: () => 'Lineups are in — the call is live. Pick a side.',
-  var_freeze: () => 'VAR check — calls locked. Nobody breathe.',
-  calls_unlocked: () => "We're back — calls open again.",
+    'Held until lineups drop. If the name is on the sheet this goes live, otherwise all SOL comes back.',
+  lineup_activated: () => 'Lineups are in. The call is live. Pick a side.',
+  var_freeze: () => 'VAR check. Calls locked. Nobody breathe.',
+  calls_unlocked: () => "We're back. Calls open again.",
   goal_alert: (vars) =>
-    `GOAL — ${value(vars, 'scorer', 'unconfirmed scorer')} (${value(vars, 'minute', '?')}'). ${value(vars, 'note', 'Open calls are feeling it.')}`,
+    `GOAL. ${value(vars, 'scorer', 'unconfirmed scorer')} (${value(vars, 'minute', '?')}'). ${value(vars, 'note', 'Open calls are feeling it.')}`,
   settle_won: (vars) =>
     `CALLED IT. ${value(vars, 'claimer')} said it and the data backs it. ${value(vars, 'payouts', '')}`,
   settle_lost: (vars) =>
-    `Not this time — the call goes down. ${value(vars, 'payouts', '')}`,
+    `Not this time. The call goes down. ${value(vars, 'payouts', '')}`,
   void_market: (vars) =>
-    `Call off — ${value(vars, 'reason', 'the match got away from us')}. Every SOL stake is back where it started.`,
+    `Call off, ${value(vars, 'reason', 'the match got away from us')}. Every SOL stake is back where it started.`,
   after_the_moment: (vars) =>
-    `After the moment — no SOL moved. ${value(vars, 'names', 'Those taps')} came in once the pitch already knew; their SOL returned.`,
-  positions_activated: () => 'Window cleared — those calls are locked in at their price.',
+    `After the moment. No SOL moved. ${value(vars, 'names', 'Those taps')} came in once the pitch already knew; their SOL returned.`,
+  positions_activated: () => 'Window cleared. Those calls are locked in at their price.',
   pick_a_lane: () => "You can't back it and doubt it. Pick a lane.",
   insufficient_rep: (vars) =>
     `Not enough ${isMainnet(vars) ? 'SOL' : 'test SOL'} for that position. Available balance: ${value(vars, 'balance')} SOL. Open /deposit in private chat to add funds.`,
@@ -175,9 +175,9 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   claimer_only_terms: (vars) => `The terms are ${value(vars, 'claimer', 'the claimer')}'s to pick.`,
   admin_only: () => "That's an admin move.",
   settings_intro: () => 'How chatty should I be in here?',
-  settings_updated: (vars) => `Done — ${value(vars, 'summary')}.`,
-  table_header: (vars) => `THE TABLE — ${value(vars, 'groupTitle', 'this group')}`,
-  slate_intro: (vars) => `Morning, legends — today's card: ${value(vars, 'fixtures', 'check back soon')}`,
+  settings_updated: (vars) => `Done, ${value(vars, 'summary')}.`,
+  table_header: (vars) => `THE TABLE, ${value(vars, 'groupTitle', 'this group')}`,
+  slate_intro: (vars) => `Morning, legends. Today's card: ${value(vars, 'fixtures', 'check back soon')}`,
   replay_started: (vars) => isEscrow(vars)
     ? `COMPLETED-MATCH REPLAY: ${value(vars, 'fixture')} is running at ${value(vars, 'speed', '20')}x speed. Send "${value(vars, 'p1', 'The first team')} will beat ${value(vars, 'p2', 'the second team')}", then reply /bookit. Positions use ${isMainnet(vars) ? 'allowlisted, capped mainnet SOL or canonical USDC' : 'devnet test SOL or test USDC'} through the same private Privy approval. Replay results do not change Points.`
     : isMainnet(vars)
@@ -190,7 +190,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
       : `TEST MATCH FINISHED: ${value(vars, 'fixture')}. Settlement is confirming; the group updates only after finalization. Points did not change.`,
   replay_blocked_live: (vars) => {
     const call = value(vars, 'call');
-    if (call.length === 0) return 'Not while live calls are open in here — let those settle first.';
+    if (call.length === 0) return 'Not while live calls are open in here. Let those settle first.';
     return [
       'Test match blocked by this live call:',
       `“${call}”`,
@@ -208,7 +208,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   escrow_void_pending_finality: () =>
     'Telegram cannot void an on-chain escrow call. This card is locked; it refreshes only after an on-chain close or refund is finalized. No group void was recorded.',
   bookit_needs_reply: () => 'Reply /bookit to the claim you want on the record.',
-  window_closed: () => 'Too late for that one — the window is closed.',
+  window_closed: () => 'Too late for that one. The window is closed.',
   beta_access_required: () =>
     'Called It is in a limited beta and this group is not enabled yet. No call or SOL changed.',
   admin_permission_required: () =>
@@ -217,13 +217,13 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     ? `Called It is ready with On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Make a football call, then pick a side in SOL or canonical USDC. Every live or completed-match replay choice opens a private Privy wallet approval; this group updates only after finalization. Replays do not change Points. Legacy /deposit and /withdraw remain only for older balances. Board: ${value(vars, 'webUrl', 'the group board')}`
     : isMainnet(vars)
     ? `Called It is ready on Solana mainnet. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this group. Correct choices earn 10 points automatically. A verified wallet is required; /wallet in private chat shows your status. Board: ${value(vars, 'webUrl', 'the group board')}`
-    : `Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet — these are test tokens. Board: ${value(vars, 'webUrl', 'the group board')}`,
+    : `Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet, these are test tokens. Board: ${value(vars, 'webUrl', 'the group board')}`,
   private_start: () => 'Called It lives in group chats. Add it to a group to make a football call.',
   group_only_recovery: () => 'Open this command in the group where you want to use Called It.',
   points_unavailable: () => 'Points are temporarily unavailable. Try again shortly.',
   table_link: () => 'Open the group board.',
   detection_enabled: () =>
-    "Always-on detection is live — big shouts get priced automatically. I'll keep the rest of the chat out of it.",
+    "Always-on detection is live. Big shouts get priced automatically. I'll keep the rest of the chat out of it.",
   detection_disabled: () =>
     'Always-on detection is off. Reply /bookit to any claim and I still work everywhere.',
 };

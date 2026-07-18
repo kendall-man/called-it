@@ -17,8 +17,9 @@ import {
   settingsKeyboard,
   stakeConfirmationKeyboard,
 } from './keyboards.js';
-import { describeTerms, statusLine } from './cards.js';
+import { CLAIM_DECLINED_LINE, CLAIM_EXPIRED_LINE, describeTerms, statusLine } from './cards.js';
 import { readEnvelope } from '../pipeline/claims.js';
+import { closeClaimSurface } from '../pipeline/claim-surface.js';
 import { mintOffer, retryOffer } from '../pipeline/offer.js';
 import { voidAbandonedMarket } from '../pipeline/void.js';
 import { composeClaimCard } from '../pipeline/render.js';
@@ -261,7 +262,11 @@ async function handleDecline(h: HandlerCtx, ctx: Context, claimId: string): Prom
 
   if (claim.status === 'awaiting_confirm' && claimIsExpired(claim, h.deps.now())) {
     await h.deps.db.updateClaim(claim.id, { status: 'expired' });
-    stripCallbackKeyboard(h, ctx);
+    // Single-message lifecycle: collapse the surface to a close-line; else
+    // (flag off) strip the gate keyboard as before.
+    if (!closeClaimSurface(h.poster, h.claimSurface, claim, CLAIM_EXPIRED_LINE)) {
+      stripCallbackKeyboard(h, ctx);
+    }
     await stale(h, ctx);
     return;
   }
@@ -298,7 +303,11 @@ async function handleDecline(h: HandlerCtx, ctx: Context, claimId: string): Prom
     return;
   }
   await h.deps.db.updateClaim(claim.id, { status: 'declined' });
-  if (claim.status === 'awaiting_confirm') stripCallbackKeyboard(h, ctx);
+  // Single-message lifecycle: collapse the surface to a one-line close; else
+  // (flag off) strip the gate's keyboard exactly as before.
+  if (!closeClaimSurface(h.poster, h.claimSurface, claim, CLAIM_DECLINED_LINE)) {
+    if (claim.status === 'awaiting_confirm') stripCallbackKeyboard(h, ctx);
+  }
   await answer(ctx, await h.say('confirm_declined'));
 }
 

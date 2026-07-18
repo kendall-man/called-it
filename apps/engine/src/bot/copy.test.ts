@@ -63,11 +63,11 @@ const EXPECTED_STARTER_HELP = [
   '• Correct choices earn 10 points automatically.',
   '',
   'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /help',
-  'Runs on Solana devnet — these are test tokens.',
+  'Runs on Solana devnet, these are test tokens.',
 ].join('\n');
 
 const EXPECTED_STARTER_INTRO =
-  'Add Called It to a Telegram group. Reply /bookit to your own football call, then pick a side using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet — these are test tokens.';
+  'Add Called It to a Telegram group. Reply /bookit to your own football call, then pick a side using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet, these are test tokens.';
 
 const UNAVAILABLE_STARTER_PATHS = [
   { name: 'wallet', pattern: /\bwallets?\b/i },
@@ -117,11 +117,11 @@ describe('fallback copy bank', () => {
 
   it('speaks the direct test-SOL contract where it matters', () => {
     expect(renderFallback('var_freeze')).toMatch(/calls locked/i);
-    expect(renderFallback('offer_live', SAMPLE_VARS)).toContain('pick a side below');
+    expect(renderFallback('offer_live', SAMPLE_VARS)).toContain('Pick a side below');
     expect(renderFallback('offer_live', SAMPLE_VARS)).toContain('0.01 SOL');
     expect(renderFallback('intro', SAMPLE_VARS)).toMatch(/test SOL/i);
     // Voice rule: the devnet disclosure is one confident line, never a nag.
-    expect(renderFallback('intro', SAMPLE_VARS)).toContain('Runs on Solana devnet — these are test tokens.');
+    expect(renderFallback('intro', SAMPLE_VARS)).toContain('Runs on Solana devnet, these are test tokens.');
     expect(renderFallback('intro', SAMPLE_VARS)).not.toMatch(/no monetary value/i);
     expect(renderFallback('void_market', SAMPLE_VARS)).not.toMatch(/\bRep\b/);
   });

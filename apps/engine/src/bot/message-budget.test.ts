@@ -143,7 +143,7 @@ describe('Telegram message budgets', () => {
       '💠 Dee collects 0.08 SOL. (devnet)',
       `Winners (+10 points): ${ten}, and 90 more`,
       `Misses (+0 points): ${ten}, and 90 more`, 'Group leaderboard',
-      '🔏 Chain-proven — Merkle proof lands on the receipt page',
+      '🔏 Chain-proven. Merkle proof lands on the receipt page',
       'Receipt: https://example.test/r/abc',
     ]) expect(result).toContain(line);
     expect(result.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);

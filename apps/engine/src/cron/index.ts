@@ -14,6 +14,8 @@ import type { Settler } from '../settle/settler.js';
 import type { IngestSupervisor } from '../ingest/supervisor.js';
 import { voidAbandonedMarket } from '../pipeline/void.js';
 import { composeClaimCard } from '../pipeline/render.js';
+import { closeClaimSurface, type ClaimSurfaceStore } from '../pipeline/claim-surface.js';
+import { CLAIM_EXPIRED_LINE } from '../bot/cards.js';
 import { marketStakeKeyboard } from '../bot/keyboards.js';
 import type { WagerCronRegistry, WagerModule } from '../wager/module.js';
 import { createAllowlistedBackgroundDb } from '../background/allowlisted-db.js';
@@ -86,12 +88,21 @@ export async function syncFixtures(deps: Deps): Promise<void> {
   }
 }
 
-async function expireClaims(deps: Deps): Promise<void> {
+async function expireClaims(
+  deps: Deps,
+  poster: Poster,
+  claimSurface: ClaimSurfaceStore | undefined,
+): Promise<void> {
   try {
     const backgroundDb = createAllowlistedBackgroundDb(deps.db, deps.env);
     const expired = await backgroundDb.expireOverdueClaims(new Date(deps.now()).toISOString());
     if (expired.length > 0) {
       deps.log.info('claims_expired', { count: expired.length, ids: expired.map((c) => c.id) });
+      // Single-message lifecycle: collapse each expired claim's surface to a
+      // one-line close so no dead consent gate is left behind (flag off: no-op).
+      for (const claim of expired) {
+        closeClaimSurface(poster, claimSurface, claim, CLAIM_EXPIRED_LINE);
+      }
     }
   } catch {
     deps.log.warn('claim_expiry_failed');
@@ -228,10 +239,16 @@ export function startCrons(args: {
   escrowPausedCards?: EscrowPausedCardRecoveryPorts;
   /** Minute-grade escrow readiness probe feeding the ops chat alerts. */
   escrowOps?: EscrowOpsMonitor;
+  /**
+   * Single-message lifecycle surface store (STAKE_LADDER_ENABLED). Present only
+   * when the flag is on; lets claim-expiry collapse a dead consent gate to a
+   * close-line instead of leaving it live.
+   */
+  claimSurface?: ClaimSurfaceStore;
 }): CronHandles {
   const {
     deps, poster, say, settler, supervisor, settlementReconciler, durableRecovery,
-    escrowPausedCards, escrowOps,
+    escrowPausedCards, escrowOps, claimSurface,
   } = args;
   const timers: Array<ReturnType<typeof setInterval>> = [];
   const sweeperInFlight = new Map<string, number>();
@@ -282,7 +299,7 @@ export function startCrons(args: {
   timers.push(
     setInterval(() => {
       void (async () => {
-        await expireClaims(deps);
+        await expireClaims(deps, poster, claimSurface);
         await sweepUnpostedSettlements(deps, settler, sweeperInFlight);
         await voidAbandonedMarkets(deps);
         if (escrowPausedCards !== undefined) {

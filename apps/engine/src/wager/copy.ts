@@ -47,10 +47,10 @@ export function createWagerCopy(network: SolanaNetwork, asset: WagerAsset = 'sol
     `Not enough ${assetLabel} for that position. No ${code} moved. Available balance: ${formatSolAmount(balanceLamports)}.${stamp} Use /deposit ${asset} to add ${assetLabel}.`,
   pickALane: (): string => `You can't back it and doubt it. No ${code} moved. Pick a lane.`,
   capReached: (capLamports: bigint): string =>
-    `You're maxed on this call — ${formatSolAmount(capLamports)} is the ceiling per market. No ${code} moved. Choose another call.`,
+    `You're maxed on this call. ${formatSolAmount(capLamports)} is the ceiling per market. No ${code} moved. Choose another call.`,
   stakePlaced: (name: string, sideLabel: string, lamports: bigint, multiplier: string): string =>
-    `${name}'s position is recorded — ${sideLabel} with ${formatSolAmount(lamports)} at up to ×${multiplier}.${stamp}`,
-  stakeReplayed: (): string => `Already got that one — your ${code} is on it.`,
+    `${name}'s position is recorded. ${sideLabel} with ${formatSolAmount(lamports)} at up to ×${multiplier}.${stamp}`,
+  stakeReplayed: (): string => `Already got that one. Your ${code} is on it.`,
   staleTap: (): string => 'That ship has sailed.',
   confirmationPrompt: (
     name: string,
@@ -68,7 +68,7 @@ export function createWagerCopy(network: SolanaNetwork, asset: WagerAsset = 'sol
   walletSetupUnavailable: (): string =>
     'Wallet setup is temporarily unavailable. No account state changed. Try /wallet again shortly.',
   walletSetupReady: (): string =>
-    `Create a dedicated Solana ${mainnet ? 'mainnet' : 'devnet'} wallet for Called It, or recover one you already made.${mainnet ? '' : ' Runs on Solana devnet — these are test tokens.'} Your recovery key stays encrypted on your device. This private link expires in 5 minutes.`,
+    `Create a dedicated Solana ${mainnet ? 'mainnet' : 'devnet'} wallet for Called It, or recover one you already made.${mainnet ? '' : ' Runs on Solana devnet, these are test tokens.'} Your recovery key stays encrypted on your device. This private link expires in 5 minutes.`,
   walletPrivateOnly: (): string =>
     'For privacy, open my private chat and use /wallet there.',
   walletOverview: (
@@ -99,8 +99,8 @@ export function createWagerCopy(network: SolanaNetwork, asset: WagerAsset = 'sol
   depositInstructions: (treasuryPubkey: string, linked: boolean): string => {
     const lines = [
       mainnet
-        ? `Add ${code} from your verified wallet to the Called It treasury —`
-        : `Add test ${code} from your verified devnet wallet to the Called It treasury —`,
+        ? `Add ${code} from your verified wallet to the Called It treasury.`
+        : `Add test ${code} from your verified devnet wallet to the Called It treasury.`,
       treasuryPubkey,
       `Minimum ${formatSolAmount(minimumDeposit(asset))}; smaller sends are ignored. Send from your linked wallet; it credits automatically within a minute or so.`,
       mainnet
@@ -123,7 +123,7 @@ export function createWagerCopy(network: SolanaNetwork, asset: WagerAsset = 'sol
 
   // ── /withdraw ────────────────────────────────────────────────────────────
   withdrawUsage: (): string =>
-    `Usage: /withdraw ${asset} <amount|all> — sends ${mainnet ? 'mainnet' : 'devnet'} ${code} back to your linked wallet. Minimum ${formatSolAmount(minimumWithdrawal(asset))}.`,
+    `Usage: /withdraw ${asset} <amount|all>. Sends ${mainnet ? 'mainnet' : 'devnet'} ${code} back to your linked wallet. Minimum ${formatSolAmount(minimumWithdrawal(asset))}.`,
   withdrawNoWallet: (): string =>
     `No verified wallet is available. No ${code} moved. Open /wallet in private chat first.`,
   withdrawBelowMin: (): string =>
@@ -141,7 +141,7 @@ export function createWagerCopy(network: SolanaNetwork, asset: WagerAsset = 'sol
   /** Devnet cards carry no footer — the escrow chip is the network context. */
   cardFooter: (): string =>
     mainnet ? `${code} positions settle on Solana mainnet.` : '',
-  payoutsLineVoid: (): string => `Call off — every ${code} position returned.${stamp}`,
+  payoutsLineVoid: (): string => `Call off. Every ${code} position returned.${stamp}`,
   payoutsLineNone: (): string => `No ${code} changed hands.${stamp}`,
   payoutPart: (name: string, lamports: bigint): string =>
     `${name} collects ${formatSolAmount(lamports)}`,
@@ -155,14 +155,14 @@ export function createWagerCopy(network: SolanaNetwork, asset: WagerAsset = 'sol
   // ── ops alerts (WAGER_OPS_CHAT_ID) ───────────────────────────────────────
   opsSolvencyAlert: (treasuryLamports: bigint, requiredLamports: bigint): string =>
     [
-      `WAGER OPS — ${code} solvency breaker tripped. New ${code} positions are paused.`,
+      `WAGER OPS. ${code} solvency breaker tripped. New ${code} positions are paused.`,
       `Treasury holds ${formatSolAmount(treasuryLamports)}; covering deposits, open stakes and the fee buffer needs ${formatSolAmount(requiredLamports)}.`,
       mainnet
-        ? 'Top up the mainnet treasury — the breaker clears itself once covered.'
-        : 'Top the devnet treasury up from a faucet — the breaker clears itself once covered.',
+        ? 'Top up the mainnet treasury. The breaker clears itself once covered.'
+        : 'Top the devnet treasury up from a faucet. The breaker clears itself once covered.',
     ].join('\n'),
   opsSolvencyRecovered: (): string =>
-    `WAGER OPS — treasury covers the ${code} book again. Breaker cleared, positions are back on.`,
+    `WAGER OPS. Treasury covers the ${code} book again. Breaker cleared, positions are back on.`,
   } as const;
 }
 

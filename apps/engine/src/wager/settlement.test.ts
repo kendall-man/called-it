@@ -308,7 +308,7 @@ describe('settlementPayoutsLine', () => {
     const { deps } = makeFakeDeps();
     const voidLine = await settlementPayoutsLine(deps, 'm1', 'void');
     const noneLine = await settlementPayoutsLine(deps, 'm1', 'claim_won');
-    expect(voidLine).toBe('Call off — every SOL position returned.');
+    expect(voidLine).toBe('Call off. Every SOL position returned.');
     expect(noneLine).toBe('No SOL changed hands.');
   });
 });

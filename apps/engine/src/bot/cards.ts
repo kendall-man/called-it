@@ -171,8 +171,8 @@ export function sideLabels(spec: MarketSpec): SideLabels {
 
 export function trustTierLine(tier: MarketSpec['trustTier']): string {
   return tier === 'chain_proven'
-    ? 'Chain-proven — Merkle proof lands on the receipt page'
-    : 'Oracle-resolved — settled from the signed data feed';
+    ? 'Chain-proven. Merkle proof lands on the receipt page'
+    : 'Oracle-resolved. Settled from the signed data feed';
 }
 
 export function statusLine(status: MarketStatus, asset: WagerAsset = 'sol'): string {
@@ -188,7 +188,7 @@ export function statusLine(status: MarketStatus, asset: WagerAsset = 'sol'): str
     case 'settled':
       return 'Settled';
     case 'voided':
-      return `Call off — ${asset.toUpperCase()} returned`;
+      return `Call off. ${asset.toUpperCase()} returned`;
   }
 }
 
@@ -198,7 +198,7 @@ export function statusLine(status: MarketStatus, asset: WagerAsset = 'sol'): str
  * escrowPlacementStatusText vocabulary (pending → activate).
  */
 export const FAIR_PLAY_PENDING_LINE =
-  'Fair-play check — new positions activate after a short delay.';
+  'Fair-play check. New positions activate after a short delay.';
 
 export interface SkeletonCardInput {
   quotedText: string;
@@ -217,11 +217,34 @@ export function skeletonCardText(input: SkeletonCardInput): string {
   const claimer = normalizeInlineText(input.claimerName, PERSON_NAME_LIMIT, 'the claimer');
   return telegramMessageBody([
     `🎙 THE CALL${input.isReplay ? ' · REPLAY' : ''}`,
-    `“${quote}” — ${claimer}`,
+    `“${quote}”, ${claimer}`,
     '',
     '⏳ Pricing this call off the live feed…',
   ].join('\n'));
 }
+
+/**
+ * The very first surface for an explicit call under the single-message
+ * lifecycle: a shell posted the instant the claim commits, before the parse
+ * runs. Shares skeletonCardText's header so the later edit reads as the card
+ * filling in.
+ */
+export function readingCardText(input: SkeletonCardInput): string {
+  const quote = normalizeInlineText(input.quotedText, QUOTED_TEXT_LIMIT, 'Call unavailable');
+  const claimer = normalizeInlineText(input.claimerName, PERSON_NAME_LIMIT, 'the claimer');
+  return telegramMessageBody([
+    `🎙 THE CALL${input.isReplay ? ' · REPLAY' : ''}`,
+    `“${quote}”, ${claimer}`,
+    '',
+    '👀 Reading the call…',
+  ].join('\n'));
+}
+
+/** One-line close edited into a claim's surface when its author declines. */
+export const CLAIM_DECLINED_LINE = 'Declined. No SOL moved.';
+
+/** One-line close edited into a claim's surface when its consent window lapses. */
+export const CLAIM_EXPIRED_LINE = 'Call expired. No SOL moved.';
 
 /** Per-side card tally: how many bettors and the pooled stake in lamports. */
 export interface SideTally {
@@ -269,10 +292,10 @@ export function claimCardText(input: ClaimCardInput): string {
   const claimer = normalizeInlineText(input.claimerName, PERSON_NAME_LIMIT, 'the claimer');
   const lines = [
     `🎙 THE CALL${input.isReplay ? ' · REPLAY' : ''}`,
-    `“${quote}” — ${claimer}`,
+    `“${quote}”, ${claimer}`,
     '',
     `📋 ${describeTerms(input.spec)}`,
-    `📈 Feed says ${formatProbabilityPct(input.probability)}% — back pays ${backMult}, against ${againstMult} if matched (${provenanceChip(input.provenance)})`,
+    `📈 Feed says ${formatProbabilityPct(input.probability)}%. Back pays ${backMult}, against ${againstMult} if matched (${provenanceChip(input.provenance)})`,
     `🚦 ${statusLine(input.status, currency)}`,
     ...(input.isReplay && input.custodyMode === 'escrow'
       ? [
@@ -345,11 +368,11 @@ export function outcomeLine(
   const claimer = normalizeInlineText(claimerName, PERSON_NAME_LIMIT, 'the claimer');
   switch (outcome) {
     case 'claim_won':
-      return `CALLED IT — ${claimer} was right.`;
+      return `CALLED IT. ${claimer} was right.`;
     case 'claim_lost':
-      return `Not this time — the call goes down.`;
+      return `Not this time. The call goes down.`;
     case 'void':
-      return `Call off — every ${asset.toUpperCase()} position returned.`;
+      return `Call off. Every ${asset.toUpperCase()} position returned.`;
   }
 }
 
@@ -361,10 +384,10 @@ export function receiptCardText(input: ReceiptCardInput): string {
   const claimer = normalizeInlineText(input.claimerName, PERSON_NAME_LIMIT, 'the claimer');
   const lines = [
     `🧾 RECEIPT${input.isReplay ? ' · REPLAY' : ''}`,
-    `“${quote}” — ${claimer}`,
+    `“${quote}”, ${claimer}`,
     '',
     `📋 ${describeTerms(input.spec)}`,
-    `📈 Locked at the call: ${formatProbabilityPct(input.probability)}% — back ${backMult}, against ${againstMult} (${provenanceChip(input.provenance)})`,
+    `📈 Locked at the call: ${formatProbabilityPct(input.probability)}%. Back ${backMult}, against ${againstMult} (${provenanceChip(input.provenance)})`,
     `🏁 ${outcomeLine(input.outcome, input.claimerName, currency)}`,
   ];
   if (input.isReplay && input.custodyMode === 'escrow') {

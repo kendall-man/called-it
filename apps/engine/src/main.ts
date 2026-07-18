@@ -24,6 +24,7 @@ import { BOT_COMMANDS, registerBotHandlers } from './bot/bot.js';
 import type { HandlerCtx } from './bot/context.js';
 import { UiStateStore } from './bot/stake-ui-state.js';
 import { editCardSurface, stakePositionsAvailable } from './bot/stake-surface.js';
+import { ClaimSurfaceStore } from './pipeline/claim-surface.js';
 import { Settler } from './settle/settler.js';
 import { createGroupPointsService } from './points/service.js';
 import { createSettlementReconciler } from './settle/settlement-reconciler.js';
@@ -348,12 +349,20 @@ async function main(): Promise<void> {
       })
     : null;
 
+  // Single-message claim lifecycle surface store (STAKE_LADDER_ENABLED). Built
+  // only when the flag is on so a flag-off deploy keeps today's separate
+  // consent-gate / options / card posts, byte-for-byte. In-process only: a
+  // restart loses the id of any claim still mid-consent, which then falls back
+  // to the fresh-post behavior for its next state.
+  const claimSurfaceStore = env.STAKE_LADDER_ENABLED ? new ClaimSurfaceStore() : null;
+
   const handlerCtx: HandlerCtx = {
     deps, queue, poster, say, supervisor,
     entities: new EntityCache(deps.db), budget: new LlmBudget(),
     ...(escrowRuntime === null ? {} : { escrow: escrowRuntime.telegram }),
     ...(escrowRuntime === null ? {} : { status: { escrowReadiness: probeEscrowReadiness } }),
     ...(uiStateStore === null ? {} : { uiState: uiStateStore }),
+    ...(claimSurfaceStore === null ? {} : { claimSurface: claimSurfaceStore }),
   };
 
   supervisor.onReplayConfirmationScheduled = ({ groupId, fixtureId }) => {
@@ -414,6 +423,7 @@ async function main(): Promise<void> {
         },
       },
     }),
+    ...(claimSurfaceStore === null ? {} : { claimSurface: claimSurfaceStore }),
   });
   escrowRuntime?.lifecycle.start();
   const webhookIngress = env.TELEGRAM_INGRESS === 'webhook';

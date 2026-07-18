@@ -108,7 +108,7 @@ export async function enqueueEscrowSignerCompletionDm(
       ].join('\n')
     : [
         prefix,
-        `That position was rolled back on-chain and will not count. Your ${input.asset.toUpperCase()} is not lost — it comes back through the escrow refund.`,
+        `That position was rolled back on-chain and will not count. Your ${input.asset.toUpperCase()} is not lost. It comes back through the escrow refund.`,
         'Open /wallet in private chat to track the refund.',
       ].join('\n');
   await outbox.enqueue({
@@ -269,7 +269,7 @@ export const ESCROW_USER_ATTRIBUTABLE_DEAD_LETTERS: readonly string[] = [
 /** Ops chat line for a dead-lettered relayer job (internal surface, code included). */
 export function escrowOpsDeadLetterAlertText(errorCode: string): string {
   return [
-    `ESCROW OPS — a relayer job dead-lettered (code: ${errorCode}).`,
+    `ESCROW OPS. A relayer job dead-lettered (code: ${errorCode}).`,
     'No SOL is lost; escrowed funds stay recoverable from durable state.',
     'Check the engine logs for the affected jobs.',
   ].join('\n');
@@ -279,14 +279,14 @@ export function escrowOpsDeadLetterAlertText(errorCode: string): string {
 export function escrowOpsRuntimeAlertText(reason: string): string {
   switch (reason) {
     case 'oracle_threshold_unavailable':
-      return 'ESCROW OPS — oracle attestation quorum is unavailable. Settlement work waits until enough oracle signers respond. Check the oracle signer endpoints.';
+      return 'ESCROW OPS. Oracle attestation quorum is unavailable. Settlement work waits until enough oracle signers respond. Check the oracle signer endpoints.';
     case 'indexer_lagging':
     case 'indexer_unavailable':
-      return 'ESCROW OPS — the finalized indexer is behind the chain. Cards and receipts update late until it catches up. Check RPC health and the indexer cursor.';
+      return 'ESCROW OPS. The finalized indexer is behind the chain. Cards and receipts update late until it catches up. Check RPC health and the indexer cursor.';
     case 'rpc_unavailable':
-      return 'ESCROW OPS — the Solana RPC connection is failing. Escrow work pauses until it recovers. Check the RPC endpoint.';
+      return 'ESCROW OPS. The Solana RPC connection is failing. Escrow work pauses until it recovers. Check the RPC endpoint.';
     default:
-      return `ESCROW OPS — escrow runtime degraded (reason: ${reason}). Check the engine logs.`;
+      return `ESCROW OPS. Escrow runtime degraded (reason: ${reason}). Check the engine logs.`;
   }
 }
 

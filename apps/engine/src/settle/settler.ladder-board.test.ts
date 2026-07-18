@@ -17,7 +17,7 @@ describe('settlement board (STAKE_LADDER_ENABLED)', () => {
     // The board (full receipt) lands as the card edit…
     expect(harness.telegram.texts.some((text) => text.includes('RECEIPT'))).toBe(true);
     // …and exactly one compact ping notifies, hype-free, linking the board.
-    const pings = harness.telegram.texts.filter((text) => text.startsWith('Called it — settled.'));
+    const pings = harness.telegram.texts.filter((text) => text.startsWith('Called it. Settled.'));
     expect(pings).toHaveLength(1);
     expect(pings[0]).not.toContain('!');
     // At-least-once persistence still runs on the ping's send.

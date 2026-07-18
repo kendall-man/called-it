@@ -14,6 +14,7 @@ import type { EntityCache } from './entities.js';
 import type { LlmBudget } from './budget.js';
 import type { EscrowTelegramPort } from './escrow-ux.js';
 import type { UiStateStore } from './stake-ui-state.js';
+import type { ClaimSurfaceStore } from '../pipeline/claim-surface.js';
 
 /** In-process live probes backing the admin /status board. */
 export interface EngineStatusProbes {
@@ -41,6 +42,13 @@ export interface HandlerCtx {
    * present when the flag is on; its absence is the single-tap flow.
    */
   uiState?: UiStateStore;
+  /**
+   * In-process surface-message tracking for the single-message claim lifecycle
+   * (STAKE_LADDER_ENABLED). Present only when the flag is on; its absence is
+   * today's separate-message behavior (consent gate, options, and card are
+   * distinct posts).
+   */
+  claimSurface?: ClaimSurfaceStore;
 }
 
 export function displayName(user: Pick<User, 'first_name' | 'last_name'>): string {

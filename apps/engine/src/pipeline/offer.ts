@@ -12,7 +12,8 @@ import type { User } from 'grammy/types';
 import { TUNABLES } from '@calledit/market-engine';
 import type { ClaimRow, Deps, FixtureRow, GroupRow, MarketRow } from '../ports.js';
 import type { HandlerCtx } from '../bot/context.js';
-import { describeTerms, skeletonCardText } from '../bot/cards.js';
+import { describeTerms, readingCardText, skeletonCardText } from '../bot/cards.js';
+import { editClaimSurface } from './claim-surface.js';
 import {
   confirmKeyboard,
   marketStakeKeyboard,
@@ -134,6 +135,41 @@ async function postSkeletonCard(
       },
     });
   });
+}
+
+/**
+ * The market card's message id. Under the single-message lifecycle
+ * (STAKE_LADDER_ENABLED) it INHERITS the pre-mint surface: the consent gate /
+ * reading shell / clarify options message becomes the market card, so the
+ * whole claim rides one message. The market card is edited into the skeleton
+ * immediately so the escrow-provisioning wait still shows progress. Without a
+ * tracked surface (flag off, or the id was lost on restart) it falls back to
+ * posting a fresh skeleton card, exactly as before.
+ */
+async function establishCardSurface(
+  h: HandlerCtx,
+  claim: ClaimRow,
+  market: MarketRow,
+): Promise<number | null> {
+  const inherited = h.claimSurface?.get(claim.id);
+  if (inherited === undefined) return postSkeletonCard(h, claim, market);
+  // Persist BEFORE editing so a crash finds the id and a retry heals the same
+  // message (repairExistingCard) instead of posting a second card.
+  await h.deps.db.setMarketCardMessage(market.id, inherited);
+  const claimer = await h.deps.db.getUser(claim.claimer_user_id);
+  h.poster.editCard(
+    claim.group_id,
+    market.id,
+    inherited,
+    skeletonCardText({
+      quotedText: claim.quoted_text,
+      claimerName: claimer?.display_name ?? 'the claimer',
+      isReplay: market.is_replay,
+    }),
+    undefined,
+    { urgent: true },
+  );
+  return inherited;
 }
 
 /**
@@ -262,8 +298,9 @@ export async function mintOffer(
     });
     await h.deps.db.updateClaim(claim.id, { parse: pricedEnvelope });
     // The skeleton send rides the queue without blocking the lock; the edit
-    // into the full card below awaits its message id.
-    const skeletonMessageId = postSkeletonCard(h, claim, market);
+    // into the full card below awaits its message id. Under the single-message
+    // lifecycle this inherits the pre-mint surface instead of posting fresh.
+    const skeletonMessageId = establishCardSurface(h, claim, market);
     const escrowReady = await escrowMarketPositionsReady(h.deps, market, undefined, (attempt) => {
       if (attempt % TYPING_REFRESH_POLL_ATTEMPTS === 0) {
         h.poster.chatAction(claim.group_id, 'typing');
@@ -279,6 +316,9 @@ export async function mintOffer(
     return { minted: false };
   }
   const { market, escrowReady, skeletonMessageId } = mintResult;
+  // The market card now owns the message via its durable card_tg_message_id;
+  // the pre-mint surface entry is spent.
+  h.claimSurface?.forget(claim.id);
   const currency = market.currency === 'usdc' ? 'usdc' : 'sol';
 
   const positionsAvailable = escrowReady && (
@@ -335,12 +375,15 @@ async function postOptions(h: HandlerCtx, claim: ClaimRow, envelope: ParseEnvelo
     claimer: claimerUser?.display_name ?? 'legend',
     offer: upgradeOption ? describeTerms(upgradeOption.spec) : '',
   });
+  const keyboard = optionsKeyboard(
+    claim.id,
+    envelope.options.map(({ key, label }) => ({ key, label })),
+  );
+  // Single-message lifecycle: the SAME surface becomes the clarify options.
+  if (editClaimSurface(h.poster, h.claimSurface, claim, prompt, keyboard)) return;
   h.poster.post(claim.group_id, prompt, {
     replyToMessageId: claim.tg_message_id,
-    keyboard: optionsKeyboard(
-      claim.id,
-      envelope.options.map(({ key, label }) => ({ key, label })),
-    ),
+    keyboard,
   });
 }
 
@@ -414,11 +457,39 @@ async function postConfirmationGate(h: HandlerCtx, claim: ClaimRow): Promise<voi
       replyToMessageId: claim.tg_message_id,
       keyboard: confirmKeyboard(claim.id),
       onSent: async (messageId) => {
+        // The consent gate is the claim's canonical surface: every later
+        // pre-mint state edits this message, and the market card inherits it.
+        h.claimSurface?.remember(claim.id, messageId);
         const current = await h.deps.db.getClaim(claim.id);
         if (current?.status !== 'awaiting_confirm') return;
         await h.deps.db.updateClaim(claim.id, {
           parse: { raw: null, kind: 'awaiting_confirm', options: [], gateMessageId: messageId },
         });
+      },
+    },
+  );
+}
+
+/**
+ * The single-message lifecycle's first surface for explicit (/bookit,
+ * @mention) claims: a short "reading the call…" shell posted the moment the
+ * claim commits, so the group sees instant presence. Its id is the canonical
+ * surface every later state edits (options, skeleton, offer, board). Flag off,
+ * this is skipped and the skeleton card is the first message, as before.
+ */
+async function postReadingShell(h: HandlerCtx, claim: ClaimRow): Promise<void> {
+  const claimer = await h.deps.db.getUser(claim.claimer_user_id);
+  h.poster.post(
+    claim.group_id,
+    readingCardText({
+      quotedText: claim.quoted_text,
+      claimerName: claimer?.display_name ?? 'the claimer',
+      isReplay: h.supervisor.replayRunId(claim.group_id) !== null,
+    }),
+    {
+      replyToMessageId: claim.tg_message_id,
+      onSent: async (messageId) => {
+        h.claimSurface?.remember(claim.id, messageId);
       },
     },
   );
@@ -463,6 +534,9 @@ export async function offerClaim(h: HandlerCtx, args: OfferArgs): Promise<void> 
     await postConfirmationGate(h, claim);
     return;
   }
+  // Single-message lifecycle: an explicit call opens with a "reading the call…"
+  // shell whose id every later state (options, skeleton, offer, board) edits.
+  if (h.claimSurface !== undefined) await postReadingShell(h, claim);
   // In a replaying group, pin the parse to the replayed fixture (else ambiguous
   // team names — several active fixtures for one team — reject and go silent).
   const replayFixtureId = h.supervisor.replayFixture(args.chatId) ?? undefined;

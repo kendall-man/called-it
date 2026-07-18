@@ -92,7 +92,7 @@ describe('group points settlement Telegram budget', () => {
         const losses = `${entry.losses} ${entry.losses === 1 ? 'loss' : 'losses'}`;
         return `${rank}. ${label} - ${entry.points} points, ${wins}, ${losses}, ${accuracy}% accuracy`;
       }),
-      '🔏 Oracle-resolved — settled from the signed data feed',
+      '🔏 Oracle-resolved. Settled from the signed data feed',
       `Receipt: https://web.invalid/r/${harness.market.id}`,
     ];
 

@@ -63,9 +63,9 @@ export function confirmButtonLabel(amountLabel: string): string {
 export function settlementPingText(outcome: SettlementOutcome, receiptUrl: string): string {
   const head =
     outcome === 'claim_won'
-      ? 'Called it — settled.'
+      ? 'Called it. Settled.'
       : outcome === 'claim_lost'
-        ? 'Settled — the call goes down.'
-        : 'Call off — positions returned.';
+        ? 'Settled. The call goes down.'
+        : 'Call off. Positions returned.';
   return `${head} Board and receipt: ${receiptUrl}`;
 }

@@ -227,7 +227,7 @@ describe('escrow progress observer', () => {
 
     expect(posts).toHaveLength(2);
     expect(posts[0]?.text).toContain('finalized indexer is behind');
-    expect(posts[1]?.text).toContain('oracle attestation quorum');
+    expect(posts[1]?.text).toContain('attestation quorum');
   });
 
   it('stays silent without a configured ops chat', () => {

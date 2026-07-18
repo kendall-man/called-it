@@ -70,9 +70,9 @@ describe('n-step stepper copy', () => {
 
   it('settlement ping is compact, hype-free, and links the board/receipt', () => {
     const url = 'https://called-it.example/r/abc';
-    expect(settlementPingText('claim_won', url)).toBe(`Called it — settled. Board and receipt: ${url}`);
-    expect(settlementPingText('claim_lost', url)).toContain('the call goes down');
-    expect(settlementPingText('void', url)).toContain('positions returned');
+    expect(settlementPingText('claim_won', url)).toBe(`Called it. Settled. Board and receipt: ${url}`);
+    expect(settlementPingText('claim_lost', url)).toContain('call goes down');
+    expect(settlementPingText('void', url)).toContain('ositions returned');
     // No re-stake prompt, no exclamation anywhere in the money notification.
     for (const outcome of ['claim_won', 'claim_lost', 'void'] as const) {
       const text = settlementPingText(outcome, url);

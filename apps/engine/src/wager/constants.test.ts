@@ -175,7 +175,7 @@ describe('copy bank hygiene', () => {
     expect(onboarding).not.toMatch(/\b(?:awarded|credited|funded|placed|recorded|success(?:ful)?)\b/i);
     // The one devnet disclosure lives at wallet setup; routine copy never
     // repeats value disclaimers (voice rule: honesty is not a nag).
-    expect(WAGER_COPY.walletSetupReady()).toContain('Runs on Solana devnet — these are test tokens.');
+    expect(WAGER_COPY.walletSetupReady()).toContain('Runs on Solana devnet, these are test tokens.');
     expect(WAGER_COPY.cardFooter()).toBe('');
     expect(WAGER_COPY.stakePlaced('A', 'Backing', 1n, '2')).not.toMatch(/monetary value|devnet/i);
     expect(onboarding).not.toMatch(/monetary value/i);
