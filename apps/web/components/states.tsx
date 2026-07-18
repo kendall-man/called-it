@@ -14,7 +14,7 @@ export function AwaitingConfiguration() {
           href="/"
           className="display-type mt-5 inline-flex min-h-11 items-center rounded-xl border border-line bg-night-800 px-4 text-sm text-chalk hover:border-pitch-500/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
         >
-          Back to Called It
+          Back to Rumble
         </Link>
       </Card>
     </PageShell>

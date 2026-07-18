@@ -1,5 +1,5 @@
 /**
- * @calledit/db — thin typed data façade over Supabase for the Called It
+ * @calledit/db — thin typed data façade over Supabase for the Rumble
  * engine. Exposes createEngineDb (service-role writes, RLS bypass) plus the
  * hand-written row types that mirror migrations/0001_init.sql.
  */

@@ -4,8 +4,8 @@ import { PositionRoute } from '@/components/position-route';
 import { POSITION_TOKEN_PATTERN } from '@/lib/position-contract';
 
 export const metadata: Metadata = {
-  title: 'Review position · Called It',
-  description: 'Review and approve one exact Called It escrow position.',
+  title: 'Review position · Rumble',
+  description: 'Review and approve one exact Rumble escrow position.',
 };
 
 export const dynamic = 'force-dynamic';

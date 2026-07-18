@@ -5,7 +5,7 @@
  *
  *   conversational private chat → looped back to the Chat SDK bridge
  *     (channels/callie.ts, route CHATSDK_TELEGRAM_ROUTE) which starts the rich
- *     streaming Callie session. The loopback is an internal HTTP POST so eve's
+ *     streaming Rumble session. The loopback is an internal HTTP POST so eve's
  *     Chat SDK webhook context is armed and `bridge.send` works.
  *   every group message, including explicit @mentions, plus /commands and
  *   card-button callback queries

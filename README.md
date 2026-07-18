@@ -1,8 +1,8 @@
-# Called It
+# Rumble
 
 **Put the football call on the record.**
 
-Called It is a Telegram football-call product for small groups. Add Callie to a group,
+Rumble is a Telegram football-call product for small groups. Add Rumble to a group,
 say a specific match claim, and take either side of a live offer in test SOL. TxLINE data
 prices and settles the call; a public receipt shows deterministic terms, aggregate pots,
 the result, and the available proof without exposing the original chat message.
@@ -17,7 +17,7 @@ sits in front of the product.
 
 1. An admin chooses **Add to Telegram group**. The versioned link requests only Telegram's
    `manage_chat` admin right.
-2. Callie records the group and posts one ready message. That committed transition emits
+2. Rumble records the group and posts one ready message. That committed transition emits
    `group_ready` once.
 3. A member makes a football call. An author mention or the author's own `/bookit` is
    explicit consent. Passive detection or another member's `/bookit` waits up to two

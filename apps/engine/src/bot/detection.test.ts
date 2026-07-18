@@ -232,7 +232,7 @@ function makeHarness(config: DetectionHarnessConfig = {}): DetectionHarness {
     botInfo: {
       id: 123,
       is_bot: true,
-      first_name: 'Called It',
+      first_name: 'Rumble',
       username: 'calleditbot',
       can_join_groups: true,
       can_read_all_group_messages: false,

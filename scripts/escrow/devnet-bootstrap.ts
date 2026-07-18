@@ -579,7 +579,7 @@ function publicDeployment(
 
 export function createSanitizedArtifacts(deployment: DevnetPublicDeployment): SanitizedArtifacts {
   const env = [
-    '# Called It escrow public devnet identities. No secrets or RPC endpoints.',
+    '# Rumble escrow public devnet identities. No secrets or RPC endpoints.',
     '# This fragment intentionally does not set WAGER_CUSTODY_MODE.',
     'SOLANA_NETWORK=devnet',
     `ESCROW_PROGRAM_ID=${deployment.programId}`,

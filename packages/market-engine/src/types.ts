@@ -1,5 +1,5 @@
 /**
- * Core domain contract for Called It.
+ * Core domain contract for Rumble.
  *
  * This file is the coordination point for the whole monorepo: packages/txline
  * normalizes raw TxLINE payloads INTO these types, packages/agent produces

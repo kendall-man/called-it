@@ -17,8 +17,8 @@ test.describe('landing page browser gate', () => {
     const response = await page.goto('/');
     expect(response, 'landing document response').not.toBeNull();
     expect(response?.ok(), 'landing document response is successful').toBe(true);
-    await expect(page.getByRole('heading', { level: 1, name: 'Called It' })).toBeVisible();
-    await expect(page).toHaveTitle(/Called It/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Rumble' })).toBeVisible();
+    await expect(page).toHaveTitle(/Rumble/);
 
     await assertInteractiveElementsHaveNames(page);
     await assertNoHorizontalOverflow(page);

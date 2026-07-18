@@ -1,5 +1,5 @@
 /**
- * Callie — the Called It concierge. Runtime config.
+ * Rumble — the Rumble concierge. Runtime config.
  *
  * Model: GLM (Z.ai) through its Anthropic-compatible endpoint, the same
  * provider the engine uses, so the two surfaces share one cost profile.

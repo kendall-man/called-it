@@ -55,7 +55,7 @@ const ACTIVE_STARTER_GUIDANCE_KEYS = [
 
 const EXPECTED_STARTER_HELP = [
   'How this works:',
-  '• Add Called It to a Telegram group.',
+  '• Add Rumble to a Telegram group.',
   '• Reply /bookit to your own football call.',
   '• Pick a side, then an amount in the call asset.',
   '• SOL is the default. Group admins can use /currency sol or /currency usdc for new calls.',
@@ -67,7 +67,7 @@ const EXPECTED_STARTER_HELP = [
 ].join('\n');
 
 const EXPECTED_STARTER_INTRO =
-  'Add Called It to a Telegram group. Reply /bookit to your own football call, then pick a side using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet, these are test tokens.';
+  'Add Rumble to a Telegram group. Reply /bookit to your own football call, then pick a side using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet, these are test tokens.';
 
 const UNAVAILABLE_STARTER_PATHS = [
   { name: 'wallet', pattern: /\bwallets?\b/i },
@@ -140,7 +140,7 @@ describe('fallback copy bank', () => {
     expect(guidance).toContain('/deposit');
   });
 
-  it('explains escrow without presenting Called It as the wallet custodian', () => {
+  it('explains escrow without presenting Rumble as the wallet custodian', () => {
     const vars = { ...SAMPLE_VARS, custodyMode: 'escrow' };
     const guidance = [
       renderFallback('intro', vars, 'mainnet-beta'),
@@ -151,7 +151,7 @@ describe('fallback copy bank', () => {
     expect(guidance).toContain('On-chain escrow');
     expect(guidance).toContain('Privy wallet');
     expect(guidance).toContain('Legacy /deposit and /withdraw');
-    expect(guidance).not.toContain('add funds to your Called It balance');
+    expect(guidance).not.toContain('add funds to your Rumble balance');
   });
 
   it('discloses named group visibility and automatic points in active guidance', () => {

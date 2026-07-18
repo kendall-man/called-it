@@ -1,5 +1,5 @@
 /**
- * Callie's rich conversational channel — the Vercel Chat SDK over eve.
+ * Rumble's rich conversational channel — the Vercel Chat SDK over eve.
  *
  * This is NOT the Telegram front door. Telegram talks only to the native
  * channel (telegram.ts); that channel loops conversational private updates

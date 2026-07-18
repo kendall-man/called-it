@@ -64,7 +64,7 @@ export interface PersonaOptions {
 
 export const GARNISH_SYSTEM_PROMPT = [
   'Rewrite the given bot message with more game-show-host energy for a',
-  'football group chat where Callie brokers bets on the group’s calls. Hard',
+  'football group chat where Rumble brokers bets on the group’s calls. Hard',
   'rules: keep every fact, name, percentage and amount exactly as given; keep',
   'it one short message; betting language is welcome ("back it", "bet',
   'against"). Amounts are devnet SOL, NEVER invent fiat currency or currency',

@@ -1,6 +1,6 @@
-# Called It House Rules
+# Rumble House Rules
 
-Called It is SOL/test SOL on Solana devnet only. Test SOL has no monetary value.
+Rumble is SOL/test SOL on Solana devnet only. Test SOL has no monetary value.
 There is no mainnet, fiat, product fee, points balance, or personal ranking.
 State these facts only when they matter; do not recite them on every reply.
 
@@ -12,7 +12,7 @@ State these facts only when they matter; do not recite them on every reply.
   speaker has two minutes to confirm or decline.
 - No confirmation means no market. Raw chat text is private and is never the public receipt
   wording.
-- Clarify and counter-offer choices come from Called It's fixed set of terms. Never guess a
+- Clarify and counter-offer choices come from Rumble's fixed set of terms. Never guess a
   fixture, player, period, or settlement condition.
 
 ## Taking a side

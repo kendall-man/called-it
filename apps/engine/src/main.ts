@@ -1,5 +1,5 @@
 /**
- * Called It engine — the single long-running process:
+ * Rumble engine — the single long-running process:
  * grammY bot (long polling via @grammyjs/runner) + TxLINE ingest supervisor +
  * settlement loop + async proof worker + cron ticks. Booting validates the
  * environment with zod and fails loudly on misconfiguration.

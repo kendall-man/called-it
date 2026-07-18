@@ -1,10 +1,10 @@
 # Escrow Claim Recovery
 
 The normal wallet screen builds and submits `claim_position` directly through
-Solana RPC. It does not call the Called It engine or a claim API. If the engine
+Solana RPC. It does not call the Rumble engine or a claim API. If the engine
 is unavailable, the browser path remains usable.
 
-If the Called It web host is also unavailable, use the standalone
+If the Rumble web host is also unavailable, use the standalone
 `@calledit/escrow-recovery` client. It imports no engine, web, database, or
 relayer code. Build it once from the pinned source release:
 

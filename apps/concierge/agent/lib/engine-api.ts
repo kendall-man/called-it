@@ -1,5 +1,5 @@
 /**
- * Typed client for the Called It engine HTTP API — the concierge's only
+ * Typed client for the Rumble engine HTTP API — the concierge's only
  * integration surface. The engine owns every validation, price, and lock;
  * this file is transport only. Deliberately imports nothing from the
  * monorepo's workspace packages (see the migration plan: zero workspace deps).

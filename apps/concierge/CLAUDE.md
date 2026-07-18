@@ -3,7 +3,7 @@
 Deliberately isolated from the monorepo: it imports no `@calledit/*` packages, has no DB
 access, and talks to the world only through (a) the shared Telegram bot token and (b) the
 engine HTTP API (`agent/lib/engine-api.ts`, bearer `ENGINE_API_TOKEN`). The engine stays
-the single source of truth. Callie proposes, the engine disposes.
+the single source of truth. Rumble proposes, the engine disposes.
 
 ## Shape
 
@@ -53,7 +53,7 @@ Eve framework (`eve` package) auto-discovers everything under `agent/`:
 - Deployed as its own Railway service (`railway.json` here), a long-running Nitro server,
   not Vercel (the plan doc's Vercel target is stale).
 - Only in the serving path when the engine runs `TELEGRAM_INGRESS=webhook`. The two share
-  one bot token, and Callie owns the webhook (`TELEGRAM_WEBHOOK_SECRET_TOKEN`).
+  one bot token, and Rumble owns the webhook (`TELEGRAM_WEBHOOK_SECRET_TOKEN`).
 - Node 24 or newer (stricter than the root's 22 or newer).
 - No tests currently (`--passWithNoTests`). `evals/` is referenced by tsconfig but does
   not exist.

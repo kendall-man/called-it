@@ -5,7 +5,7 @@ import { PositionManager, type PositionManagerProps } from './position-manager';
 
 export function PositionApplication(props: PositionManagerProps & { readonly appId: string }) {
   return (
-    <WalletProvider appId={props.appId} landingHeader="Approve Called It position">
+    <WalletProvider appId={props.appId} landingHeader="Approve Rumble position">
       <PositionManager {...props} />
     </WalletProvider>
   );

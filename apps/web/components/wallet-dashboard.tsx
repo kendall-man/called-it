@@ -62,7 +62,7 @@ export function WalletDashboard(props: WalletDashboardProps) {
   const [copied, setCopied] = useState(false);
   const [notice, setNotice] = useState(props.custodyMode === 'escrow'
     ? 'Wallet verified. Your assets stay in this Privy wallet until you approve one exact position.'
-    : 'Wallet verified. Add SOL or USDC, then deposit it into Called It.');
+    : 'Wallet verified. Add SOL or USDC, then deposit it into Rumble.');
   const [error, setError] = useState('');
   const [signature, setSignature] = useState('');
   const hasEmail = user?.linkedAccounts.some((account) => account.type === 'email') ?? false;
@@ -90,7 +90,7 @@ export function WalletDashboard(props: WalletDashboardProps) {
       setAccountError('');
       return summary;
     } catch (cause) {
-      setAccountError('Called It balance could not refresh. Try again shortly.');
+      setAccountError('Rumble balance could not refresh. Try again shortly.');
       throw cause;
     }
   }, [getAccessToken, props.address]);
@@ -137,7 +137,7 @@ export function WalletDashboard(props: WalletDashboardProps) {
           previousAvailable === null
           || summary.balances[selectedAsset].availableAtomic > previousAvailable
         ) {
-          setNotice('Deposit credited. Your Called It balance is ready to use.');
+          setNotice('Deposit credited. Your Rumble balance is ready to use.');
           return;
         }
       } catch {
@@ -182,7 +182,7 @@ export function WalletDashboard(props: WalletDashboardProps) {
       });
       setSignature(result);
       setNotice(depositing
-        ? 'Deposit sent on-chain. Waiting for Called It to credit it...'
+        ? 'Deposit sent on-chain. Waiting for Rumble to credit it...'
         : `${asset.toUpperCase()} sent successfully.`);
       await refreshBalance();
       if (depositing) {
@@ -202,8 +202,8 @@ export function WalletDashboard(props: WalletDashboardProps) {
       {notice.length > 0 && <WalletStatus tone="success">{notice}</WalletStatus>}
       {props.custodyMode === 'legacy' && <Card className="rounded-lg">
         <div className="flex items-start justify-between gap-3">
-          <WalletHeading icon={<ShieldCheck />} title="Called It balance" subtitle="Funds available for calls and withdrawals" />
-          <button type="button" title="Refresh Called It balance" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-fog hover:bg-night-800" onClick={() => void refreshAccount().catch(() => undefined)}>
+          <WalletHeading icon={<ShieldCheck />} title="Rumble balance" subtitle="Funds available for calls and withdrawals" />
+          <button type="button" title="Refresh Rumble balance" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-fog hover:bg-night-800" onClick={() => void refreshAccount().catch(() => undefined)}>
             <RefreshCw size={18} />
           </button>
         </div>
@@ -229,7 +229,7 @@ export function WalletDashboard(props: WalletDashboardProps) {
         <WalletValue label="Receive SOL or USDC at" value={props.address} copied={copied} onCopy={() => void copyAddress()} />
         {props.custodyMode === 'escrow' && (
           <p className="mt-4 text-sm leading-6 text-fog">
-            Send SOL or canonical USDC to this address. Called It cannot withdraw it; only approvals you sign can fund a position.
+            Send SOL or canonical USDC to this address. Rumble cannot withdraw it; only approvals you sign can fund a position.
           </p>
         )}
       </Card>
@@ -273,7 +273,7 @@ export function WalletDashboard(props: WalletDashboardProps) {
           <AssetButton asset="usdc" active={asset === 'usdc'} onClick={() => { setAsset('usdc'); setAmount('1'); }} />
         </div>
         {props.custodyMode === 'legacy' && <div className="grid grid-cols-2 gap-1 rounded-lg bg-night-800 p-1">
-          <ModeButton active={mode === 'deposit'} onClick={() => setMode('deposit')}>Deposit to Called It</ModeButton>
+          <ModeButton active={mode === 'deposit'} onClick={() => setMode('deposit')}>Deposit to Rumble</ModeButton>
           <ModeButton active={mode === 'send'} onClick={() => setMode('send')}>Send {asset.toUpperCase()}</ModeButton>
         </div>}
         <form className="mt-5 space-y-4" onSubmit={submitTransfer}>
@@ -295,7 +295,7 @@ export function WalletDashboard(props: WalletDashboardProps) {
       </Card>
 
       <Card className="rounded-lg">
-        <WalletHeading icon={<ShieldCheck />} title="Security and recovery" subtitle="Privy protects the key. Called It cannot access it." />
+        <WalletHeading icon={<ShieldCheck />} title="Security and recovery" subtitle="Privy protects the key. Rumble cannot access it." />
         <div className="mt-5 space-y-3">
           {!hasEmail && <SecondaryButton icon={<KeyRound size={18} />} onClick={linkEmail}>Add recovery email</SecondaryButton>}
           {!hasPasskey && <SecondaryButton icon={<KeyRound size={18} />} onClick={() => linkPasskey()}>Add passkey</SecondaryButton>}

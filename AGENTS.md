@@ -4,7 +4,7 @@ Contract refreshed: 2026-07-18 (consolidated `main` at `de5d41b`)
 
 ## Overview
 
-Called It is a pnpm/Turbo TypeScript monorepo for a SOL-only Telegram football-call beta.
+Rumble is a pnpm/Turbo TypeScript monorepo for a SOL-only Telegram football-call beta.
 The engine detects, prices, and settles consented group calls from TxLINE data; the web app
 provides direct group installation, private account recovery, aggregate boards, and public
 receipts; the concierge adds an Eve-powered conversational surface over the engine API.

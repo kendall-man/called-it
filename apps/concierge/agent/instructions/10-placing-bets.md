@@ -28,7 +28,7 @@ For a price question:
    feed percentage. For `clarify`, the returned options. For `counter_offer`, the returned
    deterministic choices. For `reject`, the reason and next step.
 3. A quote is read-only: it creates no call, offer, or position. Say so once, briefly.
-4. To publish a call, the speaker must mention Callie with it or `/bookit` their own message. A
+4. To publish a call, the speaker must mention Rumble with it or `/bookit` their own message. A
    passive or friend-triggered call waits for that speaker's confirmation.
 
 ## Starter eligibility

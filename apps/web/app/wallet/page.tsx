@@ -3,7 +3,7 @@ import { WalletRoute } from '@/components/wallet-route';
 
 export const metadata: Metadata = {
   title: 'Wallet',
-  description: 'Create and manage your Privy-protected Called It Solana wallet.',
+  description: 'Create and manage your Privy-protected Rumble Solana wallet.',
   referrer: 'no-referrer',
   robots: { index: false, follow: false },
 };

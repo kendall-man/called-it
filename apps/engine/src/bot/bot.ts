@@ -43,8 +43,8 @@ export function registerBotErrorHandler(bot: BotErrorRegistrar, log: Logger): vo
 }
 
 export const PRIVATE_BOT_COMMANDS = [
-  { command: 'start', description: 'Add Called It to a group' },
-  { command: 'help', description: 'How Called It works' },
+  { command: 'start', description: 'Add Rumble to a group' },
+  { command: 'help', description: 'How Rumble works' },
   { command: 'wallet', description: 'Create or manage your wallet' },
   { command: 'deposit', description: 'Add SOL or USDC to your balance' },
   { command: 'withdraw', description: 'Return SOL or USDC to your wallet' },
@@ -53,8 +53,8 @@ export const PRIVATE_BOT_COMMANDS = [
 export const MAINNET_PRIVATE_BOT_COMMANDS = PRIVATE_BOT_COMMANDS;
 
 export const ESCROW_PRIVATE_BOT_COMMANDS = [
-  { command: 'start', description: 'Add Called It to a group' },
-  { command: 'help', description: 'How Called It works' },
+  { command: 'start', description: 'Add Rumble to a group' },
+  { command: 'help', description: 'How Rumble works' },
   { command: 'wallet', description: 'Manage your Privy wallet and claims' },
 ] as const;
 
@@ -67,7 +67,7 @@ export const GROUP_BOT_COMMANDS = [
   { command: 'status', description: 'Live group status board (admins)' },
   { command: 'currency', description: 'Choose SOL or USDC for new calls' },
   { command: 'testmatch', description: 'Replay a completed match (admins)' },
-  { command: 'help', description: 'How Called It works' },
+  { command: 'help', description: 'How Rumble works' },
 ] as const;
 
 /** The legacy main hook clears Telegram's default scope; user scopes are exact. */

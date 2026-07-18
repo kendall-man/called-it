@@ -5,8 +5,8 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: 'Called It',
-    template: '%s · Called It',
+    default: 'Rumble',
+    template: '%s · Rumble',
   },
   description:
     'Big claims from the group chat, priced on the spot and settled from verified match data — with receipts anyone can check on Solana.',

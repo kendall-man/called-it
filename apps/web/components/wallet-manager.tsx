@@ -193,7 +193,7 @@ export function WalletManager(props: WalletManagerProps) {
     return <WalletState title="Opening wallet" text="Checking this private wallet link..." loading />;
   }
   if (session.kind === 'invalid') {
-    return <FailureState error="Send /wallet to Called It in a private chat, then tap Create or manage wallet." botUsername={props.botUsername} />;
+    return <FailureState error="Send /wallet to Rumble in a private chat, then tap Create or manage wallet." botUsername={props.botUsername} />;
   }
   if (session.kind === 'failed') {
     return <FailureState error={session.error} botUsername={props.botUsername} />;
@@ -216,8 +216,8 @@ export function WalletManager(props: WalletManagerProps) {
     <>
       <header className="mb-4 space-y-2">
         <p className="text-xs font-semibold uppercase text-pitch-300">Privy-protected Solana wallet</p>
-        <h1 className="display-type text-4xl text-chalk sm:text-5xl">Called It Wallet</h1>
-        <p className="max-w-lg text-sm leading-6 text-fog">Your key is protected by Privy. Called It cannot see or use it.</p>
+        <h1 className="display-type text-4xl text-chalk sm:text-5xl">Rumble Wallet</h1>
+        <p className="max-w-lg text-sm leading-6 text-fog">Your key is protected by Privy. Rumble cannot see or use it.</p>
       </header>
       <WalletDashboard
         {...props}

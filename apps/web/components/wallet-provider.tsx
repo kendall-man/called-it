@@ -14,7 +14,7 @@ const PRIVY_CONFIG = {
   appearance: {
     theme: 'dark',
     accentColor: '#31d17c',
-    landingHeader: 'Open Called It Wallet',
+    landingHeader: 'Open Rumble Wallet',
     walletChainType: 'solana-only',
   },
   embeddedWallets: {

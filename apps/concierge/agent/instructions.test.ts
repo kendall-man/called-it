@@ -31,11 +31,11 @@ describe('concierge instruction bundle', () => {
     expect(files.every((file) => file.body.trim().length > 0)).toBe(true);
     expect(combined).toContain('SOL/test SOL on Solana devnet only');
     // Side labels are deterministic per-claim templates; the binary pair is
-    // the exact fallback Callie may name.
+    // the exact fallback Rumble may name.
     expect(combined).toContain('deterministic');
     expect(combined).toContain('`It happens` / `It does not`');
     // The default card tap is the anchor stake; the value ladder shows the
-    // rest, so Callie never recites rung amounts.
+    // rest, so Rumble never recites rung amounts.
     expect(combined).toContain('the default tap books 0.01 SOL');
     expect(filenames).not.toContain('10-replay-demo.md');
     expect(combined).not.toMatch(/\bPractice Rep\b/i);

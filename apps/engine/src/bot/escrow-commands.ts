@@ -74,10 +74,10 @@ export function registerEscrowAccountCommands(
     }
     await ctx.reply([
       `Privy wallet · On-chain escrow · ${escrowNetworkLabel(options.network)}`,
-      'Fund and manage your wallet directly. Called It does not hold new escrow balances.',
+      'Fund and manage your wallet directly. Rumble does not hold new escrow balances.',
       legacyRecoveryUrl === null
-        ? 'Any older Called It balance stays separate and withdrawable through legacy recovery.'
-        : 'Any older Called It balance stays separate. Use Legacy balance recovery to withdraw it.',
+        ? 'Any older Rumble balance stays separate and withdrawable through legacy recovery.'
+        : 'Any older Rumble balance stays separate. Use Legacy balance recovery to withdraw it.',
     ].join('\n'), { reply_markup: { inline_keyboard: rows } });
   });
 }

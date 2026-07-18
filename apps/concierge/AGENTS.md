@@ -22,10 +22,10 @@ source of truth.
 
 - Do not import `@calledit/*` workspace packages here; tools talk to the engine API.
 - Never trust model-supplied user identity. Use `telegramIdentity(ctx.session)`.
-- Callie has no arbitrary money-mutation tool; position commits stay on the engine-owned
+- Rumble has no arbitrary money-mutation tool; position commits stay on the engine-owned
   Telegram card/account path.
 - Shell, filesystem, and open-web tools are disabled by design.
-- Installation is setup and the first consented live offer is onboarding; Callie does not
+- Installation is setup and the first consented live offer is onboarding; Rumble does not
   insert a simulated flow before it.
 - A quote is read-only and never substitutes for speaker consent or a committed position.
 - Explicit author input may proceed; passive/friend-triggered calls remain owner-confirmed.
@@ -56,6 +56,6 @@ npx -y pnpm@10.33.0 --filter callie eve:build
   `ENGINE_OPS_TOKEN_SHA256`, `WEB_CONCIERGE_TOKEN`, `GLM_API_KEY`, and
   `GLM_BASE_URL`.
 - Telegram privacy mode must be disabled for the single-ingress forwarding design.
-- `group_ready` and `position_placed` are the only activation events; Callie must not report
+- `group_ready` and `position_placed` are the only activation events; Rumble must not report
   either before the engine returns the committed transition.
 - No demo or replay instruction belongs in the loaded agent bundle.

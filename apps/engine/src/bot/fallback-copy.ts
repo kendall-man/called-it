@@ -85,10 +85,10 @@ function value(vars: CopyVars, key: string, fallback = ''): string {
 
 export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string> = {
   intro: (vars) => isEscrow(vars)
-    ? `Add Called It to a Telegram group. Reply /bookit to a football call, then pick a side using SOL or canonical USDC. Each live choice opens a private Privy wallet approval and settles through On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Named choices and results are visible in the group.`
+    ? `Add Rumble to a Telegram group. Reply /bookit to a football call, then pick a side using SOL or canonical USDC. Each live choice opens a private Privy wallet approval and settles through On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Named choices and results are visible in the group.`
     : isMainnet(vars)
-    ? 'Add Called It to a Telegram group. Reply /bookit to your own football call, then pick a side using SOL or USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in the group. Use /wallet in private chat to review your verified wallet, and /leaderboard, /mystats, or /table in the group.'
-    : 'Add Called It to a Telegram group. Reply /bookit to your own football call, then pick a side using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet, these are test tokens.',
+    ? 'Add Rumble to a Telegram group. Reply /bookit to your own football call, then pick a side using SOL or USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in the group. Use /wallet in private chat to review your verified wallet, and /leaderboard, /mystats, or /table in the group.'
+    : 'Add Rumble to a Telegram group. Reply /bookit to your own football call, then pick a side using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet, these are test tokens.',
   help: (vars) => isEscrow(vars) ? [
     'How On-chain escrow works:',
     '• Make or book a football call in the group.',
@@ -97,12 +97,12 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     '• The group updates only after the position is finalized on-chain.',
     `• Completed-match replays use ${isMainnet(vars) ? 'allowlisted, capped mainnet assets' : 'devnet test assets'} through the same Privy approval and never change Points.`,
     '• Use /wallet in private chat for funding, claims, refunds, and recovery.',
-    '• Legacy /deposit and /withdraw remain available only for older Called It balances.',
+    '• Legacy /deposit and /withdraw remain available only for older Rumble balances.',
     '',
     'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /help',
   ].join('\n') : [
     'How this works:',
-    '• Add Called It to a Telegram group.',
+    '• Add Rumble to a Telegram group.',
     '• Reply /bookit to your own football call.',
     '• Pick a side, then an amount in the call asset.',
     '• SOL is the default. Group admins can use /currency sol or /currency usdc for new calls.',
@@ -210,16 +210,16 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   bookit_needs_reply: () => 'Reply /bookit to the claim you want on the record.',
   window_closed: () => 'Too late for that one. The window is closed.',
   beta_access_required: () =>
-    'Called It is in a limited beta and this group is not enabled yet. No call or SOL changed.',
+    'Rumble is in a limited beta and this group is not enabled yet. No call or SOL changed.',
   admin_permission_required: () =>
-    'One step left: promote Called It to group admin with permission to manage messages. I will post the ready message when setup is complete.',
+    'One step left: promote Rumble to group admin with permission to manage messages. I will post the ready message when setup is complete.',
   group_ready: (vars) => isEscrow(vars)
-    ? `Called It is ready with On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Make a football call, then pick a side in SOL or canonical USDC. Every live or completed-match replay choice opens a private Privy wallet approval; this group updates only after finalization. Replays do not change Points. Legacy /deposit and /withdraw remain only for older balances. Board: ${value(vars, 'webUrl', 'the group board')}`
+    ? `Rumble is ready with On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Make a football call, then pick a side in SOL or canonical USDC. Every live or completed-match replay choice opens a private Privy wallet approval; this group updates only after finalization. Replays do not change Points. Legacy /deposit and /withdraw remain only for older balances. Board: ${value(vars, 'webUrl', 'the group board')}`
     : isMainnet(vars)
-    ? `Called It is ready on Solana mainnet. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this group. Correct choices earn 10 points automatically. A verified wallet is required; /wallet in private chat shows your status. Board: ${value(vars, 'webUrl', 'the group board')}`
-    : `Called It is ready. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet, these are test tokens. Board: ${value(vars, 'webUrl', 'the group board')}`,
-  private_start: () => 'Called It lives in group chats. Add it to a group to make a football call.',
-  group_only_recovery: () => 'Open this command in the group where you want to use Called It.',
+    ? `Rumble is ready on Solana mainnet. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this group. Correct choices earn 10 points automatically. A verified wallet is required; /wallet in private chat shows your status. Board: ${value(vars, 'webUrl', 'the group board')}`
+    : `Rumble is ready. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet, these are test tokens. Board: ${value(vars, 'webUrl', 'the group board')}`,
+  private_start: () => 'Rumble lives in group chats. Add it to a group to make a football call.',
+  group_only_recovery: () => 'Open this command in the group where you want to use Rumble.',
   points_unavailable: () => 'Points are temporarily unavailable. Try again shortly.',
   table_link: () => 'Open the group board.',
   detection_enabled: () =>

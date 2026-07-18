@@ -12,7 +12,7 @@ export const TEST_BOT_TOKEN = '123456:telegram-flow-fixture';
 const BOT_INFO: UserFromGetMe = {
   id: 606_060,
   is_bot: true,
-  first_name: 'Called It',
+  first_name: 'Rumble',
   username: 'calledit_fixture_bot',
   can_join_groups: true,
   can_read_all_group_messages: false,

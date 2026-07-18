@@ -1,4 +1,4 @@
-# Called It Design Contract
+# Rumble Design Contract
 
 This file records both the audited current web baseline and the approved visual and
 interaction target for the direct SOL beta. It preserves the match-night character while
@@ -26,13 +26,13 @@ cross-surface accessibility, language, motion, shape, and recovery migration aft
 
 ## Product Character
 
-Called It should feel like a floodlit football broadcast: near-black surfaces, chalk
+Rumble should feel like a floodlit football broadcast: near-black surfaces, chalk
 text, pitch green for committed success, floodlight amber for pending states, siren red
 for refusal or loss, and sky blue for neutral proof detail. It is a compact product
 surface, not a marketing site or an analytics dashboard.
 
 - Put the product name, current call, amount, and next action ahead of atmosphere.
-- Keep Callie's football personality in supporting copy after status and action are clear.
+- Keep Rumble's football personality in supporting copy after status and action are clear.
 - Use literal B1-level language on the critical path. Explain technical proof detail only
   in an expandable trust section.
 - No demo or replay onboarding, decorative blobs, fake receipts, nested cards, or

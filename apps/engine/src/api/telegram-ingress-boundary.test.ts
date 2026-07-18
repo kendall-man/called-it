@@ -14,14 +14,14 @@ describe('Telegram ingress boundary', () => {
       message: {
         message_id: 7,
         date: 1_720_000_000,
-        chat: { id: -1001, type: 'supergroup', title: 'Called It' },
+        chat: { id: -1001, type: 'supergroup', title: 'Rumble' },
         from: { id: 99, is_bot: false, first_name: 'Ada' },
         text: '/bookit',
         entities: [{ type: 'bot_command', offset: 0, length: 7 }],
         reply_to_message: {
           message_id: 6,
           date: 1_719_999_999,
-          chat: { id: -1001, type: 'supergroup', title: 'Called It' },
+          chat: { id: -1001, type: 'supergroup', title: 'Rumble' },
           from: { id: 98, is_bot: false, first_name: 'Grace' },
           text: 'France win today',
         },
@@ -46,7 +46,7 @@ describe('Telegram ingress boundary', () => {
       message: {
         message_id: 8,
         date: 1_720_000_001,
-        chat: { id: -1001, type: 'supergroup', title: 'Called It' },
+        chat: { id: -1001, type: 'supergroup', title: 'Rumble' },
         from: { id: 99, is_bot: false, first_name: 'Ada', username: 123 },
         text: 'France win today',
       },
@@ -76,7 +76,7 @@ describe('Telegram ingress boundary', () => {
         message: {
           message_id: 9,
           date: 1_720_000_002,
-          chat: { id: -1001, type: 'supergroup', title: 'Called It' },
+          chat: { id: -1001, type: 'supergroup', title: 'Rumble' },
         },
       },
     };
@@ -94,11 +94,11 @@ describe('Telegram ingress boundary', () => {
     const handle = createTelegramIngressHandler(async (update) => {
       received.push(update);
     });
-    const member = { id: 100, is_bot: true, first_name: 'Called It' };
+    const member = { id: 100, is_bot: true, first_name: 'Rumble' };
     const input = {
       update_id: 45,
       my_chat_member: {
-        chat: { id: -1001, type: 'supergroup', title: 'Called It' },
+        chat: { id: -1001, type: 'supergroup', title: 'Rumble' },
         from: { id: 99, is_bot: false, first_name: 'Ada' },
         date: 1_720_000_003,
         old_chat_member: { status: 'left', user: member },

@@ -168,7 +168,7 @@ export function walletClientErrorMessage(cause: unknown): string {
     case 'privy_wallet_reserved':
       return 'This wallet does not match the Telegram account that opened it.';
     case 'balance_nonzero':
-      return 'Move or withdraw your Called It balance before changing wallets.';
+      return 'Move or withdraw your Rumble balance before changing wallets.';
     case 'positions_open':
       return 'Wait for your open positions to settle before changing wallets.';
     case 'withdrawal_pending':

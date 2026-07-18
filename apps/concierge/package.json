@@ -2,7 +2,7 @@
   "name": "callie",
   "version": "0.1.0",
   "private": true,
-  "description": "Called It concierge — the eve-powered conversational betting agent",
+  "description": "Rumble concierge — the eve-powered conversational betting agent",
   "type": "module",
   "engines": {
     "node": ">=24"

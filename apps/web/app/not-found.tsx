@@ -14,7 +14,7 @@ export default function NotFound() {
           href="/"
           className="display-type mt-5 inline-block rounded-xl border border-line bg-night-800 px-4 py-2 text-sm text-chalk hover:border-pitch-500/50"
         >
-          Back to Called It
+          Back to Rumble
         </Link>
       </Card>
     </PageShell>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { runLocalValidatorScenario } from '../src/scenario.js';
 
-describe.sequential('Called It escrow on solana-test-validator', () => {
+describe.sequential('Rumble escrow on solana-test-validator', () => {
   it('preserves custody and recovery invariants across SOL and USDC', async () => {
     // Given a reset validator with the expected upgradeable escrow program deployed
     const result = await runLocalValidatorScenario();

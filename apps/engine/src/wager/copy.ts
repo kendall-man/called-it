@@ -68,7 +68,7 @@ export function createWagerCopy(network: SolanaNetwork, asset: WagerAsset = 'sol
   walletSetupUnavailable: (): string =>
     'Wallet setup is temporarily unavailable. No account state changed. Try /wallet again shortly.',
   walletSetupReady: (): string =>
-    `Create a dedicated Solana ${mainnet ? 'mainnet' : 'devnet'} wallet for Called It, or recover one you already made.${mainnet ? '' : ' Runs on Solana devnet, these are test tokens.'} Your recovery key stays encrypted on your device. This private link expires in 5 minutes.`,
+    `Create a dedicated Solana ${mainnet ? 'mainnet' : 'devnet'} wallet for Rumble, or recover one you already made.${mainnet ? '' : ' Runs on Solana devnet, these are test tokens.'} Your recovery key stays encrypted on your device. This private link expires in 5 minutes.`,
   walletPrivateOnly: (): string =>
     'For privacy, open my private chat and use /wallet there.',
   walletOverview: (
@@ -99,8 +99,8 @@ export function createWagerCopy(network: SolanaNetwork, asset: WagerAsset = 'sol
   depositInstructions: (treasuryPubkey: string, linked: boolean): string => {
     const lines = [
       mainnet
-        ? `Add ${code} from your verified wallet to the Called It treasury.`
-        : `Add test ${code} from your verified devnet wallet to the Called It treasury.`,
+        ? `Add ${code} from your verified wallet to the Rumble treasury.`
+        : `Add test ${code} from your verified devnet wallet to the Rumble treasury.`,
       treasuryPubkey,
       `Minimum ${formatSolAmount(minimumDeposit(asset))}; smaller sends are ignored. Send from your linked wallet; it credits automatically within a minute or so.`,
       mainnet
