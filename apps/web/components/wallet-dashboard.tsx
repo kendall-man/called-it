@@ -61,7 +61,7 @@ export function WalletDashboard(props: WalletDashboardProps) {
   const [pending, setPending] = useState(false);
   const [copied, setCopied] = useState(false);
   const [notice, setNotice] = useState(props.custodyMode === 'escrow'
-    ? 'Wallet verified. Your assets stay in this Privy wallet until you approve one exact position.'
+    ? 'Wallet ready. Your SOL stays here until you approve a pick.'
     : 'Wallet verified. Add SOL or USDC, then deposit it into Rumble.');
   const [error, setError] = useState('');
   const [signature, setSignature] = useState('');
@@ -103,7 +103,7 @@ export function WalletDashboard(props: WalletDashboardProps) {
       setEscrowPositions(positions);
       setAccountError('');
     } catch (cause) {
-      setAccountError('Escrow positions could not refresh. Your on-chain wallet balance is unchanged. Try again.');
+      setAccountError('Your picks could not refresh. Your wallet balance is unchanged. Try again.');
       throw cause;
     }
   }, [getAccessToken, props.address]);
@@ -200,10 +200,10 @@ export function WalletDashboard(props: WalletDashboardProps) {
       {error.length > 0 && <WalletStatus tone="error">{error}</WalletStatus>}
       {accountError.length > 0 && <WalletStatus tone="error">{accountError}</WalletStatus>}
       {notice.length > 0 && <WalletStatus tone="success">{notice}</WalletStatus>}
-      {props.custodyMode === 'legacy' && <Card className="rounded-lg">
+      {props.custodyMode === 'legacy' && <Card>
         <div className="flex items-start justify-between gap-3">
           <WalletHeading icon={<ShieldCheck />} title="Rumble balance" subtitle="Funds available for calls and withdrawals" />
-          <button type="button" title="Refresh Rumble balance" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-fog hover:bg-night-800" onClick={() => void refreshAccount().catch(() => undefined)}>
+          <button type="button" title="Refresh Rumble balance" className="grid size-11 shrink-0 place-items-center border border-line text-fog hover:border-pitch-500 hover:bg-night-800" onClick={() => void refreshAccount().catch(() => undefined)}>
             <RefreshCw size={18} />
           </button>
         </div>
@@ -215,10 +215,10 @@ export function WalletDashboard(props: WalletDashboardProps) {
         </div>
         <p className="mt-4 text-sm leading-6 text-fog">Available funds can be used or withdrawn. Locked funds return or pay out in the same asset when each call settles.</p>
       </Card>}
-      <Card className="rounded-lg">
+      <Card>
         <div className="flex items-start justify-between gap-3">
           <WalletHeading icon={<WalletCards />} title="Your wallet" subtitle={props.network === 'devnet' ? 'Solana devnet' : 'Solana mainnet'} />
-          <button type="button" title="Refresh balance" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-fog hover:bg-night-800" onClick={() => void refreshBalance()}>
+          <button type="button" title="Refresh balance" className="grid size-11 shrink-0 place-items-center border border-line text-fog hover:border-pitch-500 hover:bg-night-800" onClick={() => void refreshBalance()}>
             <RefreshCw size={18} />
           </button>
         </div>
@@ -229,24 +229,24 @@ export function WalletDashboard(props: WalletDashboardProps) {
         <WalletValue label="Receive SOL or USDC at" value={props.address} copied={copied} onCopy={() => void copyAddress()} />
         {props.custodyMode === 'escrow' && (
           <p className="mt-4 text-sm leading-6 text-fog">
-            Send SOL or canonical USDC to this address. Rumble cannot withdraw it; only approvals you sign can fund a position.
+            Send SOL or USDC to this address. Rumble can only use what you approve for a pick.
           </p>
         )}
       </Card>
 
       {props.custodyMode === 'escrow' && (
-        <Card className="rounded-lg">
+        <Card>
           <div className="flex items-start justify-between gap-3">
-            <WalletHeading icon={<ShieldCheck />} title="Escrow positions" subtitle="Read from finalized Solana indexer state" />
-            <button type="button" title="Refresh escrow positions" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-fog hover:bg-night-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300" onClick={() => void refreshEscrowPositions().catch(() => undefined)}>
+            <WalletHeading icon={<ShieldCheck />} title="Your picks" subtitle="Confirmed on Solana" />
+            <button type="button" title="Refresh picks" className="grid size-11 shrink-0 place-items-center border border-line text-fog hover:border-pitch-500 hover:bg-night-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300" onClick={() => void refreshEscrowPositions().catch(() => undefined)}>
               <RefreshCw size={18} />
             </button>
           </div>
           <div className="mt-5 divide-y divide-line border-y border-line">
             {escrowPositions === null ? (
-              <p className="py-5 text-sm text-fog">Loading positions...</p>
+              <p className="py-5 text-sm text-fog">Loading your picks...</p>
             ) : escrowPositions.length === 0 ? (
-              <p className="py-5 text-sm leading-6 text-fog">No escrow positions yet. Approve one from a call in Telegram.</p>
+              <p className="py-5 text-sm leading-6 text-fog">No picks yet. Make one from a call in Telegram.</p>
             ) : escrowPositions.map((position) => (
               <EscrowPositionRow
                 key={`${position.marketId}:${position.side}`}
@@ -267,12 +267,12 @@ export function WalletDashboard(props: WalletDashboardProps) {
         </Card>
       )}
 
-      <Card className="rounded-lg">
-        <div className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-night-800 p-1" aria-label="Asset">
+      <Card>
+        <div className="mb-4 grid grid-cols-2 gap-1 bg-night-800 p-1" aria-label="Asset">
           <AssetButton asset="sol" active={asset === 'sol'} onClick={() => { setAsset('sol'); setAmount('0.01'); }} />
           <AssetButton asset="usdc" active={asset === 'usdc'} onClick={() => { setAsset('usdc'); setAmount('1'); }} />
         </div>
-        {props.custodyMode === 'legacy' && <div className="grid grid-cols-2 gap-1 rounded-lg bg-night-800 p-1">
+        {props.custodyMode === 'legacy' && <div className="grid grid-cols-2 gap-1 bg-night-800 p-1">
           <ModeButton active={mode === 'deposit'} onClick={() => setMode('deposit')}>Deposit to Rumble</ModeButton>
           <ModeButton active={mode === 'send'} onClick={() => setMode('send')}>Send {asset.toUpperCase()}</ModeButton>
         </div>}
@@ -280,7 +280,7 @@ export function WalletDashboard(props: WalletDashboardProps) {
           {(props.custodyMode === 'escrow' || mode === 'send') && <label className="block space-y-2 text-sm font-semibold text-chalk"><span>Destination address</span><input required value={destination} onChange={(event) => setDestination(event.target.value)} className={walletInputClass} /></label>}
           <label className="block space-y-2 text-sm font-semibold text-chalk"><span>Amount in {asset.toUpperCase()}</span><input required inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} className={walletInputClass} /></label>
           <div className="grid grid-cols-3 gap-2">
-            {(asset === 'sol' ? ['0.01', '0.05', '0.1'] : ['1', '5', '10']).map((preset) => <button key={preset} type="button" className="min-h-11 rounded-lg border border-line text-sm font-semibold text-fog hover:border-pitch-500 hover:text-chalk" onClick={() => setAmount(preset)}>{preset}</button>)}
+            {(asset === 'sol' ? ['0.01', '0.05', '0.1'] : ['1', '5', '10']).map((preset) => <button key={preset} type="button" className="min-h-11 border border-line font-mono text-sm font-medium text-fog hover:border-pitch-500 hover:text-chalk" onClick={() => setAmount(preset)}>{preset}</button>)}
           </div>
           {asset === 'usdc' && (
             <p className="text-sm leading-6 text-fog">
@@ -291,10 +291,10 @@ export function WalletDashboard(props: WalletDashboardProps) {
             {props.custodyMode === 'legacy' && mode === 'deposit' ? `Deposit ${asset.toUpperCase()}` : `Send ${asset.toUpperCase()}`}
           </WalletButton>
         </form>
-        {signature.length > 0 && <a className="mt-4 block break-all text-sm text-sky-400 underline underline-offset-4" href={explorerTransactionUrl(signature, props.network)} target="_blank" rel="noreferrer">View transaction</a>}
+        {signature.length > 0 && <a className="mt-4 block break-all text-sm text-pitch-300 underline underline-offset-4" href={explorerTransactionUrl(signature, props.network)} target="_blank" rel="noreferrer">View on Solana</a>}
       </Card>
 
-      <Card className="rounded-lg">
+      <Card>
         <WalletHeading icon={<ShieldCheck />} title="Security and recovery" subtitle="Privy protects the key. Rumble cannot access it." />
         <div className="mt-5 space-y-3">
           {!hasEmail && <SecondaryButton icon={<KeyRound size={18} />} onClick={linkEmail}>Add recovery email</SecondaryButton>}
@@ -408,17 +408,17 @@ function EscrowPositionRow(props: {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="break-words text-sm font-bold text-chalk">
-            {position.side === 'back' ? 'It happens' : 'It does not'} · {formatWalletAmount(amount, position.asset)} {position.asset.toUpperCase()}
+            {position.side === 'back' ? 'Yes' : 'No'} · {formatWalletAmount(amount, position.asset)} {position.asset.toUpperCase()}
           </p>
           <p className="mt-1 break-all font-mono text-xs text-fog">Call {position.marketId}</p>
         </div>
         <span className="text-sm font-semibold text-pitch-300">{status}</span>
       </div>
       <p className="mt-2 text-xs leading-5 text-fog">
-        On-chain state: {position.chainState.replaceAll('_', ' ')}
+        Status: {position.chainState.replaceAll('_', ' ')}
       </p>
       {position.replay && (
-        <p className="mt-2 text-xs font-semibold text-sky-400">
+        <p className="mt-2 text-xs font-semibold text-pitch-300">
           Completed-match replay · Uses {props.network === 'devnet' ? 'devnet test assets' : 'allowlisted mainnet assets'} · No Points
         </p>
       )}
@@ -438,7 +438,7 @@ function EscrowPositionRow(props: {
       )}
       {(claim.kind === 'unknown' || claim.kind === 'finalized') && claim.signature !== null && (
         <a
-          className="mt-2 inline-flex min-h-11 items-center break-all text-sm text-sky-400 underline underline-offset-4"
+          className="mt-2 inline-flex min-h-11 items-center break-all text-sm text-pitch-300 underline underline-offset-4"
           href={explorerTransactionUrl(claim.signature, props.network)}
           target="_blank"
           rel="noreferrer"
@@ -450,11 +450,11 @@ function EscrowPositionRow(props: {
         <button
           type="button"
           disabled={claim.kind === 'pending' || claim.kind === 'unknown'}
-          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-pitch-500 px-4 text-sm font-semibold text-chalk hover:bg-pitch-500/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 border border-pitch-500 px-4 font-mono text-sm font-medium text-chalk hover:bg-pitch-500/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300 disabled:cursor-not-allowed disabled:opacity-60"
           onClick={() => void claimPosition()}
         >
           {claim.kind === 'pending' && <LoaderCircle className="animate-spin motion-reduce:animate-none" size={18} />}
-          {claim.kind === 'pending' ? claim.label : position.chainState === 'voided' ? 'Claim refund' : 'Claim payout'}
+          {claim.kind === 'pending' ? claim.label : position.chainState === 'voided' ? 'Get returned SOL' : 'Get winnings'}
         </button>
       )}
     </div>
@@ -516,13 +516,13 @@ function directClaimErrorMessage(cause: unknown): string {
   }
   switch (cause.code) {
     case 'claim_not_ready':
-      return 'This position is not finalized and claimable yet. No assets moved. Refresh after settlement finishes.';
+      return 'This pick is not ready yet. No SOL moved. Refresh after Rumble settles the call.';
     case 'already_claimed':
-      return 'This position was already claimed. No duplicate transfer occurred. Refresh the wallet.';
+      return 'This payment was already collected. Refresh your wallet.';
     case 'blockhash_expired':
       return 'The claim approval expired before submission. No assets moved. Try again.';
     case 'network_mismatch':
-      return 'The connected Solana network does not match this position. No assets moved. Return to the correct network.';
+      return 'This pick is on another Solana network. No SOL moved. Switch to the right network.';
     case 'identity_mismatch':
     case 'transaction_changed':
       return 'The claim destination or transaction did not match this wallet. Nothing was submitted. Refresh the wallet.';
@@ -548,5 +548,5 @@ function ModeButton(props: { readonly active: boolean; readonly onClick: () => v
 }
 
 function SecondaryButton(props: { readonly icon: ReactNode; readonly onClick: () => void; readonly children: string }) {
-  return <button type="button" className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-line px-4 text-sm font-semibold text-chalk hover:bg-night-800" onClick={props.onClick}>{props.icon}{props.children}</button>;
+  return <button type="button" className="flex min-h-12 w-full items-center justify-center gap-2 border border-line px-4 font-mono text-sm font-medium text-chalk hover:border-pitch-500 hover:bg-night-800" onClick={props.onClick}>{props.icon}{props.children}</button>;
 }

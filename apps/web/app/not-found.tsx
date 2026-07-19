@@ -5,14 +5,13 @@ export default function NotFound() {
   return (
     <PageShell topRight={<Badge tone="neutral">404</Badge>}>
       <Card className="mt-10 text-center">
-        <p className="display-type text-3xl text-chalk">Nothing on the record here</p>
+        <p className="display-type text-3xl text-chalk">Nothing here</p>
         <p className="mt-3 text-sm leading-relaxed text-fog">
-          This page doesn’t exist — or the group keeps its receipts private. Either way, no call
-          to see.
+          This link may be old, or the group keeps this receipt private.
         </p>
         <Link
           href="/"
-          className="display-type mt-5 inline-block rounded-xl border border-line bg-night-800 px-4 py-2 text-sm text-chalk hover:border-pitch-500/50"
+          className="mt-5 inline-flex min-h-11 items-center border border-line bg-night-800 px-4 font-mono text-sm text-chalk hover:border-pitch-500"
         >
           Back to Rumble
         </Link>

@@ -27,7 +27,7 @@ export function MiniAppRoute() {
           text="Secure signing is not enabled here yet. No SOL moved and nothing changed. Return to Telegram."
           action={botUsername.length > 0 ? (
             <a
-              className="mt-5 flex min-h-12 w-full items-center justify-center rounded-lg bg-pitch-400 px-4 text-sm font-bold text-night-950 hover:bg-pitch-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+              className="mt-5 flex min-h-12 w-full items-center justify-center bg-pitch-400 px-4 font-mono text-sm font-medium text-night-950 hover:bg-pitch-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
               href={`https://t.me/${encodeURIComponent(botUsername)}`}
             >
               Return to Telegram

@@ -15,7 +15,7 @@ export function PositionProgress(props: { readonly model: PositionProgressModel 
       {props.model.steps.map((step) => (
         <li
           key={step.id}
-          className="flex min-h-11 items-center gap-3 rounded-lg border border-line bg-night-800 px-3"
+          className="flex min-h-11 items-center gap-3 border border-line bg-night-800 px-3"
         >
           <StepIcon status={step.status} />
           <span className={`text-sm font-semibold ${step.status === 'upcoming' ? 'text-fog' : 'text-chalk'}`}>

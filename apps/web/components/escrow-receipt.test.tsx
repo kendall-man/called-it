@@ -18,14 +18,14 @@ describe('escrow receipt components', () => {
         <EscrowBoardSummary escrow={receipt} />
       </>,
     );
-    expect(html).toContain('Finalized escrow record');
+    expect(html).toContain('Paid on Solana');
     expect(html).toContain(asset.toUpperCase());
-    expect(html).toContain('Per-market vault');
-    expect(html).toContain('Cluster genesis');
-    expect(html).toContain('Custody version');
-    if (asset === 'usdc') expect(html).toContain('Canonical USDC mint');
-    expect(html).toContain('Finalized payouts');
-    expect(html).toContain('Aggregate chain data only');
+    expect(html).toContain('Payment vault');
+    expect(html).toContain('Network ID');
+    expect(html).toContain('Payment version');
+    if (asset === 'usdc') expect(html).toContain('USDC mint');
+    expect(html).toContain('Paid to winners');
+    expect(html).toContain('individual picks stay private');
     expect(html).not.toContain(secret);
     expect(html).not.toMatch(/participant name|telegram user|provider user/i);
   });
@@ -40,15 +40,15 @@ describe('escrow receipt components', () => {
       settledAt: null,
     } satisfies PublicEscrowReceipt;
     const html = renderToStaticMarkup(<EscrowReceiptDetails escrow={receipt} />);
-    expect(html).toContain('Settlement is not finalized yet');
-    expect(html).not.toContain('It happens won');
+    expect(html).toContain('Rumble is still waiting for the final result');
+    expect(html).not.toContain('Yes won');
   });
 
   it('labels an escrow replay as replay-only with no Points', () => {
     const html = renderToStaticMarkup(
       <EscrowReceiptDetails escrow={{ ...fixture('usdc'), isReplay: true }} />,
     );
-    expect(html).toContain('Replay · No Points');
+    expect(html).toContain('Past match · No points');
     expect(html).not.toMatch(/Points earned|awards Points/i);
   });
 });

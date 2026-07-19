@@ -13,7 +13,7 @@ describe('buildTimeline', () => {
       outcome: 'claim_won',
     });
     expect(steps.map((step) => step.state)).toEqual(['done', 'done', 'done']);
-    expect(steps[2]?.label).toContain('called it');
+    expect(steps[2]?.label).toBe('Yes won');
     expect(steps[2]?.at).toBe(SETTLED_AT);
   });
 
@@ -25,7 +25,7 @@ describe('buildTimeline', () => {
       outcome: null,
     });
     expect(steps.map((step) => step.state)).toEqual(['done', 'current', 'upcoming']);
-    expect(steps[1]?.label).toBe('Calls open');
+    expect(steps[1]?.label).toBe('Picks open');
   });
 
   it('flags a VAR freeze as calls locked', () => {
@@ -35,7 +35,7 @@ describe('buildTimeline', () => {
       settledAt: null,
       outcome: null,
     });
-    expect(steps[1]?.label).toBe('Calls locked');
+    expect(steps[1]?.label).toBe('Picks closed');
     expect(steps[1]?.state).toBe('current');
   });
 
@@ -46,7 +46,8 @@ describe('buildTimeline', () => {
       settledAt: null,
       outcome: null,
     });
-    expect(steps[2]?.label).toContain('stakes returned');
+    expect(steps[2]?.label).toBe('Call cancelled');
+    expect(steps[2]?.detail).toBe('All SOL was returned');
     expect(steps[2]?.state).toBe('done');
   });
 });
