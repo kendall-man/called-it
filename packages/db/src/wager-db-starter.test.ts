@@ -36,6 +36,7 @@ function seededSharedFake(): FakeSupabase {
   fake.seed('markets', [{
     id: MARKET_ID,
     currency: 'sol',
+    custody_mode: 'legacy',
     status: 'settled',
     is_replay: false,
     quote_probability: 0.4,
