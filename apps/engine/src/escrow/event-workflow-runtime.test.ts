@@ -1,13 +1,18 @@
 import {
   deriveMarketPda,
+  deriveOracleSetPda,
   derivePositionLotPda,
   deriveUserPositionPda,
+  type MarketAccount,
+  type OracleSetAccount,
   type PositionLotAccount,
   type UserPositionAccount,
 } from '@calledit/escrow-sdk';
 import { Keypair } from '@solana/web3.js';
 import { describe, expect, it } from 'vitest';
 import type { EscrowWorkflowMarketContext } from './event-workflow-scheduler.js';
+import type { MarketRow } from '../ports.js';
+import type { EscrowPlacementMarketLinkResult } from './placement-types.js';
 import {
   createProductionEscrowEventWorkflowPort,
   createProductionEscrowSettlementPositionPort,
@@ -50,6 +55,7 @@ function eventWorkflowFixture(input: {
     supabaseUrl: 'https://example.supabase.co', serviceRoleKey: 'test-service-role',
     db: { async getMarketLink() { throw new Error('not used by positionLots'); } },
     accounts,
+    async reconcile() { throw new Error('not used by positionLots'); },
     deployment: {
       cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID,
       custodyVersion: 1,
@@ -74,6 +80,62 @@ function position(
 }
 
 describe('production escrow event workflow port', () => {
+  it('repairs a finalized control projection before exposing terminal attestation context', async () => {
+    const marketPda = deriveMarketPda(PROGRAM_ID, MARKET_ID).address;
+    const vaultPda = Keypair.generate().publicKey.toBase58();
+    const signers = Array.from({ length: 3 }, () => Keypair.generate().publicKey.toBase58());
+    const marketAccount = {
+      marketUuid: MARKET_ID, fixtureId: 77n, marketDocumentHash: new Uint8Array(32).fill(0xab),
+      oracleSetEpoch: 7n, eventEpoch: 2n, state: 'open', replay: true,
+      asset: 'sol', tokenMint: null,
+    } as MarketAccount;
+    const oracleAccount = {
+      version: 1, bump: 1, epoch: 7n, signers, signatureThreshold: 2,
+      activationSlot: 1n, retirementSlot: null,
+    } satisfies OracleSetAccount;
+    const staleLink: EscrowPlacementMarketLinkResult = {
+      ok: true, found: true, marketId: MARKET_ID, custodyMode: 'escrow', custodyVersion: 1,
+      cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID,
+      marketPda, vaultPda, asset: 'sol', mintPubkey: null, documentHashHex: 'ab'.repeat(32),
+      oracleEpoch: 7n, eventEpoch: 1n, ratioMilli: 1_000n, chainState: 'frozen',
+      commitment: 'finalized', projectionStale: false,
+    };
+    const freshLink: EscrowPlacementMarketLinkResult = {
+      ...staleLink, eventEpoch: 2n, chainState: 'open',
+    };
+    let linkReads = 0;
+    const reconciliations: unknown[] = [];
+    const port = createProductionEscrowEventWorkflowPort({
+      supabaseUrl: 'https://example.supabase.co', serviceRoleKey: 'test-service-role',
+      db: { async getMarketLink() { return linkReads++ === 0 ? staleLink : freshLink; } },
+      accounts: {
+        async market(address: string) {
+          return { address, ownerProgramId: PROGRAM_ID, lamports: 1n, value: marketAccount };
+        },
+        async oracleSet(address: string) {
+          expect(address).toBe(deriveOracleSetPda(PROGRAM_ID, 7n).address);
+          return { address, ownerProgramId: PROGRAM_ID, lamports: 1n, value: oracleAccount };
+        },
+      } as unknown as SolanaEscrowAccountReader,
+      async reconcile(input) { reconciliations.push(input); },
+      deployment: {
+        cluster: 'devnet', genesisHash: 'devnet-genesis', programId: PROGRAM_ID,
+        custodyVersion: 1,
+      },
+    });
+
+    const context = await port.loadMarket({
+      id: MARKET_ID, fixture_id: 77, is_replay: true,
+    } as MarketRow);
+
+    expect(context).toMatchObject({ chainState: 'open', replay: true });
+    expect(context?.binding.eventEpoch).toBe(2n);
+    expect(linkReads).toBe(2);
+    expect(reconciliations).toEqual([{
+      marketId: MARKET_ID, custodyMode: 'escrow', marketPda, vaultPda, asset: 'sol',
+    }]);
+  });
+
   it('pages production numeric lot rows deterministically and verifies every chain account', async () => {
     const ownerPubkey = Keypair.generate().publicKey.toBase58();
     const requests: URL[] = [];
