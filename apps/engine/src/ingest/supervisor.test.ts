@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { MatchEvent } from '@calledit/market-engine';
 import { createTelegramFlowRuntime } from '../points/telegram-points-flow-runtime.test-support.js';
 import type { FixtureRow } from '../ports.js';
-import { IngestSupervisor } from './supervisor.js';
+import { IngestSupervisor, replayMarketBelongsToRun } from './supervisor.js';
 
 const GROUP_ID = -900_001;
 const FIXTURE_ID = 70_001;
@@ -20,6 +20,23 @@ const FIXTURE: FixtureRow = {
 };
 
 describe('replay logging privacy', () => {
+  it('admits only replay markets from the matching run boundary', () => {
+    const run = { groupId: GROUP_ID, fixtureId: FIXTURE_ID, runId: 7, startedAtMs: 1_000 };
+    const market = {
+      group_id: GROUP_ID,
+      fixture_id: FIXTURE_ID,
+      is_replay: true,
+      created_at: new Date(1_000).toISOString(),
+    };
+
+    expect(replayMarketBelongsToRun(market, run)).toBe(true);
+    expect(replayMarketBelongsToRun({ ...market, created_at: new Date(999).toISOString() }, run))
+      .toBe(false);
+    expect(replayMarketBelongsToRun({ ...market, fixture_id: FIXTURE_ID + 1 }, run)).toBe(false);
+    expect(replayMarketBelongsToRun({ ...market, created_at: 'invalid' }, run)).toBe(false);
+    expect(replayMarketBelongsToRun(market, null)).toBe(false);
+  });
+
   it('logs replay start diagnostics without Telegram group identity', async () => {
     // Given an ingest supervisor serving a Telegram group replay
     const runtime = createTelegramFlowRuntime();
@@ -202,11 +219,20 @@ describe('replay logging privacy', () => {
     await vi.waitFor(() => expect(supervisor.hasActiveReplay(GROUP_ID)).toBe(false));
     expect(scheduled).toEqual([FIXTURE_ID]);
     expect(confirmed).toEqual([FIXTURE_ID]);
+    expect(supervisor.replaySettlementRun(GROUP_ID)).toMatchObject({
+      groupId: GROUP_ID,
+      fixtureId: FIXTURE_ID,
+    });
 
     await supervisor.startReplay(GROUP_ID, FIXTURE, REPLAY_SPEED);
+    expect(supervisor.replaySettlementRun(GROUP_ID)).toMatchObject({
+      groupId: GROUP_ID,
+      fixtureId: FIXTURE_ID,
+    });
     end?.('failed');
     await vi.waitFor(() => expect(supervisor.hasActiveReplay(GROUP_ID)).toBe(false));
     expect(failed).toEqual([FIXTURE_ID]);
+    expect(supervisor.replaySettlementRun(GROUP_ID)).toBeNull();
   });
 
   it('rate-limits replay processing lag warnings and reports recovery', async () => {

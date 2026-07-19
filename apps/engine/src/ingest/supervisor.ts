@@ -35,6 +35,16 @@ export interface ReplayRunIdentity {
   readonly startedAtMs: number;
 }
 
+export function replayMarketBelongsToRun(
+  market: Pick<MarketRow, 'group_id' | 'fixture_id' | 'is_replay' | 'created_at'>,
+  run: ReplayRunIdentity | null,
+): boolean {
+  if (!market.is_replay || run === null) return false;
+  const createdAtMs = Date.parse(market.created_at);
+  return run.groupId === market.group_id && run.fixtureId === market.fixture_id &&
+    Number.isFinite(createdAtMs) && createdAtMs >= run.startedAtMs;
+}
+
 export type ReplayPositionAdmission =
   | { readonly kind: 'allowed'; readonly run: ReplayRunIdentity }
   | { readonly kind: 'not_replay' }
@@ -65,6 +75,7 @@ export type ReplayStartResult = 'started' | 'already_active' | 'live_markets';
 export class IngestSupervisor {
   private readonly liveSources = new Map<number, EventSourceLike>();
   private readonly replays = new Map<number, ActiveReplay>();
+  private readonly completedReplayRuns = new Map<number, ReplayRunIdentity>();
   private readonly groupLocks = new Map<number, Promise<void>>();
   private nextReplayRunId = 1;
   /**
@@ -117,6 +128,7 @@ export class IngestSupervisor {
   ): Promise<ReplayStartResult> {
     return this.runGroupExclusive(groupId, async () => {
       if (this.replays.has(groupId)) return 'already_active';
+      this.completedReplayRuns.delete(groupId);
       const openMarkets = await this.deps.db.openMarketsForGroup(groupId);
       if (openMarkets.some((market) => !market.is_replay)) return 'live_markets';
       await this.lockReplayMarkets(openMarkets);
@@ -212,6 +224,7 @@ export class IngestSupervisor {
     if (replay.startDelayTimer !== null) clearTimeout(replay.startDelayTimer);
     replay.source.stop();
     this.replays.delete(groupId);
+    this.completedReplayRuns.delete(groupId);
     void this.runGroupExclusive(groupId, async () => {
       await this.lockReplayMarkets(await this.deps.db.openMarketsForGroup(groupId));
       this.deps.log.info('replay_stopped', { fixtureId: replay.fixtureId });
@@ -243,6 +256,11 @@ export class IngestSupervisor {
     };
   }
 
+  /** Active run, or most recent successfully completed run awaiting terminal cleanup. */
+  replaySettlementRun(groupId: number): ReplayRunIdentity | null {
+    return this.replayRun(groupId) ?? this.completedReplayRuns.get(groupId) ?? null;
+  }
+
   /**
    * Callback handlers must call this before accepting a replay position. It
    * fails closed after a restart and freezes the stale persisted market.
@@ -254,7 +272,9 @@ export class IngestSupervisor {
     if (!market.is_replay) return { kind: 'not_replay' };
     const run = this.replayRun(market.group_id);
     const createdAtMs = Date.parse(market.created_at);
-    const reason = run === null
+    const reason = replayMarketBelongsToRun(market, run)
+      ? null
+      : run === null
       ? 'no_active_run'
       : run.fixtureId !== market.fixture_id
         ? 'fixture_mismatch'
@@ -377,14 +397,17 @@ export class IngestSupervisor {
           return;
         }
         await this.replayConfirmation.scheduleReplayConfirmation(confirmation);
+        this.completedReplayRuns.set(groupId, confirmation);
         this.deps.log.info('replay_confirmation_scheduled', { fixtureId: replay.fixtureId });
         this.onReplayConfirmationScheduled?.(confirmation);
         return;
       }
       if (reason === 'stopped') {
+        this.completedReplayRuns.delete(groupId);
         this.deps.log.info('replay_stopped', { fixtureId: replay.fixtureId });
         return;
       }
+      this.completedReplayRuns.delete(groupId);
       this.deps.log.error('replay_failed', { fixtureId: replay.fixtureId });
       this.onReplayFailed?.(groupId, replay.fixtureId);
     });
