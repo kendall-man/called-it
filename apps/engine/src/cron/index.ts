@@ -128,21 +128,36 @@ export async function sweepUnpostedSettlements(
     for (const settlement of rows) {
       const attemptedAt = inFlight.get(settlement.market_id);
       if (attemptedAt !== undefined && nowMs - attemptedAt < SWEEPER_RETRY_GUARD_MS) continue;
-      const market: MarketRow | null = await backgroundDb.getMarket(settlement.market_id);
-      if (!market) continue;
-      inFlight.set(settlement.market_id, nowMs);
-      // The finalized projection is the source of truth for an escrow card.
-      // Re-render it alongside receipt recovery so a deploy or a missed edit
-      // cannot leave the group showing an open/pending control after terminal
-      // state is final on-chain.
-      if (poster !== undefined && market.card_tg_message_id !== null) {
-        const card = await composeClaimCard({ ...deps, db: backgroundDb }, market);
-        if (card !== null && card.messageId !== null) {
-          poster.editCard(card.chatId, market.id, card.messageId, card.text);
+      try {
+        const market: MarketRow | null = await backgroundDb.getMarket(settlement.market_id);
+        if (!market) continue;
+        inFlight.set(settlement.market_id, nowMs);
+        // Removing terminal controls is independent of card composition: a
+        // malformed historical participant projection must never leave money
+        // buttons active. The full terminal text is best-effort immediately
+        // after the keyboard strip.
+        if (poster !== undefined && market.card_tg_message_id !== null) {
+          poster.stripKeyboard(market.group_id, market.card_tg_message_id);
+          const card = await composeClaimCard({ ...deps, db: backgroundDb }, market);
+          if (card !== null && card.messageId !== null) {
+            poster.editCard(
+              card.chatId,
+              market.id,
+              card.messageId,
+              card.text,
+              undefined,
+              { urgent: true },
+            );
+          }
         }
+        deps.log.info('sweeper_reposting', { marketId: market.id, outcome: settlement.outcome });
+        await settler.postReceipt(market, settlement.outcome);
+      } catch {
+        // Isolate historical poison rows. A broken old receipt cannot prevent
+        // later finalized markets from losing their buttons and posting.
+        inFlight.delete(settlement.market_id);
+        deps.log.warn('settlement_sweep_market_failed', { marketId: settlement.market_id });
       }
-      deps.log.info('sweeper_reposting', { marketId: market.id, outcome: settlement.outcome });
-      await settler.postReceipt(market, settlement.outcome);
     }
   } catch {
     deps.log.warn('sweeper_failed');
@@ -175,7 +190,14 @@ async function voidAbandonedMarkets(deps: Deps, poster: Poster): Promise<void> {
             { positionsAvailable: false },
           );
           if (card !== null && card.messageId !== null) {
-            poster.editCard(card.chatId, market.id, card.messageId, card.text);
+            poster.editCard(
+              card.chatId,
+              market.id,
+              card.messageId,
+              card.text,
+              undefined,
+              { urgent: true },
+            );
           }
         }
       }
