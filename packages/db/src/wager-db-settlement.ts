@@ -86,6 +86,7 @@ export function settlementDbMethods(
         .from('markets')
         .select('id')
         .in('currency', ['sol', 'usdc'])
+        .eq('custody_mode', 'legacy')
         .eq('is_replay', false)
         .in('status', [...SETTLED_MARKET_STATUSES]);
       if (recoveryGroupIds !== undefined) {
@@ -113,6 +114,7 @@ export function settlementDbMethods(
         .from('markets')
         .select('id')
         .eq('currency', 'sol')
+        .eq('custody_mode', 'legacy')
         .eq('is_replay', false)
         .in('status', [...SETTLED_MARKET_STATUSES]);
       if (recoveryGroupIds !== undefined) settledQuery = settledQuery.in('group_id', recoveryGroupIds);
@@ -142,6 +144,7 @@ export function fundedReplaySettlementDbMethods(
           .from('markets')
           .select('id')
           .in('currency', ['sol', 'usdc'])
+          .eq('custody_mode', 'legacy')
           .eq('is_replay', true)
           .in('status', [...SETTLED_MARKET_STATUSES]),
         parseIdRow,

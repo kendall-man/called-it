@@ -41,7 +41,13 @@ describe('table query boundary', () => {
 
   it('rejects malformed market IDs selected from the database', async () => {
     const settled = makeHarness();
-    settled.fake.seed('markets', [{ id: 42, currency: 'sol', status: 'settled', is_replay: false }]);
+    settled.fake.seed('markets', [{
+      id: 42,
+      currency: 'sol',
+      custody_mode: 'legacy',
+      status: 'settled',
+      is_replay: false,
+    }]);
     await expect(settled.db.settledSolMarketsMissingApplied()).rejects.toThrow(DbError);
 
     const open = makeHarness();
