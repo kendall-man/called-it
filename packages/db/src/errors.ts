@@ -31,6 +31,8 @@ export class DbError extends Error {
 export interface PgResult<T> {
   data: T | null;
   error: PostgrestErrorLike | null;
+  /** Present when a query requests an exact PostgREST count. */
+  count?: number | null;
 }
 
 /** Unwrap a query that must return data (insert/update with .select(), lists). */

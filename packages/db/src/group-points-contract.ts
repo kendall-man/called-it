@@ -9,6 +9,7 @@ import type {
 
 export interface GroupPointsFilterBuilder extends PromiseLike<PgResult<unknown>> {
   eq(column: string, value: unknown): GroupPointsFilterBuilder;
+  in(column: string, values: readonly unknown[]): GroupPointsFilterBuilder;
   neq(column: string, value: unknown): GroupPointsFilterBuilder;
   order(column: string, options: { readonly ascending: boolean }): GroupPointsFilterBuilder;
   limit(value: number): GroupPointsFilterBuilder;
@@ -16,7 +17,10 @@ export interface GroupPointsFilterBuilder extends PromiseLike<PgResult<unknown>>
 }
 
 export interface GroupPointsTableBuilder {
-  select(columns: string): GroupPointsFilterBuilder;
+  select(
+    columns: string,
+    options?: { readonly count?: 'exact' },
+  ): GroupPointsFilterBuilder;
 }
 
 export interface GroupPointsDbClient {
