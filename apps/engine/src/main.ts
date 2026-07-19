@@ -426,7 +426,10 @@ async function main(): Promise<void> {
 
   // Active replay sources are process-local. Any replay market present after a
   // restart belongs to an old run, so lock it before accepting fresh callbacks.
-  await Promise.all(env.ESCROW_ALLOWED_GROUP_IDS.map(async (groupId) => {
+  // Historical replay cleanup can require many finalized RPC reads. Keep it
+  // fail-closed, but never hold the HTTP health listener behind that backlog:
+  // Railway must be able to start the new instance while recovery progresses.
+  void Promise.all(env.ESCROW_ALLOWED_GROUP_IDS.map(async (groupId) => {
     try {
       const staleReplayMarkets = (await deps.db.openMarketsForGroup(groupId))
         .filter((market) => market.is_replay && market.custody_mode === 'escrow');
@@ -445,6 +448,7 @@ async function main(): Promise<void> {
         await escrowScheduler?.finalizeReplay(groupId, fixtureId, 0);
         await escrowRuntime?.lifecycle.runOnce();
       }
+      log.info('replay_recovery_completed', { groupId });
     } catch {
       log.warn('replay_recovery_failed', { groupId });
     }
