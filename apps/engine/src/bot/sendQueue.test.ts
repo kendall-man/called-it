@@ -162,6 +162,33 @@ describe('SendQueue', () => {
     expect(applied).toEqual(['v1', 'urgent']);
   });
 
+  it('coalesces queued urgent edits so the latest card state wins', async () => {
+    const clock = makeVirtualClock();
+    const applied: string[] = [];
+    const queue = new SendQueue({
+      ratePerMinute: 1,
+      collapseMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+      schedule: clock.schedule,
+    });
+    queue.enqueue(1, async () => {
+      applied.push('primer');
+    });
+    await queue.idle();
+
+    queue.enqueueCardEdit(1, 'market-1', async () => {
+      applied.push('frozen');
+    }, { urgent: true });
+    queue.enqueueCardEdit(1, 'market-1', async () => {
+      applied.push('settled');
+    }, { urgent: true });
+    clock.advance(60_000);
+    await queue.idle();
+
+    expect(applied).toEqual(['primer', 'settled']);
+  });
+
   it('urgent card edits jump ahead of queued narration', async () => {
     const clock = makeVirtualClock();
     const applied: string[] = [];

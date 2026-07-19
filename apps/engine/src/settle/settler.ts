@@ -406,6 +406,12 @@ export class Settler {
       return;
     }
 
+    // Fail closed before the receipt can be marked posted. If historical card
+    // composition fails, the already-finalized market still cannot retain a
+    // live stake keyboard indefinitely.
+    if (market.card_tg_message_id !== null) {
+      this.poster.stripKeyboard(market.group_id, market.card_tg_message_id);
+    }
     this.poster.post(market.group_id, receipt, { onSent: markPosted });
     await this.refreshCard(market.id);
   }
@@ -536,7 +542,16 @@ export class Settler {
       market.status === 'open' || market.status === 'pending_lineup'
         ? marketStakeKeyboard(this.deps, market)
         : undefined;
-    this.poster.editCard(card.chatId, market.id, card.messageId, card.text, keyboard);
+    this.poster.editCard(
+      card.chatId,
+      market.id,
+      card.messageId,
+      card.text,
+      keyboard,
+      market.status === 'settled' || market.status === 'voided'
+        ? { urgent: true }
+        : undefined,
+    );
   }
 
   /** Scorer-named goal alert referencing the group's open calls (nudge mode only). */

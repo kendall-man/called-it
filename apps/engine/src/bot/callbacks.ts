@@ -340,6 +340,9 @@ async function refreshStakeCard(
         card.messageId,
         card.text,
         positionsAvailable ? marketStakeKeyboard(h.deps, displayed) : undefined,
+        fresh.status === 'settled' || fresh.status === 'voided'
+          ? { urgent: true }
+          : undefined,
       );
     }
   }
@@ -1210,7 +1213,14 @@ async function handleVoidReplayBlocker(
   if (market.card_tg_message_id !== null) {
     const card = await composeClaimCard(h.deps, { ...market, status: 'voided' });
     if (card?.messageId !== null && card?.messageId !== undefined) {
-      h.poster.editCard(card.chatId, market.id, card.messageId, card.text);
+      h.poster.editCard(
+        card.chatId,
+        market.id,
+        card.messageId,
+        card.text,
+        undefined,
+        { urgent: true },
+      );
     }
   }
   const confirmation = await h.say('replay_blocking_call_voided', { call });

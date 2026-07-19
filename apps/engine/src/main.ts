@@ -248,12 +248,26 @@ async function main(): Promise<void> {
                 }
                 const current = await deps.db.getMarket(marketId);
                 if (current === null || current.card_tg_message_id === null) continue;
+                if (current.status === 'settled' || current.status === 'voided') {
+                  // Fail closed at the UI boundary even if participant/card
+                  // composition is temporarily unavailable.
+                  poster.stripKeyboard(current.group_id, current.card_tg_message_id);
+                }
                 const card = await composeClaimCard(deps, current);
                 if (card === null || card.messageId === null) continue;
                 const keyboard = current.status === 'open' || current.status === 'pending_lineup'
                   ? marketStakeKeyboard(deps, current)
                   : undefined;
-                poster.editCard(card.chatId, current.id, card.messageId, card.text, keyboard);
+                poster.editCard(
+                  card.chatId,
+                  current.id,
+                  card.messageId,
+                  card.text,
+                  keyboard,
+                  current.status === 'settled' || current.status === 'voided'
+                    ? { urgent: true }
+                    : undefined,
+                );
               }
             },
           },
@@ -374,6 +388,26 @@ async function main(): Promise<void> {
             const targets = replayMarkets.filter((market) => market.fixture_id === fixtureId);
             if (targets.length === 0) return { kind: 'none' as const };
 
+            // The recovery itself remains fail-closed: this is only the
+            // already-persisted frozen state, never a premature result. Make
+            // it visible immediately and remove money actions while the one
+            // terminal attestation finalizes on chain.
+            for (const market of targets) {
+              if (market.card_tg_message_id === null) continue;
+              poster.stripKeyboard(market.group_id, market.card_tg_message_id);
+              const frozen = { ...market, status: 'frozen' as const };
+              const card = await composeClaimCard(deps, frozen, { positionsAvailable: false });
+              if (card === null || card.messageId === null) continue;
+              poster.editCard(
+                card.chatId,
+                market.id,
+                card.messageId,
+                card.text,
+                undefined,
+                { urgent: true },
+              );
+            }
+
             await recoverReplayFixture(groupId, fixtureId, targets.map((market) => market.id));
             log.info('admin_replay_terminal_scheduled', {
               groupId,
@@ -391,9 +425,17 @@ async function main(): Promise<void> {
   const settlementReconciler = createSettlementReconciler(backgroundDeps, log, async (market) => {
     const current = await backgroundDeps.db.getMarket(market.id);
     if (current === null || current.card_tg_message_id === null) return;
+    poster.stripKeyboard(current.group_id, current.card_tg_message_id);
     const card = await composeClaimCard(backgroundDeps, current, { positionsAvailable: false });
     if (card === null || card.messageId === null) return;
-    poster.editCard(card.chatId, current.id, card.messageId, card.text);
+    poster.editCard(
+      card.chatId,
+      current.id,
+      card.messageId,
+      card.text,
+      undefined,
+      { urgent: true },
+    );
   });
 
   // Bounded escrow readiness snapshot shared by the /status board and the

@@ -37,6 +37,10 @@ interface DeferredEdit {
   cancel: () => void;
 }
 
+interface QueuedUrgentEdit {
+  task: SendTask;
+}
+
 function defaultSchedule(fn: () => void, ms: number): () => void {
   const timer = setTimeout(fn, ms);
   return () => clearTimeout(timer);
@@ -46,6 +50,7 @@ export class SendQueue {
   private readonly chats = new Map<number, ChatState>();
   private readonly lastEditAt = new Map<string, number>();
   private readonly deferredEdits = new Map<string, DeferredEdit>();
+  private readonly queuedUrgentEdits = new Map<string, QueuedUrgentEdit>();
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly schedule: (fn: () => void, ms: number) => () => void;
@@ -113,7 +118,20 @@ export class SendQueue {
         this.deferredEdits.delete(key);
       }
       this.lastEditAt.set(key, this.now());
-      this.enqueueFront(chatId, task);
+      const queued = this.queuedUrgentEdits.get(key);
+      if (queued) {
+        // Multiple lifecycle transitions can finalize while the chat is rate
+        // limited. Keep one queue slot per card and let the latest persisted
+        // state win; otherwise LIFO urgent inserts can finish on stale text.
+        queued.task = task;
+        return;
+      }
+      const entry: QueuedUrgentEdit = { task };
+      this.queuedUrgentEdits.set(key, entry);
+      this.enqueueFront(chatId, async () => {
+        this.queuedUrgentEdits.delete(key);
+        return entry.task();
+      });
       return;
     }
     const existing = this.deferredEdits.get(key);
@@ -164,6 +182,7 @@ export class SendQueue {
     this.stopped = true;
     for (const entry of this.deferredEdits.values()) entry.cancel();
     this.deferredEdits.clear();
+    this.queuedUrgentEdits.clear();
   }
 
   private chatState(chatId: number): ChatState {

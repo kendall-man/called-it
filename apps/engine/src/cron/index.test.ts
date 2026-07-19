@@ -101,6 +101,43 @@ describe('production background allowlist', () => {
     expect(runtime.log.events.filter((event) => event.event.includes('send_failed'))).toEqual([]);
   });
 
+  it('isolates a failed historical settlement so later receipts still recover', async () => {
+    const runtime = createTelegramFlowRuntime();
+    runtime.deps.env.DEPLOYMENT_ENV = 'production';
+    runtime.deps.env.BETA_ALLOWED_GROUP_IDS = [GROUP_ONE_ID];
+    const [poison, recoverable] = await Promise.all([
+      seedUnpostedSettlement({ runtime, groupId: GROUP_ONE_ID, sequence: 11 }),
+      seedUnpostedSettlement({ runtime, groupId: GROUP_ONE_ID, sequence: 12 }),
+    ]);
+    runtime.db.applyGroupPoints = async (marketId) => {
+      const market = await runtime.db.getMarket(marketId);
+      if (market === null) return { ok: false, code: 'market_not_found' };
+      return {
+        ok: true,
+        eligible: false,
+        duplicate: false,
+        reason: 'replay',
+        group_id: market.group_id,
+        scored_count: 0,
+        winner_count: 0,
+      };
+    };
+    const originalPostReceipt = runtime.settler.postReceipt.bind(runtime.settler);
+    vi.spyOn(runtime.settler, 'postReceipt').mockImplementation(async (market, outcome) => {
+      if (market.id === poison?.id) throw new TypeError('malformed historical row');
+      await originalPostReceipt(market, outcome);
+    });
+
+    await sweepUnpostedSettlements(runtime.deps, runtime.settler, new Map());
+    await runtime.queue.idle();
+
+    expect(runtime.db.trace).toContain(`receipt:posted:${recoverable?.id}`);
+    expect(runtime.log.events).toContainEqual(expect.objectContaining({
+      event: 'settlement_sweep_market_failed',
+      fields: { marketId: poison?.id },
+    }));
+  });
+
   it('posts the morning slate only to the allowed persisted group', async () => {
     // Given three nudge-mode admin groups and one production-allowed group
     vi.useFakeTimers();
