@@ -455,7 +455,12 @@ export function createEscrowEventWorkflowScheduler(options: {
     );
   }
 
-  async function run(event: MatchEvent, groupId?: number, replayStartedAtMs?: number): Promise<void> {
+  async function run(
+    event: MatchEvent,
+    groupId?: number,
+    replayStartedAtMs?: number,
+    continueOnMarketFailure = false,
+  ): Promise<void> {
     for (const market of await matchingMarkets(event.fixtureId, groupId, replayStartedAtMs)) {
       try {
         // A deterministic replay gets one persistence attempt per event. Retry
@@ -467,20 +472,20 @@ export function createEscrowEventWorkflowScheduler(options: {
           seq: event.seq,
           reason: workflowFailureReason(error),
         });
-        if (groupId !== undefined) throw error;
+        if (groupId !== undefined && !continueOnMarketFailure) throw error;
       }
     }
   }
 
-  return {
-    onEvent: (event: MatchEvent) => run(event),
-    onReplayEvent: (groupId: number, event: MatchEvent, replayStartedAtMs: number) => {
-      if (!Number.isFinite(replayStartedAtMs)) return Promise.resolve();
-      return run(event, groupId, replayStartedAtMs);
-    },
-    async finalizeReplay(groupId: number, fixtureId: number, replayStartedAtMs: number) {
-      if (!Number.isFinite(replayStartedAtMs)) return;
-      for (const market of await matchingMarkets(fixtureId, groupId, replayStartedAtMs)) {
+  async function finalizeReplay(
+    groupId: number,
+    fixtureId: number,
+    replayStartedAtMs: number,
+    continueOnMarketFailure = false,
+  ): Promise<void> {
+    if (!Number.isFinite(replayStartedAtMs)) return;
+    for (const market of await matchingMarkets(fixtureId, groupId, replayStartedAtMs)) {
+      try {
         let effect = deferredReplayTerminals.get(market.id);
         const event = latestReplayEvents.get(market.id);
         const state = states.get(market.id);
@@ -513,8 +518,28 @@ export function createEscrowEventWorkflowScheduler(options: {
         }
         deferredReplayTerminals.delete(market.id);
         latestReplayEvents.delete(market.id);
+      } catch (error) {
+        options.deps.log.error('escrow_replay_finalization_failed', {
+          marketId: market.id,
+          reason: workflowFailureReason(error),
+        });
+        if (!continueOnMarketFailure) throw error;
       }
+    }
+  }
+
+  return {
+    onEvent: (event: MatchEvent) => run(event),
+    onReplayEvent: (groupId: number, event: MatchEvent, replayStartedAtMs: number) => {
+      if (!Number.isFinite(replayStartedAtMs)) return Promise.resolve();
+      return run(event, groupId, replayStartedAtMs);
     },
+    finalizeReplay: (groupId: number, fixtureId: number, replayStartedAtMs: number) =>
+      finalizeReplay(groupId, fixtureId, replayStartedAtMs),
+    onReplayRecoveryEvent: (groupId: number, event: MatchEvent) =>
+      run(event, groupId, 0, true),
+    finalizeReplayRecovery: (groupId: number, fixtureId: number) =>
+      finalizeReplay(groupId, fixtureId, 0, true),
     async tick(_nowMs: number) {},
   };
 }

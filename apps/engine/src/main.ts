@@ -439,14 +439,17 @@ async function main(): Promise<void> {
       // history so a crash between the terminal event and EOF cannot strand an
       // on-chain replay market forever.
       for (const fixtureId of new Set(staleReplayMarkets.map((market) => market.fixture_id))) {
-        const events = [...await deps.tx.fetchScoreEvents(fixtureId)]
-          .sort((left, right) => left.seq - right.seq);
-        for (const event of events) {
-          await escrowScheduler?.onReplayEvent(groupId, event, 0);
+        try {
+          const events = [...await deps.tx.fetchScoreEvents(fixtureId)]
+            .sort((left, right) => left.seq - right.seq);
+          for (const event of events) {
+            await escrowScheduler?.onReplayRecoveryEvent(groupId, event);
+          }
+          await escrowScheduler?.finalizeReplayRecovery(groupId, fixtureId);
+          log.info('replay_fixture_recovery_completed', { groupId, fixtureId });
+        } catch {
+          log.warn('replay_fixture_recovery_failed', { groupId, fixtureId });
         }
-        await escrowRuntime?.lifecycle.runOnce();
-        await escrowScheduler?.finalizeReplay(groupId, fixtureId, 0);
-        await escrowRuntime?.lifecycle.runOnce();
       }
       log.info('replay_recovery_completed', { groupId });
     } catch {
