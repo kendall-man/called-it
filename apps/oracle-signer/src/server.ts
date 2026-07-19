@@ -8,6 +8,7 @@ import type { Keypair } from '@solana/web3.js';
 import {
   journalKey,
   parseOracleSigningEnvelope,
+  terminalSemanticDecisionHash,
   type OracleSigningEnvelope,
 } from './contracts.js';
 import type { OracleSignatureJournal } from './journal.js';
@@ -119,7 +120,9 @@ export function createOracleSignerServer(options: {
       await options.verifier.verify(parsed.request, parsed.envelope.claimSpecificationJson);
       await options.journal.record(
         journalKey(parsed.request),
-        parsed.envelope.canonicalSha256Hex,
+        parsed.request.kind === 'settlement' || parsed.request.kind === 'void'
+          ? terminalSemanticDecisionHash(parsed.request)
+          : parsed.envelope.canonicalSha256Hex,
         options.now?.() ?? new Date(),
       );
       const signatureBase64 = sign(parsed.canonicalBytes, options.signer);

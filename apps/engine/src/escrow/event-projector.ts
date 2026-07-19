@@ -204,11 +204,19 @@ export class SolanaEscrowEventProjector implements EscrowEventProjector {
       case 'MarketUnfrozen': {
         const market = await this.historicalMarket(event.market);
         if (market === null) return null;
-        if (event.eventEpoch <= market.eventEpoch) throw new EscrowEventProjectionError('event_mismatch');
+        const state = event.kind === 'MarketFrozen' ? 'frozen' : 'open';
+        if (event.eventEpoch < market.eventEpoch) return null;
+        if (event.eventEpoch === market.eventEpoch) {
+          if (
+            market.chainState === state || market.chainState === 'settled' ||
+            market.chainState === 'voided' || market.chainState === 'closed'
+          ) return null;
+          throw new EscrowEventProjectionError('event_mismatch');
+        }
         return {
           kind: 'market_state',
           marketId: market.marketId,
-          state: event.kind === 'MarketFrozen' ? 'frozen' : 'open',
+          state,
           eventEpoch: event.eventEpoch,
           evidenceHashHex: bytesToHex(event.evidenceHash),
         };

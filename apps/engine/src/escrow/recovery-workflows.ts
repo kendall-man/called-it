@@ -145,7 +145,10 @@ function payload(request: EscrowRecoveryRequest, link: ReturnType<typeof require
 function idempotencyKey(request: EscrowRecoveryRequest, link: ReturnType<typeof requireLink>): string {
   let discriminator: string;
   if (request.operation === 'settle_market' || request.operation === 'void_market') {
-    discriminator = bytesToHex(request.attestation.evidenceHash);
+    // Evidence identifies the decision; expiry identifies a renewable signed
+    // envelope. An expired, never-landed relayer job must not permanently
+    // capture every later truthful attestation for the same decision.
+    discriminator = `${bytesToHex(request.attestation.evidenceHash)}:${request.attestation.expiresAt}`;
   } else if (request.operation === 'close_position_lots') {
     const batchHash = createHash('sha256')
       .update(request.lotNonces.map(String).join(','))
