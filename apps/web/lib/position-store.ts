@@ -38,6 +38,15 @@ const EventRowSchema = z.object({
   commitment: z.enum(['confirmed', 'finalized']),
 }).passthrough();
 
+const IndexedMarketLinkSchema = z.object({
+  chain_state: z.string().min(1).max(32),
+}).passthrough();
+
+const PlacementJobSchema = z.object({
+  state: z.enum(['pending', 'leased', 'signed', 'submitted', 'unknown', 'retry_wait', 'complete', 'dead']),
+  error_code: z.string().nullable(),
+}).passthrough();
+
 const AccountRowSchema = z.object({
   market_id: z.string().uuid(),
   side: z.enum(['back', 'doubt']),
@@ -113,25 +122,78 @@ export function createPositionStore(): PositionStore {
       if (session.transactionSignature === null) {
         throw new Error('consumed escrow session is missing its signature');
       }
-      const result = await client
-        .from('escrow_position_events')
-        .select('event_kind,state,commitment')
-        .eq('signature', session.transactionSignature)
-        .eq('market_id', session.marketId)
-        .eq('owner_pubkey', session.ownerPubkey)
-        .eq('lot_nonce', session.lotNonce.toString())
-        .eq('canonical', true)
-        .order('instruction_index', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (result.error !== null) throw new Error('escrow position status lookup failed');
-      const event = EventRowSchema.safeParse(result.data);
+      const [eventResult, marketResult, placementJobResult] = await Promise.all([
+        client
+          .from('escrow_position_events')
+          .select('event_kind,state,commitment')
+          .eq('signature', session.transactionSignature)
+          .eq('market_id', session.marketId)
+          .eq('owner_pubkey', session.ownerPubkey)
+          .eq('lot_nonce', session.lotNonce.toString())
+          .eq('canonical', true)
+          .order('instruction_index', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        client
+          .from('escrow_market_links')
+          .select('chain_state')
+          .eq('market_id', session.marketId)
+          .eq('canonical', true)
+          .eq('commitment', 'finalized')
+          .eq('projection_stale', false)
+          .maybeSingle(),
+        client
+          .from('escrow_relayer_jobs')
+          .select('state,error_code')
+          .eq('kind', 'position_placement')
+          .eq('market_id', session.marketId)
+          .eq('owner_pubkey', session.ownerPubkey)
+          .eq('expected_signature', session.transactionSignature)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      if (eventResult.error !== null || marketResult.error !== null || placementJobResult.error !== null) {
+        throw new Error('escrow position status lookup failed');
+      }
+      // A terminal void is authoritative for every still-pending lot. There
+      // need not be a separate per-lot invalidation event, so use the
+      // finalized market projection rather than leaving the Mini App stuck on
+      // "activates shortly" after the call has already been protected.
+      const market = IndexedMarketLinkSchema.safeParse(marketResult.data);
+      if (market.success && market.data.chain_state === 'voided') {
+        return {
+          stage: 'finalized',
+          signature: session.transactionSignature,
+          positionState: 'refundable',
+          commitment: 'finalized',
+        };
+      }
+      const event = EventRowSchema.safeParse(eventResult.data);
       if (event.success) {
         return {
           stage: event.data.commitment === 'finalized' ? 'finalized' : 'confirming',
           signature: session.transactionSignature,
           positionState: event.data.state,
           commitment: event.data.commitment,
+        };
+      }
+      // The accepted callback records the user's signature before the relayer
+      // can prove it landed. Once that exact job is durably dead because the
+      // signature expired, there is no position to wait for and the Mini App
+      // must stop claiming it is confirming. Every other dead/unknown outcome
+      // stays fail-closed below because its chain result may still be uncertain.
+      const placementJob = PlacementJobSchema.safeParse(placementJobResult.data);
+      if (
+        placementJob.success && placementJob.data.state === 'dead' &&
+        (placementJob.data.error_code === 'user_signature_expired' ||
+          placementJob.data.error_code === 'user_signature_invalid_or_expired')
+      ) {
+        return {
+          stage: 'approval_lapsed',
+          signature: session.transactionSignature,
+          positionState: null,
+          commitment: null,
         };
       }
       const expiry = Date.parse(session.expiresAt);

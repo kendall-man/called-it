@@ -155,14 +155,19 @@ export class ReplaySource implements MatchEventSource {
     this.virtualStartMs = virtualStartMs;
     const virtualNowMs =
       this.virtualNowMs === null ? virtualStartMs : this.virtualNowMs + this.tickVirtualMs;
-    this.virtualNowMs = virtualNowMs;
     const receivedAtMs = Date.now();
     const events: MatchEvent[] = [];
 
     // Scores: emit every record whose seq we have not replayed yet.
-    const scoreRecords = await this.client.scoresSnapshot(this.fixtureId, virtualNowMs);
+    // Treat the score/odds snapshot as one replay tick. A throttled odds call
+    // must not consume score records that were never delivered to the engine.
+    const [scoreRecords, oddsRecords] = await Promise.all([
+      this.client.scoresSnapshot(this.fixtureId, virtualNowMs),
+      this.client.oddsSnapshot(this.fixtureId, virtualNowMs),
+    ]);
     const freshRecords = scoreRecords.filter((record) => !this.seenSeqs.has(record.seq));
-    for (const record of freshRecords) this.seenSeqs.add(record.seq);
+    const seenAfterTick = new Set(this.seenSeqs);
+    for (const record of freshRecords) seenAfterTick.add(record.seq);
     events.push(
       ...normalizeScores(freshRecords, receivedAtMs, {
         seqByEventId: this.seqByEventId,
@@ -173,7 +178,6 @@ export class ReplaySource implements MatchEventSource {
     );
 
     // Odds: surface suspensions as MatchEvents and price changes via the hook.
-    const oddsRecords = await this.client.oddsSnapshot(this.fixtureId, virtualNowMs);
     const trackedOdds = oddsRecords.filter(
       (record) =>
         classifyOddsRecord(record, this.logger) !== null &&
@@ -209,8 +213,8 @@ export class ReplaySource implements MatchEventSource {
       // corrections are processed before replay settlement is considered
       // complete and oracle signers see the same terminal evidence root.
       const finalRecords = await this.client.scoresSnapshot(this.fixtureId);
-      const trailingRecords = finalRecords.filter((record) => !this.seenSeqs.has(record.seq));
-      for (const record of trailingRecords) this.seenSeqs.add(record.seq);
+      const trailingRecords = finalRecords.filter((record) => !seenAfterTick.has(record.seq));
+      for (const record of trailingRecords) seenAfterTick.add(record.seq);
       events.push(
         ...normalizeScores(trailingRecords, receivedAtMs, {
           seqByEventId: this.seqByEventId,
@@ -228,6 +232,12 @@ export class ReplaySource implements MatchEventSource {
         maxVirtualMs: this.maxVirtualMs,
       });
     }
+    this.seenSeqs.clear();
+    for (const seq of seenAfterTick) this.seenSeqs.add(seq);
+    // Commit the virtual clock only after the complete score + odds tick has
+    // succeeded. A throttled provider call must be retried at the same asOf
+    // boundary or replay pricing/cutoffs become dependent on network failures.
+    this.virtualNowMs = virtualNowMs;
     return {
       events,
       virtualNowMs,

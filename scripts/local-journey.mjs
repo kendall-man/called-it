@@ -47,12 +47,17 @@ const telegramCall = async (runtime, method, body) => {
 };
 
 if (area === 'profile') {
-  const profile = loadJourneyProfile(profilePath, workspace, { allowMissingWebhookOrigin: true });
+  const profile = loadJourneyProfile(profilePath, workspace, {
+    allowMissingWebhookOrigin: true,
+    allowMissingWebAppOrigin: true,
+  });
   console.log(JSON.stringify({
     ok: true,
     profile: profile.profilePath,
     runtimeEnv: profile.runtimePath,
     canonicalWebOrigin: profile.canonicalWebOrigin,
+    runtimeWebOrigin: profile.runtimeWebOrigin,
+    webAppUsesTunnel: profile.runtimeWebOrigin === profile.webhookOrigin,
     webhookOriginReady: profile.webhookOrigin !== null,
     services: profile.services,
     tunnel: profile.tunnel,
@@ -61,7 +66,10 @@ if (area === 'profile') {
     replay: profile.replay,
   }, null, 2));
 } else if (area === 'preflight') {
-  const profile = loadJourneyProfile(profilePath, workspace, { allowMissingWebhookOrigin: true });
+  const profile = loadJourneyProfile(profilePath, workspace, {
+    allowMissingWebhookOrigin: true,
+    allowMissingWebAppOrigin: true,
+  });
   const required = ['TELEGRAM_BOT_TOKEN', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'TELEGRAM_WEBHOOK_SECRET_TOKEN'];
   const missing = required.filter((name) => !profile.runtime[name]);
   const mode = (statSync(profile.runtimePath).mode & 0o777).toString(8).padStart(3, '0');
@@ -69,6 +77,8 @@ if (area === 'profile') {
     ok: missing.length === 0 && mode === '600' && commandExists('node') && commandExists('npx') && commandExists('cloudflared'),
     profileReady: true,
     canonicalWebOrigin: profile.canonicalWebOrigin,
+    runtimeWebOrigin: profile.runtimeWebOrigin,
+    webAppUsesTunnel: profile.runtimeWebOrigin === profile.webhookOrigin,
     webhookOriginReady: profile.webhookOrigin !== null,
     runtimeEnv: { mode, configuredKeys: Object.values(profile.runtime).filter(Boolean).length, missing },
     commands: { node: commandExists('node'), npx: commandExists('npx'), cloudflared: commandExists('cloudflared') },
@@ -76,7 +86,10 @@ if (area === 'profile') {
   console.log(JSON.stringify(report, null, 2));
   if (!report.ok) process.exitCode = 1;
 } else if (area === 'tunnel') {
-  const profile = loadJourneyProfile(profilePath, workspace, { allowMissingWebhookOrigin: true });
+  const profile = loadJourneyProfile(profilePath, workspace, {
+    allowMissingWebhookOrigin: true,
+    allowMissingWebAppOrigin: true,
+  });
   if (action === 'status') {
     const pid = savedPid();
     console.log(JSON.stringify({ running: safeTunnelPid(pid), pid, webhookOriginReady: existsSync(urlPath), target: profile.tunnel.target }, null, 2));
@@ -113,9 +126,10 @@ if (area === 'profile') {
       running: true,
       pid: child.pid,
       canonicalWebOrigin: resolved.canonicalWebOrigin,
+      runtimeWebOrigin: resolved.runtimeWebOrigin,
       webhookOrigin: resolved.webhookOrigin,
       target: resolved.tunnel.target,
-      restartStack: false,
+      restartStack: resolved.runtimeWebOrigin !== resolved.canonicalWebOrigin,
     }, null, 2));
   } else {
     throw new Error('Usage: pnpm local:journey tunnel <start|status|stop>');

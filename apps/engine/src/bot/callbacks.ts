@@ -38,6 +38,7 @@ import { renderStepperEphemeral, stakePositionsAvailable } from './stake-surface
 import { sideLabelFor, stakeAmountLabel, STEPPER_CLOSED_LINE } from './stake-step-cards.js';
 import {
   escrowPlacementRejectionText,
+  escrowSigningButtonLabel,
   escrowSigningPrompt,
   privateEscrowUrl,
   type EscrowPlacementSessionInput,
@@ -406,6 +407,7 @@ async function handleEscrowStake(
   ctx: Context,
   input: Omit<EscrowPlacementSessionInput, 'idempotencyKey'> & {
     readonly callbackId: string;
+    readonly terms: string;
   },
 ): Promise<void> {
   const escrow = h.escrow;
@@ -444,6 +446,7 @@ async function handleEscrowStake(
   const prompt = escrowSigningPrompt({
     network: h.deps.env.SOLANA_NETWORK,
     side: input.side,
+    terms: input.terms,
     asset: input.asset,
     amountAtomic: input.amountAtomic,
     expiresAt: result.expiresAt,
@@ -452,7 +455,10 @@ async function handleEscrowStake(
   try {
     await ctx.api.sendMessage(input.telegramUserId, prompt, {
       reply_markup: {
-        inline_keyboard: [[{ text: 'Review and sign', web_app: { url } }]],
+        inline_keyboard: [[{
+          text: escrowSigningButtonLabel(input),
+          web_app: { url },
+        }]],
       },
     });
   } catch (error) {
@@ -696,6 +702,7 @@ async function commitSingleTap(
       amountAtomic: r.lamports,
       network: h.deps.env.SOLANA_NETWORK,
       replay: r.market.is_replay,
+      terms: describeTerms(r.market.spec),
     });
     return;
   }
@@ -744,7 +751,12 @@ async function loadStepperMarket(
  * shared card is never touched. Best-effort: the ephemeral port swallows its own
  * failures.
  */
-async function closeStepperEphemeral(h: HandlerCtx, userId: number, marketId: string): Promise<void> {
+async function closeStepperEphemeral(
+  h: HandlerCtx,
+  userId: number,
+  marketId: string,
+  chatId?: number,
+): Promise<void> {
   const store = h.uiState;
   const ephemeral = h.ephemeral;
   if (store === undefined || ephemeral === undefined) return;
@@ -753,6 +765,7 @@ async function closeStepperEphemeral(h: HandlerCtx, userId: number, marketId: st
   if (state === null) return;
   await ephemeral.edit({
     userId,
+    ...(chatId === undefined ? {} : { chatId }),
     ephemeralMessageId: state.ephemeralMessageId,
     text: STEPPER_CLOSED_LINE,
   });
@@ -843,8 +856,17 @@ async function handleStakeStep(
     return;
   }
   const current = store.get(market.id, from.id);
+  const callbackMessageId = ctx.callbackQuery?.message?.message_id;
+  if (
+    current === null ||
+    (callbackMessageId !== undefined && current.ephemeralMessageId !== callbackMessageId) ||
+    current.side !== action.side
+  ) {
+    await stale(h, ctx);
+    return;
+  }
   const amountLabel = stakeAmountLabel(ladderAtomic(asset, action.amountCode), asset);
-  if (current !== null && current.side === action.side && current.code === action.amountCode) {
+  if (current.code === action.amountCode) {
     // The middle amount tap (or a re-tap of the same rung): keep the ephemeral
     // alive without a redundant edit.
     store.set(market.id, from.id, current, STAKE_LADDER_TTL_MS);
@@ -853,15 +875,14 @@ async function handleStakeStep(
   }
   const surface = renderStepperEphemeral(h.deps, market, action.side, action.amountCode);
   let ephemeralMessageId: number | null = null;
-  if (current !== null) {
-    const edited = await ephemeral.edit({
-      userId: from.id,
-      ephemeralMessageId: current.ephemeralMessageId,
-      text: surface.text,
-      replyMarkup: surface.keyboard,
-    });
-    if (edited) ephemeralMessageId = current.ephemeralMessageId;
-  }
+  const edited = await ephemeral.edit({
+    userId: from.id,
+    chatId: market.group_id,
+    ephemeralMessageId: current.ephemeralMessageId,
+    text: surface.text,
+    replyMarkup: surface.keyboard,
+  });
+  if (edited) ephemeralMessageId = current.ephemeralMessageId;
   if (ephemeralMessageId === null) {
     // No live ephemeral to edit (window lapsed) or the edit failed: send a fresh
     // one. The step tap carries its own callback_query_id, so the send stays
@@ -908,6 +929,17 @@ async function handleStakeValue(
     await stale(h, ctx);
     return;
   }
+  const from = ctx.from;
+  const callbackMessageId = ctx.callbackQuery?.message?.message_id;
+  const current = from === undefined ? null : store.get(action.marketId, from.id);
+  if (
+    current === null ||
+    (callbackMessageId !== undefined && current.ephemeralMessageId !== callbackMessageId) ||
+    current.side !== action.side || current.code !== action.amountCode
+  ) {
+    await stale(h, ctx);
+    return;
+  }
   const custody = h.deps.env.WAGER_CUSTODY_MODE;
   const network = h.deps.env.SOLANA_NETWORK;
   const r = await resolveStake(h, ctx, action.marketId, (asset) =>
@@ -930,15 +962,16 @@ async function handleStakeValue(
       amountAtomic: r.lamports,
       network: h.deps.env.SOLANA_NETWORK,
       replay: r.market.is_replay,
+      terms: describeTerms(r.market.spec),
     });
-    await closeStepperEphemeral(h, r.from.id, r.market.id);
+    await closeStepperEphemeral(h, r.from.id, r.market.id, r.chatId);
     return;
   }
   // Legacy: the confirm tap IS the commit.
   await commitLegacyStake(h, ctx, r, action.side);
   // Close the member's ephemeral stepper; the shared card already refreshed its
   // tallies (and its two side buttons) via commitLegacyStake.
-  await closeStepperEphemeral(h, r.from.id, r.market.id);
+  await closeStepperEphemeral(h, r.from.id, r.market.id, r.chatId);
 }
 
 /** "← Back" closes the member's ephemeral stepper. Loses nothing; the shared card stands. */
@@ -949,7 +982,16 @@ async function handleStakeBack(h: HandlerCtx, ctx: Context, marketId: string): P
     await stale(h, ctx);
     return;
   }
-  await closeStepperEphemeral(h, from.id, marketId);
+  const state = store.get(marketId, from.id);
+  const callbackMessageId = ctx.callbackQuery?.message?.message_id;
+  if (
+    state === null ||
+    (callbackMessageId !== undefined && callbackMessageId !== state.ephemeralMessageId)
+  ) {
+    await stale(h, ctx);
+    return;
+  }
+  await closeStepperEphemeral(h, from.id, marketId, ctx.chat?.id);
   await answer(ctx, 'Back to the call.');
 }
 

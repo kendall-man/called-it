@@ -125,9 +125,60 @@ export function createProductionEscrowEventWorkflowPort(options: {
     };
   }
 
-  return {
-    loadMarket: marketContext,
-    async positionLots(context) {
+  async function positionProjectionComplete(
+    context: EscrowWorkflowMarketContext,
+  ): Promise<boolean> {
+      const jobsUrl = new URL('/rest/v1/escrow_relayer_jobs', options.supabaseUrl);
+      jobsUrl.searchParams.set('select', 'state,expected_signature');
+      jobsUrl.searchParams.set('market_id', `eq.${context.binding.marketId}`);
+      jobsUrl.searchParams.set('kind', 'eq.position_placement');
+      jobsUrl.searchParams.set('order', 'created_at.asc');
+      jobsUrl.searchParams.set('limit', String(pageSize));
+      const jobsResponse = await request(jobsUrl, { headers });
+      if (!jobsResponse.ok) throw new TypeError('escrow placement projection unavailable');
+      const jobs = rows(await jobsResponse.json());
+      if (jobs.length >= pageSize) return false;
+      const completedSignatures = new Set<string>();
+      for (const job of jobs) {
+        if (job.state === 'dead') continue;
+        if (job.state !== 'complete' || typeof job.expected_signature !== 'string') {
+          return false;
+        }
+        completedSignatures.add(job.expected_signature);
+      }
+
+      const completedLots = new Set<string>();
+      if (completedSignatures.size > 0) {
+        const sessionsUrl = new URL('/rest/v1/escrow_signing_sessions', options.supabaseUrl);
+        sessionsUrl.searchParams.set('select', 'owner_pubkey,lot_nonce,transaction_signature');
+        sessionsUrl.searchParams.set('market_id', `eq.${context.binding.marketId}`);
+        sessionsUrl.searchParams.set('state', 'eq.consumed');
+        sessionsUrl.searchParams.set('limit', String(pageSize));
+        const sessionsResponse = await request(sessionsUrl, { headers });
+        if (!sessionsResponse.ok) throw new TypeError('escrow placement projection unavailable');
+        const sessions = rows(await sessionsResponse.json());
+        if (sessions.length >= pageSize) return false;
+        for (const session of sessions) {
+          if (
+            typeof session.owner_pubkey !== 'string' ||
+            typeof session.transaction_signature !== 'string'
+          ) throw new TypeError('invalid escrow placement projection');
+          if (!completedSignatures.has(session.transaction_signature)) continue;
+          completedSignatures.delete(session.transaction_signature);
+          completedLots.add(`${session.owner_pubkey}:${unsigned(session.lot_nonce)}`);
+        }
+        if (completedSignatures.size > 0) {
+          return false;
+        }
+      }
+
+      const projected = new Set(
+        (await positionLots(context)).map((lot) => `${lot.ownerPubkey}:${lot.lotNonce}`),
+      );
+      return [...completedLots].every((key) => projected.has(key));
+  }
+
+  async function positionLots(context: EscrowWorkflowMarketContext) {
       const result = [];
       for (let offset = 0; ; offset += pageSize) {
         const url = new URL('/rest/v1/escrow_position_lots', options.supabaseUrl);
@@ -174,7 +225,12 @@ export function createProductionEscrowEventWorkflowPort(options: {
         }
         if (page.length < pageSize) return result;
       }
-    },
+  }
+
+  return {
+    loadMarket: marketContext,
+    positionLots,
+    positionProjectionComplete,
   };
 }
 

@@ -60,11 +60,11 @@ export function PositionEntry(props: PositionEntryProps) {
   return (
     <>
       {launch.kind === 'checking' ? (
-        <WalletState title="Opening in Telegram" text="Checking the private Telegram approval..." loading />
+        <WalletState title="Opening in Telegram" text="Checking this Telegram approval..." loading />
       ) : launch.kind === 'unavailable' ? (
         <WalletState
           title="Open this approval in Telegram"
-          text="This approval must open from your private Telegram chat. No assets moved and no position was created. Return to Telegram and tap Review and sign again."
+          text="This approval must open from its Rumble button in Telegram. No assets moved and no position was created. Return to Telegram and tap Review and sign again."
           action={props.botUsername.length > 0 ? (
             <a
               className="mt-5 flex min-h-12 w-full items-center justify-center rounded-lg bg-pitch-400 px-4 text-sm font-bold text-night-950 hover:bg-pitch-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"

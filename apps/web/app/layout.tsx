@@ -19,8 +19,9 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  // Telegram's before-interactive bridge may annotate documentElement before React hydrates.
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <Script
           src="https://telegram.org/js/telegram-web-app.js"

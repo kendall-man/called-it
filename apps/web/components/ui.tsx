@@ -77,7 +77,7 @@ export function Wordmark() {
       href="/"
       className="display-type text-lg tracking-tight text-chalk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
     >
-      Called&nbsp;<span className="text-pitch-400">It</span>
+      Rumble
       <span aria-hidden className="ml-1 text-pitch-400">
         ✓
       </span>

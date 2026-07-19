@@ -14,7 +14,11 @@ export const TXLINE_TUNABLES = {
   RECONNECT_BASE_DELAY_MS: 1_000,
   /** Reconnect backoff ceiling. */
   RECONNECT_MAX_DELAY_MS: 30_000,
-  /** How much virtual match time one replay tick advances. */
+  /**
+   * How much virtual match time one replay tick advances. Odds snapshots are
+   * point-in-time, so a larger step can jump completely over short suspension
+   * windows and miss a required freeze. At 20x this is one tick per 1.5s.
+   */
   REPLAY_TICK_VIRTUAL_MS: 30_000,
   /**
    * Hard stop for a replay's virtual clock: regulation + ET + pens + breaks
