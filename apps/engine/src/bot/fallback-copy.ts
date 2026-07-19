@@ -225,10 +225,10 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   admin_permission_required: () =>
     'One step left: promote Rumble to group admin with permission to manage messages. I will post the ready message when setup is complete.',
   group_ready: (vars) => isEscrow(vars)
-    ? `Rumble is ready with On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Make a football call, then pick a side in SOL or canonical USDC. Every live or completed-match replay choice opens a private Privy wallet approval; this group updates only after finalization. Replays do not change Points. Legacy /deposit and /withdraw remain only for older balances. Board: ${value(vars, 'webUrl', 'the group board')}`
+    ? `Rumble is ready on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Reply /bookit to your own football call. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Board: ${value(vars, 'webUrl', 'the group board')}`
     : isMainnet(vars)
-    ? `Rumble is ready on Solana mainnet. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this group. Correct choices earn 10 points automatically. A verified wallet is required; /wallet in private chat shows your status. Board: ${value(vars, 'webUrl', 'the group board')}`
-    : `Rumble is ready. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet, these are test tokens. Board: ${value(vars, 'webUrl', 'the group board')}`,
+    ? `Rumble is ready on Solana mainnet. Reply /bookit to your own football call. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Board: ${value(vars, 'webUrl', 'the group board')}`
+    : `Rumble is ready on Solana devnet. Reply /bookit to your own football call. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Board: ${value(vars, 'webUrl', 'the group board')}`,
   private_start: () => 'Rumble lives in group chats. Add it to a group to make a football call.',
   group_only_recovery: () => 'Open this command in the group where you want to use Rumble.',
   points_unavailable: () => 'Points are temporarily unavailable. Try again shortly.',

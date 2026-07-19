@@ -35,6 +35,10 @@ export interface ReplayAdminControl {
   endMatch(groupId: number): Promise<AdminEndMatchResult>;
 }
 
+export interface PublicGroupIntake {
+  ensure(groupId: number): Promise<void>;
+}
+
 export interface HandlerCtx {
   deps: Deps;
   queue: SendQueue;
@@ -49,6 +53,8 @@ export interface HandlerCtx {
   status?: EngineStatusProbes;
   /** Present only when the escrow replay recovery path is fully wired. */
   replayAdmin?: ReplayAdminControl;
+  /** Creates the immutable escrow rollout binding for a newly seen public-beta group. */
+  groupIntake?: PublicGroupIntake;
   /**
    * In-process two-step stake ladder visual state (STAKE_LADDER_ENABLED). Only
    * present when the flag is on; its absence is the single-tap flow.

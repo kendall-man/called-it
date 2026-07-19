@@ -3,7 +3,8 @@
  * commands → callbacks → detection.
  */
 
-import type { Bot } from 'grammy';
+import { InlineKeyboard, type Bot } from 'grammy';
+import type { User } from 'grammy/types';
 import type { Logger } from '../log.js';
 import { ensureChatContext, type HandlerCtx } from './context.js';
 import { registerCommands } from './commands.js';
@@ -127,6 +128,7 @@ export function registerWagerCommands(
 
 export interface GroupLifecycleContext {
   readonly chat: { readonly id: number; readonly type: string; readonly title?: string };
+  readonly from?: User;
   readonly myChatMember: {
     readonly new_chat_member: { readonly status: string };
     readonly old_chat_member: { readonly status: string };
@@ -144,10 +146,11 @@ export interface GroupLifecycleHandlerCtx {
   readonly deps: {
     readonly db: Pick<EngineDb, 'upsertGroup' | 'setGroupAdmin' | 'markGroupReady'>;
     readonly env: Pick<Env, 'WEB_BASE_URL' | 'DEPLOYMENT_ENV' | 'BETA_ALLOWED_GROUP_IDS'>
-      & Partial<Pick<Env, 'SOLANA_NETWORK' | 'WAGER_CUSTODY_MODE'>>;
+      & Partial<Pick<Env, 'SOLANA_NETWORK' | 'WAGER_CUSTODY_MODE' | 'TELEGRAM_BOT_USERNAME'>>;
     readonly log: Pick<Logger, 'info' | 'warn'>;
   };
   readonly poster: Pick<Poster, 'post'>;
+  readonly groupIntake?: HandlerCtx['groupIntake'];
 }
 
 function isGroupChat(chatType: string): boolean {
@@ -174,6 +177,7 @@ export function registerGroupLifecycleHandlers(bot: GroupLifecycleBot, h: GroupL
 
     if (next === 'administrator') {
       await h.deps.db.setGroupAdmin(chat.id, true);
+      await h.groupIntake?.ensure(chat.id);
     } else if (next === 'member') {
       await h.deps.db.setGroupAdmin(chat.id, false);
       h.poster.post(chat.id, renderFallback(
@@ -193,12 +197,26 @@ export function registerGroupLifecycleHandlers(bot: GroupLifecycleBot, h: GroupL
     }
 
     if (marker.created) {
-      h.poster.post(chat.id, readyMessageForGroup({
+      if (ctx.from !== undefined && !ctx.from.is_bot) {
+        h.poster.post(ctx.from.id, renderFallback(
+          'intro',
+          { custodyMode: h.deps.env.WAGER_CUSTODY_MODE ?? 'legacy' },
+          h.deps.env.SOLANA_NETWORK ?? 'devnet',
+        ));
+      }
+      const readyText = readyMessageForGroup({
         group,
         webBaseUrl: h.deps.env.WEB_BASE_URL,
         solanaNetwork: h.deps.env.SOLANA_NETWORK,
         custodyMode: h.deps.env.WAGER_CUSTODY_MODE,
-      }));
+      });
+      const username = h.deps.env.TELEGRAM_BOT_USERNAME;
+      h.poster.post(chat.id, readyText, username === undefined ? undefined : {
+        keyboard: new InlineKeyboard().url(
+          'Open intro in DM',
+          `https://t.me/${username}?start=install`,
+        ),
+      });
     }
   });
 }

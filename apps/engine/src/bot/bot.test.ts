@@ -368,7 +368,7 @@ describe('onboarding scopes and lifecycle', () => {
     expect(markerCalls).toBe(1);
     expect(posts).toEqual([
       'One step left: promote Rumble to group admin with permission to manage messages. I will post the ready message when setup is complete.',
-      'Rumble is ready. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet, these are test tokens. Board: https://calledit.example/g/sunday-legends',
+      'Rumble is ready on Solana devnet. Reply /bookit to your own football call. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Board: https://calledit.example/g/sunday-legends',
     ]);
   });
 });

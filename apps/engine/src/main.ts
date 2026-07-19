@@ -267,6 +267,7 @@ async function main(): Promise<void> {
       db: deps.db,
       initialize: (input) => escrowRuntime.initialization.initialize(input),
       allowedGroupIds: env.ESCROW_ALLOWED_GROUP_IDS,
+      allowAnyGroup: env.PUBLIC_BETA_ENABLED,
       oracleSetEpoch: escrowRuntime.marketPolicy.oracleSetEpoch,
       maximumMarketDurationSeconds: escrowRuntime.marketPolicy.maximumMarketDurationSeconds,
       maximumResolutionDelaySeconds: escrowRuntime.marketPolicy.maximumResolutionDelaySeconds,
@@ -459,6 +460,9 @@ async function main(): Promise<void> {
   // restart loses the id of any claim still mid-consent, which then falls back
   // to the fresh-post behavior for its next state.
   const claimSurfaceStore = env.STAKE_LADDER_ENABLED ? new ClaimSurfaceStore() : null;
+  const groupIntake = escrowRuntime !== null && env.PUBLIC_BETA_ENABLED
+    ? { ensure: (groupId: number) => escrowRuntime.groupRollouts.ensureEscrowGroups([groupId]) }
+    : null;
 
   const handlerCtx: HandlerCtx = {
     deps, queue, poster, say, supervisor,
@@ -466,6 +470,7 @@ async function main(): Promise<void> {
     ...(escrowRuntime === null ? {} : { escrow: escrowRuntime.telegram }),
     ...(escrowRuntime === null ? {} : { status: { escrowReadiness: probeEscrowReadiness } }),
     ...(replayAdmin === null ? {} : { replayAdmin }),
+    ...(groupIntake === null ? {} : { groupIntake }),
     ...(uiStateStore === null ? {} : { uiState: uiStateStore }),
     ...(ephemeralPort === null ? {} : { ephemeral: ephemeralPort }),
     ...(claimSurfaceStore === null ? {} : { claimSurface: claimSurfaceStore }),
@@ -493,7 +498,11 @@ async function main(): Promise<void> {
   // Historical replay cleanup can require many finalized RPC reads. Keep it
   // fail-closed, but never hold the HTTP health listener behind that backlog:
   // Railway must be able to start the new instance while recovery progresses.
-  void Promise.all(env.ESCROW_ALLOWED_GROUP_IDS.map(async (groupId) => {
+  void (async () => {
+    const recoveryGroupIds = env.PUBLIC_BETA_ENABLED
+      ? (await deps.db.listGroups()).map((group) => group.id)
+      : env.ESCROW_ALLOWED_GROUP_IDS;
+    await Promise.all(recoveryGroupIds.map(async (groupId) => {
     try {
       await supervisor.runGroupExclusive(groupId, async () => {
         const staleReplayMarkets = (await deps.db.openMarketsForGroup(groupId))
@@ -520,7 +529,8 @@ async function main(): Promise<void> {
     } catch {
       log.warn('replay_recovery_failed', { groupId });
     }
-  }));
+    }));
+  })().catch(() => log.warn('replay_recovery_discovery_failed'));
 
   bot.use(async (_context, next) => {
     telegramHeartbeatAtMs = deps.now();

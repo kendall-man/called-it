@@ -47,6 +47,7 @@ export function createEscrowMarketProvisioner(options: {
     readonly maxAttempts: number;
   }) => Promise<InitializeEscrowMarketResult>;
   readonly allowedGroupIds: readonly number[];
+  readonly allowAnyGroup?: boolean;
   readonly oracleSetEpoch: bigint;
   readonly maximumMarketDurationSeconds: bigint;
   readonly maximumResolutionDelaySeconds: bigint;
@@ -63,7 +64,8 @@ export function createEscrowMarketProvisioner(options: {
   return {
     async ensure(market) {
       if (
-        market.custody_mode !== 'escrow' || !groups.has(market.group_id) ||
+        market.custody_mode !== 'escrow' ||
+        (!options.allowAnyGroup && !groups.has(market.group_id)) ||
         (market.currency !== 'sol' && market.currency !== 'usdc')
       ) {
         throw new EscrowMarketProvisioningError('market_not_allowed');

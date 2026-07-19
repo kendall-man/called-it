@@ -201,7 +201,7 @@ async function runPointsCommand(
 export function registerNavigationCommands(bot: NavigationCommandBot, h: NavigationHandlerCtx): void {
   bot.command('start', async (ctx) => {
     if (!isGroup(ctx.chat.type)) {
-      h.poster.post(ctx.chat.id, await h.say('private_start'), {
+      h.poster.post(ctx.chat.id, await h.say('intro'), {
         keyboard: installKeyboard(ctx.me.username),
       });
       return;

@@ -4,9 +4,9 @@ import { isBetaGroupAllowed } from '../bot/beta-access.js';
 
 export function createAllowlistedBackgroundDb(
   db: EngineDb,
-  env: Pick<Env, 'DEPLOYMENT_ENV' | 'BETA_ALLOWED_GROUP_IDS'>,
+  env: Pick<Env, 'DEPLOYMENT_ENV' | 'BETA_ALLOWED_GROUP_IDS' | 'PUBLIC_BETA_ENABLED'>,
 ): EngineDb {
-  if (env.DEPLOYMENT_ENV === 'development') return db;
+  if (env.DEPLOYMENT_ENV === 'development' || env.PUBLIC_BETA_ENABLED) return db;
   const allowedPositionIds = new Set<string>();
   const getMarket = async (marketId: string): Promise<MarketRow | null> => {
     const market = await db.getMarket(marketId);

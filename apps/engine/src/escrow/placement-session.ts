@@ -83,7 +83,11 @@ export function createPlacementSessionCreator(
   dependencies: EscrowPlacementServiceDependencies,
 ): (input: CreateEscrowPlacementInput) => Promise<CreateEscrowPlacementResult> {
   return async (input) => {
-    if (!Number.isSafeInteger(input.groupId) || !dependencies.deployment.allowedGroupIds.includes(input.groupId)) {
+    if (
+      !Number.isSafeInteger(input.groupId) ||
+      (!dependencies.deployment.allowAnyGroup &&
+        !dependencies.deployment.allowedGroupIds.includes(input.groupId))
+    ) {
       throw new EscrowPlacementError('group_not_allowed');
     }
     const readiness = await dependencies.readiness();

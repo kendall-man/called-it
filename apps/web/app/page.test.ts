@@ -14,7 +14,7 @@ describe('landing actions', () => {
 
     // Then
     expect(activeLinkCount).toBe(2);
-    expect(pageSource).toContain('buildTelegramGroupAddUrl');
+    expect(pageSource).toContain('buildTelegramInstallUrl');
     expect(pageSource).toContain('Add to Telegram group');
     expect(pageSource).not.toMatch(/['"]#[^'"]*['"]/);
     expect(pageSource).not.toMatch(/demo|replay|sample|fake/i);
