@@ -16,10 +16,13 @@ interface ActiveReplay {
   speed: number;
   fixture: FixtureRow;
   runStartedAtMs: number;
+  virtualStartedAtMs: number;
   virtualNowMs: number;
   lastEventVirtualMs: number | null;
   firstEventTsMs: number | null;
   wallStartedAtMs: number;
+  lastLagWarningAtMs: number | null;
+  processingLagging: boolean;
   startDelayTimer: ReturnType<typeof setTimeout> | null;
   ending: boolean;
 }
@@ -48,6 +51,8 @@ export interface ReplayConfirmationScheduler {
 }
 
 const REPLAY_PRE_KICKOFF_MS = 10 * 60_000;
+const REPLAY_PROCESSING_LAG_WARNING_MS = 60_000;
+const REPLAY_PROCESSING_LAG_LOG_INTERVAL_MS = 60_000;
 const ACTIVE_PHASE_MINUTE_CEILING: Partial<Record<FixtureRow['phase'], number>> = {
   H1: 45,
   H2: 90,
@@ -133,10 +138,13 @@ export class IngestSupervisor {
           score: {},
         },
         runStartedAtMs: this.deps.now(),
+        virtualStartedAtMs: kickoffMs - REPLAY_PRE_KICKOFF_MS,
         virtualNowMs: kickoffMs - REPLAY_PRE_KICKOFF_MS,
         lastEventVirtualMs: null,
         firstEventTsMs: null,
         wallStartedAtMs: this.deps.now(),
+        lastLagWarningAtMs: null,
+        processingLagging: false,
         startDelayTimer: null,
         ending: false,
       };
@@ -162,6 +170,7 @@ export class IngestSupervisor {
                 this.toReplayEvent(active, event),
                 active.runStartedAtMs,
               );
+              this.recordReplayProcessingLag(active);
             } catch (error) {
               active.ending = true;
               throw error;
@@ -394,6 +403,37 @@ export class IngestSupervisor {
       replay.virtualNowMs = Math.max(replay.virtualNowMs, next);
     }
     return replay.virtualNowMs;
+  }
+
+  private recordReplayProcessingLag(replay: ActiveReplay): void {
+    const nowMs = this.deps.now();
+    const wallElapsedMs = Math.max(0, nowMs - replay.wallStartedAtMs);
+    const virtualElapsedMs = Math.max(0, replay.virtualNowMs - replay.virtualStartedAtMs);
+    const expectedWallElapsedMs = virtualElapsedMs / replay.speed;
+    const lagMs = Math.max(0, Math.round(wallElapsedMs - expectedWallElapsedMs));
+    if (lagMs > REPLAY_PROCESSING_LAG_WARNING_MS) {
+      replay.processingLagging = true;
+      if (
+        replay.lastLagWarningAtMs === null ||
+        nowMs - replay.lastLagWarningAtMs >= REPLAY_PROCESSING_LAG_LOG_INTERVAL_MS
+      ) {
+        replay.lastLagWarningAtMs = nowMs;
+        this.deps.log.warn('replay_processing_lag', {
+          fixtureId: replay.fixtureId,
+          speed: replay.speed,
+          lagMs,
+        });
+      }
+      return;
+    }
+    if (replay.processingLagging) {
+      replay.processingLagging = false;
+      replay.lastLagWarningAtMs = null;
+      this.deps.log.info('replay_processing_lag_recovered', {
+        fixtureId: replay.fixtureId,
+        speed: replay.speed,
+      });
+    }
   }
 
   private projectMinute(replay: ActiveReplay, virtualNowMs: number): number | null {

@@ -83,7 +83,7 @@ export class Settler {
   async onReplayEvent(
     groupId: number,
     event: MatchEvent,
-    replayStartedAtMs: number = Number.NEGATIVE_INFINITY,
+    replayStartedAtMs: number,
   ): Promise<void> {
     const markets = (await this.deps.db.openMarketsForFixture(event.fixtureId))
       .filter((market) =>

@@ -80,20 +80,27 @@ function setup(
     },
   };
   let loadCalls = 0;
+  let marketLookupCalls = 0;
+  const infoLogs: Array<{ event: string; fields: Record<string, unknown> }> = [];
   const deps = {
     db: {
-      async openMarketsForFixture() { return [currentMarket]; },
+      async openMarketsForFixture() { marketLookupCalls += 1; return [currentMarket]; },
       async positionsForMarket() { return []; },
     },
     engine: { reduceMarket },
-    log: { info() {}, error() {} },
+    log: {
+      info(logEvent: string, fields: Record<string, unknown>) {
+        infoLogs.push({ event: logEvent, fields });
+      },
+      error() {},
+    },
   };
   const seen = new Set<string>();
   let enqueueCalls = 0;
   const requests = {
     async enqueue(input: PersistInput) {
       enqueueCalls += 1;
-      if (enqueueCalls === failOnceAt) throw new Error('durable storage unavailable');
+      if (enqueueCalls === failOnceAt) throw new Error('service unavailable');
       const key = JSON.stringify(input, (_name, value) => typeof value === 'bigint' ? String(value) : value);
       const created = !seen.has(key);
       seen.add(key);
@@ -109,7 +116,12 @@ function setup(
     },
     requests, workflow,
   });
-  return { scheduler, persisted, currentMarket, loadCalls: () => loadCalls };
+  return {
+    scheduler, persisted, currentMarket,
+    loadCalls: () => loadCalls,
+    marketLookupCalls: () => marketLookupCalls,
+    infoLogs,
+  };
 }
 
 describe('escrow TxLINE durable event workflow scheduler', () => {
@@ -235,7 +247,7 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
       .toMatchObject({ replay: true, request: { operation: 'settle_market' } });
   });
 
-  it('resumes a prior-run replay escrow market after the engine restarts', async () => {
+  it('excludes a prior-run replay escrow market from the active replay run', async () => {
     const fixture = setup(true);
 
     await fixture.scheduler.onReplayEvent(
@@ -244,10 +256,22 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
       Date.parse('2026-07-16T00:00:00.000Z'),
     );
 
-    expect(fixture.persisted.map((value) => value.request.operation)).toEqual([
-      'freeze_market', 'invalidate_position_lot',
-    ]);
+    expect(fixture.loadCalls()).toBe(0);
+    expect(fixture.persisted).toEqual([]);
   });
+
+  it.each([undefined, Number.NaN, Number.POSITIVE_INFINITY])(
+    'fails closed before market lookup for invalid replay boundary %s',
+    async (replayStartedAtMs) => {
+      const fixture = setup(true);
+
+      await fixture.scheduler.onReplayEvent(GROUP_ID, event(), replayStartedAtMs as number);
+
+      expect(fixture.marketLookupCalls()).toBe(0);
+      expect(fixture.loadCalls()).toBe(0);
+      expect(fixture.persisted).toEqual([]);
+    },
+  );
 
   it.each([
     ['another group', (row: MarketRow) => { row.group_id = GROUP_ID - 1; }],
@@ -279,6 +303,23 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
     expect(fixture.persisted.map((value) => value.request.operation)).toEqual([
       'freeze_market', 'invalidate_position_lot',
     ]);
+    expect(fixture.infoLogs.filter(({ event: logEvent }) => logEvent === 'escrow_replay_event_retry'))
+      .toEqual([
+        expect.objectContaining({ fields: expect.objectContaining({ reason: 'rpc_unavailable' }) }),
+        expect.objectContaining({ fields: expect.objectContaining({ reason: 'rpc_unavailable' }) }),
+      ]);
+  });
+
+  it('labels replay attestation persistence retries without exposing provider errors', async () => {
+    const fixture = setup(true, [], 'escrow', 1);
+
+    await fixture.scheduler.onReplayEvent(GROUP_ID, event(), 0);
+
+    expect(fixture.persisted.map((value) => value.request.operation)).toEqual([
+      'freeze_market', 'invalidate_position_lot',
+    ]);
+    expect(fixture.infoLogs.find(({ event: logEvent }) => logEvent === 'escrow_replay_event_retry'))
+      .toMatchObject({ fields: { reason: 'attestation_storage_unavailable' } });
   });
 
   it('maps cancellation to durable void and ignores duplicate or reordered events', async () => {

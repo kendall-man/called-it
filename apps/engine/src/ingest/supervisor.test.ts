@@ -208,4 +208,54 @@ describe('replay logging privacy', () => {
     await vi.waitFor(() => expect(supervisor.hasActiveReplay(GROUP_ID)).toBe(false));
     expect(failed).toEqual([FIXTURE_ID]);
   });
+
+  it('rate-limits replay processing lag warnings and reports recovery', async () => {
+    const runtime = createTelegramFlowRuntime();
+    let emit: ((event: MatchEvent) => Promise<void>) | undefined;
+    let nowMs = runtime.deps.now();
+    let virtualNowMs = Date.parse(FIXTURE.kickoff_at!) - 10 * 60_000;
+    let processingDelayMs = 0;
+    runtime.deps.tx.createReplaySource = () => ({
+      start(handler) { emit = handler; },
+      stop() {},
+      currentAsOfMs: () => virtualNowMs,
+    });
+    const supervisor = new IngestSupervisor(
+      { ...runtime.deps, now: () => nowMs },
+      {
+        onReplayEvent: async () => { nowMs += processingDelayMs; },
+      } as unknown as typeof runtime.settler,
+    );
+    const replayEvent = (seq: number): MatchEvent => ({
+      kind: 'stat_update', fixtureId: FIXTURE_ID, seq,
+      tsMs: virtualNowMs, receivedAtMs: nowMs, confirmed: true,
+      phase: 'H1', minute: seq,
+      score: {
+        p1: { goals: 0, yellowCards: 0, redCards: 0, corners: 0 },
+        p2: { goals: 0, yellowCards: 0, redCards: 0, corners: 0 },
+        p1Goals90: 0, p2Goals90: 0,
+      },
+    });
+
+    await supervisor.startReplay(GROUP_ID, FIXTURE, REPLAY_SPEED);
+    virtualNowMs = Date.parse(FIXTURE.kickoff_at!);
+    processingDelayMs = 220_000;
+    await emit?.(replayEvent(1));
+
+    virtualNowMs += 60_000;
+    processingDelayMs = 10_000;
+    await emit?.(replayEvent(2));
+    expect(runtime.log.events.filter(({ event }) => event === 'replay_processing_lag')).toHaveLength(1);
+
+    nowMs += 61_000;
+    virtualNowMs += 60_000;
+    processingDelayMs = 0;
+    await emit?.(replayEvent(3));
+    expect(runtime.log.events.filter(({ event }) => event === 'replay_processing_lag')).toHaveLength(2);
+
+    virtualNowMs += 8 * 60_000;
+    await emit?.(replayEvent(4));
+    expect(runtime.log.events.filter(({ event }) => event === 'replay_processing_lag_recovered'))
+      .toHaveLength(1);
+  });
 });

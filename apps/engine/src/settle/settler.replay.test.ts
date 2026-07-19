@@ -167,8 +167,8 @@ describe('Settler replay isolation', () => {
     );
     settler.postReceipt = async () => undefined;
 
-    await expect(settler.onReplayEvent(GROUP_ID, EVENT)).rejects.toThrow('temporary database failure');
-    await settler.onReplayEvent(GROUP_ID, EVENT);
+    await expect(settler.onReplayEvent(GROUP_ID, EVENT, 0)).rejects.toThrow('temporary database failure');
+    await settler.onReplayEvent(GROUP_ID, EVENT, 0);
 
     expect(statusAttempts).toBe(2);
     expect(settlements).toBe(1);
@@ -237,7 +237,7 @@ describe('Settler replay isolation', () => {
     );
 
     // When the replay settles
-    await settler.onReplayEvent(GROUP_ID, EVENT);
+    await settler.onReplayEvent(GROUP_ID, EVENT, 0);
 
     // Then terminal state persists, while the wager ledger remains untouched
     expect(persisted).toEqual(['status', 'settlement']);
@@ -314,7 +314,7 @@ describe('Settler replay isolation', () => {
       null,
     );
 
-    await settler.onReplayEvent(GROUP_ID, EVENT);
+    await settler.onReplayEvent(GROUP_ID, EVENT, 0);
 
     expect(wagerSettlements).toEqual([{ marketId: target.id, requireFullyBacked: true }]);
     expect(receipts.join('\n')).toContain('Alice collects 2 USDC. (mainnet)');

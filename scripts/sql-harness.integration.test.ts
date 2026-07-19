@@ -75,6 +75,126 @@ test('cleans real roles after partial setup failure and preserves pre-existing r
   });
 });
 
+test('0035 repairs the latest finalized market projection and rejects an older snapshot', async () => {
+  const connectionString = requiredDatabaseUrl();
+  const migrations = await discoverMigrationFiles(MIGRATIONS_DIR);
+  const repair = migrations.find(({ name }) =>
+    name === '0035_escrow_reconciliation_projection_repair.sql');
+  assert.ok(repair, 'missing 0035 reconciliation projection repair');
+  const databaseName = createDisposableDatabase();
+
+  await withPgClient(connectionString, async (admin) => {
+    await runSqlHarness({
+      admin,
+      migrationFiles: [repair],
+      databaseName,
+      prepareDatabase: async (disposableDatabase) => {
+        await withDisposableClient(connectionString, disposableDatabase, async (client) => {
+          await client.query(`
+            create table public.escrow_market_links (
+              market_id uuid primary key,
+              cluster text not null,
+              program_id text not null,
+              custody_mode text not null,
+              chain_state text not null,
+              event_epoch numeric(20, 0) not null,
+              projection_stale boolean not null,
+              updated_at timestamptz not null
+            );
+            create table public.escrow_reconciliation_checks (
+              market_id uuid not null,
+              checked_slot bigint not null,
+              cluster text not null,
+              program_id text not null,
+              vault_balance_atomic numeric(20, 0) not null,
+              liability_atomic numeric(20, 0) not null,
+              drift_atomic numeric(21, 0) not null,
+              position_account_count integer not null,
+              status text not null,
+              details jsonb not null,
+              checked_at timestamptz not null,
+              primary key (market_id, checked_slot)
+            );
+            create table public.escrow_reconciliation_state (
+              market_id uuid primary key,
+              checked_slot bigint not null,
+              cluster text not null,
+              program_id text not null,
+              vault_balance_atomic numeric(20, 0) not null,
+              liability_atomic numeric(20, 0) not null,
+              drift_atomic numeric(21, 0) not null,
+              position_account_count integer not null,
+              status text not null,
+              checked_at timestamptz not null
+            );
+            insert into public.escrow_market_links values (
+              '123e4567-e89b-12d3-a456-426614174000', 'devnet', 'program-a',
+              'escrow', 'open', 0, false, '2026-07-19T00:00:00Z'
+            );
+            insert into public.escrow_reconciliation_checks values (
+              '123e4567-e89b-12d3-a456-426614174000', 20, 'devnet', 'program-a',
+              10000000, 10000000, 0, 1, 'in_sync',
+              '{"chainState":"frozen","eventEpoch":"1"}', '2026-07-19T00:01:00Z'
+            );
+            insert into public.escrow_reconciliation_state values (
+              '123e4567-e89b-12d3-a456-426614174000', 20, 'devnet', 'program-a',
+              10000000, 10000000, 0, 1, 'in_sync', '2026-07-19T00:01:00Z'
+            );
+            insert into public.escrow_market_links values (
+              '123e4567-e89b-12d3-a456-426614174001', 'devnet', 'program-a',
+              'escrow', 'settled', 2, false, '2026-07-19T00:03:00Z'
+            );
+            insert into public.escrow_reconciliation_checks values (
+              '123e4567-e89b-12d3-a456-426614174001', 21, 'devnet', 'program-a',
+              10000000, 10000000, 0, 1, 'in_sync',
+              '{"chainState":"frozen","eventEpoch":"1"}', '2026-07-19T00:02:00Z'
+            );
+            insert into public.escrow_reconciliation_state values (
+              '123e4567-e89b-12d3-a456-426614174001', 21, 'devnet', 'program-a',
+              10000000, 10000000, 0, 1, 'in_sync', '2026-07-19T00:02:00Z'
+            );
+          `);
+        });
+      },
+      applyMigration: async (migration, disposableDatabase) => {
+        await withDisposableClient(connectionString, disposableDatabase, async (client) => {
+          await client.query(migration.sql);
+        });
+      },
+      validateSchema: async (disposableDatabase) => {
+        await withDisposableClient(connectionString, disposableDatabase, async (client) => {
+          const repaired = await client.query<{ chain_state: string; event_epoch: string }>(`
+            select chain_state, event_epoch::text
+            from public.escrow_market_links
+            where market_id = '123e4567-e89b-12d3-a456-426614174000'
+          `);
+          assert.deepEqual(repaired.rows[0], { chain_state: 'frozen', event_epoch: '1' });
+          const terminal = await client.query<{ chain_state: string; event_epoch: string }>(`
+            select chain_state, event_epoch::text
+            from public.escrow_market_links
+            where market_id = '123e4567-e89b-12d3-a456-426614174001'
+          `);
+          assert.deepEqual(terminal.rows[0], { chain_state: 'settled', event_epoch: '2' });
+
+          await client.query(`
+            select public.escrow_record_reconciliation(
+              '123e4567-e89b-12d3-a456-426614174000', 'devnet', 'program-a', 19,
+              10000000, 10000000, 1, 'in_sync',
+              '{"chainState":"open","eventEpoch":"0"}', '2026-07-19T00:02:00Z'
+            )
+          `);
+          const afterOlder = await client.query<{ chain_state: string; event_epoch: string }>(`
+            select chain_state, event_epoch::text
+            from public.escrow_market_links
+            where market_id = '123e4567-e89b-12d3-a456-426614174000'
+          `);
+          assert.deepEqual(afterOlder.rows[0], { chain_state: 'frozen', event_epoch: '1' });
+        });
+      },
+    });
+  });
+});
+
 async function assertPublicationMutationRejected(
   mutation: string,
   expectedError: RegExp,
