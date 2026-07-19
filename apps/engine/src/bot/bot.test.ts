@@ -229,6 +229,7 @@ describe('onboarding scopes and lifecycle', () => {
     expect(GROUP_BOT_COMMANDS.map((command) => command.command)).toEqual([
       'bookit',
       'leaderboard',
+      'teamstats',
       'mystats',
       'table',
       'settings',

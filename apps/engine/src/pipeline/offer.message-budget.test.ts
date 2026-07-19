@@ -13,6 +13,7 @@ import { telegramUser } from '../points/telegram-points-flow-telegram.test-suppo
 import type { Deps } from '../ports.js';
 import { registerEscrowMarketProvisioner } from './escrow-market-provisioning.js';
 import { offerClaim } from './offer.js';
+import { encodeReceiptId } from './receipt-id.js';
 
 const LONG_QUOTE = Array.from({ length: 2_000 }, (_, index) =>
   `line ${index + 1} ${'🏆'.repeat(3)}`).join('\n');
@@ -58,12 +59,10 @@ describe('offer Telegram message budget', () => {
       throw new TypeError(`Offer test did not post a market card; markets=${runtime.db.marketList().length}; events=${events}; calls=${calls}`);
     }
     const mandatoryLines = [
-      '⚡ Atlas FC to win: 0 SOL (0 in)',
-      "🛑 Draw or loss: 0 SOL (0 in)",
+      '⚡ Atlas FC to win · 0 SOL · No one yet',
+      '🛑 Draw or loss · 0 SOL · No one yet',
       '🤝 Matched: 0%',
-      'Atlas FC to win: No one yet',
-      "Draw or loss: No one yet",
-      `Receipt: https://calledit.invalid/r/${market.id}`,
+      `Receipt: https://calledit.invalid/r/${encodeReceiptId(market.id)}`,
     ];
     expect(sent.text.length).toBeLessThanOrEqual(4_096);
     for (const line of mandatoryLines) expect(sent.text).toContain(line);

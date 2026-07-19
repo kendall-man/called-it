@@ -32,6 +32,8 @@ export interface SettlementReconcilerOptions {
   readonly reduceMarket: EnginePort['reduceMarket'];
   readonly checkDebounce: EnginePort['checkDebounce'];
   readonly applySettlement: ((marketId: string) => Promise<void>) | null;
+  /** Best-effort immediate terminal card edit; the receipt sweeper remains recovery. */
+  readonly presentTerminal?: (market: MarketRow) => Promise<void>;
   readonly log: Pick<Logger, 'info' | 'warn' | 'error'>;
   readonly now: () => number;
   readonly lookaheadMs: number;
@@ -204,6 +206,11 @@ export class SettlementReconciler {
       tier: market.spec.trustTier,
     });
     await this.options.applySettlement?.(market.id);
+    try {
+      await this.options.presentTerminal?.(market);
+    } catch {
+      this.options.log.warn('settlement_terminal_presentation_failed', { marketId: market.id });
+    }
     this.reconciledMarketIds.add(market.id);
     this.options.log.info('settlement_reconciled', {
       marketId: market.id,
@@ -217,6 +224,7 @@ export class SettlementReconciler {
 export function createSettlementReconciler(
   deps: Deps,
   log: Pick<Logger, 'info' | 'warn' | 'error'>,
+  presentTerminal?: (market: MarketRow) => Promise<void>,
 ): SettlementReconciler {
   return new SettlementReconciler({
     db: deps.db,
@@ -224,6 +232,7 @@ export function createSettlementReconciler(
     reduceMarket: deps.engine.reduceMarket,
     checkDebounce: deps.engine.checkDebounce,
     applySettlement: deps.wager?.applySettlement ?? null,
+    ...(presentTerminal === undefined ? {} : { presentTerminal }),
     log,
     now: deps.now,
     lookaheadMs: ENGINE.LIVE_LOOKAHEAD_MS,

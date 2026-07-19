@@ -12,8 +12,13 @@ import type { User } from 'grammy/types';
 import { TUNABLES } from '@calledit/market-engine';
 import type { ClaimRow, Deps, FixtureRow, GroupRow, MarketRow } from '../ports.js';
 import type { HandlerCtx } from '../bot/context.js';
-import { describeTerms, readingCardText, skeletonCardText } from '../bot/cards.js';
-import { editClaimSurface } from './claim-surface.js';
+import {
+  CLAIM_EXPIRED_LINE,
+  describeTerms,
+  readingCardText,
+  skeletonCardText,
+} from '../bot/cards.js';
+import { closeClaimSurface, editClaimSurface } from './claim-surface.js';
 import {
   confirmKeyboard,
   marketStakeKeyboard,
@@ -58,6 +63,16 @@ function extendedClaimExpiry(deps: Deps): string {
 
 function confirmationExpiry(deps: Deps): string {
   return new Date(deps.now() + SPEAKER_CONFIRM_TTL_MS).toISOString();
+}
+
+/** Close the authoritative pre-mint surface so an expired choice cannot be tapped again. */
+async function expireMintSurface(h: HandlerCtx, claim: ClaimRow): Promise<void> {
+  await h.deps.db.updateClaim(claim.id, { status: 'expired' });
+  if (!closeClaimSurface(h.poster, h.claimSurface, claim, CLAIM_EXPIRED_LINE)) {
+    h.poster.post(claim.group_id, await h.say('window_closed'), {
+      replyToMessageId: claim.tg_message_id,
+    });
+  }
 }
 
 /** Copy key for each way a quote can fail — three situations, three messages. */
@@ -151,7 +166,9 @@ async function establishCardSurface(
   claim: ClaimRow,
   market: MarketRow,
 ): Promise<number | null> {
-  const inherited = h.claimSurface?.get(claim.id);
+  const inherited = h.claimSurface === undefined
+    ? undefined
+    : h.claimSurface.get(claim.id) ?? claim.surface_tg_message_id ?? undefined;
   if (inherited === undefined) return postSkeletonCard(h, claim, market);
   // Persist BEFORE editing so a crash finds the id and a retry heals the same
   // message (repairExistingCard) instead of posting a second card.
@@ -241,10 +258,7 @@ export async function mintOffer(
   }
   const window = checkMintWindow(spec, fixture, replay?.nowMs ?? h.deps.now());
   if (!window.open) {
-    await h.deps.db.updateClaim(claim.id, { status: 'expired' });
-    h.poster.post(claim.group_id, await h.say('window_closed'), {
-      replyToMessageId: claim.tg_message_id,
-    });
+    await expireMintSurface(h, claim);
     return { minted: false };
   }
 
@@ -309,10 +323,7 @@ export async function mintOffer(
     return { kind: 'minted' as const, market, escrowReady, skeletonMessageId };
   });
   if (mintResult.kind === 'closed') {
-    await h.deps.db.updateClaim(claim.id, { status: 'expired' });
-    h.poster.post(claim.group_id, await h.say('window_closed'), {
-      replyToMessageId: claim.tg_message_id,
-    });
+    await expireMintSurface(h, claim);
     return { minted: false };
   }
   const { market, escrowReady, skeletonMessageId } = mintResult;
@@ -470,6 +481,7 @@ async function postConfirmationGate(h: HandlerCtx, claim: ClaimRow): Promise<voi
         // The consent gate is the claim's canonical surface: every later
         // pre-mint state edits this message, and the market card inherits it.
         h.claimSurface?.remember(claim.id, messageId);
+        await h.deps.db.setClaimSurfaceMessage(claim.id, messageId);
         const current = await h.deps.db.getClaim(claim.id);
         if (current?.status !== 'awaiting_confirm') return;
         await h.deps.db.updateClaim(claim.id, {
@@ -500,6 +512,7 @@ async function postReadingShell(h: HandlerCtx, claim: ClaimRow): Promise<void> {
       replyToMessageId: claim.tg_message_id,
       onSent: async (messageId) => {
         h.claimSurface?.remember(claim.id, messageId);
+        await h.deps.db.setClaimSurfaceMessage(claim.id, messageId);
       },
     },
   );

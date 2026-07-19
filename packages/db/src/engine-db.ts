@@ -119,6 +119,7 @@ export interface EngineDb extends GroupPointsDb {
   insertClaim(input: ClaimInsert): Promise<ClaimRow>;
   getClaim(id: string): Promise<ClaimRow | null>;
   updateClaim(id: string, patch: ClaimPatch): Promise<void>;
+  setClaimSurfaceMessage(id: string, tgMessageId: number): Promise<void>;
   /** Flip overdue non-terminal claims to 'expired'; returns the rows expired. */
   expireOverdueClaims(
     nowIso: string,
@@ -364,6 +365,18 @@ export function createEngineDb(url: string, serviceRoleKey: string): EngineDb {
       );
       if (Object.keys(changes).length === 0) return;
       assertOk('updateClaim', await client.from('claims').update(changes).eq('id', id));
+    },
+
+    async setClaimSurfaceMessage(id, tgMessageId) {
+      const result = await client
+        .from('claims')
+        .update({ surface_tg_message_id: tgMessageId })
+        .eq('id', id);
+      // Rolling-deploy compatibility: the in-memory surface remains usable
+      // until migration 0038 reaches the database. Only the exact
+      // missing-column conditions are tolerated; all other writes fail loud.
+      if (result.error?.code === 'PGRST204' || result.error?.code === '42703') return;
+      assertOk('setClaimSurfaceMessage', result);
     },
 
     async expireOverdueClaims(nowIso, allowedGroupIds) {

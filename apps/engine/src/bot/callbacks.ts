@@ -235,8 +235,13 @@ async function handleOption(
     await stale(h, ctx);
     return;
   }
+  const hasAuthoritativeSurface = h.claimSurface?.get(claim.id) !== undefined;
   await answer(ctx, 'Locking it in…');
-  await mintOffer(h, claim, group, envelope, optionKey);
+  const result = await mintOffer(h, claim, group, envelope, optionKey);
+  if (!result.minted && !hasAuthoritativeSurface) {
+    const current = await h.deps.db.getClaim(claim.id);
+    if (current?.status === 'expired') stripCallbackKeyboard(h, ctx);
+  }
 }
 
 /**
@@ -293,6 +298,7 @@ async function handleDecline(h: HandlerCtx, ctx: Context, claimId: string): Prom
       return;
     }
     await voidAbandonedMarket(h.deps, market);
+    await refreshStakeCard(h, market.group_id, market.id);
     await answer(ctx, await h.say('confirm_declined'));
     return;
   }
@@ -320,9 +326,10 @@ async function refreshStakeCard(
   options: { readonly forceLocked?: boolean } = {},
 ): Promise<void> {
   const fresh = await h.deps.db.getMarket(marketId);
-  if (fresh && fresh.card_tg_message_id !== null) {
+  if (fresh && typeof fresh.card_tg_message_id === 'number') {
     const currency = fresh.currency === 'usdc' ? 'usdc' : 'sol';
-    const positionsAvailable = !options.forceLocked && (fresh.is_replay
+    const acceptingPositions = fresh.status === 'open' || fresh.status === 'pending_lineup';
+    const positionsAvailable = acceptingPositions && !options.forceLocked && (fresh.is_replay
       || (h.deps.wager !== null && await h.deps.wager.stakesAvailable(currency)));
     const displayed = options.forceLocked ? { ...fresh, status: 'frozen' as const } : fresh;
     const card = await composeClaimCard(h.deps, displayed, { positionsAvailable });

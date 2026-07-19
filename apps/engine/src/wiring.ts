@@ -167,6 +167,7 @@ export async function createDeps(
   const rawDb = createEngineDb(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
   const db: EngineDb = {
     ...rawDb,
+    setClaimSurfaceMessage: (id, tgMessageId) => rawDb.setClaimSurfaceMessage(id, tgMessageId),
     async insertMarket(input) { return requireMarketCustody(await rawDb.insertMarket(input)); },
     async getMarket(id) {
       const market = await rawDb.getMarket(id);

@@ -266,6 +266,110 @@ describe('legacy and mixed source behavior', () => {
     });
   });
 
+  it('keeps valid legacy group data when a historical escrow row is malformed', async () => {
+    const results = {
+      public_receipts: ok([legacyReceiptRow()]),
+      public_group_board: ok([legacyReceiptRow()]),
+      public_escrow_receipts: ok([escrowReceiptRow({
+        market_id: LEGACY_MARKET_ID,
+        custody_version: null,
+      })]),
+    };
+
+    const receipts = await fetchGroupReceipts(fakeClient(results).client, 'called-it-testers');
+    const board = await fetchGroupBoard(fakeClient(results).client, 'called-it-testers');
+
+    expect(receipts).toMatchObject({
+      ok: true,
+      data: [{ marketId: LEGACY_MARKET_ID }],
+    });
+    expect(board).toMatchObject({
+      ok: true,
+      data: [{ marketId: LEGACY_MARKET_ID }],
+    });
+
+    // A direct receipt is an integrity boundary and must not hide the poisoned
+    // escrow record behind its legacy projection.
+    await expect(fetchReceipt(fakeClient(results).client, LEGACY_MARKET_ID)).resolves.toEqual({ ok: false });
+  });
+
+  it('falls back only for missing rollout views, not permission or query failures', async () => {
+    const legacyOnly = {
+      public_receipts: ok([legacyReceiptRow()]),
+      public_group_board: ok([legacyReceiptRow()]),
+      public_escrow_receipts: failed('42501'),
+    };
+    const escrowOnly = {
+      public_receipts: failed('PGRST301'),
+      public_group_board: failed('PGRST301'),
+      public_escrow_receipts: ok([escrowReceiptRow()]),
+      public_escrow_position_aggregates: ok([]),
+      public_escrow_claim_transactions: ok([]),
+    };
+
+    await expect(fetchGroupReceipts(fakeClient(legacyOnly).client, 'called-it-testers'))
+      .resolves.toEqual({ ok: false });
+    await expect(fetchGroupBoard(fakeClient(legacyOnly).client, 'called-it-testers'))
+      .resolves.toEqual({ ok: false });
+    await expect(fetchGroupReceipts(fakeClient(escrowOnly).client, 'called-it-testers'))
+      .resolves.toEqual({ ok: false });
+    await expect(fetchGroupBoard(fakeClient(escrowOnly).client, 'called-it-testers'))
+      .resolves.toEqual({ ok: false });
+  });
+
+  it('fails closed for source-level invalid escrow group data', async () => {
+    const results = {
+      public_receipts: ok([legacyReceiptRow()]),
+      public_group_board: ok([legacyReceiptRow()]),
+      public_escrow_receipts: ok([escrowReceiptRow()]),
+      public_escrow_position_aggregates: ok(null),
+      public_escrow_claim_transactions: ok([]),
+    };
+
+    await expect(fetchGroupReceipts(fakeClient(results).client, 'called-it-testers'))
+      .resolves.toEqual({ ok: false });
+    await expect(fetchGroupBoard(fakeClient(results).client, 'called-it-testers'))
+      .resolves.toEqual({ ok: false });
+  });
+
+  it('drops only the escrow market whose auxiliary rows are malformed', async () => {
+    const client = fakeClient({
+      public_receipts: unavailable(),
+      public_group_board: unavailable(),
+      public_escrow_receipts: ok([
+        escrowReceiptRow(),
+        escrowReceiptRow({ market_id: OTHER_MARKET_ID, created_at: '2029-11-30T00:00:00.000Z' }),
+      ]),
+      public_escrow_position_aggregates: ok([
+        aggregateRow(),
+        aggregateRow({ market_id: OTHER_MARKET_ID, amount_atomic: '-1' }),
+      ]),
+      public_escrow_claim_transactions: ok([]),
+    }).client;
+
+    const receipts = await fetchGroupReceipts(client, 'called-it-testers');
+    const board = await fetchGroupBoard(client, 'called-it-testers');
+
+    expect(receipts.ok && receipts.data?.map((row) => row.marketId)).toEqual([MARKET_ID]);
+    expect(board.ok && board.data?.map((row) => row.marketId)).toEqual([MARKET_ID]);
+  });
+
+  it('keeps the legacy market when its group escrow copy contradicts public identity', async () => {
+    const results = {
+      public_receipts: ok([legacyMatchingEscrowRow()]),
+      public_group_board: ok([legacyMatchingEscrowRow()]),
+      public_escrow_receipts: ok([escrowReceiptRow({ group_slug: 'another-group' })]),
+      public_escrow_position_aggregates: ok([]),
+      public_escrow_claim_transactions: ok([]),
+    };
+
+    const receipts = await fetchGroupReceipts(fakeClient(results).client, 'called-it-testers');
+    const board = await fetchGroupBoard(fakeClient(results).client, 'called-it-testers');
+
+    expect(receipts).toMatchObject({ ok: true, data: [{ groupSlug: 'called-it-testers' }] });
+    expect(board).toMatchObject({ ok: true, data: [{ groupSlug: 'called-it-testers' }] });
+  });
+
   it('rejects contradictory legacy/escrow rows and conflicting escrow duplicates', async () => {
     const contradictory = fakeClient({
       public_receipts: ok([legacyMatchingEscrowRow({ group_slug: 'another-group' })]),
@@ -342,6 +446,10 @@ function ok(data: unknown): FakeResult {
 
 function unavailable(): FakeResult {
   return { data: null, error: { code: 'PGRST205' } };
+}
+
+function failed(code: string): FakeResult {
+  return { data: null, error: { code } };
 }
 
 function fakeClient(results: Readonly<Record<string, FakeResult>>): {

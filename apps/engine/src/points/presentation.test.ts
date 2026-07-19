@@ -84,7 +84,7 @@ describe('participantLabel', () => {
 });
 
 describe('sideListText', () => {
-  it('shows at most five labels followed by the exact overflow count', () => {
+  it('shows at most three labels followed by a compact exact overflow count', () => {
     // Given
     const participants = ['Alice', 'Bob', 'Carol', 'Dana', 'Eve', 'Finn', 'Gina'].map(
       (displayName) => ({ username: null, displayName }),
@@ -94,7 +94,9 @@ describe('sideListText', () => {
     const text = sideListText(participants, 4_096);
 
     // Then
-    expect(text).toBe('Alice, Bob, Carol, Dana, Eve, and 2 more');
+    expect(text).toBe('Alice, Bob, Carol +4');
+    expect(text).not.toContain('Dana');
+    expect(text).not.toContain('Eve');
     expect(text).not.toContain('Finn');
     expect(text).not.toContain('Gina');
   });

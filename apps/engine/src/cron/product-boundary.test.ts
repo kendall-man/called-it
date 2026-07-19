@@ -18,8 +18,17 @@ async function seedAbandonedMarket(input: {
   readonly groupId: number;
   readonly sequence: number;
 }): Promise<MarketRow> {
-  return input.runtime.db.insertMarket({
-    claim_id: `abandoned-claim-${input.sequence}`,
+  const claim = await input.runtime.db.insertClaim({
+    group_id: input.groupId,
+    claimer_user_id: 91_000,
+    tg_message_id: 600 + input.sequence,
+    quoted_text: 'Atlas FC will win',
+    status: 'confirmed',
+    classifier_confidence: 1,
+    expires_at: null,
+  });
+  const market = await input.runtime.db.insertMarket({
+    claim_id: claim.id,
     group_id: input.groupId,
     fixture_id: FIXTURE_ID,
     spec: {
@@ -40,6 +49,10 @@ async function seedAbandonedMarket(input: {
     odds_ts: null,
     currency: 'sol',
   });
+  await input.runtime.db.setMarketCardMessage(market.id, 700 + input.sequence);
+  const persisted = await input.runtime.db.getMarket(market.id);
+  if (persisted === null) throw new TypeError('Seeded abandoned market disappeared');
+  return persisted;
 }
 
 describe('cron product background boundary', () => {
@@ -112,7 +125,15 @@ describe('cron product background boundary', () => {
       markets[0]?.id,
     ]);
     expect(runtime.wager.appliedSettlements).toEqual([markets[0]?.id]);
-    expect(runtime.transport.calls).toEqual([]);
+    const terminalEdits = runtime.transport.calls.filter(
+      (call) => call.method === 'editMessageText',
+    );
+    expect(terminalEdits).toHaveLength(1);
+    expect(terminalEdits[0]).toMatchObject({
+      chatId: GROUP_ONE_ID,
+      messageId: 701,
+    });
+    expect(terminalEdits[0]?.text).toContain('Call off');
     expect(runtime.log.events.filter((entry) => entry.event.includes('send_failed'))).toEqual([]);
   });
 

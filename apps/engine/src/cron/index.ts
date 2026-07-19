@@ -154,7 +154,7 @@ export async function sweepUnpostedSettlements(
  * showed, so the SOL never moved". Replay markets are exempt (they run on a
  * virtual clock and settle themselves).
  */
-async function voidAbandonedMarkets(deps: Deps): Promise<void> {
+async function voidAbandonedMarkets(deps: Deps, poster: Poster): Promise<void> {
   try {
     const backgroundDb = createAllowlistedBackgroundDb(deps.db, deps.env);
     const groups = await backgroundDb.listGroups();
@@ -167,6 +167,17 @@ async function voidAbandonedMarkets(deps: Deps): Promise<void> {
         const positions = await backgroundDb.positionsForMarket(market.id);
         if (positions.some((position) => position.state !== 'void')) continue; // someone bet
         await voidAbandonedMarket({ db: backgroundDb, wager: deps.wager, log: deps.log }, market);
+        if (market.card_tg_message_id !== null) {
+          const terminal = { ...market, status: 'voided' as const };
+          const card = await composeClaimCard(
+            { ...deps, db: backgroundDb },
+            terminal,
+            { positionsAvailable: false },
+          );
+          if (card !== null && card.messageId !== null) {
+            poster.editCard(card.chatId, market.id, card.messageId, card.text);
+          }
+        }
       }
     }
   } catch {
@@ -315,7 +326,7 @@ export function startCrons(args: {
       void (async () => {
         await expireClaims(deps, poster, claimSurface);
         await sweepUnpostedSettlements(deps, settler, sweeperInFlight, poster);
-        await voidAbandonedMarkets(deps);
+        await voidAbandonedMarkets(deps, poster);
         if (escrowPausedCards !== undefined) {
           await recoverPausedEscrowCards(deps, poster, escrowPausedCards, recoveredPausedCards);
         }

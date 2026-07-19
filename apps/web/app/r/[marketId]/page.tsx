@@ -14,6 +14,7 @@ import { PROVENANCE_COPY } from '@/lib/spec-terms';
 import { createAnonServerClient } from '@/lib/supabase';
 import { buildTimeline } from '@/lib/timeline';
 import { isMainnet } from '@/lib/solana-network';
+import { canonicalReceiptId, encodeReceiptId } from '@/lib/receipt-id';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,14 +76,16 @@ export default async function ReceiptPage({
   params: Promise<{ marketId: string }>;
 }) {
   const mainnet = isMainnet();
-  const { marketId } = await params;
-  if (!isPublicMarketId(marketId)) notFound();
+  const { marketId: routeReceiptId } = await params;
+  const marketId = canonicalReceiptId(routeReceiptId);
+  if (!marketId || !isPublicMarketId(marketId)) notFound();
+  const publicReceiptId = encodeReceiptId(marketId) ?? routeReceiptId;
 
   const client = createAnonServerClient();
   if (!client) return <AwaitingConfiguration />;
 
   const receiptResult = await fetchReceipt(client, marketId);
-  if (!receiptResult.ok) return <DataUnavailable retryHref={`/r/${marketId}`} />;
+  if (!receiptResult.ok) return <DataUnavailable retryHref={`/r/${publicReceiptId}`} />;
   const receipt = receiptResult.data;
   if (!receipt) notFound();
 
@@ -209,7 +212,7 @@ export default async function ReceiptPage({
         </div>
         {evidenceState === 'unavailable' ? (
           <Link
-            href={`/r/${receipt.marketId}`}
+            href={`/r/${publicReceiptId}`}
             className="mt-4 inline-flex min-h-11 items-center text-sm font-semibold text-pitch-300 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
           >
             Try match events again

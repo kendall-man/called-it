@@ -4,6 +4,7 @@ import { TEST_BOT_TOKEN } from './telegram-points-flow-telegram.test-support.js'
 import { TelegramPointsFlowHarness } from './telegram-points-flow.test-support.js';
 import { RUNTIME_TELEGRAM_TOKEN_SENTINEL } from './telegram-points-flow-runtime.test-support.js';
 import { WALLET_ADDRESS_SENTINEL } from './telegram-points-flow-wager.test-support.js';
+import { encodeReceiptId } from '../pipeline/receipt-id.js';
 import {
   ALICE_ID,
   BOB_ID,
@@ -29,9 +30,11 @@ function requiredCall(
 }
 
 function marketReceipt(calls: readonly TelegramCall[], marketId: string): TelegramCall {
+  const receiptId = encodeReceiptId(marketId);
+  if (receiptId === null) throw new MissingObservation(`receipt-id:${marketId}`);
   return requiredCall(
     calls,
-    (call) => call.text?.includes('🧾 RECEIPT') === true && call.text.includes(marketId),
+    (call) => call.text?.includes('🏁 RESULT') === true && call.text.includes(receiptId),
     `receipt:${marketId}`,
   );
 }
@@ -46,8 +49,9 @@ describe('Telegram group points flow', () => {
     await harness.tap(first, BOB_ID, 'doubt');
     const firstCard = requiredCall(
       harness.runtime.transport.calls,
-      (call) => call.method === 'editMessageText' && call.text?.includes(first.id) === true
-        && call.text.includes('@alice_calls') && call.text.includes("Draw or loss: Bob"),
+      (call) => call.method === 'editMessageText'
+        && call.text?.includes(encodeReceiptId(first.id) ?? first.id) === true
+        && call.text.includes('@alice_calls') && call.text.includes('Draw or loss · 0.01 SOL · Bob'),
       'first populated card',
     );
 
@@ -75,14 +79,14 @@ describe('Telegram group points flow', () => {
         method: call.method,
         chatId: call.chatId,
         locked: call.text?.includes('🚦 Calls locked') === true,
-        receipt: call.text?.includes('🧾 RECEIPT') === true,
+        receipt: call.text?.includes('🏁 RESULT') === true,
       }))).toEqual([
       { method: 'editMessageText', chatId: GROUP_ONE_ID, locked: true, receipt: false },
     ]);
     expect(harness.runtime.log.events.some((event) => event.event === 'group_points_applied')).toBe(false);
     expect(firstCard.chatId).toBe(GROUP_ONE_ID);
-    expect(firstCard.text).toContain('Atlas FC to win: @alice_calls');
-    expect(firstCard.text).toContain("Draw or loss: Bob");
+    expect(firstCard.text).toContain('Atlas FC to win · 0.01 SOL · @alice_calls');
+    expect(firstCard.text).toContain('Draw or loss · 0.01 SOL · Bob');
     expect(firstCard.text).not.toMatch(/It (?:happens|does not):[^\n]*@dee_calls/);
 
     // When Telegram repeats the terminal update, the real event path deduplicates it
@@ -148,7 +152,8 @@ describe('Telegram group points flow', () => {
     }
     expect([first, second, third].map((market) => harness.runtime.db.applyCount(market.id))).toEqual([2, 1, 1]);
     for (const [market, groupId] of [[first, GROUP_ONE_ID], [second, GROUP_ONE_ID], [third, GROUP_TWO_ID]] as const) {
-      const messages = harness.runtime.transport.calls.filter((call) => call.text?.includes(market.id));
+      const receiptId = encodeReceiptId(market.id) ?? market.id;
+      const messages = harness.runtime.transport.calls.filter((call) => call.text?.includes(receiptId));
       expect(messages.length).toBeGreaterThan(0);
       expect(messages.every((call) => call.chatId === groupId)).toBe(true);
     }
@@ -234,23 +239,25 @@ describe('Telegram group points flow', () => {
     // When each latest public card is read from the real Telegram edit stream
     const groupOneCard = requiredCall(
       harness.runtime.transport.calls,
-      (call) => call.chatId === GROUP_ONE_ID && call.text?.includes(groupOne.id) === true
-        && call.text.includes("Draw or loss: Bob"),
+      (call) => call.chatId === GROUP_ONE_ID
+        && call.text?.includes(encodeReceiptId(groupOne.id) ?? groupOne.id) === true
+        && call.text.includes('Draw or loss · 0.01 SOL · Bob'),
       'group-one populated card',
     );
     const groupTwoCard = requiredCall(
       harness.runtime.transport.calls,
-      (call) => call.chatId === GROUP_TWO_ID && call.text?.includes(groupTwo.id) === true
-        && call.text.includes("Draw or loss: @cara_calls"),
+      (call) => call.chatId === GROUP_TWO_ID
+        && call.text?.includes(encodeReceiptId(groupTwo.id) ?? groupTwo.id) === true
+        && call.text.includes('Draw or loss · 0.01 SOL · @cara_calls'),
       'group-two populated card',
     );
 
     // Then intended labels stay in their origin group and cross-group names are absent
-    expect(groupOneCard.text).toContain('Atlas FC to win: @alice_calls');
-    expect(groupOneCard.text).toContain("Draw or loss: Bob");
+    expect(groupOneCard.text).toContain('Atlas FC to win · 0.01 SOL · @alice_calls');
+    expect(groupOneCard.text).toContain('Draw or loss · 0.01 SOL · Bob');
     expect(groupOneCard.text).not.toContain('@cara_calls');
-    expect(groupTwoCard.text).toContain('Cygnus FC to win: @alice_calls');
-    expect(groupTwoCard.text).toContain("Draw or loss: @cara_calls");
+    expect(groupTwoCard.text).toContain('Cygnus FC to win · 0.01 SOL · @alice_calls');
+    expect(groupTwoCard.text).toContain('Draw or loss · 0.01 SOL · @cara_calls');
     expect(groupTwoCard.text).not.toMatch(/It (?:happens|does not):[^\n]*Bob/);
   });
 });

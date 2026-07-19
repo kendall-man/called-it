@@ -6,6 +6,7 @@ import { TELEGRAM_MESSAGE_LIMIT } from '../points/presentation.js';
 import { Settler } from './settler.js';
 import { createSettlementHarness } from './group-points-settlement.test-support.js';
 import { testWager } from './group-points-settlement-recovery.test-support.js';
+import { encodeReceiptId } from '../pipeline/receipt-id.js';
 
 const BROKEN_SURROGATE =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u;
@@ -77,7 +78,7 @@ describe('group points settlement Telegram budget', () => {
     expect(text).not.toMatch(BROKEN_SURROGATE);
   });
 
-  it('preserves authoritative overflow, payout, top five, trust, and receipt lines', async () => {
+  it('preserves authoritative overflow, payout, compact trust, and receipt lines', async () => {
     const { harness, text } = await adversarialReceipt();
     const label = '🏆'.repeat(32);
     const ten = Array.from({ length: 10 }, () => label).join(', ');
@@ -85,17 +86,11 @@ describe('group points settlement Telegram budget', () => {
       `💠 ${PAYOUT}`,
       `Winners (+10 points): ${ten}, and 50 more`,
       `Misses (+0 points): ${ten}, and 30 more`,
-      ...LEADERBOARD.map((entry, index) => {
-        const rank = ['1st', '2nd', '3rd', '4th', '5th'][index];
-        const accuracy = Math.round((entry.wins / (entry.wins + entry.losses)) * 100);
-        const wins = `${entry.wins} ${entry.wins === 1 ? 'win' : 'wins'}`;
-        const losses = `${entry.losses} ${entry.losses === 1 ? 'loss' : 'losses'}`;
-        return `${rank}. ${label} - ${entry.points} points, ${wins}, ${losses}, ${accuracy}% accuracy`;
-      }),
-      '🔏 Oracle-resolved. Settled from the signed data feed',
-      `Receipt: https://web.invalid/r/${harness.market.id}`,
+      '🔏 Oracle-resolved · Signed data feed',
+      `Receipt: https://web.invalid/r/${encodeReceiptId(harness.market.id)}`,
     ];
 
     for (const line of mandatoryLines) expect(text).toContain(line);
+    expect(text).not.toContain('Group leaderboard');
   });
 });

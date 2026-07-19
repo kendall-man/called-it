@@ -74,6 +74,7 @@ export interface EngineDb {
     id: string,
     patch: Partial<{ status: ClaimStatus; parse: unknown; expires_at: string | null }>,
   ): Promise<void>;
+  setClaimSurfaceMessage(id: string, tgMessageId: number): Promise<void>;
   expireOverdueClaims(
     nowIso: string,
     allowedGroupIds?: readonly number[],

@@ -12,6 +12,7 @@ import {
 } from '../bot/callbacks.stake.test-support.js';
 import { dispatchCallback } from '../bot/callbacks.js';
 import { composeClaimCard } from './render.js';
+import { encodeReceiptId } from './receipt-id.js';
 
 const POSITIONS = [
   {
@@ -132,17 +133,17 @@ describe('composeClaimCard participant projection', () => {
     expect(userReads).toEqual([USER_A]);
     expect(card?.text).toContain(
       [
-        '⚡ Brazil to win: 0.03 SOL (2 in)',
-        "🛑 Draw or loss: 0.03 SOL (2 in)",
+        '⚡ Brazil to win · 0.03 SOL · @alice_calls, Cara',
+        '🛑 Draw or loss · 0.03 SOL · Bob',
         '🤝 Matched: 100%',
-        'Brazil to win: @alice_calls, Cara',
-        "Draw or loss: Bob",
       ].join('\n'),
     );
     expect(card?.text.split('Bob')).toHaveLength(2);
     expect(card?.text).not.toContain('and 1 more');
     expect(card?.text).not.toMatch(/\u0000|\u202e/u);
-    expect(card?.text).toContain(`Receipt: https://web.test/r/${MARKET_ID}`);
+    expect(card?.text).toContain(
+      `Receipt: https://web.test/r/${encodeReceiptId(MARKET_ID)}`,
+    );
     // Voice rule: routine cards repeat no value disclaimers.
     expect(card?.text).not.toContain('no monetary value');
   });
@@ -187,8 +188,8 @@ describe('composeClaimCard participant projection', () => {
     expect(posts).toEqual([]);
     expect(edits.join('\n')).toContain(
       [
-        'Brazil to win: @alice_calls',
-        "Draw or loss: No one yet",
+        '⚡ Brazil to win · 0.01 SOL · @alice_calls',
+        '🛑 Draw or loss · 0 SOL · No one yet',
       ].join('\n'),
     );
   });

@@ -8,6 +8,11 @@ import type {
 } from '@/lib/receipts';
 import { Badge, type BadgeTone } from './ui';
 import { EscrowBoardSummary } from './escrow-receipt';
+import { encodeReceiptId } from '@/lib/receipt-id';
+
+function receiptHref(marketId: string): string {
+  return `/r/${encodeReceiptId(marketId) ?? marketId}`;
+}
 
 const OUTCOME_CHIP: Record<ReceiptOutcome, { tone: BadgeTone; label: string }> = {
   claim_won: { tone: 'pitch', label: 'Yes won' },
@@ -88,7 +93,7 @@ export function ReceiptRow({ receipt }: { receipt: PublicReceipt }) {
   const chip = statusChip(receipt);
   return (
     <Link
-      href={`/r/${receipt.marketId}`}
+      href={receiptHref(receipt.marketId)}
       className="group flex min-h-11 items-center gap-3 border border-transparent px-2 py-2.5 transition-colors hover:border-line hover:bg-night-800/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
     >
       <span className="display-type w-14 shrink-0 text-right text-xl text-chalk">
@@ -126,7 +131,7 @@ export function BoardMarketRow({ market }: { market: PublicGroupBoardMarket }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <Link
-            href={`/r/${market.marketId}`}
+            href={receiptHref(market.marketId)}
             className="block text-base font-semibold text-chalk underline decoration-line underline-offset-4 hover:text-pitch-300 hover:decoration-pitch-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
           >
             {market.terms.text}

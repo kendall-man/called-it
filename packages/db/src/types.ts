@@ -278,6 +278,8 @@ export interface ClaimRow {
   classifier_confidence: number | null;
   /** jsonb envelope: RawClaimParse plus compiled candidate specs. */
   parse: unknown;
+  /** Canonical pre-mint Telegram message, persisted for restart-safe edits. */
+  surface_tg_message_id?: number | null;
   expires_at: string | null;
   created_at: string;
 }

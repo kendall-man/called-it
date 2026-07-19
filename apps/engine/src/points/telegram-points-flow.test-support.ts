@@ -49,7 +49,7 @@ export type OutboundStep = {
 function outboundKind(method: string, text: string | null): string {
   if (method === 'answerCallbackQuery') return 'choice-toast';
   if (text === null) return 'metadata';
-  if (text.includes('🧾 RECEIPT')) return 'receipt';
+  if (text.includes('🏁 RESULT')) return 'receipt';
   if (text.startsWith('Group leaderboard')) return 'leaderboard';
   if (text.startsWith('Your group stats')) return 'mystats';
   if (text.includes('🎙 THE CALL')) {

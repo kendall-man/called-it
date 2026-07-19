@@ -12,7 +12,7 @@ import type { CompileResult, MarketSpec } from '@calledit/market-engine';
 import type { Context } from 'grammy';
 import type { HandlerCtx } from '../bot/context.js';
 import type { ClaimRow, GroupRow } from '../ports.js';
-import { CLAIM_DECLINED_LINE } from '../bot/cards.js';
+import { CLAIM_DECLINED_LINE, CLAIM_EXPIRED_LINE } from '../bot/cards.js';
 import {
   CALLER_ID,
   CALL_FIXTURES,
@@ -27,7 +27,7 @@ import {
   telegramUser,
 } from '../points/telegram-points-flow-telegram.test-support.js';
 import { ClaimSurfaceStore } from './claim-surface.js';
-import { offerClaim } from './offer.js';
+import { mintOffer, offerClaim } from './offer.js';
 import { dispatchCallback } from '../bot/callbacks.js';
 
 const SOURCE_MESSAGE_ID = 700;
@@ -114,6 +114,7 @@ describe('single-message claim lifecycle (STAKE_LADDER_ENABLED)', () => {
     const sends = setup.runtime.transport.calls.filter((call) => call.method === 'sendMessage');
     expect(sends).toHaveLength(1);
     expect(setup.claimSurface.get(claim.id)).toBe(gateId);
+    expect((await setup.runtime.db.getClaim(claim.id))?.surface_tg_message_id).toBe(gateId);
     // Nothing public before confirm: no card message yet.
     expect(cardSends(setup.runtime)).toHaveLength(0);
   });
@@ -132,7 +133,9 @@ describe('single-message claim lifecycle (STAKE_LADDER_ENABLED)', () => {
     // The offer card arrives as an EDIT of the gate; never a fresh card post.
     expect(cardSends(setup.runtime)).toHaveLength(0);
     const fullCard = setup.runtime.transport.calls.find(
-      (call) => call.method === 'editMessageText' && (call.text?.includes('Feed says') ?? false),
+      (call) => call.method === 'editMessageText'
+        && (call.text?.includes('📈') ?? false)
+        && (call.text?.includes('Calls open') ?? false),
     );
     expect(fullCard?.messageId).toBe(gateId);
   });
@@ -214,7 +217,9 @@ describe('single-message claim lifecycle (STAKE_LADDER_ENABLED)', () => {
       ),
     ).toBe(false);
     const fullCard = setup.runtime.transport.calls.find(
-      (call) => call.method === 'editMessageText' && (call.text?.includes('Feed says') ?? false),
+      (call) => call.method === 'editMessageText'
+        && (call.text?.includes('📈') ?? false)
+        && (call.text?.includes('Calls open') ?? false),
     );
     expect(fullCard?.messageId).toBe(shell.messageId);
   });
@@ -232,6 +237,60 @@ describe('single-message claim lifecycle (STAKE_LADDER_ENABLED)', () => {
     expect(closeEdit?.messageId).toBe(gateId);
     expect((await setup.runtime.db.getClaim(claim.id))?.status).toBe('declined');
     expect(setup.claimSurface.get(claim.id)).toBeUndefined();
+  });
+
+  it('closes the same surface and removes its keyboard when the mint window has expired', async () => {
+    const setup = ladderSetup();
+    const { claim, gateId } = await postPassiveGate(setup);
+    const fixture = await setup.runtime.db.getFixture(BASE_SPEC.fixtureId);
+    if (fixture === null) throw new TypeError('Expiry fixture is missing');
+    setup.runtime.db.seedFixture({
+      ...fixture,
+      kickoff_at: new Date(setup.runtime.deps.now() - 60_000).toISOString(),
+      phase: 'H1',
+      minute: 120,
+    });
+
+    const result = await mintOffer(setup.h, claim, setup.group, {
+      raw: null,
+      kind: 'ok',
+      options: [{ key: 'ok', label: 'As stated', spec: BASE_SPEC }],
+    }, 'ok');
+    await setup.runtime.queue.idle();
+
+    expect(result.minted).toBe(false);
+    expect((await setup.runtime.db.getClaim(claim.id))?.status).toBe('expired');
+    const closeEdit = setup.runtime.transport.calls.find(
+      (call) => call.method === 'editMessageText' && call.text === CLAIM_EXPIRED_LINE,
+    );
+    expect(closeEdit).toMatchObject({ messageId: gateId });
+    expect(setup.claimSurface.get(claim.id)).toBeUndefined();
+  });
+
+  it('closes the same surface when a replay ends inside the mint lock', async () => {
+    const setup = ladderSetup();
+    const { claim, gateId } = await postPassiveGate(setup);
+    const fixture = await setup.runtime.db.getFixture(BASE_SPEC.fixtureId);
+    if (fixture === null) throw new TypeError('Replay expiry fixture is missing');
+    await setup.h.supervisor.startReplay(setup.group.id, fixture);
+    const runExclusive = setup.h.supervisor.runGroupExclusive.bind(setup.h.supervisor);
+    setup.h.supervisor.runGroupExclusive = async (groupId, task) => {
+      setup.h.supervisor.stopReplay(groupId);
+      return runExclusive(groupId, task);
+    };
+
+    const result = await mintOffer(setup.h, claim, setup.group, {
+      raw: null,
+      kind: 'ok',
+      options: [{ key: 'ok', label: 'As stated', spec: BASE_SPEC }],
+    }, 'ok');
+    await setup.runtime.queue.idle();
+
+    expect(result.minted).toBe(false);
+    expect((await setup.runtime.db.getClaim(claim.id))?.status).toBe('expired');
+    expect(setup.runtime.transport.calls.find(
+      (call) => call.method === 'editMessageText' && call.text === CLAIM_EXPIRED_LINE,
+    )).toMatchObject({ messageId: gateId });
   });
 });
 

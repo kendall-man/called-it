@@ -211,14 +211,15 @@ export class TelegramFlowDb implements EngineDb {
     const inserted = !this.ledgers.has(entry.idempotency_key); this.ledgers.add(entry.idempotency_key); return { inserted };
   }
   async hasLedgerEntry(key: string): Promise<boolean> { return this.ledgers.has(key); }
-  async insertClaim(input: Omit<ClaimRow, 'id' | 'parse' | 'created_at'>): Promise<ClaimRow> {
-    const id = this.uuid(1, this.claimSequence++); const row = { ...input, id, parse: null, created_at: new Date(this.now()).toISOString() };
+  async insertClaim(input: Omit<ClaimRow, 'id' | 'parse' | 'surface_tg_message_id' | 'created_at'>): Promise<ClaimRow> {
+    const id = this.uuid(1, this.claimSequence++); const row = { ...input, id, parse: null, surface_tg_message_id: null, created_at: new Date(this.now()).toISOString() };
     this.claims.set(id, row); return row;
   }
   async getClaim(id: string): Promise<ClaimRow | null> { return this.claims.get(id) ?? null; }
   async updateClaim(id: string, patch: Partial<{ status: ClaimRow['status']; parse: unknown; expires_at: string | null }>): Promise<void> {
     const row = this.claims.get(id); if (row) this.claims.set(id, { ...row, ...patch });
   }
+  async setClaimSurfaceMessage(id: string, messageId: number): Promise<void> { const row = this.claims.get(id); if (row) this.claims.set(id, { ...row, surface_tg_message_id: messageId }); }
   async expireOverdueClaims(): Promise<ClaimRow[]> { return []; }
   async insertMarket(input: Omit<MarketRow, 'id' | 'card_tg_message_id' | 'created_at' | 'custody_mode'>): Promise<MarketRow> {
     const id = this.uuid(2, this.marketSequence++); const row = { ...input, id, custody_mode: 'legacy' as const, card_tg_message_id: null, created_at: new Date(this.now()).toISOString() };

@@ -40,7 +40,7 @@ export type PersonalStats = {
 const TELEGRAM_USERNAME = /^(?![0-9]{5,32}$)[A-Za-z0-9_]{5,32}$/;
 const NON_VISIBLE_RUN = /[\p{White_Space}\p{Cc}\p{Cf}\p{Cs}]+/gu;
 const PARTICIPANT_LABEL_CODE_POINTS = 32;
-const SIDE_LIST_LIMIT = 5;
+const SIDE_LIST_LIMIT = 3;
 const SETTLEMENT_LIST_LIMIT = 10;
 function participantList(
   participants: readonly ParticipantIdentity[],
@@ -91,10 +91,20 @@ export function sideListText(
 ): string {
   const normalizedTotal = normalizedCount(totalCount) ?? participants.length;
   if (normalizedTotal > 0) {
-    return truncateUtf16(
-      participantList(participants, SIDE_LIST_LIMIT, normalizedTotal),
-      maxLength,
-    );
+    const labels = participants
+      .slice(0, Math.min(SIDE_LIST_LIMIT, normalizedTotal))
+      .map(participantLabel);
+    if (labels.length === 0) {
+      return truncateUtf16(
+        `${normalizedTotal} ${normalizedTotal === 1 ? 'player' : 'players'}`,
+        maxLength,
+      );
+    }
+    const overflow = Math.max(0, normalizedTotal - labels.length);
+    const text = overflow > 0
+      ? `${labels.join(', ')} +${overflow}`
+      : labels.join(', ');
+    return truncateUtf16(text, maxLength);
   }
   return truncateUtf16('No one yet', maxLength);
 }

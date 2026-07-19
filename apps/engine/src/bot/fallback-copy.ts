@@ -91,7 +91,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   intro: (vars) => isEscrow(vars)
     ? `Add Rumble to a Telegram group. Reply /bookit to a football call, then pick a side using SOL or canonical USDC. Each live choice opens a private Privy wallet approval and settles through On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Named choices and results are visible in the group.`
     : isMainnet(vars)
-    ? 'Add Rumble to a Telegram group. Reply /bookit to your own football call, then pick a side using SOL or USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in the group. Use /wallet in private chat to review your verified wallet, and /leaderboard, /mystats, or /table in the group.'
+    ? 'Add Rumble to a Telegram group. Reply /bookit to your own football call, then pick a side using SOL or USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in the group. Use /wallet in private chat to review your verified wallet, and /teamstats, /mystats, or /table in the group.'
     : 'Add Rumble to a Telegram group. Reply /bookit to your own football call, then pick a side using test SOL or test USDC. SOL is the group default; admins can change new calls with /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet, these are test tokens.',
   help: (vars) => isEscrow(vars) ? [
     'How On-chain escrow works:',
@@ -103,7 +103,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     '• Use /wallet in private chat for funding, claims, refunds, and recovery.',
     '• Legacy /deposit and /withdraw remain available only for older Rumble balances.',
     '',
-    'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /endmatch · /help',
+    'Commands: /bookit · /leaderboard · /teamstats · /mystats · /table · /settings · /status · /currency · /testmatch · /endmatch · /help',
   ].join('\n') : [
     'How this works:',
     '• Add Rumble to a Telegram group.',
@@ -114,8 +114,8 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     '• Correct choices earn 10 points automatically.',
     '',
     isMainnet(vars)
-      ? 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /endmatch · /help. Wallet commands are available in private chat.'
-      : 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /endmatch · /help',
+      ? 'Commands: /bookit · /leaderboard · /teamstats · /mystats · /table · /settings · /status · /currency · /testmatch · /endmatch · /help. Wallet commands are available in private chat.'
+      : 'Commands: /bookit · /leaderboard · /teamstats · /mystats · /table · /settings · /status · /currency · /testmatch · /endmatch · /help',
     isMainnet(vars)
       ? 'SOL and native Circle USDC deposits and withdrawals use Solana mainnet.'
       : 'Runs on Solana devnet, these are test tokens.',

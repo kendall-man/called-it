@@ -319,6 +319,7 @@ export function makeStakeHarness(opts: StakeHarnessOptions = {}): StakeHarness {
         status: 'confirmed',
         classifier_confidence: 1,
         parse: null,
+        surface_tg_message_id: null,
         expires_at: null,
         created_at: new Date(NOW).toISOString(),
       }

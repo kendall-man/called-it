@@ -213,13 +213,13 @@ describe('skeleton card', () => {
 describe('cards', () => {
   const card = claimCardText(CLAIM_INPUT);
 
-  it('keeps the existing financial totals and receipt lines unchanged', () => {
+  it('keeps financial totals, matched share, and receipt while naming position counts clearly', () => {
     const receipt = receiptCardText(RECEIPT_INPUT);
 
     expect(card).toContain(
       [
-        '⚡ France score 2+: 0.05 SOL (2 in)',
-        "🛑 They don't: 0.03 SOL (1 in)",
+        '⚡ France score 2+ · 0.05 SOL · 2 positions',
+        "🛑 They don't · 0.03 SOL · 1 position",
         '🤝 Matched: 60%',
         '',
         'Receipt: https://example.test/r/abc',
@@ -242,7 +242,7 @@ describe('cards', () => {
     expect(card).toContain('https://example.test/r/abc');
   });
 
-  it('shows participant sides under the deterministic side labels', () => {
+  it('shows participant identities inline with the deterministic side labels', () => {
     const namedCard = claimCardText({
       ...CLAIM_INPUT,
       backParticipants: [
@@ -254,10 +254,11 @@ describe('cards', () => {
 
     expect(namedCard).toContain(
       [
-        'France score 2+: @alice_7, Bob',
-        "They don't: @carol_9",
+        '⚡ France score 2+ · 0.05 SOL · @alice_7, Bob',
+        "🛑 They don't · 0.03 SOL · @carol_9",
       ].join('\n'),
     );
+    expect(namedCard).not.toContain('(2 in)');
     // Voice rule: no repeated group-visibility or value disclaimers on cards.
     expect(namedCard).not.toContain('Choices and results are visible in this group.');
   });
@@ -273,9 +274,8 @@ describe('cards', () => {
       doubtParticipantCount: 0,
     });
 
-    expect(duplicateOnlyCard).toContain('⚡ France score 2+: 0.06 SOL (6 in)');
-    expect(duplicateOnlyCard).toContain('France score 2+: @alice_7');
-    expect(duplicateOnlyCard).not.toContain('and 5 more');
+    expect(duplicateOnlyCard).toContain('⚡ France score 2+ · 0.06 SOL · @alice_7');
+    expect(duplicateOnlyCard).not.toContain('+5');
   });
 
   it('caps and sanitizes 100 participant identities within the Telegram limit', () => {
@@ -295,14 +295,14 @@ describe('cards', () => {
     });
 
     expect(boundedCard).toContain(
-      'France score 2+: @player_0, @player_1, @player_2, @player_3, @player_4, and 95 more',
+      '⚡ France score 2+ · 1 SOL · @player_0, @player_1, @player_2 +97',
     );
-    expect(boundedCard).toContain("They don't: No one yet");
+    expect(boundedCard).toContain("🛑 They don't · 0 SOL · No one yet");
     expect(boundedCard).not.toMatch(/[\u0000\u202e]/u);
     expect(boundedCard.length).toBeLessThanOrEqual(4_096);
   });
 
-  it('appends settlement points and the top five leaderboard rows to a final result', () => {
+  it('keeps a final result focused on this settlement rather than repeating the leaderboard', () => {
     const leaderboard = Array.from({ length: 6 }, (_, index) => ({
       username: `player_${index}`,
       displayName: `Player ${index}`,
@@ -324,8 +324,8 @@ describe('cards', () => {
     expect(receipt).toContain(
       ['Points', 'Winners (+10 points): @alice_7', 'Misses (+0 points): Bob'].join('\n'),
     );
-    expect(receipt).toContain('1st. @player_0 - 60 points, 6 wins, 0 losses, 100% accuracy');
-    expect(receipt).toContain('5th. @player_4 - 20 points, 2 wins, 4 losses, 33% accuracy');
+    expect(receipt).not.toContain('Group leaderboard');
+    expect(receipt).not.toContain('1st. @player_0');
     expect(receipt).not.toContain('@player_5');
     expect(receipt).toContain('💠 Dee collects 0.08 SOL.');
     expect(receipt).toContain('Receipt: https://example.test/r/abc');
@@ -387,7 +387,7 @@ describe('cards', () => {
       transactionUrl: `https://example.test/position/${signingToken}`,
     });
 
-    expect(claim).toContain('On-chain escrow · MAINNET · USDC');
+    expect(claim).toContain('Calls open · On-chain escrow · MAINNET · USDC');
     expect(receipt).toContain('Transaction: https://explorer.solana.com/tx/abc');
     expect(unsafeReceipt).not.toContain(signingToken);
   });
@@ -401,7 +401,7 @@ describe('cards', () => {
     });
 
     expect(replay).toContain('Completed-match replay · No Points change');
-    expect(replay).toContain('On-chain escrow · MAINNET · SOL');
+    expect(replay).toContain('Calls open · On-chain escrow · MAINNET · SOL');
     expect(replay).not.toContain('No SOL or USDC moves');
   });
 

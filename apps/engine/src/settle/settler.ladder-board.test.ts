@@ -15,7 +15,7 @@ describe('settlement board (STAKE_LADDER_ENABLED)', () => {
     await harness.queue.idle();
 
     // The board (full receipt) lands as the card edit…
-    expect(harness.telegram.texts.some((text) => text.includes('RECEIPT'))).toBe(true);
+    expect(harness.telegram.texts.some((text) => text.includes('🏁 RESULT'))).toBe(true);
     // …and exactly one compact ping notifies, hype-free, linking the board.
     const pings = harness.telegram.texts.filter((text) => text.startsWith('Called it. Settled.'));
     expect(pings).toHaveLength(1);

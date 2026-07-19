@@ -103,6 +103,7 @@ function createDb(theMarket: MarketRow): EngineDb {
     insertClaim: unreachableAsync,
     getClaim: unreachableAsync,
     updateClaim: unreachableAsync,
+    setClaimSurfaceMessage: unreachableAsync,
     expireOverdueClaims: unreachableAsync,
     insertMarket: unreachableAsync,
     getMarket: async (id) => id === theMarket.id ? { ...theMarket } : null,
