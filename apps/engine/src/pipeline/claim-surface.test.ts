@@ -58,6 +58,23 @@ describe('editClaimSurface', () => {
     ]);
   });
 
+  it('rehydrates the persisted surface after restart instead of posting a second message', () => {
+    const edits: RecordedEdit[] = [];
+    const store = new ClaimSurfaceStore();
+    const persisted = { ...CLAIM, surface_tg_message_id: 713 };
+
+    expect(editClaimSurface(recordingPoster(edits), store, persisted, 'clarify')).toBe(true);
+    expect(store.get(CLAIM.id)).toBe(713);
+    expect(edits).toEqual([{
+      chatId: -100,
+      collapseKey: 'claim-1',
+      messageId: 713,
+      text: 'clarify',
+      keyboard: undefined,
+      urgent: true,
+    }]);
+  });
+
   it('is a no-op (flag off) when there is no store, and when the claim is untracked', () => {
     const edits: RecordedEdit[] = [];
     expect(editClaimSurface(recordingPoster(edits), undefined, CLAIM, 'x')).toBe(false);
@@ -92,5 +109,25 @@ describe('closeClaimSurface', () => {
     const edits: RecordedEdit[] = [];
     expect(closeClaimSurface(recordingPoster(edits), undefined, CLAIM, CLAIM_EXPIRED_LINE)).toBe(false);
     expect(edits).toHaveLength(0);
+  });
+
+  it('closes the persisted canonical surface after an in-process store restart', () => {
+    const edits: RecordedEdit[] = [];
+    const persisted = { ...CLAIM, surface_tg_message_id: 713 };
+
+    expect(closeClaimSurface(
+      recordingPoster(edits),
+      new ClaimSurfaceStore(),
+      persisted,
+      CLAIM_EXPIRED_LINE,
+    )).toBe(true);
+    expect(edits).toEqual([{
+      chatId: -100,
+      collapseKey: 'claim-1',
+      messageId: 713,
+      text: CLAIM_EXPIRED_LINE,
+      keyboard: undefined,
+      urgent: true,
+    }]);
   });
 });

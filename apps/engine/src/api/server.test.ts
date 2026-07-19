@@ -134,6 +134,19 @@ describe('engine application API', () => {
     assertPrivateApiBoundary(body);
   });
 
+  it('keeps the canonical market id in API data while shortening its receipt URL', async () => {
+    const harness = await startHarness();
+    const response = await fetch(`${harness.base}/api/markets/${MARKET_ID}`, {
+      headers: authed,
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      marketId: MARKET_ID,
+      receiptUrl: 'https://web.test/r/ERERESIiQzOERFVVVVVVVQ',
+    });
+  });
+
   it('serves USDC markets with asset-aware atomic and display amounts', async () => {
     const harness = await startHarness({ market: { ...MARKET, currency: 'usdc' } });
     const response = await fetch(`${harness.base}/api/groups/${CHAT_ID}/snapshot`, {

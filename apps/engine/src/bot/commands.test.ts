@@ -159,7 +159,7 @@ describe('navigation command baseline', () => {
 });
 
 describe('group points commands', () => {
-  it('posts the same deterministic top ten for /leaderboard and /table with the encoded board button', async () => {
+  it('posts the same deterministic top ten for /leaderboard, /teamstats, and /table', async () => {
     // Given twelve ordered players including a deterministic tie
     const board = Array.from({ length: 12 }, (_, index) => boardEntry({
       user_id: 700 + index,
@@ -173,6 +173,7 @@ describe('group points commands', () => {
 
     // When both group board commands run
     await harness.call('leaderboard', groupContext());
+    await harness.call('teamstats', groupContext());
     await harness.call('table', groupContext());
 
     // Then both posts preserve order, cap at ten, and only /table links the encoded slug
@@ -186,9 +187,11 @@ describe('group points commands', () => {
     ].join('\n');
     expect(harness.posts).toEqual([
       { chatId: GROUP_A, text: expectedText, buttons: [] },
+      { chatId: GROUP_A, text: expectedText, buttons: [] },
       { chatId: GROUP_A, text: expectedText, buttons: [{ text: 'Open group board', url: 'https://calledit.example/g/group%20%2F%20%3F' }] },
     ]);
     expect(harness.operations).toEqual([
+      `group:${GROUP_A}`, `leaderboard:${GROUP_A}:10`,
       `group:${GROUP_A}`, `leaderboard:${GROUP_A}:10`,
       `group:${GROUP_A}`, `leaderboard:${GROUP_A}:10`,
     ]);

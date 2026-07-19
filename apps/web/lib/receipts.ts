@@ -8,6 +8,7 @@
  */
 import { describePeriod, describeTerms, parseMarketSpec } from './spec-terms';
 import type { PublicEscrowReceipt } from './escrow-receipts';
+import { isCanonicalReceiptId } from './receipt-id';
 
 export type ReceiptStatus =
   | 'pending_lineup'
@@ -173,12 +174,11 @@ const TIERS: readonly ReceiptTier[] = ['chain_proven', 'oracle_resolved'];
 const PROOF_STATUSES: readonly ProofStatus[] = ['pending', 'verified', 'failed', 'unavailable'];
 const PROVENANCES: readonly PriceProvenance[] = ['market', 'modelled'];
 const CURRENCIES: readonly ReceiptCurrency[] = ['sol', 'usdc'];
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PUBLIC_GROUP_SLUG = /^[A-Za-z0-9_-]{1,80}$/;
 const PROOF_HASH = /^[A-Za-z0-9+/=_-]{16,256}$/;
 
 export function isPublicMarketId(value: string): boolean {
-  return UUID_PATTERN.test(value);
+  return isCanonicalReceiptId(value);
 }
 
 function timestamp(value: unknown): string | null {

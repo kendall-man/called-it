@@ -71,10 +71,10 @@ describe('composeClaimCard participant projection bounds', () => {
     expect(projectionCalls).toEqual([MARKET_ID]);
     expect(userReads).toEqual([USER_A]);
     expect(card?.text).toContain(
-      'Brazil to win: Back 1, Back 2, Back 3, Back 4, Back 5, and 2 more',
+      '⚡ Brazil to win · 0.5 SOL · Back 1, Back 2, Back 3 +4',
     );
     expect(card?.text).toContain(
-      "Draw or loss: Doubt 1, Doubt 2, Doubt 3, Doubt 4, Doubt 5, and 2 more",
+      '🛑 Draw or loss · 0.5 SOL · Doubt 1, Doubt 2, Doubt 3 +4',
     );
     expect(card?.text).not.toMatch(/Back 6|Doubt 6/);
   });

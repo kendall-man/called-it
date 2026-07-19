@@ -15,7 +15,6 @@ import {
   telegramMessageBody,
 } from './message-budget.js';
 import {
-  leaderboardText,
   settlementPointsText,
   sideListText,
   TELEGRAM_MESSAGE_LIMIT,
@@ -171,8 +170,8 @@ export function sideLabels(spec: MarketSpec): SideLabels {
 
 export function trustTierLine(tier: MarketSpec['trustTier']): string {
   return tier === 'chain_proven'
-    ? 'Chain-proven. Merkle proof lands on the receipt page'
-    : 'Oracle-resolved. Settled from the signed data feed';
+    ? 'Chain-proven · Merkle proof on receipt'
+    : 'Oracle-resolved · Signed data feed';
 }
 
 export function statusLine(status: MarketStatus, asset: WagerAsset = 'sol'): string {
@@ -198,7 +197,7 @@ export function statusLine(status: MarketStatus, asset: WagerAsset = 'sol'): str
  * escrowPlacementStatusText vocabulary (pending → activate).
  */
 export const FAIR_PLAY_PENDING_LINE =
-  'Fair-play check. New positions activate after a short delay.';
+  'Fair-play wait · New positions activate shortly';
 
 export interface SkeletonCardInput {
   quotedText: string;
@@ -286,8 +285,21 @@ export function claimCardText(input: ClaimCardInput): string {
   const backMult = formatMultiplier(fullMatchMultiplier(input.probability, 'back'));
   const againstMult = formatMultiplier(fullMatchMultiplier(input.probability, 'doubt'));
   const sides = sideLabels(input.spec);
-  const showsParticipants =
-    input.backParticipants !== undefined || input.doubtParticipants !== undefined;
+  const sidePeople = (
+    tally: SideTally,
+    participants: readonly ParticipantIdentity[] | undefined,
+    participantCount: number | undefined,
+  ): string => {
+    if (participants !== undefined) {
+      return sideListText(
+        participants,
+        TELEGRAM_MESSAGE_LIMIT,
+        participantCount ?? participants.length,
+      );
+    }
+    if (tally.count === 0) return 'No one yet';
+    return `${tally.count} ${tally.count === 1 ? 'position' : 'positions'}`;
+  };
   const quote = normalizeInlineText(input.quotedText, QUOTED_TEXT_LIMIT, 'Call unavailable');
   const claimer = normalizeInlineText(input.claimerName, PERSON_NAME_LIMIT, 'the claimer');
   const lines = [
@@ -295,16 +307,20 @@ export function claimCardText(input: ClaimCardInput): string {
     `“${quote}”, ${claimer}`,
     '',
     `📋 ${describeTerms(input.spec)}`,
-    `📈 Feed says ${formatProbabilityPct(input.probability)}%. Back pays ${backMult}, against ${againstMult} if matched (${provenanceChip(input.provenance)})`,
-    `🚦 ${statusLine(input.status, currency)}`,
-    ...(input.isReplay && input.custodyMode === 'escrow'
-      ? [
-          '🧪 Completed-match replay · No Points change',
-          `🔐 On-chain escrow · ${escrowNetworkLabel(input.solanaNetwork ?? 'devnet')} · ${currency.toUpperCase()}`,
-        ]
-      : input.custodyMode === 'escrow'
-        ? [`🔐 On-chain escrow · ${escrowNetworkLabel(input.solanaNetwork ?? 'devnet')} · ${currency.toUpperCase()}`]
+    `📈 ${formatProbabilityPct(input.probability)}% · Back ${backMult} · Against ${againstMult} · ${provenanceChip(input.provenance)}`,
+    `🚦 ${[
+      statusLine(input.status, currency),
+      ...(input.custodyMode === 'escrow'
+        ? [
+            'On-chain escrow',
+            escrowNetworkLabel(input.solanaNetwork ?? 'devnet'),
+            currency.toUpperCase(),
+          ]
         : []),
+    ].join(' · ')}`,
+    ...(input.isReplay && input.custodyMode === 'escrow'
+      ? ['🧪 Completed-match replay · No Points change']
+      : []),
     ...(input.custodyMode === 'escrow' && (input.pendingActivationCount ?? 0) > 0
       ? [`⏳ ${FAIR_PLAY_PENDING_LINE}`]
       : []),
@@ -312,23 +328,17 @@ export function claimCardText(input: ClaimCardInput): string {
       ? [`⏸ New ${currency.toUpperCase()} positions are temporarily paused. No ${currency.toUpperCase()} can move.`]
       : []),
     '',
-    `⚡ ${sides.back}: ${formatAssetAmount(input.back.stakeLamports, currency)} (${input.back.count} in)`,
-    `🛑 ${sides.doubt}: ${formatAssetAmount(input.doubt.stakeLamports, currency)} (${input.doubt.count} in)`,
+    `⚡ ${sides.back} · ${formatAssetAmount(input.back.stakeLamports, currency)} · ${sidePeople(
+      input.back,
+      input.backParticipants,
+      input.backParticipantCount,
+    )}`,
+    `🛑 ${sides.doubt} · ${formatAssetAmount(input.doubt.stakeLamports, currency)} · ${sidePeople(
+      input.doubt,
+      input.doubtParticipants,
+      input.doubtParticipantCount,
+    )}`,
     `🤝 Matched: ${input.matchedPct}%`,
-    ...(showsParticipants
-      ? [
-          `${sides.back}: ${sideListText(
-            input.backParticipants ?? [],
-            TELEGRAM_MESSAGE_LIMIT,
-            input.backParticipantCount ?? input.backParticipants?.length ?? 0,
-          )}`,
-          `${sides.doubt}: ${sideListText(
-            input.doubtParticipants ?? [],
-            TELEGRAM_MESSAGE_LIMIT,
-            input.doubtParticipantCount ?? input.doubtParticipants?.length ?? 0,
-          )}`,
-        ]
-      : []),
     '',
     `Receipt: ${input.receiptUrl}`,
   ];
@@ -383,31 +393,33 @@ export function receiptCardText(input: ReceiptCardInput): string {
   const quote = normalizeInlineText(input.quotedText, QUOTED_TEXT_LIMIT, 'Call unavailable');
   const claimer = normalizeInlineText(input.claimerName, PERSON_NAME_LIMIT, 'the claimer');
   const lines = [
-    `🧾 RECEIPT${input.isReplay ? ' · REPLAY' : ''}`,
+    `🏁 RESULT${input.isReplay ? ' · REPLAY' : ''}`,
     `“${quote}”, ${claimer}`,
     '',
     `📋 ${describeTerms(input.spec)}`,
-    `📈 Locked at the call: ${formatProbabilityPct(input.probability)}%. Back ${backMult}, against ${againstMult} (${provenanceChip(input.provenance)})`,
     `🏁 ${outcomeLine(input.outcome, input.claimerName, currency)}`,
   ];
-  if (input.isReplay && input.custodyMode === 'escrow') {
-    lines.push(
-      '🧪 Completed-match replay · No Points changed',
-      `🔐 On-chain escrow · ${escrowNetworkLabel(input.solanaNetwork ?? 'devnet')} · ${currency.toUpperCase()}`,
-    );
-  } else if (input.custodyMode === 'escrow') {
-    lines.push(`🔐 On-chain escrow · ${escrowNetworkLabel(input.solanaNetwork ?? 'devnet')} · ${currency.toUpperCase()}`);
-  }
   if (input.payoutsLine.length > 0) lines.push(`💠 ${input.payoutsLine}`);
-  lines.push(`🔏 ${trustTierLine(input.spec.trustTier)}`);
+  lines.push(
+    `📈 Called at ${formatProbabilityPct(input.probability)}% · Back ${backMult} · Against ${againstMult} · ${provenanceChip(input.provenance)}`,
+    `🔏 ${[
+      trustTierLine(input.spec.trustTier),
+      ...(input.custodyMode === 'escrow'
+        ? [
+            'On-chain escrow',
+            escrowNetworkLabel(input.solanaNetwork ?? 'devnet'),
+            currency.toUpperCase(),
+          ]
+        : []),
+    ].join(' · ')}`,
+  );
+  if (input.isReplay && input.custodyMode === 'escrow') {
+    lines.push('🧪 Completed-match replay · No Points changed');
+  }
   const pointsAllowed = !(input.isReplay && input.custodyMode === 'escrow');
   if (pointsAllowed && input.points !== undefined && input.outcome !== 'void') {
     const settlement = settlementPointsText(input.points, TELEGRAM_MESSAGE_LIMIT);
     if (settlement.length > 0) lines.push('', settlement);
-    lines.push(
-      '',
-      leaderboardText({ entries: input.points.leaderboard, limit: 5 }, TELEGRAM_MESSAGE_LIMIT),
-    );
   }
   const transactionUrl = publicEscrowActionUrl(input.transactionUrl);
   if (transactionUrl !== null) lines.push('', `Transaction: ${transactionUrl}`);

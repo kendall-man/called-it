@@ -20,6 +20,12 @@ const POINT_RESULT_SELECT =
   'group_id,market_id,user_id,side,result,points_delta,user:users!inner(display_name,username)';
 const PARTICIPANT_ROW_LIMIT = 10;
 const PARTICIPANT_RPC = 'group_market_participants';
+const EVENT_STATS_VIEW = 'group_player_stats_from_events';
+const LEGACY_STATS_TABLE = 'group_player_stats';
+const STATS_COLUMNS = 'group_id,user_id,points,wins,losses,current_streak,best_streak';
+const EVENT_LEADERBOARD_COLUMNS = `${STATS_COLUMNS},user`;
+const LEGACY_LEADERBOARD_COLUMNS =
+  `${STATS_COLUMNS},user:users!inner(display_name,username)`;
 
 type GroupPointsQueryDb = Pick<
   GroupPointsDb,
@@ -42,12 +48,10 @@ export function groupPointsQueryMethods(client: GroupPointsDbClient): GroupPoint
     async groupPlayerStats(groupId, userId) {
       assertSafeInput(GROUP_POINTS_QUERY_OPS.playerStats, 'group_id', groupId);
       assertPositiveInput(GROUP_POINTS_QUERY_OPS.playerStats, 'user_id', userId);
-      const response = await client
-        .from('group_player_stats')
-        .select('group_id,user_id,points,wins,losses,current_streak,best_streak')
-        .eq('group_id', groupId)
-        .eq('user_id', userId)
-        .maybeSingle();
+      let response = await playerStatsResponse(client, EVENT_STATS_VIEW, groupId, userId);
+      if (statsViewUnavailable(response)) {
+        response = await playerStatsResponse(client, LEGACY_STATS_TABLE, groupId, userId);
+      }
       const data = responseData(GROUP_POINTS_QUERY_OPS.playerStats, response);
       if (data === null) {
         return {
@@ -67,17 +71,22 @@ export function groupPointsQueryMethods(client: GroupPointsDbClient): GroupPoint
     async leaderboard(groupId, limit) {
       assertSafeInput(GROUP_POINTS_QUERY_OPS.leaderboard, 'group_id', groupId);
       assertLeaderboardLimit(limit);
-      const response = await client
-        .from('group_player_stats')
-        .select(
-          'group_id,user_id,points,wins,losses,current_streak,best_streak,user:users!inner(display_name,username)',
-        )
-        .eq('group_id', groupId)
-        .order('points', { ascending: false })
-        .order('wins', { ascending: false })
-        .order('losses', { ascending: true })
-        .order('user_id', { ascending: true })
-        .limit(limit);
+      let response = await leaderboardResponse(
+        client,
+        EVENT_STATS_VIEW,
+        EVENT_LEADERBOARD_COLUMNS,
+        groupId,
+        limit,
+      );
+      if (statsViewUnavailable(response)) {
+        response = await leaderboardResponse(
+          client,
+          LEGACY_STATS_TABLE,
+          LEGACY_LEADERBOARD_COLUMNS,
+          groupId,
+          limit,
+        );
+      }
       const values = rows(GROUP_POINTS_QUERY_OPS.leaderboard, response);
       if (values.length > limit) {
         return contractFailure(GROUP_POINTS_QUERY_OPS.leaderboard, '<rows>');
@@ -93,6 +102,45 @@ export function groupPointsQueryMethods(client: GroupPointsDbClient): GroupPoint
       );
     },
   } satisfies GroupPointsQueryDb;
+}
+
+function playerStatsResponse(
+  client: GroupPointsDbClient,
+  source: string,
+  groupId: number,
+  userId: number,
+) {
+  return client
+    .from(source)
+    .select(STATS_COLUMNS)
+    .eq('group_id', groupId)
+    .eq('user_id', userId)
+    .maybeSingle();
+}
+
+function leaderboardResponse(
+  client: GroupPointsDbClient,
+  source: string,
+  columns: string,
+  groupId: number,
+  limit: number,
+) {
+  return client
+    .from(source)
+    .select(columns)
+    .eq('group_id', groupId)
+    .order('points', { ascending: false })
+    .order('wins', { ascending: false })
+    .order('losses', { ascending: true })
+    .order('user_id', { ascending: true })
+    .limit(limit);
+}
+
+function statsViewUnavailable(response: unknown): boolean {
+  if (typeof response !== 'object' || response === null || !('error' in response)) return false;
+  const error = response.error;
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false;
+  return error.code === '42P01' || error.code === 'PGRST205';
 }
 
 async function pointResultRows(

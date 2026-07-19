@@ -87,6 +87,7 @@ function claimRow(status: ClaimRow['status'], parse: unknown = null): ClaimRow {
     status,
     classifier_confidence: 0.9,
     parse,
+    surface_tg_message_id: null,
     expires_at: new Date(NOW + 5 * 60_000).toISOString(),
     created_at: new Date(NOW - 60_000).toISOString(),
   };
@@ -630,14 +631,30 @@ describe('decline — pre-mint kill, post-mint void', () => {
       id: 'market-1',
       claim_id: CLAIM_ID,
       group_id: CHAT_ID,
+      fixture_id: FIXTURE_ID,
       status: 'open',
+      is_replay: false,
+      price_provenance: 'market',
+      quote_probability: QUOTE.probability,
+      quote_multiplier: QUOTE.multiplier,
+      odds_message_id: QUOTE.oddsMessageId,
+      odds_ts: QUOTE.oddsTsMs,
+      card_tg_message_id: 777,
+      created_at: new Date(NOW).toISOString(),
       currency: 'sol',
+      custody_mode: 'legacy',
       spec: spec(),
-    } as unknown as MarketRow);
+    });
     const tap = fakeCtx();
     await dispatchCallback(harness.h, tap.ctx, { t: 'decline', claimId: CLAIM_ID });
     expect(harness.markets[0]?.status).toBe('voided');
     expect(harness.settlements.at(-1)).toMatchObject({ outcome: 'void' });
+    expect(harness.cardEdits.at(-1)).toMatchObject({
+      marketId: 'market-1',
+      messageId: 777,
+    });
+    expect(harness.cardEdits.at(-1)?.text).toContain('Call off');
+    expect(harness.cardEdits.at(-1)?.keyboard).toBeUndefined();
     expect(tap.toasts).toContain(renderFallback('confirm_declined'));
   });
 

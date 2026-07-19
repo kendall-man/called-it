@@ -21,7 +21,7 @@ describe('group points settlement receipt recovery', () => {
     releaseSend();
     await harness.queue.idle();
     expect(harness.telegram.texts).toHaveLength(1);
-    expect(harness.telegram.texts[0]).toContain('RECEIPT');
+    expect(harness.telegram.texts[0]).toContain('🏁 RESULT');
     expect(harness.markedMarketIds).toEqual([MARKET_ID]);
   });
 
@@ -40,7 +40,7 @@ describe('group points settlement receipt recovery', () => {
     ]);
     expect(harness.telegram.texts[0]).toContain('Winners (+10 points): @alice_calls');
     expect(harness.telegram.texts[0]).toContain('Misses (+0 points): Bob');
-    expect(harness.telegram.texts[0]).toContain('Group leaderboard');
+    expect(harness.telegram.texts[0]).not.toContain('Group leaderboard');
     expect(harness.markedMarketIds).toEqual([MARKET_ID]);
   });
 
@@ -188,10 +188,10 @@ describe('group points settlement receipt recovery', () => {
       await harness.settler.postReceipt(harness.market, outcome);
       await harness.queue.idle();
 
-      // Then void hides points entirely; a scored empty call shows only the empty board
+      // Then neither empty result repeats the separate group board.
       const receipt = harness.telegram.texts[0] ?? '';
       expect(receipt).not.toMatch(/Winners \(|Misses \(/);
-      expect(receipt.includes('Group leaderboard')).toBe(outcome !== 'void');
+      expect(receipt).not.toContain('Group leaderboard');
       expect(harness.markedMarketIds).toEqual([MARKET_ID]);
     },
   );

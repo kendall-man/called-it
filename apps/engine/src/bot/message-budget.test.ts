@@ -114,12 +114,12 @@ describe('Telegram message budgets', () => {
       backParticipants: IDENTITIES.slice(0, 5), doubtParticipants: IDENTITIES.slice(0, 5),
       backParticipantCount: 100, doubtParticipantCount: 100,
     });
-    const five = Array.from({ length: 5 }, () => IDENTITY_LABEL).join(', ');
+    const three = Array.from({ length: 3 }, () => IDENTITY_LABEL).join(', ');
 
     for (const line of [
-      '⚡ France score 2+: 0.05 SOL (100 in)', "🛑 They don't: 0.03 SOL (100 in)",
-      '🤝 Matched: 60%', `France score 2+: ${five}, and 95 more`,
-      `They don't: ${five}, and 95 more`,
+      `⚡ France score 2+ · 0.05 SOL · ${three} +97`,
+      `🛑 They don't · 0.03 SOL · ${three} +97`,
+      '🤝 Matched: 60%',
       'Receipt: https://example.test/r/abc',
     ]) expect(active).toContain(line);
     expect(active.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
@@ -142,8 +142,8 @@ describe('Telegram message budgets', () => {
     for (const line of [
       '💠 Dee collects 0.08 SOL. (devnet)',
       `Winners (+10 points): ${ten}, and 90 more`,
-      `Misses (+0 points): ${ten}, and 90 more`, 'Group leaderboard',
-      '🔏 Chain-proven. Merkle proof lands on the receipt page',
+      `Misses (+0 points): ${ten}, and 90 more`,
+      '🔏 Chain-proven · Merkle proof on receipt',
       'Receipt: https://example.test/r/abc',
     ]) expect(result).toContain(line);
     expect(result.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);

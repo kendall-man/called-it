@@ -46,12 +46,20 @@ export class ClaimSurfaceStore {
 export function editClaimSurface(
   poster: Poster,
   surface: ClaimSurfaceStore | undefined,
-  claim: { readonly id: string; readonly group_id: number },
+  claim: {
+    readonly id: string;
+    readonly group_id: number;
+    readonly surface_tg_message_id?: number | null;
+  },
   text: string,
   keyboard?: Parameters<Poster['editCard']>[4],
 ): boolean {
-  const messageId = surface?.get(claim.id);
-  if (surface === undefined || messageId === undefined) return false;
+  if (surface === undefined) return false;
+  const messageId = surface.get(claim.id) ?? claim.surface_tg_message_id ?? undefined;
+  if (messageId === undefined) return false;
+  // Rehydrate the in-process collapse key after a restart so clarification,
+  // pricing, and expiry all keep editing the same authoritative surface.
+  surface.remember(claim.id, messageId);
   poster.editCard(claim.group_id, claim.id, messageId, text, keyboard, { urgent: true });
   return true;
 }
@@ -64,10 +72,25 @@ export function editClaimSurface(
 export function closeClaimSurface(
   poster: Poster,
   surface: ClaimSurfaceStore | undefined,
-  claim: { readonly id: string; readonly group_id: number },
+  claim: {
+    readonly id: string;
+    readonly group_id: number;
+    readonly surface_tg_message_id?: number | null;
+  },
   text: string,
 ): boolean {
-  const closed = editClaimSurface(poster, surface, claim, text);
+  let closed = editClaimSurface(poster, surface, claim, text);
+  if (!closed && claim.surface_tg_message_id !== null && claim.surface_tg_message_id !== undefined) {
+    poster.editCard(
+      claim.group_id,
+      claim.id,
+      claim.surface_tg_message_id,
+      text,
+      undefined,
+      { urgent: true },
+    );
+    closed = true;
+  }
   if (closed) surface?.forget(claim.id);
   return closed;
 }

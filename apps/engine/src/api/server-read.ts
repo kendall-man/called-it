@@ -6,6 +6,7 @@ import { computePots } from '../wager/pot.js';
 import { formatSol } from '../wager/format.js';
 import type { EngineApiOptions } from './server.js';
 import { sendJson } from './server-http.js';
+import { encodeReceiptId } from '../pipeline/receipt-id.js';
 
 async function marketSummary(deps: Deps, market: MarketRow, webBaseUrl?: string) {
   const positions = await deps.db.positionsForMarket(market.id);
@@ -38,7 +39,7 @@ async function marketSummary(deps: Deps, market: MarketRow, webBaseUrl?: string)
         }
       : {}),
     matchedPct: pots.matchedPct,
-    ...(webBaseUrl ? { receiptUrl: `${webBaseUrl}/r/${market.id}` } : {}),
+    ...(webBaseUrl ? { receiptUrl: `${webBaseUrl}/r/${encodeReceiptId(market.id) ?? market.id}` } : {}),
   };
 }
 

@@ -25,6 +25,7 @@ export type QueryResult<T> = { ok: true; data: T } | { ok: false };
 
 type SourceResult<T> =
   | { readonly kind: 'available'; readonly data: T }
+  | { readonly kind: 'missing' }
   | { readonly kind: 'unavailable' }
   | { readonly kind: 'invalid' };
 
@@ -167,8 +168,9 @@ export async function fetchReceipt(
     fetchLegacyReceipt(client, marketId),
     fetchEscrowForMarket(client, marketId),
   ]);
-  if (legacyResult.kind === 'invalid' || escrowResult.kind === 'invalid') return { ok: false };
-  if (escrowResult.kind === 'unavailable') {
+  if (legacyResult.kind === 'invalid' || legacyResult.kind === 'unavailable' ||
+      escrowResult.kind === 'invalid' || escrowResult.kind === 'unavailable') return { ok: false };
+  if (escrowResult.kind === 'missing') {
     return legacyResult.kind === 'available'
       ? { ok: true, data: legacyResult.data }
       : { ok: false };
@@ -177,7 +179,7 @@ export async function fetchReceipt(
     ? null
     : publicReceiptFromEscrow(escrowResult.data);
   if (escrowResult.data !== null && escrowReceipt === null) return { ok: false };
-  if (legacyResult.kind === 'unavailable') return { ok: true, data: escrowReceipt };
+  if (legacyResult.kind === 'missing') return { ok: true, data: escrowReceipt };
   const merged = mergeReceiptSources(
     legacyResult.data === null ? [] : [legacyResult.data],
     escrowReceipt === null ? [] : [escrowReceipt],
@@ -215,20 +217,20 @@ export async function fetchGroupReceipts(
     fetchLegacyGroupReceipts(client, slug),
     fetchEscrowForGroup(client, slug),
   ]);
-  if (legacyResult.kind === 'invalid' || escrowResult.kind === 'invalid') return { ok: false };
-  if (escrowResult.kind === 'unavailable') {
+  if (escrowResult.kind === 'missing') {
     if (legacyResult.kind !== 'available') return { ok: false };
     const receipts = legacyResult.data.slice(0, GROUP_RECEIPTS_SHOWN);
     return { ok: true, data: receipts.length === 0 ? null : receipts };
   }
+  if (escrowResult.kind !== 'available') return { ok: false };
   const escrowReceipts = escrowResult.data.map(publicReceiptFromEscrow);
-  if (escrowReceipts.some((row) => row === null)) return { ok: false };
-  if (legacyResult.kind === 'unavailable') {
-    const receipts = newestFirst(nonNull(escrowReceipts)).slice(0, GROUP_RECEIPTS_SHOWN);
+  const validEscrowReceipts = nonNull(escrowReceipts);
+  if (legacyResult.kind === 'missing') {
+    const receipts = newestFirst(validEscrowReceipts).slice(0, GROUP_RECEIPTS_SHOWN);
     return { ok: true, data: receipts.length === 0 ? null : receipts };
   }
-  const merged = mergeReceiptSources(legacyResult.data, nonNull(escrowReceipts));
-  if (merged === null) return { ok: false };
+  if (legacyResult.kind !== 'available') return { ok: false };
+  const merged = mergeGroupReceiptSources(legacyResult.data, validEscrowReceipts);
   const receipts = merged.slice(0, GROUP_RECEIPTS_SHOWN);
   return { ok: true, data: receipts.length === 0 ? null : receipts };
 }
@@ -242,22 +244,65 @@ export async function fetchGroupBoard(
     fetchLegacyGroupBoard(client, slug),
     fetchEscrowForGroup(client, slug),
   ]);
-  if (legacyResult.kind === 'invalid' || escrowResult.kind === 'invalid') return { ok: false };
-  if (escrowResult.kind === 'unavailable') {
+  if (escrowResult.kind === 'missing') {
     if (legacyResult.kind !== 'available') return { ok: false };
     const markets = legacyResult.data.slice(0, GROUP_RECEIPTS_SHOWN);
     return { ok: true, data: markets.length === 0 ? null : markets };
   }
+  if (escrowResult.kind !== 'available') return { ok: false };
   const escrowMarkets = escrowResult.data.map(publicGroupBoardMarketFromEscrow);
-  if (escrowMarkets.some((row) => row === null)) return { ok: false };
-  if (legacyResult.kind === 'unavailable') {
-    const markets = newestFirst(nonNull(escrowMarkets)).slice(0, GROUP_RECEIPTS_SHOWN);
+  const validEscrowMarkets = nonNull(escrowMarkets);
+  if (legacyResult.kind === 'missing') {
+    const markets = newestFirst(validEscrowMarkets).slice(0, GROUP_RECEIPTS_SHOWN);
     return { ok: true, data: markets.length === 0 ? null : markets };
   }
-  const merged = mergeBoardSources(legacyResult.data, nonNull(escrowMarkets));
-  if (merged === null) return { ok: false };
+  if (legacyResult.kind !== 'available') return { ok: false };
+  const merged = mergeGroupBoardSources(legacyResult.data, validEscrowMarkets);
   const markets = merged.slice(0, GROUP_RECEIPTS_SHOWN);
   return { ok: true, data: markets.length === 0 ? null : markets };
+}
+
+/**
+ * Group indexes can outlive old escrow schema versions. Preserve a valid
+ * legacy projection when the escrow copy of one market is contradictory;
+ * direct receipt lookups continue to use the strict merger above.
+ */
+function mergeGroupReceiptSources(
+  legacyRows: readonly PublicReceipt[],
+  escrowRows: readonly PublicReceipt[],
+): PublicReceipt[] {
+  const values = new Map(legacyRows.map((row) => [row.marketId, row]));
+  for (const escrowRow of escrowRows) {
+    const legacyRow = values.get(escrowRow.marketId);
+    if (legacyRow === undefined) {
+      values.set(escrowRow.marketId, escrowRow);
+      continue;
+    }
+    if (!sameMarketIdentity(legacyRow, escrowRow)) continue;
+    values.set(escrowRow.marketId, {
+      ...escrowRow,
+      decidingSeq: legacyRow.decidingSeq,
+      evidenceSeqs: legacyRow.evidenceSeqs,
+      tier: legacyRow.tier ?? escrowRow.tier,
+      proofStatus: legacyRow.proofStatus,
+      explorerUrl: legacyRow.explorerUrl,
+      browserProof: legacyRow.browserProof,
+    });
+  }
+  return newestFirst([...values.values()]);
+}
+
+function mergeGroupBoardSources(
+  legacyRows: readonly PublicGroupBoardMarket[],
+  escrowRows: readonly PublicGroupBoardMarket[],
+): PublicGroupBoardMarket[] {
+  const values = new Map(legacyRows.map((row) => [row.marketId, row]));
+  for (const escrowRow of escrowRows) {
+    const legacyRow = values.get(escrowRow.marketId);
+    if (legacyRow !== undefined && !sameMarketIdentity(legacyRow, escrowRow)) continue;
+    values.set(escrowRow.marketId, escrowRow);
+  }
+  return newestFirst([...values.values()]);
 }
 
 export function mergeReceiptSources(
@@ -353,7 +398,7 @@ async function fetchLegacyReceipt(
     .select(PUBLIC_RECEIPT_SELECT)
     .eq('market_id', marketId)
     .limit(2);
-  if (result.error) return { kind: 'unavailable' };
+  if (result.error) return sourceFailure(result.error);
   const mapped = mapRows(result.data, receiptFromRow);
   const deduped = mapped === null ? null : dedupeMarketRows(mapped);
   if (deduped === null || deduped.length > 1) return { kind: 'invalid' };
@@ -370,7 +415,7 @@ async function fetchLegacyGroupReceipts(
     .eq('group_slug', slug)
     .order('created_at', { ascending: false })
     .limit(GROUP_RECEIPTS_FETCH_LIMIT);
-  if (result.error) return { kind: 'unavailable' };
+  if (result.error) return sourceFailure(result.error);
   const mapped = mapRows(result.data, receiptFromRow);
   const deduped = mapped === null ? null : dedupeMarketRows(mapped);
   return deduped === null
@@ -388,7 +433,7 @@ async function fetchLegacyGroupBoard(
     .eq('group_slug', slug)
     .order('created_at', { ascending: false })
     .limit(GROUP_RECEIPTS_FETCH_LIMIT);
-  if (result.error) return { kind: 'unavailable' };
+  if (result.error) return sourceFailure(result.error);
   const mapped = mapRows(result.data, groupBoardMarketFromRow);
   const deduped = mapped === null ? null : dedupeMarketRows(mapped);
   return deduped === null
@@ -405,7 +450,7 @@ async function fetchEscrowForMarket(
     .select(PUBLIC_ESCROW_RECEIPT_SELECT)
     .eq('market_id', marketId)
     .limit(2);
-  if (receiptResult.error) return { kind: 'unavailable' };
+  if (receiptResult.error) return sourceFailure(receiptResult.error);
   const receiptRows = Array.isArray(receiptResult.data) ? receiptResult.data : null;
   if (receiptRows === null) return { kind: 'invalid' };
   if (receiptRows.length === 0) return { kind: 'available', data: null };
@@ -415,7 +460,9 @@ async function fetchEscrowForMarket(
     client.from(ESCROW_AGGREGATES_VIEW).select(PUBLIC_ESCROW_AGGREGATE_SELECT).eq('market_id', marketId),
     client.from(ESCROW_CLAIMS_VIEW).select(PUBLIC_ESCROW_CLAIM_SELECT).eq('market_id', marketId),
   ]);
-  if (aggregateResult.error || claimResult.error) return { kind: 'unavailable' };
+  if (aggregateResult.error || claimResult.error) {
+    return combinedSourceFailure(aggregateResult.error, claimResult.error);
+  }
   const assembled = assembleEscrowReceipts(
     receiptRows,
     aggregateResult.data,
@@ -436,22 +483,58 @@ async function fetchEscrowForGroup(
     .eq('group_slug', slug)
     .order('created_at', { ascending: false })
     .limit(GROUP_RECEIPTS_FETCH_LIMIT);
-  if (receiptResult.error) return { kind: 'unavailable' };
+  if (receiptResult.error) return sourceFailure(receiptResult.error);
   if (!Array.isArray(receiptResult.data)) return { kind: 'invalid' };
   const rows = receiptResult.data;
   if (rows.length === 0) return { kind: 'available', data: [] };
   const identity = getPublicEscrowIdentityConfig();
   if (identity === null) return { kind: 'invalid' };
-  const parsed = mapRows(rows, (row) => escrowReceiptFromRow(row, identity));
-  if (parsed === null) return { kind: 'invalid' };
-  const marketIds = [...new Set(parsed.map((row) => row.marketId))];
+  const candidates = rows.flatMap((row) => {
+    const parsed = escrowReceiptFromRow(row, identity);
+    return parsed === null ? [] : [{ raw: row, parsed }];
+  });
+  const marketIds = [...new Set(candidates.map(({ parsed }) => parsed.marketId))];
+  if (marketIds.length === 0) return { kind: 'available', data: [] };
   const [aggregateResult, claimResult] = await Promise.all([
     client.from(ESCROW_AGGREGATES_VIEW).select(PUBLIC_ESCROW_AGGREGATE_SELECT).in('market_id', marketIds),
     client.from(ESCROW_CLAIMS_VIEW).select(PUBLIC_ESCROW_CLAIM_SELECT).in('market_id', marketIds),
   ]);
-  if (aggregateResult.error || claimResult.error) return { kind: 'unavailable' };
-  const assembled = assembleEscrowReceipts(rows, aggregateResult.data, claimResult.data, identity);
-  return assembled === null
-    ? { kind: 'invalid' }
-    : { kind: 'available', data: assembled };
+  if (aggregateResult.error || claimResult.error) {
+    return combinedSourceFailure(aggregateResult.error, claimResult.error);
+  }
+  if (!Array.isArray(aggregateResult.data) || !Array.isArray(claimResult.data)) {
+    return { kind: 'invalid' };
+  }
+  const assembled: PublicEscrowReceipt[] = [];
+  for (const marketId of marketIds) {
+    const market = assembleEscrowReceipts(
+      candidates.filter(({ parsed }) => parsed.marketId === marketId).map(({ raw }) => raw),
+      aggregateResult.data.filter((row) => rowMarketId(row) === marketId),
+      claimResult.data.filter((row) => rowMarketId(row) === marketId),
+      identity,
+    );
+    if (market?.length === 1 && market[0] !== undefined) assembled.push(market[0]);
+  }
+  return { kind: 'available', data: assembled };
+}
+
+function rowMarketId(row: unknown): string | null {
+  if (typeof row !== 'object' || row === null || !('market_id' in row)) return null;
+  return typeof row.market_id === 'string' ? row.market_id : null;
+}
+
+function sourceFailure(error: unknown): SourceResult<never> {
+  return isMissingViewError(error) ? { kind: 'missing' } : { kind: 'unavailable' };
+}
+
+function combinedSourceFailure(...errors: readonly unknown[]): SourceResult<never> {
+  const failures = errors.filter((error) => error !== null && error !== undefined);
+  return failures.length > 0 && failures.every(isMissingViewError)
+    ? { kind: 'missing' }
+    : { kind: 'unavailable' };
+}
+
+function isMissingViewError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false;
+  return error.code === '42P01' || error.code === 'PGRST205';
 }

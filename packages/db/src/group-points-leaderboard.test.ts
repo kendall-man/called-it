@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { queryDb, type QueryCall } from './group-points-test-support.js';
+import { queryDb, queryDbResponses, type QueryCall } from './group-points-test-support.js';
 
 const leaderboardRow = (overrides: Readonly<Record<string, unknown>> = {}) => ({
   group_id: -100_123,
@@ -38,11 +38,11 @@ describe('group points leaderboard queries', () => {
 
     // Then the query and projection are narrow, bounded, and deterministic
     expect(calls).toEqual([
-      { method: 'from', args: ['group_player_stats'] },
+      { method: 'from', args: ['group_player_stats_from_events'] },
       {
         method: 'select',
         args: [
-          'group_id,user_id,points,wins,losses,current_streak,best_streak,user:users!inner(display_name,username)',
+          'group_id,user_id,points,wins,losses,current_streak,best_streak,user',
         ],
       },
       { method: 'eq', args: ['group_id', -100_123] },
@@ -78,6 +78,29 @@ describe('group points leaderboard queries', () => {
         best_streak: 1,
       },
     ]);
+  });
+
+  it('falls back to the cached leaderboard only when the event view is unavailable', async () => {
+    const calls: QueryCall[] = [];
+    const db = queryDbResponses([
+      {
+        data: null,
+        error: { code: '42P01', message: 'relation does not exist' },
+      },
+      { data: [leaderboardRow()], error: null },
+    ], calls);
+
+    await expect(db.leaderboard(-100_123, 10)).resolves.toHaveLength(1);
+    expect(calls.filter((call) => call.method === 'from')).toEqual([
+      { method: 'from', args: ['group_player_stats_from_events'] },
+      { method: 'from', args: ['group_player_stats'] },
+    ]);
+    expect(calls.filter((call) => call.method === 'select').at(-1)).toEqual({
+      method: 'select',
+      args: [
+        'group_id,user_id,points,wins,losses,current_streak,best_streak,user:users!inner(display_name,username)',
+      ],
+    });
   });
 
   it('rejects stale rows that violate the stable rank order', async () => {

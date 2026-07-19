@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PgResult } from './errors.js';
-import { queryDb, type QueryCall } from './group-points-test-support.js';
+import { queryDb, queryDbResponses, type QueryCall } from './group-points-test-support.js';
 
 describe('group player stats queries', () => {
   it('derives zero-safe accuracy from the group-only stats projection', async () => {
@@ -27,7 +27,7 @@ describe('group player stats queries', () => {
 
     // Then only the new projection contributes to totals and accuracy
     expect(calls).toEqual([
-      { method: 'from', args: ['group_player_stats'] },
+      { method: 'from', args: ['group_player_stats_from_events'] },
       {
         method: 'select',
         args: ['group_id,user_id,points,wins,losses,current_streak,best_streak'],
@@ -47,6 +47,37 @@ describe('group player stats queries', () => {
       best_streak: 2,
     });
     expect(stats).not.toHaveProperty('points_cached');
+  });
+
+  it('falls back to the maintained stats table while the event view rolls out', async () => {
+    const calls: QueryCall[] = [];
+    const db = queryDbResponses([
+      {
+        data: null,
+        error: { code: 'PGRST205', message: 'relation is not in the schema cache' },
+      },
+      {
+        data: {
+          group_id: -100_123,
+          user_id: 7001,
+          points: 10,
+          wins: 1,
+          losses: 0,
+          current_streak: 1,
+          best_streak: 1,
+        },
+        error: null,
+      },
+    ], calls);
+
+    await expect(db.groupPlayerStats(-100_123, 7001)).resolves.toMatchObject({
+      points: 10,
+      wins: 1,
+    });
+    expect(calls.filter((call) => call.method === 'from')).toEqual([
+      { method: 'from', args: ['group_player_stats_from_events'] },
+      { method: 'from', args: ['group_player_stats'] },
+    ]);
   });
 
   it('returns read-only zero stats when the player has no scored calls', async () => {

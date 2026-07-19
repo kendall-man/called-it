@@ -151,6 +151,8 @@ export interface ClaimRow {
   status: ClaimStatus;
   classifier_confidence: number | null;
   parse: unknown;
+  /** Canonical pre-mint Telegram message, persisted for restart-safe edits. */
+  surface_tg_message_id?: number | null;
   expires_at: string | null;
   created_at: string;
 }

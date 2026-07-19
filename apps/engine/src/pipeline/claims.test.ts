@@ -94,6 +94,7 @@ const CLAIM: ClaimRow = {
   status: 'clarifying',
   classifier_confidence: 0.9,
   parse: null,
+  surface_tg_message_id: null,
   expires_at: new Date(NOW + 5 * 60_000).toISOString(),
   created_at: new Date(NOW - 60_000).toISOString(),
 };

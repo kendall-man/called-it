@@ -69,7 +69,9 @@ describe('offer skeleton card', () => {
       (call) => call.method === 'sendMessage' && call.text?.includes(SKELETON_STATUS),
     );
     const fullCard = calls.find(
-      (call) => call.method === 'editMessageText' && call.text?.includes('Feed says'),
+      (call) => call.method === 'editMessageText'
+        && call.text?.includes('📈')
+        && call.text.includes('Calls open'),
     );
     if (skeleton === undefined || fullCard === undefined) {
       throw new TypeError(`Missing skeleton or edit: ${calls.map((c) => c.method).join(',')}`);
@@ -182,13 +184,17 @@ describe('offer skeleton card', () => {
 
     const calls = runtime.transport.calls;
     const fullCard = calls.find(
-      (call) => call.method === 'sendMessage' && call.text?.includes('Feed says'),
+      (call) => call.method === 'sendMessage'
+        && call.text?.includes('📈')
+        && call.text.includes('Calls open'),
     );
     if (fullCard === undefined) {
       throw new TypeError(`Fallback full card missing: ${calls.map((c) => c.method).join(',')}`);
     }
     expect(
-      calls.some((call) => call.method === 'editMessageText' && call.text?.includes('Feed says')),
+      calls.some((call) => call.method === 'editMessageText'
+        && call.text?.includes('📈')
+        && call.text.includes('Calls open')),
     ).toBe(false);
     expect(mintedMarket(runtime, group.id).card_tg_message_id).toBe(fullCard.messageId);
   });

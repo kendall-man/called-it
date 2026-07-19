@@ -81,6 +81,7 @@ describe('SettlementReconciler', () => {
     const statuses: string[] = [];
     const settlements: Array<{ readonly outcome: string; readonly deciding_seq: number | null }> = [];
     const applied: string[] = [];
+    const presented: string[] = [];
     const reconciler = new SettlementReconciler({
       db: {
         liveFixtures: async () => [fixture],
@@ -100,6 +101,7 @@ describe('SettlementReconciler', () => {
       reduceMarket,
       checkDebounce,
       applySettlement: async (marketId) => { applied.push(marketId); },
+      presentTerminal: async (terminalMarket) => { presented.push(terminalMarket.id); },
       log: { info: () => undefined, warn: () => undefined, error: () => undefined },
       now: () => NOW,
       lookaheadMs: 15 * 60_000,
@@ -111,6 +113,7 @@ describe('SettlementReconciler', () => {
     expect(statuses).toEqual(['settled']);
     expect(settlements).toEqual([{ outcome: 'claim_won', deciding_seq: 41 }]);
     expect(applied).toEqual([MARKET_ID]);
+    expect(presented).toEqual([MARKET_ID]);
     await expect(reconciler.feedSnapshot()).resolves.toEqual({
       activePricingExpected: true,
       lastEventAtMs: NOW,

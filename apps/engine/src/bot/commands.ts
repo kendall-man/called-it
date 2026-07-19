@@ -243,13 +243,15 @@ export function registerNavigationCommands(bot: NavigationCommandBot, h: Navigat
     });
   });
 
-  bot.command('leaderboard', async (ctx) => {
+  const postLeaderboard = async (ctx: NavigationCommandContext) => {
     if (!(await acceptsGroupCommand(ctx, h))) return;
     await runPointsCommand(ctx, h, async () => {
       await h.deps.db.upsertGroup({ id: ctx.chat.id, title: ctx.chat.title ?? '' });
       h.poster.post(ctx.chat.id, await topTenText(h, ctx.chat.id));
     });
-  });
+  };
+  bot.command('leaderboard', postLeaderboard);
+  bot.command('teamstats', postLeaderboard);
 
   bot.command('mystats', async (ctx) => {
     if (!(await acceptsGroupCommand(ctx, h))) return;

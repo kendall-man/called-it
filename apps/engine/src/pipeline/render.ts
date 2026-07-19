@@ -8,6 +8,7 @@ import type { PositionParticipant } from '../ports/rows.js';
 import { claimCardText, type SideTally } from '../bot/cards.js';
 import type { ParticipantIdentity } from '../points/presentation.js';
 import { computePots } from '../wager/pot.js';
+import { encodeReceiptId } from './receipt-id.js';
 
 const PARTICIPANTS_PER_SIDE_LIMIT = 5;
 
@@ -25,7 +26,7 @@ export function tally(positions: PositionRow[]): { back: SideTally; doubt: SideT
 }
 
 export function receiptUrl(deps: Deps, marketId: string): string {
-  return `${deps.env.WEB_BASE_URL}/r/${marketId}`;
+  return `${deps.env.WEB_BASE_URL}/r/${encodeReceiptId(marketId) ?? marketId}`;
 }
 
 export function tableUrl(deps: Deps, slug: string): string {

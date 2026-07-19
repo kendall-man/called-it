@@ -111,11 +111,12 @@ function makeHarness(config: DetectionHarnessConfig = {}): DetectionHarness {
     upsertUser: async () => undefined,
     ensureMembership: async () => ({ created: false }),
     entityNames: async () => ({ teamNames: ['Brazil'], playerNames: [] }),
-    insertClaim: async (input: Omit<ClaimRow, 'id' | 'parse' | 'created_at'>) => {
+    insertClaim: async (input: Omit<ClaimRow, 'id' | 'parse' | 'surface_tg_message_id' | 'created_at'>) => {
       const claim: ClaimRow = {
         ...input,
         id: CLAIM_ID,
         parse: null,
+        surface_tg_message_id: null,
         created_at: new Date(NOW).toISOString(),
       };
       claims.push(claim);
@@ -143,6 +144,7 @@ function makeHarness(config: DetectionHarnessConfig = {}): DetectionHarness {
     },
     positionsForMarket: async () => [],
     setMarketCardMessage: async () => undefined,
+    setClaimSurfaceMessage: async () => undefined,
   };
   const deps = {
     db,

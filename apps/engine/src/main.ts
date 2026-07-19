@@ -388,7 +388,13 @@ async function main(): Promise<void> {
     market,
     supervisor.replaySettlementRun(market.group_id),
   );
-  const settlementReconciler = createSettlementReconciler(backgroundDeps, log);
+  const settlementReconciler = createSettlementReconciler(backgroundDeps, log, async (market) => {
+    const current = await backgroundDeps.db.getMarket(market.id);
+    if (current === null || current.card_tg_message_id === null) return;
+    const card = await composeClaimCard(backgroundDeps, current, { positionsAvailable: false });
+    if (card === null || card.messageId === null) return;
+    poster.editCard(card.chatId, current.id, card.messageId, card.text);
+  });
 
   // Bounded escrow readiness snapshot shared by the /status board and the
   // minute-grade ops probe; a slow or failing probe reads as "not ready".
