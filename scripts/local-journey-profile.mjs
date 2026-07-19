@@ -44,6 +44,29 @@ const localPath = (workspace, value, label) => {
   return isAbsolute(path) ? path : resolve(workspace, path);
 };
 
+const originFromConfig = (workspace, value, label, options = {}) => {
+  const config = object(value, label);
+  let origin = null;
+  if (config.source === 'url') {
+    origin = url(config.url, `${label}.url`, ['https:']);
+  } else if (config.source === 'file') {
+    const path = localPath(workspace, config.path, `${label}.path`);
+    if (!existsSync(path)) {
+      if (options.allowMissing !== true) fail(`${label} file does not exist: ${path}`);
+    } else {
+      origin = url(readFileSync(path, 'utf8').trim(), `${label} file`, ['https:']);
+    }
+  } else {
+    fail(`${label}.source must be "url" or "file"`);
+  }
+  if (origin !== null) {
+    origin.pathname = '/';
+    origin.search = '';
+    origin.hash = '';
+  }
+  return origin?.toString().replace(/\/$/, '') ?? null;
+};
+
 export const defaultJourneyProfilePath = (workspace) => {
   const configured = process.env.CALLEDIT_LOCAL_PROFILE;
   return configured === undefined
@@ -103,28 +126,19 @@ export const loadJourneyProfile = (profilePath, workspace, options = {}) => {
     if (!telegramUpdateNames.has(update)) fail(`unsupported Telegram update: ${String(update)}`);
   }
 
-  const webhookOriginConfig = object(telegram.webhookOrigin, 'telegram.webhookOrigin');
-  let webhookOrigin = null;
-  if (webhookOriginConfig.source === 'url') {
-    webhookOrigin = url(webhookOriginConfig.url, 'telegram.webhookOrigin.url', ['https:']);
-  } else if (webhookOriginConfig.source === 'file') {
-    const webhookOriginPath = localPath(workspace, webhookOriginConfig.path, 'telegram.webhookOrigin.path');
-    if (!existsSync(webhookOriginPath)) {
-      if (options.allowMissingWebhookOrigin !== true) {
-        fail(`telegram webhook origin file does not exist: ${webhookOriginPath}`);
-      }
-    } else {
-      webhookOrigin = url(readFileSync(webhookOriginPath, 'utf8').trim(), 'telegram webhook origin file', ['https:']);
-    }
-  } else {
-    fail('telegram.webhookOrigin.source must be "url" or "file"');
-  }
-  if (webhookOrigin !== null) {
-    webhookOrigin.pathname = '/';
-    webhookOrigin.search = '';
-    webhookOrigin.hash = '';
-  }
-  const resolvedWebhookOrigin = webhookOrigin?.toString().replace(/\/$/, '') ?? null;
+  const resolvedWebhookOrigin = originFromConfig(workspace, telegram.webhookOrigin, 'telegram.webhookOrigin', {
+    allowMissing: options.allowMissingWebhookOrigin === true,
+  });
+  const webAppOrigin = telegram.webAppOrigin === undefined
+    ? null
+    : originFromConfig(workspace, telegram.webAppOrigin, 'telegram.webAppOrigin', {
+      allowMissing: options.allowMissingWebAppOrigin === true,
+    });
+  // Before a tunnel exists the canonical deployment remains the safe default.
+  // Once a local webhook tunnel is active, the engine must issue Telegram Web
+  // App links to that same local surface so the test bot's initData is checked
+  // by the local web process instead of the deployed Rumble application.
+  const runtimeWebOrigin = webAppOrigin ?? resolvedWebhookOrigin ?? canonicalWebOrigin;
 
   const environment = raw.environment === undefined ? {} : object(raw.environment, 'environment');
   for (const [name, value] of Object.entries(environment)) {
@@ -146,6 +160,9 @@ export const loadJourneyProfile = (profilePath, workspace, options = {}) => {
   const resolvedRuntime = {
     ...runtime,
     ...environment,
+    // The web server keeps the registered issuer stable for Privy's custom
+    // JWT verification. The engine receives runtimeWebOrigin separately and
+    // uses it only for Telegram Web App links during local validation.
     WEB_BASE_URL: canonicalWebOrigin,
     WALLET_LINK_DOMAIN: canonicalOrigin.hostname,
     SOLANA_RPC_URL: rpcUrl,
@@ -158,6 +175,8 @@ export const loadJourneyProfile = (profilePath, workspace, options = {}) => {
     profilePath,
     runtimePath,
     canonicalWebOrigin,
+    webAppOrigin,
+    runtimeWebOrigin,
     webhookOrigin: resolvedWebhookOrigin,
     runtime: Object.freeze(resolvedRuntime),
     services: Object.freeze({

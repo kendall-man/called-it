@@ -102,9 +102,13 @@ export async function composeClaimCard(
   ]);
   if (!claim || !group) return null;
   const nonVoid = positions.filter((p) => p.state !== 'void');
-  // Finalized-but-pending lots drive the card's fair-play delay line; it
-  // disappears on the activation projection's refresh of this same card.
-  const pendingActivationCount = nonVoid.filter((p) => p.state === 'pending').length;
+  // Finalized-but-pending lots drive the card's fair-play delay line only
+  // while the call can still activate them. A terminal void protects those
+  // lots instead, so showing an activation countdown after "SOL returned"
+  // would contradict the finalized chain projection.
+  const pendingActivationCount = market.status === 'open' || market.status === 'frozen'
+    ? nonVoid.filter((p) => p.state === 'pending').length
+    : 0;
   const claimer = await deps.db.getUser(claim.claimer_user_id);
   const identities = participantSides(participants, market);
   const { back, doubt } = tally(nonVoid);

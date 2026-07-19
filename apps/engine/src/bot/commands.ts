@@ -49,7 +49,19 @@ async function resolveTestFixture(h: HandlerCtx, argument: string) {
     const fixtureId = Number(argument);
     if (!Number.isSafeInteger(fixtureId) || fixtureId <= 0) return null;
     const fixture = await h.deps.db.getFixture(fixtureId);
-    return isReplayableFixture(fixture) ? fixture : null;
+    if (isReplayableFixture(fixture)) return fixture;
+    // Fixture snapshots deliberately contain schedule metadata only. An
+    // explicitly requested completed fixture may not have been observed by a
+    // live source, so refresh its terminal state from the same feed evidence
+    // the replay will consume before declining the test command.
+    if (fixture === null) return null;
+    const terminal = [...await h.deps.tx.fetchScoreEvents(fixtureId)]
+      .sort((left, right) => right.seq - left.seq)
+      .find((event) => TERMINAL_PHASES.includes(event.phase));
+    if (terminal === undefined) return null;
+    await h.deps.db.updateFixtureFromEvent(terminal);
+    const refreshed = await h.deps.db.getFixture(fixtureId);
+    return isReplayableFixture(refreshed) ? refreshed : null;
   }
 
   const nowMs = h.deps.now();

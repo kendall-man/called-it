@@ -1,8 +1,9 @@
-import { describeEvidenceFact, type EvidenceFact } from '@/lib/receipts';
+import React from 'react';
+import { describeEvidenceFact, type EvidenceFact } from '../lib/receipts';
 import { Badge } from './ui';
-import { cx } from '@/lib/cx';
+import { cx } from '../lib/cx';
 
-export type EvidenceState = 'ready' | 'not_ready' | 'unavailable';
+export type EvidenceState = 'ready' | 'not_ready' | 'not_recorded' | 'unavailable';
 
 export function EvidenceList({
   facts,
@@ -22,6 +23,14 @@ export function EvidenceList({
     );
   }
   if (state === 'not_ready' || facts.length === 0) {
+    if (state === 'not_recorded') {
+      return (
+        <p className="text-sm text-fog">
+          This finalized replay has no public deciding-event record. Its on-chain outcome and aggregate
+          totals are shown above.
+        </p>
+      );
+    }
     return (
       <p className="text-sm text-fog">
         No deciding event is recorded yet. Evidence appears after the match is settled.

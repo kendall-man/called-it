@@ -37,7 +37,7 @@ export default function LandingPage() {
       <section className="entry-page mt-2 border-b border-line pb-6 sm:mt-6">
         <p className="text-sm font-semibold text-pitch-300">Football calls, on the record</p>
         <h1 className="display-type mt-2 text-6xl text-chalk sm:text-7xl">
-          Called <span className="text-pitch-400">It</span>
+          Rumble
         </h1>
         <p className="mt-4 max-w-lg text-base leading-relaxed text-fog">
           &quot;Arsenal score before half-time.&quot; Add Rumble to your Telegram group, say a football

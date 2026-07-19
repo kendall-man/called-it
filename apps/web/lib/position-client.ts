@@ -28,7 +28,7 @@ const PreparedSchema = z.object({
 }).strict();
 
 const StatusSchema = z.object({
-  stage: z.enum(['awaiting_signature', 'confirming', 'finalized', 'unknown_confirmation']),
+  stage: z.enum(['awaiting_signature', 'confirming', 'finalized', 'unknown_confirmation', 'approval_lapsed']),
   signature: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{64,128}$/).nullable(),
   positionState: z.enum(['pending', 'active', 'invalidated', 'refundable', 'claimed']).nullable(),
   commitment: z.enum(['confirmed', 'finalized']).nullable(),

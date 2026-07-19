@@ -215,6 +215,8 @@ export function privateEscrowRecoveryUrl(raw: string | undefined): string | null
 export function escrowSigningPrompt(input: {
   readonly network: SolanaNetwork;
   readonly side: 'back' | 'doubt';
+  /** Deterministic group-card terms, repeated privately so the signer never has to guess. */
+  readonly terms?: string;
   readonly asset: WagerAsset;
   readonly amountAtomic: bigint;
   readonly expiresAt: string;
@@ -223,6 +225,7 @@ export function escrowSigningPrompt(input: {
   const side = input.side === 'back' ? 'It happens' : 'It does not';
   return [
     input.replay ? 'Awaiting signature · COMPLETED-MATCH REPLAY' : 'Awaiting signature',
+    ...(input.terms === undefined || input.terms.length === 0 ? [] : [`📋 ${input.terms}`]),
     `On-chain escrow · ${escrowNetworkLabel(input.network)} · ${formatAssetAmount(input.amountAtomic, input.asset)}`,
     ...(input.replay
       ? [input.network === 'devnet'
@@ -232,6 +235,14 @@ export function escrowSigningPrompt(input: {
     `${side}. Check the amount, then approve it with your Privy wallet.`,
     `This private link expires at ${input.expiresAt}. Submission is not success; the group updates only after finalization.`,
   ].join('\n');
+}
+
+/** Keep the private handoff action as specific as the group-card choice. */
+export function escrowSigningButtonLabel(input: {
+  readonly asset: WagerAsset;
+  readonly amountAtomic: bigint;
+}): string {
+  return `Review & sign ${formatAssetAmount(input.amountAtomic, input.asset)}`;
 }
 
 export function escrowPlacementRejectionText(code: EscrowPlacementRejectionCode): string {

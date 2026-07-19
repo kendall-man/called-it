@@ -51,6 +51,23 @@ describe('escrow receipt components', () => {
     expect(html).toContain('Replay · No Points');
     expect(html).not.toMatch(/Points earned|awards Points/i);
   });
+
+  it('shows a voided pending lot as returned, not as an open activation state', () => {
+    const receipt = {
+      ...fixture('sol'),
+      chainState: 'closed',
+      status: 'voided',
+      outcome: 'void',
+      aggregates: [{ side: 'back', state: 'pending', lotCount: 1, amountAtomic: '10000000' }],
+      payoutTotalAtomic: '0',
+      refundTotalAtomic: '10000000',
+    } satisfies PublicEscrowReceipt;
+
+    const html = renderToStaticMarkup(<EscrowReceiptDetails escrow={receipt} />);
+
+    expect(html).toContain('It happens · returned');
+    expect(html).not.toContain('It happens · pending');
+  });
 });
 
 function fixture(asset: 'sol' | 'usdc'): PublicEscrowReceipt {

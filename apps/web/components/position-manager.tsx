@@ -188,6 +188,10 @@ export function PositionManager(props: PositionManagerProps) {
         fail('unknown_confirmation');
         return;
       }
+      if (current.stage === 'approval_lapsed') {
+        fail('approval_lapsed');
+        return;
+      }
       const prepared = await requestPreparedPosition({
         token: props.token,
         accessToken,
@@ -230,7 +234,10 @@ export function PositionManager(props: PositionManagerProps) {
   }, [activeWallet, authenticated, flow.kind, jwtAuth.state.status, prepare, ready, session, walletsReady]);
 
   useEffect(() => {
-    if (flow.kind !== 'confirming' || activeWallet === null) return;
+    if (
+      (flow.kind !== 'confirming' && !(flow.kind === 'finalized' && flow.positionState === 'pending')) ||
+      activeWallet === null
+    ) return;
     let cancelled = false;
     const poll = async () => {
       try {
@@ -251,6 +258,8 @@ export function PositionManager(props: PositionManagerProps) {
           });
         } else if (status.stage === 'unknown_confirmation') {
           fail('unknown_confirmation');
+        } else if (status.stage === 'approval_lapsed') {
+          fail('approval_lapsed');
         } else {
           setFlow({
             kind: 'confirming',
@@ -391,6 +400,10 @@ export function PositionManager(props: PositionManagerProps) {
         });
         return;
       }
+      if (status.stage === 'approval_lapsed') {
+        fail('approval_lapsed');
+        return;
+      }
       fail('unknown_confirmation');
     } catch (cause) {
       fail(clientErrorCode(cause));
@@ -398,7 +411,11 @@ export function PositionManager(props: PositionManagerProps) {
   }, [activeWallet, fail, getAccessToken, props.token]);
 
   if (flow.kind === 'failed') {
-    const action = flow.failure.action === 'status' ? recoverStatus : returnToTelegram;
+    // We are still inside a verified Telegram Mini App here. Closing returns
+    // to the originating private chat; hopping to t.me leaves Telegram Web
+    // showing an embedded launch page and prevents the next fresh approval
+    // from opening in the same session.
+    const action = flow.failure.action === 'status' ? recoverStatus : finishInTelegram;
     return (
       <WalletState
         title={flow.failure.title}

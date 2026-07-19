@@ -101,6 +101,17 @@ export function createOracleSignerServer(options: {
       return;
     }
 
+    try {
+      const reasons = await options.readiness.check();
+      if (reasons.length > 0) {
+        reply(response, 503, { error: 'signer_not_ready', reasons });
+        return;
+      }
+    } catch {
+      reply(response, 503, { error: 'signer_not_ready', reasons: ['readiness_check_failed'] });
+      return;
+    }
+
     let envelope: OracleSigningEnvelope | null = null;
     try {
       const parsed = parseOracleSigningEnvelope(await body(request));

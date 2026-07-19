@@ -269,6 +269,20 @@ async function main(): Promise<void> {
       oracleSetEpoch: escrowRuntime.marketPolicy.oracleSetEpoch,
       maximumMarketDurationSeconds: escrowRuntime.marketPolicy.maximumMarketDurationSeconds,
       maximumResolutionDelaySeconds: escrowRuntime.marketPolicy.maximumResolutionDelaySeconds,
+      async finalizedProjectionReady(market) {
+        const link = await escrowRuntime.db.getMarketLink({
+          cluster: env.SOLANA_NETWORK,
+          genesisHash: env.ESCROW_GENESIS_HASH!,
+          programId: env.ESCROW_PROGRAM_ID!,
+          marketPda: market.marketPda,
+        });
+        return link.ok && link.found &&
+          link.marketId === market.marketId &&
+          link.documentHashHex.toLowerCase() === market.documentHashHex.toLowerCase() &&
+          link.commitment === 'finalized' &&
+          !link.projectionStale &&
+          link.chainState === 'open';
+      },
       clock: () => {
         const milliseconds = deps.now();
         return {
@@ -307,7 +321,11 @@ async function main(): Promise<void> {
     // Escrow event workflows persist their own work as events arrive. At replay
     // EOF, immediately give those durable queues one pass instead of claiming
     // settlement before finalized projection confirms it.
-    async scheduleReplayConfirmation() {
+    async scheduleReplayConfirmation({ groupId, fixtureId, startedAtMs }) {
+      // First project every finalized placement already visible on-chain. The
+      // terminal choice is fail-closed when the projection is incomplete.
+      await escrowRuntime?.lifecycle.runOnce();
+      await escrowScheduler?.finalizeReplay(groupId, fixtureId, startedAtMs);
       await escrowRuntime?.lifecycle.runOnce();
     },
   });
@@ -362,7 +380,11 @@ async function main(): Promise<void> {
     ? new UiStateStore({
         onExpire: (_marketId, userId, state) => {
           void (ephemeralPort ?? undefined)
-            ?.edit({ userId, ephemeralMessageId: state.ephemeralMessageId, text: STEPPER_CLOSED_LINE })
+            ?.edit({
+              userId,
+              ephemeralMessageId: state.ephemeralMessageId,
+              text: STEPPER_CLOSED_LINE,
+            })
             .catch(() => log.warn('stake_ui_revert_failed'));
         },
       })
@@ -406,7 +428,23 @@ async function main(): Promise<void> {
   // restart belongs to an old run, so lock it before accepting fresh callbacks.
   await Promise.all(env.ESCROW_ALLOWED_GROUP_IDS.map(async (groupId) => {
     try {
+      const staleReplayMarkets = (await deps.db.openMarketsForGroup(groupId))
+        .filter((market) => market.is_replay && market.custody_mode === 'escrow');
       await supervisor.recoverReplayGroup(groupId);
+      // Replay run identity is intentionally process-local, but terminal truth
+      // is deterministic. Re-derive any interrupted run from canonical feed
+      // history so a crash between the terminal event and EOF cannot strand an
+      // on-chain replay market forever.
+      for (const fixtureId of new Set(staleReplayMarkets.map((market) => market.fixture_id))) {
+        const events = [...await deps.tx.fetchScoreEvents(fixtureId)]
+          .sort((left, right) => left.seq - right.seq);
+        for (const event of events) {
+          await escrowScheduler?.onReplayEvent(groupId, event, 0);
+        }
+        await escrowRuntime?.lifecycle.runOnce();
+        await escrowScheduler?.finalizeReplay(groupId, fixtureId, 0);
+        await escrowRuntime?.lifecycle.runOnce();
+      }
     } catch {
       log.warn('replay_recovery_failed', { groupId });
     }
@@ -433,6 +471,9 @@ async function main(): Promise<void> {
           } catch {
             return false;
           }
+        },
+        replayActive(market) {
+          return replayMarketBelongsToRun(market, supervisor.replayRun(market.group_id));
         },
       },
     }),

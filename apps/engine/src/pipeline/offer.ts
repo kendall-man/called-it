@@ -351,7 +351,17 @@ export async function mintOffer(
   if (cardMessageId !== null) {
     // Edit the skeleton into the full offer card (or its paused/failure
     // state) — the market keeps one group surface for its whole life.
-    h.poster.editCard(claim.group_id, market.id, cardMessageId, fullCardText, keyboard);
+    // This is the first usable state of the same card, not a noisy market
+    // refresh. Do not leave members staring at the pricing shell for the
+    // normal card-collapse window.
+    h.poster.editCard(
+      claim.group_id,
+      market.id,
+      cardMessageId,
+      fullCardText,
+      keyboard,
+      { urgent: true },
+    );
     return { minted: true };
   }
   h.poster.post(claim.group_id, fullCardText, {

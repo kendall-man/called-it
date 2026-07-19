@@ -1,8 +1,9 @@
-import { reduceMarket, type MatchEvent } from '@calledit/market-engine';
+import { checkDebounce, reduceMarket, type MatchEvent } from '@calledit/market-engine';
 import { Keypair } from '@solana/web3.js';
 import { describe, expect, it } from 'vitest';
 import type { Deps, MarketRow } from '../ports.js';
 import type { EscrowAttestationRequestService } from './attestation-request-service.js';
+import { normalizedEscrowEvidenceHash } from './event-attestations.js';
 import {
   createEscrowEventWorkflowScheduler,
   createEscrowSettlementEntitlementScheduler,
@@ -52,14 +53,17 @@ function setup(
   custodyMode: 'legacy' | 'escrow' = 'escrow',
   failOnceAt?: number,
   loadFailures = 0,
+  finalizedAfterEnqueueFailure?: { readonly chainState: 'open' | 'frozen'; readonly eventEpoch: bigint },
+  emptyLots = false,
 ) {
   const currentMarket = market(replay, custodyMode);
   const workflow: EscrowEventWorkflowPort = {
     async loadMarket() {
       loadCalls += 1;
       if (loadCalls <= loadFailures) throw new Error('transient RPC failure');
+      const finalized = enqueueCalls > 0 ? finalizedAfterEnqueueFailure : undefined;
       return {
-        chainState: 'open', replay,
+        chainState: finalized?.chainState ?? 'open', replay,
         oraclePolicy: {
           oracleSetEpoch: 7n,
           signers: ['oracle-a', 'oracle-b', 'oracle-c'],
@@ -67,11 +71,12 @@ function setup(
         },
         binding: {
           marketId: MARKET_ID, marketPda: MARKET_PDA, marketDocumentHashHex: 'ab'.repeat(32),
-          fixtureId: 77n, oracleSetEpoch: 7n, eventEpoch: 3n,
+          fixtureId: 77n, oracleSetEpoch: 7n, eventEpoch: finalized?.eventEpoch ?? 3n,
         },
       };
     },
     async positionLots() {
+      if (emptyLots) return [];
       return [{
         ownerPubkey: OWNER, lotNonce: 2n, positionLotPda: LOT_PDA,
         placedTimestamp: 101n, observedEventEpoch: 3n, activationTimestamp: 110n,
@@ -87,7 +92,7 @@ function setup(
       async openMarketsForFixture() { marketLookupCalls += 1; return [currentMarket]; },
       async positionsForMarket() { return []; },
     },
-    engine: { reduceMarket },
+    engine: { reduceMarket, checkDebounce },
     log: {
       info(logEvent: string, fields: Record<string, unknown>) {
         infoLogs.push({ event: logEvent, fields });
@@ -156,7 +161,7 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
 
     await fixture.scheduler.onEvent(event());
 
-    expect(fixture.persisted).toEqual([]);
+    expect(fixture.persisted.some((value) => value.request.operation === 'settle_market')).toBe(false);
   });
 
   it('continues settlement for a linked escrow market after its group leaves the intake allowlist', async () => {
@@ -214,11 +219,18 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
   });
 
   it('routes replay terminal events through the same durable Points-disabled path', async () => {
-    const fixture = setup(true);
+    const fixture = setup(true, [], 'escrow', undefined, 0, undefined, true);
     await fixture.scheduler.onReplayEvent(GROUP_ID, event({
       kind: 'phase_change', seq: 20, phase: 'F', minute: 90,
       receivedAtMs: 200_000, tsMs: 199_000,
+      score: {
+        p1: { goals: 2, yellowCards: 0, redCards: 0, corners: 0 },
+        p2: { goals: 1, yellowCards: 0, redCards: 0, corners: 0 },
+        p1Goals90: 2, p2Goals90: 1,
+      },
     }), 0);
+    expect(fixture.persisted.some((value) => value.request.operation === 'settle_market')).toBe(false);
+    await fixture.scheduler.finalizeReplay(GROUP_ID, 77, 0);
 
     expect(fixture.persisted.find((value) => value.request.operation === 'settle_market')).toMatchObject({
       replay: true, request: { operation: 'settle_market' },
@@ -226,7 +238,7 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
   });
 
   it('settles a replay after an epoch-millisecond odds suspension sequence', async () => {
-    const fixture = setup(true);
+    const fixture = setup(true, [], 'escrow', undefined, 0, undefined, true);
     await fixture.scheduler.onReplayEvent(GROUP_ID, event(), 0);
     await fixture.scheduler.onReplayEvent(GROUP_ID, event({
       kind: 'odds_suspension', seq: 1_784_148_352_217,
@@ -242,6 +254,8 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
         p1Goals90: 1, p2Goals90: 2,
       },
     }), 0);
+    expect(fixture.persisted).toEqual([]);
+    await fixture.scheduler.finalizeReplay(GROUP_ID, 77, 0);
 
     expect(fixture.persisted.find((value) => value.request.operation === 'settle_market'))
       .toMatchObject({ replay: true, request: { operation: 'settle_market' } });
@@ -295,31 +309,115 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
     expect(fixture.persisted).toEqual([]);
   });
 
-  it('retries a transient replay RPC failure without dropping the event', async () => {
+  it('fails a replay immediately on a transient RPC boundary', async () => {
     const fixture = setup(true, [], 'escrow', undefined, 2);
-    await fixture.scheduler.onReplayEvent(GROUP_ID, event(), 0);
+    await expect(fixture.scheduler.onReplayEvent(GROUP_ID, event(), 0))
+      .rejects.toThrow('transient RPC failure');
 
-    expect(fixture.loadCalls()).toBe(3);
-    expect(fixture.persisted.map((value) => value.request.operation)).toEqual([
-      'freeze_market', 'invalidate_position_lot',
-    ]);
-    expect(fixture.infoLogs.filter(({ event: logEvent }) => logEvent === 'escrow_replay_event_retry'))
-      .toEqual([
-        expect.objectContaining({ fields: expect.objectContaining({ reason: 'rpc_unavailable' }) }),
-        expect.objectContaining({ fields: expect.objectContaining({ reason: 'rpc_unavailable' }) }),
-      ]);
+    expect(fixture.loadCalls()).toBe(1);
+    expect(fixture.persisted).toEqual([]);
   });
 
-  it('labels replay attestation persistence retries without exposing provider errors', async () => {
+  it('fails a replay immediately when attestation persistence is unavailable', async () => {
     const fixture = setup(true, [], 'escrow', 1);
+
+    await expect(fixture.scheduler.onReplayEvent(GROUP_ID, event(), 0))
+      .rejects.toThrow('attestation_storage_unavailable');
+
+    expect(fixture.persisted).toEqual([]);
+  });
+
+  it('accepts a replay freeze that finalized between context load and durable enqueue', async () => {
+    const fixture = setup(
+      true, [], 'escrow', 1, 0,
+      { chainState: 'frozen', eventEpoch: 4n },
+    );
 
     await fixture.scheduler.onReplayEvent(GROUP_ID, event(), 0);
 
+    expect(fixture.loadCalls()).toBe(2);
     expect(fixture.persisted.map((value) => value.request.operation)).toEqual([
-      'freeze_market', 'invalidate_position_lot',
+      'invalidate_position_lot',
     ]);
-    expect(fixture.infoLogs.find(({ event: logEvent }) => logEvent === 'escrow_replay_event_retry'))
-      .toMatchObject({ fields: { reason: 'attestation_storage_unavailable' } });
+    expect(fixture.infoLogs).toContainEqual({
+      event: 'escrow_control_transition_already_finalized',
+      fields: {
+        marketId: MARKET_ID,
+        seq: 12,
+        operation: 'freeze_market',
+        eventEpoch: '4',
+      },
+    });
+  });
+
+  it('settles an empty replay market without redundant control transactions', async () => {
+    const fixture = setup(true, [], 'escrow', undefined, 0, undefined, true);
+
+    await fixture.scheduler.onReplayEvent(GROUP_ID, event(), 0);
+    const terminal = event({
+      kind: 'phase_change', seq: 20, phase: 'F', minute: 90,
+      receivedAtMs: 200_000, tsMs: 199_000,
+      score: {
+        p1: { goals: 2, yellowCards: 0, redCards: 0, corners: 0 },
+        p2: { goals: 1, yellowCards: 0, redCards: 0, corners: 0 },
+        p1Goals90: 2, p2Goals90: 1,
+      },
+    });
+    await fixture.scheduler.onReplayEvent(GROUP_ID, terminal, 0);
+    expect(fixture.persisted).toEqual([]);
+
+    // A later canonical record confirms the debounce candidate. Additional
+    // post-whistle records must not enqueue another terminal request while the
+    // finalized projection is still catching up.
+    await fixture.scheduler.onReplayEvent(GROUP_ID, event({
+      ...terminal, kind: 'stat_update', seq: 21, receivedAtMs: 201_000,
+    }), 0);
+    const latest = event({
+      ...terminal, kind: 'stat_update', seq: 22, tsMs: 202_000, receivedAtMs: 202_000,
+    });
+    await fixture.scheduler.onReplayEvent(GROUP_ID, latest, 0);
+    expect(fixture.persisted).toEqual([]);
+    await fixture.scheduler.finalizeReplay(GROUP_ID, 77, 0);
+
+    expect(fixture.persisted.map((value) => value.request.operation)).toEqual(['settle_market']);
+    expect(fixture.persisted[0]?.request).toMatchObject({
+      operation: 'settle_market',
+      attestation: {
+        decidingSequence: 20n,
+        normalizedEvidenceRoot: normalizedEscrowEvidenceHash(latest),
+      },
+    });
+    expect(fixture.infoLogs).toContainEqual({
+      event: 'escrow_replay_control_skipped_empty_market',
+      fields: { marketId: MARKET_ID, seq: 12 },
+    });
+  });
+
+  it('matures a lone empty-replay terminal candidate exactly once at replay EOF', async () => {
+    const fixture = setup(true, [], 'escrow', undefined, 0, undefined, true);
+    const terminal = event({
+      kind: 'phase_change', seq: 20, phase: 'F', minute: 90,
+      receivedAtMs: 200_000, tsMs: 199_000,
+      score: {
+        p1: { goals: 2, yellowCards: 0, redCards: 0, corners: 0 },
+        p2: { goals: 1, yellowCards: 0, redCards: 0, corners: 0 },
+        p1Goals90: 2, p2Goals90: 1,
+      },
+    });
+
+    await fixture.scheduler.onReplayEvent(GROUP_ID, terminal, 0);
+    expect(fixture.persisted).toEqual([]);
+    await fixture.scheduler.finalizeReplay(GROUP_ID, 77, 0);
+    await fixture.scheduler.finalizeReplay(GROUP_ID, 77, 0);
+
+    expect(fixture.persisted.map((value) => value.request.operation)).toEqual(['settle_market']);
+    expect(fixture.persisted[0]?.request).toMatchObject({
+      operation: 'settle_market',
+      attestation: {
+        decidingSequence: 20n,
+        normalizedEvidenceRoot: normalizedEscrowEvidenceHash(terminal),
+      },
+    });
   });
 
   it('maps cancellation to durable void and ignores duplicate or reordered events', async () => {

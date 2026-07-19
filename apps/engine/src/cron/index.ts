@@ -32,6 +32,8 @@ export interface EscrowOpsMonitor {
 /** Re-checks escrow provisioning for a market's positions (single attempt). */
 export interface EscrowPausedCardRecoveryPorts {
   ready(market: MarketRow): Promise<boolean>;
+  /** Active replays may be safely re-armed after a local restart; stale ones must stay locked. */
+  replayActive?(market: MarketRow): boolean;
 }
 
 /** Durable settlement/proof work is injected by Task16's runtime composition. */
@@ -117,6 +119,7 @@ export async function sweepUnpostedSettlements(
   deps: Deps,
   settler: Settler,
   inFlight: Map<string, number>,
+  poster?: Poster,
 ): Promise<void> {
   try {
     const backgroundDb = createAllowlistedBackgroundDb(deps.db, deps.env);
@@ -128,6 +131,16 @@ export async function sweepUnpostedSettlements(
       const market: MarketRow | null = await backgroundDb.getMarket(settlement.market_id);
       if (!market) continue;
       inFlight.set(settlement.market_id, nowMs);
+      // The finalized projection is the source of truth for an escrow card.
+      // Re-render it alongside receipt recovery so a deploy or a missed edit
+      // cannot leave the group showing an open/pending control after terminal
+      // state is final on-chain.
+      if (poster !== undefined && market.card_tg_message_id !== null) {
+        const card = await composeClaimCard({ ...deps, db: backgroundDb }, market);
+        if (card !== null && card.messageId !== null) {
+          poster.editCard(card.chatId, market.id, card.messageId, card.text);
+        }
+      }
       deps.log.info('sweeper_reposting', { marketId: market.id, outcome: settlement.outcome });
       await settler.postReceipt(market, settlement.outcome);
     }
@@ -184,7 +197,7 @@ export async function recoverPausedEscrowCards(
       const openMarkets = await backgroundDb.openMarketsForGroup(group.id);
       for (const market of openMarkets) {
         if (
-          market.is_replay ||
+          (market.is_replay && recovery.replayActive?.(market) !== true) ||
           market.card_tg_message_id === null ||
           recovered.has(market.id) ||
           (market.status !== 'open' && market.status !== 'pending_lineup')
@@ -259,6 +272,7 @@ export function startCrons(args: {
   void syncFixtures(deps).then(async () => {
     await supervisor.refresh();
     await settlementReconciler.tick();
+    await sweepUnpostedSettlements(deps, settler, sweeperInFlight, poster);
   });
   if (durableRecovery) void durableRecovery.tick();
 
@@ -300,7 +314,7 @@ export function startCrons(args: {
     setInterval(() => {
       void (async () => {
         await expireClaims(deps, poster, claimSurface);
-        await sweepUnpostedSettlements(deps, settler, sweeperInFlight);
+        await sweepUnpostedSettlements(deps, settler, sweeperInFlight, poster);
         await voidAbandonedMarkets(deps);
         if (escrowPausedCards !== undefined) {
           await recoverPausedEscrowCards(deps, poster, escrowPausedCards, recoveredPausedCards);

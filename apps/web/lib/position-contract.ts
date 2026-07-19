@@ -91,7 +91,7 @@ export type PositionSigningSession = {
 };
 
 export type PositionIndexedStatus = {
-  readonly stage: 'awaiting_signature' | 'confirming' | 'finalized' | 'unknown_confirmation';
+  readonly stage: 'awaiting_signature' | 'confirming' | 'finalized' | 'unknown_confirmation' | 'approval_lapsed';
   readonly signature: string | null;
   readonly positionState: 'pending' | 'active' | 'invalidated' | 'refundable' | 'claimed' | null;
   readonly commitment: 'confirmed' | 'finalized' | null;
