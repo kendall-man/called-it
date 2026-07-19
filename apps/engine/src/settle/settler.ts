@@ -27,6 +27,12 @@ import { composeClaimCard, receiptUrl } from '../pipeline/render.js';
 import { quoteSpec } from '../pipeline/claims.js';
 import { marketStakeKeyboard } from '../bot/keyboards.js';
 import { settlementPingText } from '../bot/stake-step-cards.js';
+import { describeTerms } from '../bot/cards.js';
+import {
+  normalizeInlineText,
+  telegramMessageBody,
+  TELEGRAM_MESSAGE_LIMIT,
+} from '../bot/message-budget.js';
 import { statKeyForSpec } from './statKeys.js';
 import type { ProofWorker } from '../proofs/worker.js';
 import type { SettlementJournal } from './durable.js';
@@ -50,8 +56,40 @@ function isLegacyCustody(market: MarketRow): boolean {
   return market.custody_mode !== 'escrow';
 }
 
+export function escrowFixtureRoundupText(input: {
+  readonly fixture: string;
+  readonly settlements: readonly {
+    readonly market: Pick<MarketRow, 'id' | 'spec'>;
+    readonly outcome: SettlementOutcome;
+    readonly receiptUrl: string;
+  }[];
+}): readonly string[] {
+  const title = '🏁 FINAL WHISTLE · SETTLED CALLS';
+  const fixture = normalizeInlineText(input.fixture, 192, 'Match complete');
+  const rows = input.settlements.map(({ market, outcome, receiptUrl: url }) => [
+    `• ${describeTerms(market.spec)}`,
+    `  Result: ${outcome === 'claim_won' ? 'Call landed' : outcome === 'claim_lost' ? 'Call missed' : 'Call voided'}`,
+    `  Receipt: ${url}`,
+  ].join('\n'));
+  const pages: string[] = [];
+  const footer = '\n\nAll listed calls are finalized on-chain.';
+  let page = `${title}\n${fixture}`;
+  for (const row of rows) {
+    const next = `${page}\n\n${row}`;
+    if (`${next}${footer}`.length <= TELEGRAM_MESSAGE_LIMIT) {
+      page = next;
+      continue;
+    }
+    pages.push(telegramMessageBody(page));
+    page = `${title} · CONTINUED\n${fixture}\n\n${row}`;
+  }
+  pages.push(telegramMessageBody(`${page}${footer}`));
+  return pages;
+}
+
 export class Settler {
   private readonly states = new Map<string, MarketState>();
+  private readonly escrowRoundupsInFlight = new Set<string>();
 
   constructor(
     private readonly deps: Deps,
@@ -312,7 +350,7 @@ export class Settler {
     voidReason?: string,
   ): Promise<void> {
     if (!isLegacyCustody(market)) {
-      this.deps.log.warn('legacy_receipt_skipped_escrow_market', { marketId: market.id });
+      await this.postEscrowFixtureRoundup(market);
       return;
     }
     const receipt = await prepareGroupPointsReceipt(
@@ -355,6 +393,63 @@ export class Settler {
 
     this.poster.post(market.group_id, receipt, { onSent: markPosted });
     await this.refreshCard(market.id);
+  }
+
+  private async postEscrowFixtureRoundup(market: MarketRow): Promise<void> {
+    const key = `${market.group_id}:${market.fixture_id}`;
+    if (this.escrowRoundupsInFlight.has(key)) return;
+    const open = await this.deps.db.openMarketsForFixture(market.fixture_id);
+    if (open.some((candidate) =>
+      candidate.group_id === market.group_id && candidate.custody_mode === 'escrow'
+    )) return;
+
+    const settlements = await this.deps.db.unpostedSettlements();
+    const entries = (await Promise.all(settlements.map(async (settlement) => {
+      const candidate = await this.deps.db.getMarket(settlement.market_id);
+      return candidate?.group_id === market.group_id &&
+        candidate.fixture_id === market.fixture_id &&
+        candidate.custody_mode === 'escrow'
+        ? { market: candidate, outcome: settlement.outcome, settledAt: settlement.settled_at }
+        : null;
+    }))).filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      .sort((left, right) =>
+        left.settledAt.localeCompare(right.settledAt) || left.market.id.localeCompare(right.market.id)
+      );
+    if (!entries.some((entry) => entry.market.id === market.id)) return;
+
+    const fixture = await this.deps.db.getFixture(market.fixture_id);
+    const pages = escrowFixtureRoundupText({
+      fixture: fixture === null ? 'Match complete' : `${fixture.p1_name} vs ${fixture.p2_name}`,
+      settlements: entries.map((entry) => ({
+        market: entry.market,
+        outcome: entry.outcome,
+        receiptUrl: receiptUrl(this.deps, entry.market.id),
+      })),
+    });
+    this.escrowRoundupsInFlight.add(key);
+    let pending = pages.length;
+    let failed = false;
+    for (const page of pages) {
+      this.poster.post(market.group_id, page, {
+        onSent: async () => {
+          pending -= 1;
+          if (pending !== 0 || failed) return;
+          await Promise.all(entries.map((entry) =>
+            this.deps.db.markSettlementPosted(entry.market.id)
+          ));
+          this.escrowRoundupsInFlight.delete(key);
+          this.deps.log.info('escrow_fixture_roundup_posted', {
+            groupId: market.group_id,
+            fixtureId: market.fixture_id,
+            marketCount: entries.length,
+          });
+        },
+        onSendFailed: () => {
+          failed = true;
+          this.escrowRoundupsInFlight.delete(key);
+        },
+      });
+    }
   }
 
   private async solPayoutsLine(marketId: string, outcome: SettlementOutcome): Promise<string> {
