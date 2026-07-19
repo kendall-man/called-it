@@ -165,7 +165,20 @@ describe('sponsored escrow relayer recovery', () => {
     }]);
     expect(fixture.readinessChecks()).toBe(1);
     expect(fixture.broadcasts).toHaveLength(0);
-    expect(fixture.calls).toEqual(['lease', 'record_signed', 'retry:true']);
+    expect(fixture.calls).toEqual(['lease', 'record_signed']);
+  });
+
+  it('records an ambiguous first broadcast as submitted without rebuilding', async () => {
+    const payload = signedPlacementPayload();
+    const fixture = setup(leasedJob(payload, null), {
+      broadcast: async () => { throw new Error('rpc unavailable after send'); },
+    });
+
+    await expect(fixture.worker.runOnce(NOW, 1)).resolves.toEqual([{
+      kind: 'retrying', jobId: expect.any(String), signature: payload.expectedSignature,
+    }]);
+    expect(fixture.calls).toEqual(['lease', 'record_signed', 'submitted']);
+    expect(fixture.broadcasts).toHaveLength(0);
   });
 
   it('rebroadcasts identical persisted bytes after restart', async () => {
