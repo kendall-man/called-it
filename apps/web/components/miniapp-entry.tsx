@@ -154,6 +154,7 @@ export function MiniAppEntry(props: MiniAppEntryProps) {
   if (phase.kind === 'position') {
     return (
       <PositionEntry
+        key={phase.token}
         appId={props.appId}
         botUsername={props.botUsername}
         canonicalUsdcMint={props.canonicalUsdcMint}
@@ -212,9 +213,11 @@ export function MiniAppEntry(props: MiniAppEntryProps) {
   }
 
   const failure = miniAppOpenFailure(phase.code, phase.surface);
+  const retryIsFresh = telegramInitDataAgeSeconds(launch.initData) < 240;
   const retry = phase.surface === 'wallet' || !launch.positionLaunch
     ? () => void openWallet(launch.initData)
     : () => void openPosition(launch.initData);
+  const canRetry = failure.action === 'retry' && retryIsFresh;
   return (
     <WalletState
       title={failure.title}
@@ -222,15 +225,22 @@ export function MiniAppEntry(props: MiniAppEntryProps) {
       action={(
         <div className="mt-5">
           <WalletButton
-            icon={failure.action === 'retry' ? <RefreshCw size={18} /> : <X size={18} />}
-            onClick={failure.action === 'retry' ? retry : closeOrReturn}
+            icon={canRetry ? <RefreshCw size={18} /> : <X size={18} />}
+            onClick={canRetry ? retry : closeOrReturn}
           >
-            {failure.actionLabel}
+            {canRetry ? failure.actionLabel : 'Return to Telegram'}
           </WalletButton>
         </div>
       )}
     />
   );
+}
+
+/** Routing-only freshness check; the server still authenticates the HMAC. */
+function telegramInitDataAgeSeconds(initData: string): number {
+  const authDate = Number(new URLSearchParams(initData).get('auth_date'));
+  if (!Number.isSafeInteger(authDate) || authDate <= 0) return Number.POSITIVE_INFINITY;
+  return Math.max(0, Math.floor(Date.now() / 1_000) - authDate);
 }
 
 function openErrorCode(cause: unknown): string {

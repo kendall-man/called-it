@@ -8,7 +8,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Bot } from 'grammy';
+import { Api, Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
 import { run } from '@grammyjs/runner';
 import { loadEnv } from './env.js';
@@ -32,7 +32,7 @@ import { createSettlementReconciler } from './settle/settlement-reconciler.js';
 import { IngestSupervisor, replayMarketBelongsToRun } from './ingest/supervisor.js';
 import { startCrons } from './cron/index.js';
 import { startEngineApi } from './api/server.js';
-import { createTelegramIngressHandler } from './api/telegram-ingress-boundary.js';
+import { createTrackedTelegramIngress } from './api/telegram-ingress-boundary.js';
 import { withRetryablePollingConflict } from './telegram/polling-retry.js';
 import { assertWagerBootable } from './wager-capability.js';
 import {
@@ -365,13 +365,22 @@ async function main(): Promise<void> {
     }
   };
 
-  // Per-user ephemeral stepper surface (STAKE_LADDER_ENABLED). A raw Bot API
-  // client for the ephemeral group messages the stepper lives in; built only
+  // Per-user ephemeral stepper surface (STAKE_LADDER_ENABLED). It uses a
+  // dedicated, bounded grammY API path so a callback cannot inherit the
+  // bot's intentionally patient background retry policy; built only
   // when the flag is on so a flag-off deploy loads zero of it and stays the
   // single-tap flow, byte-for-byte.
-  const ephemeralPort = env.STAKE_LADDER_ENABLED
-    ? createTelegramEphemeralPort({ token: env.TELEGRAM_BOT_TOKEN, log })
+  const ephemeralApi = env.STAKE_LADDER_ENABLED
+    ? new Api(env.TELEGRAM_BOT_TOKEN)
     : null;
+  ephemeralApi?.config.use(autoRetry({
+    maxDelaySeconds: 2,
+    maxRetryAttempts: 1,
+    rethrowHttpErrors: true,
+  }));
+  const ephemeralPort = ephemeralApi === null
+    ? null
+    : createTelegramEphemeralPort({ api: ephemeralApi, log, queue });
 
   // Per-user stepper visual store (STAKE_LADDER_ENABLED), keyed by (market,
   // user). onExpire closes a member's ephemeral stepper when they walk away
@@ -551,6 +560,19 @@ async function main(): Promise<void> {
     deadline: SYSTEM_READINESS_DEADLINE,
     drainState,
   });
+  const trackedTelegramIngress = webhookIngress
+    ? createTrackedTelegramIngress({
+        mutate: (update) => bot.handleUpdate(update),
+        onError: () => log.error('telegram_ingress_processing_failed'),
+      })
+    : null;
+  if (webhookIngress) {
+    // handleUpdate requires botInfo. Finish initialization before the API can
+    // acknowledge any forwarded callback.
+    await bot.init();
+    webhookWorkerReady = true;
+    telegramHeartbeatAtMs = deps.now();
+  }
   const apiServer = startEngineApi({
     deps,
     poster,
@@ -564,21 +586,15 @@ async function main(): Promise<void> {
     ...(env.WEB_CONCIERGE_TOKEN_SHA256 === undefined
       ? {}
       : { escrowWebTokenSha256: env.WEB_CONCIERGE_TOKEN_SHA256 }),
-    ...(webhookIngress
+    ...(trackedTelegramIngress !== null
       ? {
-          telegramIngress: {
-            accept: createTelegramIngressHandler((update) => bot.handleUpdate(update)),
-          },
+          telegramIngress: { accept: trackedTelegramIngress.accept },
         }
       : {}),
   });
   // Webhook ingress: the concierge owns getUpdates' replacement (the webhook)
   // and forwards; polling here would 409 against the registered webhook.
-  if (webhookIngress) {
-    await bot.init(); // handleUpdate needs botInfo, which run() normally fetches
-    webhookWorkerReady = true;
-    telegramHeartbeatAtMs = deps.now();
-  } else {
+  if (!webhookIngress) {
     runner = run(bot);
     telegramHeartbeatAtMs = deps.now();
   }
@@ -589,14 +605,19 @@ async function main(): Promise<void> {
     escrowRuntime: escrowRuntime !== null,
   });
 
-  let queueDrained = false;
-  const queueDrain = {
-    name: 'telegram_send_queue',
+  let telegramQueuesDrained = false;
+  const telegramQueuesDrain = {
+    name: 'telegram_ingress_and_send_queue',
     async drain() {
+      // Accepted callbacks are producers for the outbound queue. Drain them
+      // first, then wait for every message they may have enqueued.
+      await trackedTelegramIngress?.drain();
       await queue.idle();
-      queueDrained = true;
+      telegramQueuesDrained = true;
     },
-    unfinished: () => (queueDrained ? 0 : 1),
+    unfinished: () => (
+      (trackedTelegramIngress?.unfinished() ?? 0) + (telegramQueuesDrained ? 0 : 1)
+    ),
   } satisfies ShutdownDrainPort;
   const shutdown = async (signal: ShutdownSignal) => {
     log.info('engine_shutdown_started', { signal });
@@ -605,6 +626,7 @@ async function main(): Promise<void> {
       deadline: SYSTEM_READINESS_DEADLINE,
       drainState,
       stopIntake() {
+        trackedTelegramIngress?.stop();
         crons.stop();
         supervisor.stopAll();
         void escrowRuntime?.lifecycle.stop();
@@ -635,7 +657,7 @@ async function main(): Promise<void> {
           drain: () => escrowRuntime.lifecycle.stop(),
           unfinished: () => escrowRuntime.lifecycle.unfinished(),
         }]),
-        queueDrain,
+        telegramQueuesDrain,
       ],
     });
     queue.stop();

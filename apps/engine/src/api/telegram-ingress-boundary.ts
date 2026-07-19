@@ -3,6 +3,13 @@ import { z } from 'zod';
 
 type TelegramIngressMutation = (update: Update) => Promise<void>;
 
+export interface TrackedTelegramIngress {
+  accept(input: unknown): Promise<void>;
+  stop(): void;
+  drain(): Promise<void>;
+  unfinished(): number;
+}
+
 const telegramUserSchema = z.object({
   id: z.number().int(),
   is_bot: z.boolean(),
@@ -195,5 +202,47 @@ export function createTelegramIngressHandler(
   return async (input) => {
     const update: Update = dispatchableUpdateSchema.parse(input);
     await mutate(update);
+  };
+}
+
+/**
+ * Validates and accepts a forwarded webhook update without coupling the HTTP
+ * acknowledgement to the full bot callback. Telegram has already received a
+ * 200 from the concierge at this point, so holding this response until the bot
+ * finishes makes a 15-second engine timeout permanently lose the user's tap.
+ *
+ * Accepted work remains tracked and is drained during a normal shutdown. The
+ * mutation owns its own domain idempotency; this wrapper never retries or
+ * duplicates an update.
+ */
+export function createTrackedTelegramIngress(options: {
+  readonly mutate: TelegramIngressMutation;
+  readonly onError: (cause: unknown) => void;
+  readonly maxInFlight?: number;
+}): TrackedTelegramIngress {
+  const inFlight = new Set<Promise<void>>();
+  const maxInFlight = options.maxInFlight ?? 64;
+  let accepting = true;
+  const accept = createTelegramIngressHandler(async (update) => {
+    if (!accepting) throw new Error('telegram ingress is draining');
+    if (inFlight.size >= maxInFlight) throw new Error('telegram ingress is full');
+    let task: Promise<void>;
+    task = new Promise<void>((resolve) => setImmediate(resolve))
+      .then(() => options.mutate(update))
+      .catch(options.onError)
+      .finally(() => inFlight.delete(task));
+    inFlight.add(task);
+  });
+  return {
+    accept,
+    stop() {
+      accepting = false;
+    },
+    async drain() {
+      await Promise.allSettled([...inFlight]);
+    },
+    unfinished() {
+      return inFlight.size;
+    },
   };
 }

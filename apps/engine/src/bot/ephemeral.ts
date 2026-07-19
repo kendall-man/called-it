@@ -14,12 +14,13 @@
  * Everything here is best-effort: a network throw or an `ok:false` response is
  * swallowed (logged once) and reported to the caller, which degrades to the
  * per-user signing fallback rather than ever touching the shared card. This
- * surface is per-user and transient (like reactions), so it deliberately does
- * not go through the per-chat send queue.
+ * surface is per-user and transient (like reactions). Interactive sends jump
+ * ahead of narration but still pass through the per-chat flood-control queue.
  */
 
-import type { InlineKeyboard } from 'grammy';
+import type { Api, InlineKeyboard, RawApi } from 'grammy';
 import type { Logger } from '../log.js';
+import type { SendQueue } from './sendQueue.js';
 
 export interface EphemeralSendInput {
   readonly chatId: number;
@@ -55,77 +56,54 @@ export interface EphemeralPort {
   edit(input: EphemeralEditInput): Promise<boolean>;
 }
 
-interface BotApiResponse {
-  readonly ok?: boolean;
-  readonly result?: { readonly message_id?: number };
-}
-
-function replyMarkupPayload(keyboard: InlineKeyboard | undefined): { inline_keyboard: unknown[] } {
-  // grammY's InlineKeyboard serializes to { inline_keyboard: [...] }; an absent
-  // keyboard becomes an explicit empty one so an edit clears stale buttons.
-  return { inline_keyboard: keyboard?.inline_keyboard ?? [] };
-}
-
 /**
- * The live Telegram ephemeral client. `fetchImpl` is injectable for tests; the
- * default is the global fetch. `token` is the BotFather token (never logged).
+ * The live Telegram ephemeral client. It deliberately reuses the bot's grammY
+ * API instance so the engine's retry/flood-control middleware also protects
+ * the amount and signing controls.
  */
 export function createTelegramEphemeralPort(options: {
-  readonly token: string;
+  readonly api: Api<RawApi>;
   readonly log: Logger;
-  readonly fetchImpl?: typeof fetch;
+  readonly queue: SendQueue;
 }): EphemeralPort {
-  const doFetch = options.fetchImpl ?? fetch;
   const chatIdsByMessage = new Map<string, number>();
   const messageKey = (userId: number, messageId: number): string => `${userId}:${messageId}`;
-  const endpoint = (method: string): string =>
-    `https://api.telegram.org/bot${options.token}/${method}`;
-
-  async function callApi(method: string, body: Record<string, unknown>): Promise<BotApiResponse | null> {
-    try {
-      const response = await doFetch(endpoint(method), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const json = (await response.json()) as BotApiResponse;
-      if (json.ok !== true) {
-        options.log.warn('ephemeral_api_not_ok', { method });
-        return null;
-      }
-      return json;
-    } catch {
-      options.log.warn('ephemeral_api_failed', { method });
-      return null;
-    }
-  }
 
   return {
     async send(input) {
-      const json = await callApi('sendMessage', {
-        chat_id: input.chatId,
-        text: input.text,
-        link_preview_options: { is_disabled: true },
-        ...(input.replyMarkup === undefined ? {} : { reply_markup: replyMarkupPayload(input.replyMarkup) }),
-      });
-      const ephemeralMessageId = json?.result?.message_id;
-      if (typeof ephemeralMessageId !== 'number') return { ok: false };
-      chatIdsByMessage.set(messageKey(input.receiverUserId, ephemeralMessageId), input.chatId);
-      return { ok: true, ephemeralMessageId };
+      try {
+        const message = await options.queue.enqueueInteractive(
+          input.chatId,
+          () => options.api.sendMessage(input.chatId, input.text, {
+            link_preview_options: { is_disabled: true },
+            ...(input.replyMarkup === undefined ? {} : { reply_markup: input.replyMarkup }),
+          }),
+        );
+        chatIdsByMessage.set(messageKey(input.receiverUserId, message.message_id), input.chatId);
+        return { ok: true, ephemeralMessageId: message.message_id };
+      } catch {
+        options.log.warn('ephemeral_api_failed', { method: 'sendMessage' });
+        return { ok: false };
+      }
     },
     async edit(input) {
       const chatId = input.chatId ?? chatIdsByMessage.get(
         messageKey(input.userId, input.ephemeralMessageId),
       );
       if (chatId === undefined) return false;
-      const json = await callApi('editMessageText', {
-        chat_id: chatId,
-        message_id: input.ephemeralMessageId,
-        text: input.text,
-        link_preview_options: { is_disabled: true },
-        reply_markup: replyMarkupPayload(input.replyMarkup),
-      });
-      return json !== null;
+      try {
+        await options.queue.enqueueInteractive(
+          chatId,
+          () => options.api.editMessageText(chatId, input.ephemeralMessageId, input.text, {
+            link_preview_options: { is_disabled: true },
+            reply_markup: input.replyMarkup ?? { inline_keyboard: [] },
+          }),
+        );
+        return true;
+      } catch {
+        options.log.warn('ephemeral_api_failed', { method: 'editMessageText' });
+        return false;
+      }
     },
   };
 }
