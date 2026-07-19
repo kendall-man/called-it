@@ -412,7 +412,11 @@ export function createEscrowEventWorkflowScheduler(options: {
     ));
   }
 
-  async function reduce(market: MarketRow, event: MatchEvent): Promise<void> {
+  async function reduce(
+    market: MarketRow,
+    event: MatchEvent,
+    recovery = false,
+  ): Promise<void> {
     // Odds events use epoch milliseconds as seq; score events use a small provider sequence.
     const usesScoreSequence = event.kind !== 'odds_suspension';
     if (usesScoreSequence && event.seq <= (eventWatermarks.get(market.id) ?? -1)) return;
@@ -426,8 +430,16 @@ export function createEscrowEventWorkflowScheduler(options: {
       const context = await options.workflow.loadMarket(market);
       if (context === null || context.replay !== market.is_replay) return;
       const replayLots = context.replay ? await options.workflow.positionLots(context) : undefined;
-      const scheduleControls = replayLots === undefined || replayLots.length > 0;
-      await protectPriceMovingLots(market, context, event, replayLots);
+      // Recovery for an empty or pending-only replay never needs intermediate
+      // control transactions: EOF will either close the empty market or void
+      // every still-pending lot. Active lots retain the full control path.
+      const terminalOnlyRecovery = recovery && context.replay &&
+        replayLots !== undefined && replayLots.every((lot) => lot.state === 'pending');
+      const scheduleControls = !terminalOnlyRecovery &&
+        (replayLots === undefined || replayLots.length > 0);
+      if (!terminalOnlyRecovery) {
+        await protectPriceMovingLots(market, context, event, replayLots);
+      }
       for (const effect of result.effects) {
         if (context.replay && (effect.kind === 'settle' || effect.kind === 'void')) {
           deferredReplayTerminals.set(market.id, effect);
@@ -467,7 +479,7 @@ export function createEscrowEventWorkflowScheduler(options: {
       try {
         // A deterministic replay gets one persistence attempt per event. Retry
         // sleeps make 20x playback depend on wall-clock provider failures.
-        await reduce(market, event);
+        await reduce(market, event, continueOnMarketFailure);
       } catch (error) {
         options.deps.log.error('escrow_event_workflow_failed', {
           marketId: market.id,
@@ -516,17 +528,11 @@ export function createEscrowEventWorkflowScheduler(options: {
         ) {
           throw new TypeError('escrow placement projection incomplete');
         }
-        const lots = await options.workflow.positionLots(context);
-        const terminal = lots.some((lot) => lot.state === 'pending')
-          ? { kind: 'void' as const, reason: 'replay_pending_activation_at_eof' }
-          : effect;
-        await applyEffect(terminal, market, context, event, false);
-        if (terminal.kind === 'void' && terminal !== effect) {
-          options.deps.log.info('escrow_replay_terminal_voided_pending_position', {
-            marketId: market.id,
-            pendingLots: lots.filter((lot) => lot.state === 'pending').length,
-          });
-        }
+        // A truthful result settlement already refunds pending and refundable
+        // principal on-chain; only active principal participates in matching.
+        // Never disguise a decisive result as an oracle void.
+        await options.workflow.positionLots(context);
+        await applyEffect(effect, market, context, event, false);
         deferredReplayTerminals.delete(market.id);
         latestReplayEvents.delete(market.id);
       } catch (error) {
@@ -536,6 +542,15 @@ export function createEscrowEventWorkflowScheduler(options: {
         });
         if (!continueOnMarketFailure) throw error;
       }
+    }
+  }
+
+  async function resetReplayRecovery(groupId: number, fixtureId: number): Promise<void> {
+    for (const market of await matchingMarkets(fixtureId, groupId, 0)) {
+      states.delete(market.id);
+      eventWatermarks.delete(market.id);
+      latestReplayEvents.delete(market.id);
+      deferredReplayTerminals.delete(market.id);
     }
   }
 
@@ -549,6 +564,7 @@ export function createEscrowEventWorkflowScheduler(options: {
       finalizeReplay(groupId, fixtureId, replayStartedAtMs),
     onReplayRecoveryEvent: (groupId: number, event: MatchEvent) =>
       run(event, groupId, 0, true),
+    resetReplayRecovery,
     finalizeReplayRecovery: (groupId: number, fixtureId: number) =>
       finalizeReplay(groupId, fixtureId, 0, true),
     async tick(_nowMs: number) {},

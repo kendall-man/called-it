@@ -235,6 +235,7 @@ describe('onboarding scopes and lifecycle', () => {
       'status',
       'currency',
       'testmatch',
+      'endmatch',
       'help',
     ]);
   });

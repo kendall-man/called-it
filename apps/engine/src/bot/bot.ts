@@ -67,6 +67,7 @@ export const GROUP_BOT_COMMANDS = [
   { command: 'status', description: 'Live group status board (admins)' },
   { command: 'currency', description: 'Choose SOL or USDC for new calls' },
   { command: 'testmatch', description: 'Replay a completed match (admins)' },
+  { command: 'endmatch', description: 'End or recover a test match (admins)' },
   { command: 'help', description: 'How Rumble works' },
 ] as const;
 

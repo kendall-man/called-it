@@ -473,6 +473,10 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
         await postLiveCallBlocker(h, group.id, replyToMessageId);
         return;
       }
+      if (result === 'recovery_pending') {
+        h.poster.post(ctx.chat.id, await h.say('replay_blocked_recovery'), { replyToMessageId });
+        return;
+      }
     } catch {
       h.deps.log.warn('test_match_start_failed', { fixtureId: fixture.fixture_id });
       h.poster.post(ctx.chat.id, await h.say('hiccup'), { replyToMessageId });
@@ -489,6 +493,37 @@ export function registerCommands(bot: Bot, h: HandlerCtx): void {
       }),
       { replyToMessageId },
     );
+  });
+
+  bot.command('endmatch', async (ctx) => {
+    if (!isGroup(ctx.chat.type) || !ctx.from) return;
+    if (!isBetaGroupAllowed(h.deps.env, ctx.chat.id)) return;
+    const from = ctx.from;
+    const group = await ensureChatContext(h, ctx.chat.id, ctx.chat.title ?? '', from);
+    const replyToMessageId = ctx.message?.message_id;
+    const admin = await isGroupAdmin(h, () => ctx.getChatMember(from.id));
+    if (!admin) {
+      h.poster.post(ctx.chat.id, await h.say('admin_only'), { replyToMessageId });
+      return;
+    }
+    if (h.replayAdmin === undefined) {
+      h.poster.post(ctx.chat.id, await h.say('replay_end_failed'), { replyToMessageId });
+      return;
+    }
+    try {
+      const result = await h.replayAdmin.endMatch(group.id);
+      h.poster.post(
+        ctx.chat.id,
+        await h.say(result.kind === 'none' ? 'replay_end_none' : 'replay_end_scheduled', {
+          action: 'close or refund',
+          count: result.kind === 'scheduled' ? result.marketCount : 0,
+        }),
+        { replyToMessageId },
+      );
+    } catch {
+      h.deps.log.error('admin_end_match_failed', { groupId: group.id });
+      h.poster.post(ctx.chat.id, await h.say('replay_end_failed'), { replyToMessageId });
+    }
   });
 
   bot.command('bookit', async (ctx) => {

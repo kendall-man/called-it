@@ -26,6 +26,15 @@ export interface EngineStatusProbes {
   }>;
 }
 
+export type AdminEndMatchResult =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'scheduled'; readonly fixtureId: number; readonly marketCount: number };
+
+/** Durable, group-scoped escape hatch for an active or interrupted test match. */
+export interface ReplayAdminControl {
+  endMatch(groupId: number): Promise<AdminEndMatchResult>;
+}
+
 export interface HandlerCtx {
   deps: Deps;
   queue: SendQueue;
@@ -38,6 +47,8 @@ export interface HandlerCtx {
   escrow?: EscrowTelegramPort;
   /** Optional live-status probes for the admin /status board. */
   status?: EngineStatusProbes;
+  /** Present only when the escrow replay recovery path is fully wired. */
+  replayAdmin?: ReplayAdminControl;
   /**
    * In-process two-step stake ladder visual state (STAKE_LADDER_ENABLED). Only
    * present when the flag is on; its absence is the single-tap flow.

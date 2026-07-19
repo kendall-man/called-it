@@ -208,6 +208,7 @@ export function createProductionEscrowEventWorkflowPort(options: {
     url.searchParams.set('select', 'request_key');
     url.searchParams.set('market_id', `eq.${marketId}`);
     url.searchParams.set('operation_kind', 'in.(settle,void)');
+    url.searchParams.set('state', 'in.(pending,leased,signed,enqueued,completed)');
     url.searchParams.set('limit', '1');
     const response = await request(url, { headers });
     if (!response.ok) throw new TypeError('escrow terminal attestation projection unavailable');
