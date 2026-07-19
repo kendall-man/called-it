@@ -94,7 +94,9 @@ export default async function ReceiptPage({
     ),
   ];
   let evidence: EvidenceFact[] = [];
-  let evidenceState: EvidenceState = evidenceSeqs.length === 0 ? 'not_ready' : 'ready';
+  let evidenceState: EvidenceState = evidenceSeqs.length === 0
+    ? receipt.isReplay && receipt.outcome !== null ? 'not_recorded' : 'not_ready'
+    : 'ready';
   if (evidenceSeqs.length > 0) {
     const evidenceResult = await fetchEvidence(client, receipt.terms.fixtureId, evidenceSeqs);
     if (evidenceResult.ok) {

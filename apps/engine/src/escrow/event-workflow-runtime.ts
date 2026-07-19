@@ -61,6 +61,13 @@ export function createProductionEscrowEventWorkflowPort(options: {
     }): Promise<EscrowPlacementMarketLinkResult>;
   };
   readonly accounts: SolanaEscrowAccountReader;
+  readonly reconcile: (input: {
+    readonly marketId: string;
+    readonly custodyMode: 'escrow';
+    readonly marketPda: string;
+    readonly vaultPda: string;
+    readonly asset: 'sol' | 'usdc';
+  }) => Promise<unknown>;
   readonly deployment: {
     readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
     readonly genesisHash: string;
@@ -79,7 +86,7 @@ export function createProductionEscrowEventWorkflowPort(options: {
 
   async function marketContext(market: MarketRow): Promise<EscrowWorkflowMarketContext | null> {
     const marketPda = deriveMarketPda(options.deployment.programId, market.id).address;
-    const [linkValue, account] = await Promise.all([
+    const [initialLinkValue, account] = await Promise.all([
       options.db.getMarketLink({
         cluster: options.deployment.cluster,
         genesisHash: options.deployment.genesisHash,
@@ -88,7 +95,7 @@ export function createProductionEscrowEventWorkflowPort(options: {
       }),
       options.accounts.market(marketPda),
     ]);
-    const link = requireLink(linkValue, market, options.deployment);
+    let link = requireLink(initialLinkValue, market, options.deployment);
     if (account === null || account.value.state === 'closed' || account.value.state === 'settled' || account.value.state === 'voided') {
       return null;
     }
@@ -106,6 +113,24 @@ export function createProductionEscrowEventWorkflowPort(options: {
       oracle.value.epoch !== account.value.oracleSetEpoch || oracle.value.signatureThreshold !== 2 ||
       oracle.value.signers.length !== 3 || new Set(oracle.value.signers).size !== 3
     ) throw new TypeError('escrow workflow chain identity mismatch');
+    if (link.chainState !== account.value.state || link.eventEpoch !== account.value.eventEpoch) {
+      await options.reconcile({
+        marketId: link.marketId,
+        custodyMode: 'escrow',
+        marketPda: link.marketPda,
+        vaultPda: link.vaultPda,
+        asset: link.asset,
+      });
+      link = requireLink(await options.db.getMarketLink({
+        cluster: options.deployment.cluster,
+        genesisHash: options.deployment.genesisHash,
+        programId: options.deployment.programId,
+        marketPda,
+      }), market, options.deployment);
+      if (link.chainState !== account.value.state || link.eventEpoch !== account.value.eventEpoch) {
+        throw new TypeError('escrow workflow reconciliation mismatch');
+      }
+    }
     return {
       chainState: account.value.state,
       replay: account.value.replay,
@@ -125,9 +150,71 @@ export function createProductionEscrowEventWorkflowPort(options: {
     };
   }
 
-  return {
-    loadMarket: marketContext,
-    async positionLots(context) {
+  async function positionProjectionComplete(
+    context: EscrowWorkflowMarketContext,
+  ): Promise<boolean> {
+      const jobsUrl = new URL('/rest/v1/escrow_relayer_jobs', options.supabaseUrl);
+      jobsUrl.searchParams.set('select', 'state,expected_signature');
+      jobsUrl.searchParams.set('market_id', `eq.${context.binding.marketId}`);
+      jobsUrl.searchParams.set('kind', 'eq.position_placement');
+      jobsUrl.searchParams.set('order', 'created_at.asc');
+      jobsUrl.searchParams.set('limit', String(pageSize));
+      const jobsResponse = await request(jobsUrl, { headers });
+      if (!jobsResponse.ok) throw new TypeError('escrow placement projection unavailable');
+      const jobs = rows(await jobsResponse.json());
+      if (jobs.length >= pageSize) return false;
+      const completedSignatures = new Set<string>();
+      for (const job of jobs) {
+        if (job.state === 'dead') continue;
+        if (job.state !== 'complete' || typeof job.expected_signature !== 'string') {
+          return false;
+        }
+        completedSignatures.add(job.expected_signature);
+      }
+
+      const completedLots = new Set<string>();
+      if (completedSignatures.size > 0) {
+        const sessionsUrl = new URL('/rest/v1/escrow_signing_sessions', options.supabaseUrl);
+        sessionsUrl.searchParams.set('select', 'owner_pubkey,lot_nonce,transaction_signature');
+        sessionsUrl.searchParams.set('market_id', `eq.${context.binding.marketId}`);
+        sessionsUrl.searchParams.set('state', 'eq.consumed');
+        sessionsUrl.searchParams.set('limit', String(pageSize));
+        const sessionsResponse = await request(sessionsUrl, { headers });
+        if (!sessionsResponse.ok) throw new TypeError('escrow placement projection unavailable');
+        const sessions = rows(await sessionsResponse.json());
+        if (sessions.length >= pageSize) return false;
+        for (const session of sessions) {
+          if (
+            typeof session.owner_pubkey !== 'string' ||
+            typeof session.transaction_signature !== 'string'
+          ) throw new TypeError('invalid escrow placement projection');
+          if (!completedSignatures.has(session.transaction_signature)) continue;
+          completedSignatures.delete(session.transaction_signature);
+          completedLots.add(`${session.owner_pubkey}:${unsigned(session.lot_nonce)}`);
+        }
+        if (completedSignatures.size > 0) {
+          return false;
+        }
+      }
+
+      const projected = new Set(
+        (await positionLots(context)).map((lot) => `${lot.ownerPubkey}:${lot.lotNonce}`),
+      );
+      return [...completedLots].every((key) => projected.has(key));
+  }
+
+  async function terminalAttestationExists(marketId: string): Promise<boolean> {
+    const url = new URL('/rest/v1/escrow_attestation_requests', options.supabaseUrl);
+    url.searchParams.set('select', 'request_key');
+    url.searchParams.set('market_id', `eq.${marketId}`);
+    url.searchParams.set('operation_kind', 'in.(settle,void)');
+    url.searchParams.set('limit', '1');
+    const response = await request(url, { headers });
+    if (!response.ok) throw new TypeError('escrow terminal attestation projection unavailable');
+    return rows(await response.json()).length > 0;
+  }
+
+  async function positionLots(context: EscrowWorkflowMarketContext) {
       const result = [];
       for (let offset = 0; ; offset += pageSize) {
         const url = new URL('/rest/v1/escrow_position_lots', options.supabaseUrl);
@@ -174,7 +261,13 @@ export function createProductionEscrowEventWorkflowPort(options: {
         }
         if (page.length < pageSize) return result;
       }
-    },
+  }
+
+  return {
+    loadMarket: marketContext,
+    positionLots,
+    positionProjectionComplete,
+    terminalAttestationExists,
   };
 }
 

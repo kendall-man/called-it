@@ -68,6 +68,27 @@ export class SendQueue {
   }
 
   /**
+   * Enqueue interactive work while preserving its result for the callback
+   * state machine. It jumps ahead of narration but still honors the per-chat
+   * flood-control window.
+   */
+  enqueueInteractive<T>(chatId: number, task: () => Promise<T>): Promise<T> {
+    if (this.stopped) return Promise.reject(new Error('send queue stopped'));
+    return new Promise<T>((resolve, reject) => {
+      this.enqueueFront(chatId, async () => {
+        try {
+          const result = await task();
+          resolve(result);
+          return result;
+        } catch (cause) {
+          reject(cause);
+          throw cause;
+        }
+      });
+    });
+  }
+
+  /**
    * Enqueue a card edit under a collapse key (use the market id). Within the
    * collapse window the newest edit replaces any deferred one.
    *

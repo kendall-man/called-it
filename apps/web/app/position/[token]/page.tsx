@@ -6,6 +6,8 @@ import { POSITION_TOKEN_PATTERN } from '@/lib/position-contract';
 export const metadata: Metadata = {
   title: 'Review your pick · Rumble',
   description: 'Review and confirm one Rumble pick.',
+  referrer: 'no-referrer',
+  robots: { index: false, follow: false, noarchive: true },
 };
 
 export const dynamic = 'force-dynamic';

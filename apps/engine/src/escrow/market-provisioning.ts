@@ -16,6 +16,12 @@ export interface EscrowMarketProvisioner {
   ensure(market: MarketRow): Promise<boolean>;
 }
 
+export interface EscrowFinalizedMarketProjection {
+  readonly marketId: string;
+  readonly marketPda: string;
+  readonly documentHashHex: string;
+}
+
 export class EscrowMarketProvisioningError extends Error {
   readonly name = 'EscrowMarketProvisioningError';
 
@@ -45,6 +51,13 @@ export function createEscrowMarketProvisioner(options: {
   readonly maximumMarketDurationSeconds: bigint;
   readonly maximumResolutionDelaySeconds: bigint;
   readonly clock: () => { readonly unix: bigint; readonly iso: string };
+  /**
+   * A card may only expose escrow positions after the initialized market is
+   * visible through the finalized projection consumed by later workflows.
+   */
+  readonly finalizedProjectionReady?: (
+    market: EscrowFinalizedMarketProjection,
+  ) => Promise<boolean>;
 }): EscrowMarketProvisioner {
   const groups = new Set(options.allowedGroupIds);
   return {
@@ -114,7 +127,13 @@ export function createEscrowMarketProvisioner(options: {
         nowIso: now.iso,
         maxAttempts: 12,
       });
-      return result.kind === 'initialized';
+      if (result.kind !== 'initialized') return false;
+      if (options.finalizedProjectionReady === undefined) return true;
+      return options.finalizedProjectionReady({
+        marketId: market.id,
+        marketPda: result.marketPda,
+        documentHashHex: result.documentHashHex,
+      });
     },
   };
 }

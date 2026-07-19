@@ -63,11 +63,12 @@ describe('Telegram escrow position UX', () => {
     expect(harness.wagerDb.ledger.filter((entry) => entry.kind === 'stake')).toHaveLength(0);
     expect(harness.cardEdits).toHaveLength(0);
     expect(tap.privateMessages).toHaveLength(1);
+    expect(tap.privateMessages[0]?.text).toContain('Brazil to win (in 90 minutes)');
     expect(tap.privateMessages[0]?.text).toContain('On-chain escrow · MAINNET · 0.01 SOL');
     expect(tap.privateMessages[0]?.options).toEqual({
       reply_markup: {
         inline_keyboard: [[{
-          text: 'Review and sign',
+          text: 'Review & sign 0.01 SOL',
           web_app: { url: `https://web.test/position/${TOKEN}` },
         }]],
       },

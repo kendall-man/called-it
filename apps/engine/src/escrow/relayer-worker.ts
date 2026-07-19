@@ -260,7 +260,10 @@ export function createEscrowRelayerWorker(options: {
       nowIso,
     }));
     if (!await placementBroadcastReady(job)) {
-      await retryUnknown(job, 'deployment_not_ready', nowIso);
+      // recordRelayerSignedTransaction durably advances the row from leased to
+      // signed. The retry RPC intentionally accepts leased rows only, so do
+      // not attempt an impossible same-lease transition here. The signed row
+      // becomes leaseable again at the persisted lease deadline.
       return { kind: 'retrying', jobId: job.id, signature: prepared.expectedSignature };
     }
     try {
@@ -268,7 +271,16 @@ export function createEscrowRelayerWorker(options: {
       if (observed !== prepared.expectedSignature) return dead(job, 'signature_mismatch', nowIso);
     } catch (error) {
       if (!(error instanceof Error)) throw error;
-      await retryUnknown(job, 'broadcast_unknown', nowIso);
+      // A broadcast exception is ambiguous: the RPC may have accepted the
+      // exact persisted transaction. Move signed -> submitted so the next
+      // lease performs signature reconciliation without rebuilding or waiting
+      // for the original lease to expire.
+      requireMutation(await options.db.markRelayerSubmitted({
+        jobId: job.id,
+        ...lease(job),
+        expectedSignature: prepared.expectedSignature,
+        nowIso,
+      }));
       return { kind: 'retrying', jobId: job.id, signature: prepared.expectedSignature };
     }
     requireMutation(await options.db.markRelayerSubmitted({

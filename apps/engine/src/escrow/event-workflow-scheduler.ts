@@ -39,6 +39,10 @@ export interface EscrowWorkflowPositionLot {
 export interface EscrowEventWorkflowPort {
   loadMarket(market: MarketRow): Promise<EscrowWorkflowMarketContext | null>;
   positionLots(context: EscrowWorkflowMarketContext): Promise<readonly EscrowWorkflowPositionLot[]>;
+  /** Proves every durable placement has reached the finalized lot projection. */
+  positionProjectionComplete?(context: EscrowWorkflowMarketContext): Promise<boolean>;
+  /** Recovery must resume one durable terminal decision, never mint a competing envelope. */
+  terminalAttestationExists?(marketId: string): Promise<boolean>;
 }
 
 export interface EscrowSettlementPosition {
@@ -125,8 +129,7 @@ function iso(milliseconds: number): string {
   return new Date(milliseconds).toISOString();
 }
 
-const REPLAY_EVENT_ATTEMPTS = 5;
-const REPLAY_EVENT_RETRY_BASE_MS = 500;
+type TerminalMarketEffect = Extract<MarketEffect, { readonly kind: 'settle' | 'void' }>;
 
 type EscrowWorkflowFailureReason =
   | 'rpc_unavailable'
@@ -161,14 +164,10 @@ function workflowFailureReason(error: unknown): EscrowWorkflowFailureReason {
   return error instanceof TypeError ? 'workflow_validation_failed' : 'unknown_exception';
 }
 
-function wait(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => { setTimeout(resolve, milliseconds); });
-}
-
 export function createEscrowEventWorkflowScheduler(options: {
   readonly deps: {
     readonly db: Pick<Deps['db'], 'openMarketsForFixture' | 'positionsForMarket'>;
-    readonly engine: Pick<Deps['engine'], 'reduceMarket'>;
+    readonly engine: Pick<Deps['engine'], 'reduceMarket' | 'checkDebounce'>;
     readonly log: Pick<Deps['log'], 'info' | 'error'>;
   };
   readonly deployment: EscrowAttestationDeploymentBinding;
@@ -178,6 +177,13 @@ export function createEscrowEventWorkflowScheduler(options: {
 }) {
   const states = new Map<string, MarketState>();
   const eventWatermarks = new Map<string, number>();
+  const latestReplayEvents = new Map<string, MatchEvent>();
+  // Replay terminal effects are held until EOF. A replay can finish much
+  // faster than the on-chain anti-snipe activation delay, so submitting a
+  // settlement candidate while a just-signed lot is still pending could close
+  // the market around that lot. EOF makes the terminal decision once, against
+  // the finalized lot state.
+  const deferredReplayTerminals = new Map<string, TerminalMarketEffect>();
   const ttlSeconds = options.attestationTtlSeconds ?? 300n;
 
   async function hydrate(market: MarketRow): Promise<MarketState> {
@@ -229,22 +235,66 @@ export function createEscrowEventWorkflowScheduler(options: {
     }
   }
 
-  async function protectPriceMovingLots(
+  function sameMarketBinding(
+    left: EscrowAttestationMarketBinding,
+    right: EscrowAttestationMarketBinding,
+  ): boolean {
+    return left.marketId === right.marketId && left.marketPda === right.marketPda &&
+      left.marketDocumentHashHex === right.marketDocumentHashHex &&
+      left.fixtureId === right.fixtureId && left.oracleSetEpoch === right.oracleSetEpoch;
+  }
+
+  async function persistControl(
+    request: Extract<EscrowUnsignedWorkflowRequest, { readonly operation: 'freeze_market' | 'unfreeze_market' }>,
     market: MarketRow,
     context: EscrowWorkflowMarketContext,
     event: MatchEvent,
   ): Promise<void> {
+    try {
+      await persist(request, market, context, event);
+    } catch (error) {
+      const refreshed = await options.workflow.loadMarket(market);
+      const targetEpoch = context.binding.eventEpoch + 1n;
+      const targetState = request.operation === 'freeze_market' ? 'frozen' : 'open';
+      const alreadyFinalized = refreshed !== null && refreshed.replay === context.replay &&
+        sameMarketBinding(refreshed.binding, context.binding) &&
+        (refreshed.binding.eventEpoch > targetEpoch || (
+          refreshed.binding.eventEpoch === targetEpoch && refreshed.chainState === targetState
+        ));
+      if (!alreadyFinalized) throw error;
+      options.deps.log.info('escrow_control_transition_already_finalized', {
+        marketId: market.id,
+        seq: event.seq,
+        operation: request.operation,
+        eventEpoch: refreshed.binding.eventEpoch.toString(),
+      });
+    }
+  }
+
+  async function protectPriceMovingLots(
+    market: MarketRow,
+    context: EscrowWorkflowMarketContext,
+    event: MatchEvent,
+    knownLots?: readonly EscrowWorkflowPositionLot[],
+  ): Promise<void> {
     if (!isPriceMoving(event)) return;
+    const lots = knownLots ?? await options.workflow.positionLots(context);
+    if (context.replay && lots.length === 0) {
+      options.deps.log.info('escrow_replay_control_skipped_empty_market', {
+        marketId: market.id,
+        seq: event.seq,
+      });
+      return;
+    }
     const invalidatedEventEpoch = context.chainState === 'open'
       ? context.binding.eventEpoch + 1n : context.binding.eventEpoch;
     if (context.chainState === 'open') {
       const attestation = buildEscrowFeedEventAttestation({ ...common(context, event), eventKind: 'freeze' });
-      await persist({
+      await persistControl({
         operation: 'freeze_market', marketPda: context.binding.marketPda,
         expectedEventEpoch: context.binding.eventEpoch, attestation,
       }, market, context, event);
     }
-    const lots = await options.workflow.positionLots(context);
     for (const lot of lots) {
       if (
         lot.activationTimestamp === null || lot.observedEventEpoch >= invalidatedEventEpoch ||
@@ -268,10 +318,12 @@ export function createEscrowEventWorkflowScheduler(options: {
     market: MarketRow,
     context: EscrowWorkflowMarketContext,
     event: MatchEvent,
+    scheduleControls: boolean,
   ): Promise<void> {
+    if ((effect.kind === 'freeze' || effect.kind === 'unfreeze') && !scheduleControls) return;
     if (effect.kind === 'freeze' && context.chainState === 'open' && !isPriceMoving(event)) {
       const attestation = buildEscrowFeedEventAttestation({ ...common(context, event), eventKind: 'freeze' });
-      await persist({
+      await persistControl({
         operation: 'freeze_market', marketPda: context.binding.marketPda,
         expectedEventEpoch: context.binding.eventEpoch, attestation,
       }, market, context, event);
@@ -279,7 +331,10 @@ export function createEscrowEventWorkflowScheduler(options: {
     }
     if (effect.kind === 'unfreeze' && context.chainState === 'frozen') {
       const attestation = buildEscrowFeedEventAttestation({ ...common(context, event), eventKind: 'unfreeze' });
-      await persist({ operation: 'unfreeze_market', marketPda: context.binding.marketPda, attestation }, market, context, event);
+      await persistControl(
+        { operation: 'unfreeze_market', marketPda: context.binding.marketPda, attestation },
+        market, context, event,
+      );
       return;
     }
     if (effect.kind === 'settle') {
@@ -361,6 +416,7 @@ export function createEscrowEventWorkflowScheduler(options: {
     // Odds events use epoch milliseconds as seq; score events use a small provider sequence.
     const usesScoreSequence = event.kind !== 'odds_suspension';
     if (usesScoreSequence && event.seq <= (eventWatermarks.get(market.id) ?? -1)) return;
+    if (market.is_replay && usesScoreSequence) latestReplayEvents.set(market.id, event);
     const state = await hydrate(market);
     const result = options.deps.engine.reduceMarket(state, event);
     if (result.state === state && result.effects.length === 0) return;
@@ -369,48 +425,116 @@ export function createEscrowEventWorkflowScheduler(options: {
     )) {
       const context = await options.workflow.loadMarket(market);
       if (context === null || context.replay !== market.is_replay) return;
-      await protectPriceMovingLots(market, context, event);
-      for (const effect of result.effects) await applyEffect(effect, market, context, event);
-      await persistNewPending(state.pendingSettlement, result.state.pendingSettlement, market, context, event);
+      const replayLots = context.replay ? await options.workflow.positionLots(context) : undefined;
+      const scheduleControls = replayLots === undefined || replayLots.length > 0;
+      await protectPriceMovingLots(market, context, event, replayLots);
+      for (const effect of result.effects) {
+        if (context.replay && (effect.kind === 'settle' || effect.kind === 'void')) {
+          deferredReplayTerminals.set(market.id, effect);
+          continue;
+        }
+        await applyEffect(effect, market, context, event, scheduleControls);
+      }
+      // Replay terminals are emitted exactly once at EOF, after inspecting
+      // finalized lots. Live markets retain the normal durable candidate path.
+      if (!context.replay) {
+        await persistNewPending(state.pendingSettlement, result.state.pendingSettlement, market, context, event);
+      }
     }
     if (usesScoreSequence) eventWatermarks.set(market.id, event.seq);
-    if (result.state.status === 'settled' || result.state.status === 'voided') states.delete(market.id);
-    else states.set(market.id, result.state);
+    // Keep terminal state until the finalized projection closes the DB row.
+    // Replay drains can contain multiple post-whistle records; rehydrating the
+    // still-open DB row here would enqueue the same terminal transition again.
+    states.set(market.id, result.state);
   }
 
-  async function matchingMarkets(event: MatchEvent, groupId?: number, replayStartedAtMs?: number) {
-    return (await options.deps.db.openMarketsForFixture(event.fixtureId)).filter((market) =>
-      market.fixture_id === event.fixtureId && market.custody_mode === 'escrow' && (groupId === undefined
+  async function matchingMarkets(fixtureId: number, groupId?: number, replayStartedAtMs?: number) {
+    return (await options.deps.db.openMarketsForFixture(fixtureId)).filter((market) =>
+      market.fixture_id === fixtureId && market.custody_mode === 'escrow' && (groupId === undefined
         ? !market.is_replay
         : market.is_replay && market.group_id === groupId &&
           Date.parse(market.created_at) >= (replayStartedAtMs ?? Number.POSITIVE_INFINITY))
     );
   }
 
-  async function run(event: MatchEvent, groupId?: number, replayStartedAtMs?: number): Promise<void> {
-    for (const market of await matchingMarkets(event, groupId, replayStartedAtMs)) {
-      const attempts = groupId === undefined ? 1 : REPLAY_EVENT_ATTEMPTS;
-      for (let attempt = 1; attempt <= attempts; attempt += 1) {
-        try {
-          await reduce(market, event);
-          break;
-        } catch (error) {
-          states.delete(market.id);
-          if (attempt < attempts) {
-            options.deps.log.info('escrow_replay_event_retry', {
-              marketId: market.id, seq: event.seq, attempt,
-              reason: workflowFailureReason(error),
-            });
-            await wait(REPLAY_EVENT_RETRY_BASE_MS * attempt);
-            continue;
-          }
-          options.deps.log.error('escrow_event_workflow_failed', {
-            marketId: market.id,
-            seq: event.seq,
-            reason: workflowFailureReason(error),
-          });
-          if (groupId !== undefined) throw error;
+  async function run(
+    event: MatchEvent,
+    groupId?: number,
+    replayStartedAtMs?: number,
+    continueOnMarketFailure = false,
+  ): Promise<void> {
+    for (const market of await matchingMarkets(event.fixtureId, groupId, replayStartedAtMs)) {
+      try {
+        // A deterministic replay gets one persistence attempt per event. Retry
+        // sleeps make 20x playback depend on wall-clock provider failures.
+        await reduce(market, event);
+      } catch (error) {
+        options.deps.log.error('escrow_event_workflow_failed', {
+          marketId: market.id,
+          seq: event.seq,
+          reason: workflowFailureReason(error),
+        });
+        if (groupId !== undefined && !continueOnMarketFailure) throw error;
+      }
+    }
+  }
+
+  async function finalizeReplay(
+    groupId: number,
+    fixtureId: number,
+    replayStartedAtMs: number,
+    continueOnMarketFailure = false,
+  ): Promise<void> {
+    if (!Number.isFinite(replayStartedAtMs)) return;
+    for (const market of await matchingMarkets(fixtureId, groupId, replayStartedAtMs)) {
+      try {
+        let effect = deferredReplayTerminals.get(market.id);
+        const event = latestReplayEvents.get(market.id);
+        const state = states.get(market.id);
+        if (effect === undefined && state?.pendingSettlement !== null && state?.pendingSettlement !== undefined) {
+          effect = options.deps.engine
+            .checkDebounce(state, state.pendingSettlement.debounceUntilMs)
+            .effects.find((candidate): candidate is TerminalMarketEffect => (
+              candidate.kind === 'settle' || candidate.kind === 'void'
+            ));
         }
+        if (effect === undefined || event === undefined) continue;
+        if (
+          continueOnMarketFailure &&
+          options.workflow.terminalAttestationExists !== undefined &&
+          await options.workflow.terminalAttestationExists(market.id)
+        ) {
+          deferredReplayTerminals.delete(market.id);
+          latestReplayEvents.delete(market.id);
+          continue;
+        }
+        const context = await options.workflow.loadMarket(market);
+        if (context === null || !context.replay) continue;
+        if (
+          options.workflow.positionProjectionComplete !== undefined &&
+          !(await options.workflow.positionProjectionComplete(context))
+        ) {
+          throw new TypeError('escrow placement projection incomplete');
+        }
+        const lots = await options.workflow.positionLots(context);
+        const terminal = lots.some((lot) => lot.state === 'pending')
+          ? { kind: 'void' as const, reason: 'replay_pending_activation_at_eof' }
+          : effect;
+        await applyEffect(terminal, market, context, event, false);
+        if (terminal.kind === 'void' && terminal !== effect) {
+          options.deps.log.info('escrow_replay_terminal_voided_pending_position', {
+            marketId: market.id,
+            pendingLots: lots.filter((lot) => lot.state === 'pending').length,
+          });
+        }
+        deferredReplayTerminals.delete(market.id);
+        latestReplayEvents.delete(market.id);
+      } catch (error) {
+        options.deps.log.error('escrow_replay_finalization_failed', {
+          marketId: market.id,
+          reason: workflowFailureReason(error),
+        });
+        if (!continueOnMarketFailure) throw error;
       }
     }
   }
@@ -421,6 +545,12 @@ export function createEscrowEventWorkflowScheduler(options: {
       if (!Number.isFinite(replayStartedAtMs)) return Promise.resolve();
       return run(event, groupId, replayStartedAtMs);
     },
+    finalizeReplay: (groupId: number, fixtureId: number, replayStartedAtMs: number) =>
+      finalizeReplay(groupId, fixtureId, replayStartedAtMs),
+    onReplayRecoveryEvent: (groupId: number, event: MatchEvent) =>
+      run(event, groupId, 0, true),
+    finalizeReplayRecovery: (groupId: number, fixtureId: number) =>
+      finalizeReplay(groupId, fixtureId, 0, true),
     async tick(_nowMs: number) {},
   };
 }

@@ -7,7 +7,13 @@ import {
 import { superviseStack } from './local-stack-supervisor.mjs';
 
 const workspace = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
-const profile = loadJourneyProfile(defaultJourneyProfilePath(workspace), workspace);
+// The documented local journey starts the web stack before creating its
+// Cloudflare tunnel. The tunnel URL is required only when registering the
+// webhook, not while booting the local web/engine processes.
+const profile = loadJourneyProfile(defaultJourneyProfilePath(workspace), workspace, {
+  allowMissingWebhookOrigin: true,
+  allowMissingWebAppOrigin: true,
+});
 const runtime = profile.runtime;
 const required = [
   'WEB_BASE_URL',
@@ -26,11 +32,18 @@ if (runtime.PRIVY_APP_SECRET.length < 16) {
 
 const common = { ...process.env, ...runtime, CALLEDIT_ENV_PRELOADED: 'true' };
 const webPublicEnvironment = localWebPublicEnvironment(profile);
+const engineWebOrigin = profile.runtimeWebOrigin;
 const engine = spawn('npx', [
-  '-y', 'pnpm@10.33.0', '--filter', '@calledit/engine', 'exec', 'tsx', 'src/main.ts',
+  '-y', 'pnpm@10.33.0', '--filter', '@calledit/engine', 'exec', 'tsx', 'watch', 'src/main.ts',
 ], {
   cwd: workspace,
-  env: { ...common, PORT: String(profile.services.engine.port), HOSTNAME: profile.services.engine.host },
+  env: {
+    ...common,
+    WEB_BASE_URL: engineWebOrigin,
+    WALLET_LINK_DOMAIN: new URL(engineWebOrigin).hostname,
+    PORT: String(profile.services.engine.port),
+    HOSTNAME: profile.services.engine.host,
+  },
   stdio: 'inherit',
 });
 const web = spawn('npx', [

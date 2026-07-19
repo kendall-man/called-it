@@ -88,7 +88,10 @@ export function EscrowReceiptDetails({ escrow }: { readonly escrow: PublicEscrow
             {escrow.aggregates.map((aggregate) => (
               <div key={`${aggregate.side}:${aggregate.state}`} className="min-w-0">
                 <dt className="break-words text-xs text-fog">
-                  {aggregate.side === 'back' ? 'Yes' : 'No'} · {stateLabel(aggregate.state)}
+                  {aggregate.side === 'back' ? 'Yes' : 'No'} · {stateLabel(
+                    aggregate.state,
+                    escrow.outcome,
+                  )}
                 </dt>
                 <dd className="mt-1 break-words text-sm font-semibold text-chalk">
                   {formatAtomicAmount(aggregate.amountAtomic, escrow.asset)}
@@ -197,7 +200,15 @@ function sumSide(escrow: PublicEscrowReceipt, side: 'back' | 'doubt'): string {
     .toString();
 }
 
-function stateLabel(state: PublicEscrowReceipt['aggregates'][number]['state']): string {
+function stateLabel(
+  state: PublicEscrowReceipt['aggregates'][number]['state'],
+  outcome: PublicEscrowReceipt['outcome'],
+): string {
+  // A void makes every finalized lot returnable even if its immutable
+  // activation snapshot remained pending at the instant the market closed.
+  // Receipts should lead with the terminal result, not the obsolete pre-close
+  // activation state.
+  if (outcome === 'void') return 'returned';
   switch (state) {
     case 'pending': return 'waiting';
     case 'active': return 'matched';

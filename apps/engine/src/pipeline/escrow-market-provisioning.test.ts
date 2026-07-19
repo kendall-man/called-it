@@ -42,6 +42,33 @@ describe('escrow market card gate', () => {
     expect(waits).toEqual([1_500, 1_500]);
   });
 
+  it('keeps the bounded replay poll alive after a transient provisioning exception', async () => {
+    const waits: number[] = [];
+    const errors: unknown[] = [];
+    let attempts = 0;
+    const escrow = {
+      env: { WAGER_CUSTODY_MODE: 'escrow' },
+      log: { error(event: string, value: unknown) { errors.push([event, value]); } },
+    } as unknown as Deps;
+    registerEscrowMarketProvisioner(escrow, {
+      async ensure() {
+        attempts += 1;
+        if (attempts === 1) throw new Error('transient RPC failure');
+        return true;
+      },
+    });
+
+    await expect(escrowMarketPositionsReady(
+      escrow,
+      { id: 'replay-market', is_replay: true } as MarketRow,
+      async (milliseconds) => { waits.push(milliseconds); },
+    )).resolves.toBe(true);
+
+    expect(attempts).toBe(2);
+    expect(waits).toEqual([1_500]);
+    expect(errors).toEqual([]);
+  });
+
   it('reports each replay poll attempt through the presence hook', async () => {
     const ticks: number[] = [];
     let attempts = 0;

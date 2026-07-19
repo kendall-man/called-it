@@ -106,7 +106,9 @@ export async function createPositionAuthSession(
   );
   if (lookup.kind === 'rejected') return lookupRefusal(lookup);
   if (telegramUserId !== lookup.session.userId) return refusal(403, 'identity_mismatch');
-  if (lookup.session.state !== 'pending') return refusal(409, 'session_consumed');
+  // A consumed signing session is still the private capability used to read
+  // the exact submission's final status after a Mini App reload. Mutation
+  // routes keep rejecting it below; auth must remain available for recovery.
   const expiresAt = Date.parse(lookup.session.expiresAt);
   if (!Number.isFinite(expiresAt)) return refusal(410, 'session_expired');
   if (expiresAt - now.getTime() < MIN_SESSION_LIFETIME_MS) {
@@ -170,6 +172,7 @@ export async function submitEscrowPosition(
   if (!input.success) return refusal(400, 'invalid_request');
   const context = await authenticatedContext(input.data, accessToken, dependencies);
   if ('result' in context) return context.result;
+  if (context.session.state !== 'pending') return refusal(409, 'position_already_submitted');
   const bindingError = await verifyPreparedSession(context.session, context.identity, context, true);
   if (bindingError !== null) return bindingError;
 

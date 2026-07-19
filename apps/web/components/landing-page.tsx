@@ -179,7 +179,7 @@ export function RumbleLanding({ mainnet, qrCodeDataUrl, telegramGroupUrl }: Rumb
             {!mainnet && (
               <p className="network-disclosure">
                 <span aria-hidden>PUBLIC BETA</span>
-                Rumble is currently in public beta and only supports Solana devnet.
+                Rumble is currently in public beta and uses Solana devnet test tokens.
               </p>
             )}
           </div>

@@ -135,6 +135,32 @@ describe('ReplaySource.stepOnce — snapshot diffing', () => {
     expect(emitted.at(-1)?.phase).toBe('F');
   });
 
+  it('retries the same virtual boundary after an odds snapshot throttles the tick', async () => {
+    const base = snapshotClient(SCORES_HISTORY, []);
+    let oddsCalls = 0;
+    const source = new ReplaySource({
+      client: {
+        scoresSnapshot: base.scoresSnapshot,
+        async oddsSnapshot(fixtureId, asOfMs) {
+          oddsCalls += 1;
+          if (oddsCalls === 1) throw new Error('429 Too Many Requests');
+          return base.oddsSnapshot(fixtureId, asOfMs);
+        },
+      },
+      fixtureId: FIXTURE_ID,
+      speed: 30,
+      startMs: KICKOFF_MS - 10 * MINUTE_MS,
+      tickVirtualMs: 10 * MINUTE_MS,
+      logger: silentLogger,
+    });
+
+    await expect(source.stepOnce()).rejects.toThrow('429 Too Many Requests');
+    const retried = await source.stepOnce();
+
+    expect(retried.events.map((event) => event.seq)).toEqual([1]);
+    expect(retried.virtualNowMs).toBe(KICKOFF_MS - 10 * MINUTE_MS);
+  });
+
   it('probes kickoff from the scores snapshot when startMs is omitted', async () => {
     const source = new ReplaySource({
       client: snapshotClient(),

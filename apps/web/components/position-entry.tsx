@@ -60,7 +60,7 @@ export function PositionEntry(props: PositionEntryProps) {
   return (
     <>
       {launch.kind === 'checking' ? (
-        <WalletState title="Opening in Telegram" text="Checking the private Telegram approval..." loading />
+        <WalletState title="Opening in Telegram" text="Checking this Telegram approval..." loading />
       ) : launch.kind === 'unavailable' ? (
         <WalletState
           title="Open this approval in Telegram"

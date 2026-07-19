@@ -263,7 +263,8 @@ export function createHttpsEscrowOracleAttestationProvider(options: {
       );
       const expected = envelope(request);
       const message = Buffer.from(expected.canonicalBytesBase64, 'base64');
-      const attempts = await Promise.all(options.endpoints.map(async (endpoint): Promise<AttestationSignature | null> => {
+      const signatures: AttestationSignature[] = [];
+      for (const [endpointIndex, endpoint] of options.endpoints.entries()) {
         try {
           const response = await fetchImpl(endpoint.url, {
             method: 'POST',
@@ -274,23 +275,22 @@ export function createHttpsEscrowOracleAttestationProvider(options: {
             body: canonicalJson(expected),
             signal: AbortSignal.timeout(timeoutMs),
           });
-          if (!response.ok) return null;
+          if (!response.ok) continue;
           const value: unknown = await response.json();
-          const endpointIndex = options.endpoints.indexOf(endpoint);
-          if (!isExactResponse(value, expected) || value.signerPubkey !== authorizedSigners[endpointIndex]) return null;
+          if (!isExactResponse(value, expected) || value.signerPubkey !== authorizedSigners[endpointIndex]) continue;
           const signer = new PublicKey(value.signerPubkey);
           const signature = Buffer.from(value.signatureBase64, 'base64');
-          if (!verifyEd25519(message, signer, signature)) return null;
-          return { publicKey: signer.toBytes(), signature };
+          if (!verifyEd25519(message, signer, signature)) continue;
+          signatures.push({ publicKey: signer.toBytes(), signature });
+          if (signatures.length === options.threshold) break;
         } catch {
-          return null;
+          continue;
         }
-      }));
-      const signatures = attempts.filter((value): value is AttestationSignature => value !== null);
+      }
       if (signatures.length < options.threshold) {
         throw new EscrowOracleSignerError('quorum_unavailable');
       }
-      return signatures.slice(0, options.threshold);
+      return signatures;
     },
   };
 }

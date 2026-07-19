@@ -78,22 +78,29 @@ describe('escrow position server boundary', () => {
     expect(signAuthJwt).toHaveBeenCalledWith(42, expiresAt);
   });
 
-  it('rejects consumed signing URL replay without minting fresh auth', async () => {
+  it('mints status-only auth for an identity-bound consumed signing URL', async () => {
     const fixture = positionServerFixture();
     const consumedSession: PositionSigningSession = {
       ...fixture.session,
       state: 'consumed',
       transactionSignature: '1'.repeat(64),
     };
-    const signAuthJwt = vi.fn().mockResolvedValue('must-not-be-minted');
+    const signAuthJwt = vi.fn().mockResolvedValue('status-recovery-jwt');
     const result = await createPositionAuthSession({ token: FIXTURE_TOKEN, initData: FIXTURE_INIT_DATA }, {
       ...fixture.dependencies,
       store: withSession(fixture.store, consumedSession),
       signAuthJwt,
     });
 
-    expect(result).toEqual({ status: 409, body: { error: 'session_consumed' } });
-    expect(signAuthJwt).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 201,
+      body: {
+        jwt: 'status-recovery-jwt',
+        expiresAt: consumedSession.expiresAt,
+        network: 'devnet',
+      },
+    });
+    expect(signAuthJwt).toHaveBeenCalledWith(42, Date.parse(consumedSession.expiresAt));
   });
 
   it('rejects cancelled signing URLs without minting fresh auth', async () => {

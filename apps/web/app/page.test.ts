@@ -37,7 +37,7 @@ describe('landing actions', () => {
     // Then
     expect(pageSource).toContain('Telegram setup is unavailable. No call or SOL changed.');
     expect(pageSource).toContain(
-      'Rumble is currently in public beta and only supports Solana devnet.',
+      'Rumble is currently in public beta and uses Solana devnet test tokens.',
     );
     expect(pageSource.match(/href=\{TXLINE_URL\}/g)).toHaveLength(2);
     expect(pageSource).toContain('Got a football take?');

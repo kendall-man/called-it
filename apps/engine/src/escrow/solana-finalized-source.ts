@@ -82,7 +82,12 @@ async function signaturesSince(
       'finalized',
     );
     for (const item of page) {
-      if (cursor.signature === null && BigInt(item.slot) <= cursor.slot) continue;
+      const slot = BigInt(item.slot);
+      // A Surfpool/devnet fork can briefly return a history page that starts
+      // behind an in-process signed cursor. Never let that stale page wedge
+      // the finalized worker. Same-slot entries remain eligible: they may be
+      // distinct program events and all projections are idempotent.
+      if (slot < cursor.slot || (cursor.signature === null && slot === cursor.slot)) continue;
       signatures.push(item);
       if (signatures.length > maximumBacklog) {
         throw new EscrowFinalizedSourceError('backlog_limit_exceeded');
@@ -113,7 +118,6 @@ export class SolanaFinalizedEscrowEventSource implements EscrowFinalizedEventSou
     if (await this.connection.getGenesisHash() !== this.expected.genesisHash) {
       throw new EscrowFinalizedSourceError('network_mismatch');
     }
-    const finalizedScanSlot = BigInt(await this.connection.getSlot('finalized'));
     const signatures = await signaturesSince(
       this.connection,
       new PublicKey(this.expected.programId),
@@ -153,6 +157,11 @@ export class SolanaFinalizedEscrowEventSource implements EscrowFinalizedEventSou
         events,
       });
     }
+    // Read the watermark only after gathering the transaction page. A local
+    // fork can advance between an initial head read and signature discovery;
+    // using that earlier head would make a valid finalized transaction look
+    // like a cursor regression and prevent its market link from projecting.
+    const finalizedScanSlot = BigInt(await this.connection.getSlot('finalized'));
     return {
       transactions,
       scannedThroughSlot: signatures.length > limit

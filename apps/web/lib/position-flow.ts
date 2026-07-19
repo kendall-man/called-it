@@ -12,6 +12,13 @@ export type PositionFailurePresentation = {
 
 export function positionFailure(code: string): PositionFailurePresentation {
   switch (code) {
+    case 'approval_lapsed':
+      return {
+        title: 'Approval expired',
+        text: 'Your signed position expired before it reached Solana. No SOL moved and no position was created. Return to Telegram and tap Review & sign again.',
+        action: 'return',
+        actionLabel: 'Return to Telegram',
+      };
     case 'session_expired':
     case 'expired_blockhash':
       return {
