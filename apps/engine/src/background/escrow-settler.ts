@@ -26,7 +26,7 @@ export class EscrowIntegratedSettler extends Settler {
   override async onReplayEvent(
     groupId: number,
     event: MatchEvent,
-    replayStartedAtMs: number = Number.NEGATIVE_INFINITY,
+    replayStartedAtMs: number,
   ): Promise<void> {
     await Promise.all([
       super.onReplayEvent(groupId, event, replayStartedAtMs),

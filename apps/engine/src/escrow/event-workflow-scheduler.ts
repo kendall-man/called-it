@@ -128,6 +128,39 @@ function iso(milliseconds: number): string {
 const REPLAY_EVENT_ATTEMPTS = 5;
 const REPLAY_EVENT_RETRY_BASE_MS = 500;
 
+type EscrowWorkflowFailureReason =
+  | 'rpc_unavailable'
+  | 'projection_unavailable'
+  | 'chain_identity_mismatch'
+  | 'attestation_storage_unavailable'
+  | 'workflow_validation_failed'
+  | 'unknown_exception';
+
+class EscrowWorkflowBoundaryError extends Error {
+  constructor(readonly reason: EscrowWorkflowFailureReason) {
+    super(reason);
+    this.name = 'EscrowWorkflowBoundaryError';
+  }
+}
+
+function workflowFailureReason(error: unknown): EscrowWorkflowFailureReason {
+  if (error instanceof EscrowWorkflowBoundaryError) return error.reason;
+  if (!(error instanceof Error)) return 'unknown_exception';
+  const message = error.message.toLowerCase();
+  if (message.includes('identity') || message.includes('market link mismatch')) {
+    return 'chain_identity_mismatch';
+  }
+  if (message.includes('projection')) return 'projection_unavailable';
+  if (message.includes('storage') || message.includes('attestation')) {
+    return 'attestation_storage_unavailable';
+  }
+  if (
+    message.includes('rpc') || message.includes('429') || message.includes('network') ||
+    message.includes('fetch') || message.includes('transient')
+  ) return 'rpc_unavailable';
+  return error instanceof TypeError ? 'workflow_validation_failed' : 'unknown_exception';
+}
+
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => { setTimeout(resolve, milliseconds); });
 }
@@ -179,17 +212,21 @@ export function createEscrowEventWorkflowScheduler(options: {
     dueAtMs: number = event.receivedAtMs,
     debounceUntilIso: string | null = null,
   ): Promise<void> {
-    await options.requests.enqueue({
-      marketId: context.binding.marketId,
-      documentHashHex: context.binding.marketDocumentHashHex,
-      claimSpecificationJson: canonicalJson(market.spec),
-      eventEpoch: context.binding.eventEpoch,
-      replay: context.replay,
-      oraclePolicy: context.oraclePolicy,
-      request,
-      dueAtIso: iso(dueAtMs),
-      debounceUntilIso,
-    });
+    try {
+      await options.requests.enqueue({
+        marketId: context.binding.marketId,
+        documentHashHex: context.binding.marketDocumentHashHex,
+        claimSpecificationJson: canonicalJson(market.spec),
+        eventEpoch: context.binding.eventEpoch,
+        replay: context.replay,
+        oraclePolicy: context.oraclePolicy,
+        request,
+        dueAtIso: iso(dueAtMs),
+        debounceUntilIso,
+      });
+    } catch {
+      throw new EscrowWorkflowBoundaryError('attestation_storage_unavailable');
+    }
   }
 
   async function protectPriceMovingLots(
@@ -341,16 +378,17 @@ export function createEscrowEventWorkflowScheduler(options: {
     else states.set(market.id, result.state);
   }
 
-  async function matchingMarkets(event: MatchEvent, groupId?: number) {
+  async function matchingMarkets(event: MatchEvent, groupId?: number, replayStartedAtMs?: number) {
     return (await options.deps.db.openMarketsForFixture(event.fixtureId)).filter((market) =>
       market.fixture_id === event.fixtureId && market.custody_mode === 'escrow' && (groupId === undefined
         ? !market.is_replay
-        : market.is_replay && market.group_id === groupId)
+        : market.is_replay && market.group_id === groupId &&
+          Date.parse(market.created_at) >= (replayStartedAtMs ?? Number.POSITIVE_INFINITY))
     );
   }
 
-  async function run(event: MatchEvent, groupId?: number): Promise<void> {
-    for (const market of await matchingMarkets(event, groupId)) {
+  async function run(event: MatchEvent, groupId?: number, replayStartedAtMs?: number): Promise<void> {
+    for (const market of await matchingMarkets(event, groupId, replayStartedAtMs)) {
       const attempts = groupId === undefined ? 1 : REPLAY_EVENT_ATTEMPTS;
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
@@ -361,6 +399,7 @@ export function createEscrowEventWorkflowScheduler(options: {
           if (attempt < attempts) {
             options.deps.log.info('escrow_replay_event_retry', {
               marketId: market.id, seq: event.seq, attempt,
+              reason: workflowFailureReason(error),
             });
             await wait(REPLAY_EVENT_RETRY_BASE_MS * attempt);
             continue;
@@ -368,7 +407,7 @@ export function createEscrowEventWorkflowScheduler(options: {
           options.deps.log.error('escrow_event_workflow_failed', {
             marketId: market.id,
             seq: event.seq,
-            reason: error instanceof Error ? error.name : 'unknown_exception',
+            reason: workflowFailureReason(error),
           });
           if (groupId !== undefined) throw error;
         }
@@ -378,8 +417,10 @@ export function createEscrowEventWorkflowScheduler(options: {
 
   return {
     onEvent: (event: MatchEvent) => run(event),
-    onReplayEvent: (groupId: number, event: MatchEvent, _replayStartedAtMs?: number) =>
-      run(event, groupId),
+    onReplayEvent: (groupId: number, event: MatchEvent, replayStartedAtMs: number) => {
+      if (!Number.isFinite(replayStartedAtMs)) return Promise.resolve();
+      return run(event, groupId, replayStartedAtMs);
+    },
     async tick(_nowMs: number) {},
   };
 }

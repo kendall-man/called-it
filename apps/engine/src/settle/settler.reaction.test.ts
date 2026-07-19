@@ -137,7 +137,7 @@ describe('Settler settled-claim reaction', () => {
   it('reacts on the original claim message when the call lands', async () => {
     const harness = reactionHarness({ outcome: 'claim_won' });
 
-    await harness.settler.onReplayEvent(GROUP_ID, EVENT);
+    await harness.settler.onReplayEvent(GROUP_ID, EVENT, 0);
 
     // Telegram's reaction set has no 🎯; the trophy is the landed-call ack.
     expect(harness.reactions).toEqual([
@@ -150,7 +150,7 @@ describe('Settler settled-claim reaction', () => {
     for (const outcome of ['claim_lost', 'void'] as const) {
       const harness = reactionHarness({ outcome });
 
-      await harness.settler.onReplayEvent(GROUP_ID, EVENT);
+      await harness.settler.onReplayEvent(GROUP_ID, EVENT, 0);
 
       expect(harness.reactions).toEqual([]);
     }
@@ -162,7 +162,7 @@ describe('Settler settled-claim reaction', () => {
       getClaim: async () => { throw new Error('claim row unavailable'); },
     });
 
-    await harness.settler.onReplayEvent(GROUP_ID, EVENT);
+    await harness.settler.onReplayEvent(GROUP_ID, EVENT, 0);
 
     expect(harness.settlements).toEqual(['claim_won']);
     expect(harness.reactions).toEqual([]);
