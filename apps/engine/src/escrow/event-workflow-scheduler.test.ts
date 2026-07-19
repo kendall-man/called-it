@@ -393,6 +393,25 @@ describe('escrow TxLINE durable event workflow scheduler', () => {
     });
   });
 
+  it('recovers a pending-only replay with one truthful settlement and no control transactions', async () => {
+    const fixture = setup(true);
+    await fixture.scheduler.onReplayRecoveryEvent(GROUP_ID, event());
+    await fixture.scheduler.onReplayRecoveryEvent(GROUP_ID, event({
+      kind: 'phase_change', seq: 20, phase: 'F', minute: 90,
+      receivedAtMs: 200_000, tsMs: 199_000,
+      score: {
+        p1: { goals: 2, yellowCards: 0, redCards: 0, corners: 0 },
+        p2: { goals: 1, yellowCards: 0, redCards: 0, corners: 0 },
+        p1Goals90: 2, p2Goals90: 1,
+      },
+    }));
+    expect(fixture.persisted).toEqual([]);
+
+    await fixture.scheduler.finalizeReplayRecovery(GROUP_ID, 77);
+
+    expect(fixture.persisted.map((value) => value.request.operation)).toEqual(['settle_market']);
+  });
+
   it('matures a lone empty-replay terminal candidate exactly once at replay EOF', async () => {
     const fixture = setup(true, [], 'escrow', undefined, 0, undefined, true);
     const terminal = event({

@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildTelegramGroupAddUrl,
+  buildTelegramInstallUrl,
   TELEGRAM_GROUP_ADMIN_RIGHTS,
   TELEGRAM_STARTGROUP,
 } from './entry';
 
 describe('Telegram group entry', () => {
+  it('opens the bot DM before the group picker so the intro can be delivered privately', () => {
+    expect(buildTelegramInstallUrl('getrumble_bot')).toBe(
+      'https://t.me/getrumble_bot?start=install',
+    );
+  });
   it('builds the exact versioned group-add URL from a valid bot username', () => {
     // Given
     const botUsername = 'footballcallit_bot';

@@ -155,6 +155,9 @@ const EnvSchema = z.object({
     z.string().regex(/^[A-Za-z0-9_]{3,64}$/).optional(),
   ),
   BETA_ALLOWED_GROUP_IDS: BetaGroupAllowlistSchema,
+  /** Public beta removes Telegram group allowlists while retaining all per-market safety gates. */
+  PUBLIC_BETA_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
   GLM_API_KEY: z.string().min(1, 'GLM (Z.ai) key required for the agent'),
   GLM_BASE_URL: z.string().url().optional(),
   SUPABASE_URL: z.string().url(),
@@ -272,7 +275,7 @@ const EnvSchema = z.object({
   const deployed = env.DEPLOYMENT_ENV !== 'development';
   const wagerRuntimeMode = resolvedWagerRuntimeMode(env);
   validateWagerRuntimeEnvironment(env, { add: addIssue, addPair: addPairIssue });
-  const betaActive = deployed || env.BETA_ALLOWED_GROUP_IDS.length > 0;
+  const betaActive = env.PUBLIC_BETA_ENABLED || deployed || env.BETA_ALLOWED_GROUP_IDS.length > 0;
   const webUrl = new URL(env.WEB_BASE_URL);
   if (env.ESCROW_LOCAL_FORK_INDEXER && deployed) {
     addIssue('ESCROW_LOCAL_FORK_INDEXER', 'is allowed only in development');
@@ -311,7 +314,7 @@ const EnvSchema = z.object({
       addPairIssue('SOLANA_NETWORK', 'TREASURY_COVERAGE_ENFORCED');
     }
   }
-  if (deployed && env.BETA_ALLOWED_GROUP_IDS.length === 0) {
+  if (deployed && !env.PUBLIC_BETA_ENABLED && env.BETA_ALLOWED_GROUP_IDS.length === 0) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['BETA_ALLOWED_GROUP_IDS'],
@@ -412,7 +415,10 @@ const EnvSchema = z.object({
     ) {
       addPairIssue('ESCROW_PROGRAM_ID', 'SOLANA_NETWORK');
     }
-    if (env.STAKE_ACCEPTANCE_ENABLED && env.ESCROW_ALLOWED_GROUP_IDS.length === 0) {
+    if (
+      env.STAKE_ACCEPTANCE_ENABLED && !env.PUBLIC_BETA_ENABLED &&
+      env.ESCROW_ALLOWED_GROUP_IDS.length === 0
+    ) {
       addIssue('ESCROW_ALLOWED_GROUP_IDS', 'required when escrow intake is enabled');
     }
     const required = [

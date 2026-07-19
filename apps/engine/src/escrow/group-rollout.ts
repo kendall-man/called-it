@@ -33,7 +33,7 @@ export function createEscrowGroupRolloutService(options: {
   return {
     async ensureEscrowGroups(groupIds: readonly number[]): Promise<void> {
       const groups = [...new Set(groupIds)];
-      if (groups.some((groupId) => !Number.isSafeInteger(groupId) || groupId === 0)) {
+      if (groups.some((groupId) => !Number.isSafeInteger(groupId) || groupId >= 0)) {
         throw new TypeError('invalid escrow Telegram group id');
       }
       const nowIso = options.clock();

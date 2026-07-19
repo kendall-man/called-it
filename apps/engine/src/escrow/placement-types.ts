@@ -58,6 +58,7 @@ export interface EscrowPlacementDeployment {
   readonly minimumUsdcPosition: bigint;
   readonly maximumUsdcPosition: bigint;
   readonly allowedGroupIds: readonly number[];
+  readonly allowAnyGroup?: boolean;
 }
 
 export interface EscrowPlacementIdentity {

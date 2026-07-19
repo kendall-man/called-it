@@ -70,7 +70,11 @@ const ACTIVE_PHASE_MINUTE_CEILING: Partial<Record<FixtureRow['phase'], number>> 
   ET2: 120,
 };
 
-export type ReplayStartResult = 'started' | 'already_active' | 'live_markets';
+export type ReplayStartResult =
+  | 'started'
+  | 'already_active'
+  | 'live_markets'
+  | 'recovery_pending';
 
 export class IngestSupervisor {
   private readonly liveSources = new Map<number, EventSourceLike>();
@@ -131,7 +135,7 @@ export class IngestSupervisor {
       this.completedReplayRuns.delete(groupId);
       const openMarkets = await this.deps.db.openMarketsForGroup(groupId);
       if (openMarkets.some((market) => !market.is_replay)) return 'live_markets';
-      await this.lockReplayMarkets(openMarkets);
+      if (openMarkets.some((market) => market.is_replay)) return 'recovery_pending';
 
       const fixtureId = fixture.fixture_id;
       const source = this.deps.tx.createReplaySource(fixtureId, speed);
@@ -232,6 +236,26 @@ export class IngestSupervisor {
       this.deps.log.error('replay_stop_lock_failed', { fixtureId: replay.fixtureId });
     });
     return true;
+  }
+
+  /**
+   * Stop an active replay and finish locking its markets before an admin
+   * recovery begins. Unlike stopReplay(), this is awaitable and serialized
+   * with event handling for the group.
+   */
+  async stopReplayForRecovery(groupId: number): Promise<number | null> {
+    return this.runGroupExclusive(groupId, async () => {
+      const replay = this.replays.get(groupId);
+      if (replay === undefined) return null;
+      replay.ending = true;
+      if (replay.startDelayTimer !== null) clearTimeout(replay.startDelayTimer);
+      replay.source.stop();
+      this.replays.delete(groupId);
+      this.completedReplayRuns.delete(groupId);
+      await this.lockReplayMarkets(await this.deps.db.openMarketsForGroup(groupId));
+      this.deps.log.info('replay_stopped_for_admin_recovery', { fixtureId: replay.fixtureId });
+      return replay.fixtureId;
+    });
   }
 
   /** Fixture currently replaying for a group, or null. */

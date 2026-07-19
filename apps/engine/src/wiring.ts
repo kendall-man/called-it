@@ -1024,6 +1024,7 @@ export async function createProductionEscrowRuntime(options: {
     minimumUsdcPosition: config.value.minimumUsdcPosition,
     maximumUsdcPosition: config.value.maximumUsdcPosition,
     allowedGroupIds: env.ESCROW_ALLOWED_GROUP_IDS,
+    allowAnyGroup: env.PUBLIC_BETA_ENABLED,
   };
   const recoveryDeployment: EscrowRecoveryDeployment = {
     cluster: env.SOLANA_NETWORK,

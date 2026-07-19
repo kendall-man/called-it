@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { PageShell } from '@/components/ui';
-import { buildTelegramGroupAddUrl } from '@/lib/entry';
+import { buildTelegramInstallUrl } from '@/lib/entry';
 import { isMainnet } from '@/lib/solana-network';
 
 export const metadata: Metadata = {
@@ -15,7 +15,7 @@ const STEPS = [
 
 export default function LandingPage() {
   const mainnet = isMainnet();
-  const telegramGroupUrl = buildTelegramGroupAddUrl(
+  const telegramGroupUrl = buildTelegramInstallUrl(
     process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME,
   );
 

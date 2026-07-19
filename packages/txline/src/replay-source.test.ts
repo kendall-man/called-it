@@ -257,6 +257,44 @@ describe('ReplaySource.stepOnce — snapshot diffing', () => {
 });
 
 describe('ReplaySource.start — virtual clock pacing', () => {
+  it('compensates for successful snapshot processing time without skipping ticks', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(KICKOFF_MS);
+    const base = snapshotClient();
+    const delayed = async <T>(value: Promise<T>): Promise<T> => {
+      await new Promise((resolve) => setTimeout(resolve, 7));
+      return value;
+    };
+    const source = new ReplaySource({
+      client: {
+        scoresSnapshot: (fixtureId, asOfMs) => delayed(base.scoresSnapshot(fixtureId, asOfMs)),
+        oddsSnapshot: (fixtureId, asOfMs) => delayed(base.oddsSnapshot(fixtureId, asOfMs)),
+      },
+      fixtureId: FIXTURE_ID,
+      // 10 virtual minutes per tick at 60000× ⇒ one 10ms wall frame.
+      speed: 60_000,
+      startMs: KICKOFF_MS - 10 * MINUTE_MS,
+      tickVirtualMs: 10 * MINUTE_MS,
+      logger: silentLogger,
+    });
+    const emitted: MatchEvent[] = [];
+    let endReason: string | null = null;
+    source.start(async (event) => {
+      emitted.push(event);
+    }, (reason) => { endReason = reason; });
+
+    try {
+      // Twelve 10ms frames plus the terminal drain fit within 140ms only when
+      // the 7ms snapshot work is included in each deadline instead of added to it.
+      await vi.advanceTimersByTimeAsync(140);
+      expect(emitted.map((event) => event.seq)).toEqual([1, 2, 3, 4, 5, 6]);
+      expect(endReason).toBe('completed');
+    } finally {
+      source.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it('drives the same pipeline end-to-end and stops when done', async () => {
     const source = new ReplaySource({
       client: snapshotClient(),
