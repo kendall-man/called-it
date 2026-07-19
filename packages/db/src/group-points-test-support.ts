@@ -14,18 +14,29 @@ export type RpcCall = {
 };
 
 class ScriptedQuery implements PromiseLike<PgResult<unknown>> {
+  private exactCountRequested = false;
+
   constructor(
     private readonly response: PgResult<unknown>,
     private readonly calls: QueryCall[],
   ) {}
 
-  select(columns: string): ScriptedQuery {
-    this.calls.push({ method: 'select', args: [columns] });
+  select(columns: string, options?: { readonly count?: 'exact' }): ScriptedQuery {
+    this.exactCountRequested = options?.count === 'exact';
+    this.calls.push({
+      method: 'select',
+      args: options === undefined ? [columns] : [columns, options],
+    });
     return this;
   }
 
   eq(column: string, value: unknown): ScriptedQuery {
     this.calls.push({ method: 'eq', args: [column, value] });
+    return this;
+  }
+
+  in(column: string, values: readonly unknown[]): ScriptedQuery {
+    this.calls.push({ method: 'in', args: [column, values] });
     return this;
   }
 
@@ -46,14 +57,23 @@ class ScriptedQuery implements PromiseLike<PgResult<unknown>> {
 
   maybeSingle(): Promise<PgResult<unknown>> {
     this.calls.push({ method: 'maybeSingle', args: [] });
-    return Promise.resolve(this.response);
+    return Promise.resolve(this.resolvedResponse());
   }
 
   then<TResult1 = PgResult<unknown>, TResult2 = never>(
     onfulfilled?: ((value: PgResult<unknown>) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): Promise<TResult1 | TResult2> {
-    return Promise.resolve(this.response).then(onfulfilled, onrejected);
+    return Promise.resolve(this.resolvedResponse()).then(onfulfilled, onrejected);
+  }
+
+  private resolvedResponse(): PgResult<unknown> {
+    if (!this.exactCountRequested || this.response.count !== undefined) return this.response;
+    const data = this.response.data;
+    return {
+      ...this.response,
+      count: Array.isArray(data) ? data.length : data === null ? 0 : 1,
+    };
   }
 }
 

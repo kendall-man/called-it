@@ -13,6 +13,7 @@ import {
   parsePointResults,
 } from './group-points-query-parsers.js';
 import { parsePositionParticipants } from './group-points-participant-parser.js';
+import { canonicalGroupLeaderboardFallback } from './group-points-canonical-fallback.js';
 
 const MAX_LEADERBOARD_LIMIT = 100;
 const POINT_RESULT_LIMIT = 10;
@@ -21,11 +22,8 @@ const POINT_RESULT_SELECT =
 const PARTICIPANT_ROW_LIMIT = 10;
 const PARTICIPANT_RPC = 'group_market_participants';
 const EVENT_STATS_VIEW = 'group_player_stats_from_events';
-const LEGACY_STATS_TABLE = 'group_player_stats';
 const STATS_COLUMNS = 'group_id,user_id,points,wins,losses,current_streak,best_streak';
 const EVENT_LEADERBOARD_COLUMNS = `${STATS_COLUMNS},user`;
-const LEGACY_LEADERBOARD_COLUMNS =
-  `${STATS_COLUMNS},user:users!inner(display_name,username)`;
 
 type GroupPointsQueryDb = Pick<
   GroupPointsDb,
@@ -48,30 +46,21 @@ export function groupPointsQueryMethods(client: GroupPointsDbClient): GroupPoint
     async groupPlayerStats(groupId, userId) {
       assertSafeInput(GROUP_POINTS_QUERY_OPS.playerStats, 'group_id', groupId);
       assertPositiveInput(GROUP_POINTS_QUERY_OPS.playerStats, 'user_id', userId);
-      let response = await playerStatsResponse(client, EVENT_STATS_VIEW, groupId, userId);
+      const response = await playerStatsResponse(client, EVENT_STATS_VIEW, groupId, userId);
       if (statsViewUnavailable(response)) {
-        response = await playerStatsResponse(client, LEGACY_STATS_TABLE, groupId, userId);
+        const entries = await canonicalGroupLeaderboardFallback(client, groupId);
+        const entry = entries.find((candidate) => candidate.user_id === userId);
+        return entry === undefined ? zeroStats(groupId, userId) : statsOnly(entry);
       }
       const data = responseData(GROUP_POINTS_QUERY_OPS.playerStats, response);
-      if (data === null) {
-        return {
-          group_id: groupId,
-          user_id: userId,
-          points: 0,
-          wins: 0,
-          losses: 0,
-          accuracy: 0,
-          current_streak: 0,
-          best_streak: 0,
-        };
-      }
+      if (data === null) return zeroStats(groupId, userId);
       return parsePlayerStats(data, groupId, userId);
     },
 
     async leaderboard(groupId, limit) {
       assertSafeInput(GROUP_POINTS_QUERY_OPS.leaderboard, 'group_id', groupId);
       assertLeaderboardLimit(limit);
-      let response = await leaderboardResponse(
+      const response = await leaderboardResponse(
         client,
         EVENT_STATS_VIEW,
         EVENT_LEADERBOARD_COLUMNS,
@@ -79,13 +68,7 @@ export function groupPointsQueryMethods(client: GroupPointsDbClient): GroupPoint
         limit,
       );
       if (statsViewUnavailable(response)) {
-        response = await leaderboardResponse(
-          client,
-          LEGACY_STATS_TABLE,
-          LEGACY_LEADERBOARD_COLUMNS,
-          groupId,
-          limit,
-        );
+        return (await canonicalGroupLeaderboardFallback(client, groupId)).slice(0, limit);
       }
       const values = rows(GROUP_POINTS_QUERY_OPS.leaderboard, response);
       if (values.length > limit) {
@@ -102,6 +85,32 @@ export function groupPointsQueryMethods(client: GroupPointsDbClient): GroupPoint
       );
     },
   } satisfies GroupPointsQueryDb;
+}
+
+function zeroStats(groupId: number, userId: number) {
+  return {
+    group_id: groupId,
+    user_id: userId,
+    points: 0,
+    wins: 0,
+    losses: 0,
+    accuracy: 0,
+    current_streak: 0,
+    best_streak: 0,
+  } as const;
+}
+
+function statsOnly(entry: ReturnType<typeof parseLeaderboard>[number]) {
+  return {
+    group_id: entry.group_id,
+    user_id: entry.user_id,
+    points: entry.points,
+    wins: entry.wins,
+    losses: entry.losses,
+    accuracy: entry.accuracy,
+    current_streak: entry.current_streak,
+    best_streak: entry.best_streak,
+  } as const;
 }
 
 function playerStatsResponse(

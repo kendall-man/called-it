@@ -80,27 +80,26 @@ describe('group points leaderboard queries', () => {
     ]);
   });
 
-  it('falls back to the cached leaderboard only when the event view is unavailable', async () => {
+  it('falls back to canonical source tables only when the event view is unavailable', async () => {
     const calls: QueryCall[] = [];
     const db = queryDbResponses([
       {
         data: null,
         error: { code: '42P01', message: 'relation does not exist' },
       },
-      { data: [leaderboardRow()], error: null },
+      {
+        data: [{ id: -100_123, points_started_at: '2026-01-01T00:00:00.000Z' }],
+        error: null,
+      },
+      { data: [], error: null },
     ], calls);
 
-    await expect(db.leaderboard(-100_123, 10)).resolves.toHaveLength(1);
+    await expect(db.leaderboard(-100_123, 10)).resolves.toEqual([]);
     expect(calls.filter((call) => call.method === 'from')).toEqual([
       { method: 'from', args: ['group_player_stats_from_events'] },
-      { method: 'from', args: ['group_player_stats'] },
+      { method: 'from', args: ['groups'] },
+      { method: 'from', args: ['markets'] },
     ]);
-    expect(calls.filter((call) => call.method === 'select').at(-1)).toEqual({
-      method: 'select',
-      args: [
-        'group_id,user_id,points,wins,losses,current_streak,best_streak,user:users!inner(display_name,username)',
-      ],
-    });
   });
 
   it('rejects stale rows that violate the stable rank order', async () => {

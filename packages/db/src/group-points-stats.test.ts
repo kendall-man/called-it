@@ -49,7 +49,7 @@ describe('group player stats queries', () => {
     expect(stats).not.toHaveProperty('points_cached');
   });
 
-  it('falls back to the maintained stats table while the event view rolls out', async () => {
+  it('falls back to canonical source tables while the event view rolls out', async () => {
     const calls: QueryCall[] = [];
     const db = queryDbResponses([
       {
@@ -57,26 +57,20 @@ describe('group player stats queries', () => {
         error: { code: 'PGRST205', message: 'relation is not in the schema cache' },
       },
       {
-        data: {
-          group_id: -100_123,
-          user_id: 7001,
-          points: 10,
-          wins: 1,
-          losses: 0,
-          current_streak: 1,
-          best_streak: 1,
-        },
+        data: [{ id: -100_123, points_started_at: '2026-01-01T00:00:00.000Z' }],
+        error: null,
+      },
+      {
+        data: [],
         error: null,
       },
     ], calls);
 
-    await expect(db.groupPlayerStats(-100_123, 7001)).resolves.toMatchObject({
-      points: 10,
-      wins: 1,
-    });
+    await expect(db.groupPlayerStats(-100_123, 7001)).resolves.toMatchObject({ points: 0, wins: 0 });
     expect(calls.filter((call) => call.method === 'from')).toEqual([
       { method: 'from', args: ['group_player_stats_from_events'] },
-      { method: 'from', args: ['group_player_stats'] },
+      { method: 'from', args: ['groups'] },
+      { method: 'from', args: ['markets'] },
     ]);
   });
 
