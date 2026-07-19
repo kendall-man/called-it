@@ -157,7 +157,7 @@ describe('sponsored escrow relayer recovery', () => {
     // database's generic submitted quarantine.
     expect(result).toEqual([{ kind: 'retrying', jobId: expect.any(String), signature: payload.expectedSignature }]);
     expect(fixture.readinessChecks()).toBe(1);
-    expect(fixture.calls).toEqual(['lease', 'record_signed', 'retry:true']);
+    expect(fixture.calls).toEqual(['lease', 'record_signed']);
     expect(fixture.broadcasts).toEqual([payload.rawTransactionBase64]);
   });
 
@@ -172,8 +172,8 @@ describe('sponsored escrow relayer recovery', () => {
     }]);
     expect(fixture.readinessChecks()).toBe(1);
     expect(fixture.broadcasts).toHaveLength(0);
-    expect(fixture.calls).toEqual(['lease', 'record_signed', 'retry:true']);
-    expect(fixture.retryErrors).toEqual(['deployment_not_ready']);
+    expect(fixture.calls).toEqual(['lease', 'record_signed']);
+    expect(fixture.retryErrors).toEqual([]);
   });
 
   it('schedules prompt exact-byte reconciliation after an ambiguous first broadcast', async () => {
@@ -185,7 +185,7 @@ describe('sponsored escrow relayer recovery', () => {
     await expect(fixture.worker.runOnce(NOW, 1)).resolves.toEqual([{
       kind: 'retrying', jobId: expect.any(String), signature: payload.expectedSignature,
     }]);
-    expect(fixture.calls).toEqual(['lease', 'record_signed', 'retry:true']);
+    expect(fixture.calls).toEqual(['lease', 'record_signed']);
     expect(fixture.broadcasts).toHaveLength(0);
   });
 

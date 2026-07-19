@@ -276,6 +276,9 @@ describe('escrow placement signing sessions', () => {
       operation: 'place_position', rawTransactionBase64, lastValidBlockHeight: '900',
     });
     expect(fixture.jobs[0]?.kind).toBe('position_placement');
+    expect(fixture.jobs[0]?.leaseMs).toBe(5_000);
+    expect(fixture.jobs[0]?.maxAttempts).toBe(120);
+    expect((fixture.jobs[0]?.leaseMs ?? 0) * (fixture.jobs[0]?.maxAttempts ?? 0)).toBe(600_000);
     expect(new Set(fixture.jobs.map((job) => job.idempotencyKey)).size).toBe(1);
   });
 
