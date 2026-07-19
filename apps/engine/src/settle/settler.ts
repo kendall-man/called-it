@@ -139,11 +139,18 @@ export class Settler {
     strict: boolean = false,
   ): Promise<void> {
     await this.narrateGoal(event, markets);
+    const narratedUnfreezeGroups = new Set<number>();
     for (const market of markets) {
       try {
         const state = await this.hydrate(market);
         const result = this.deps.engine.reduceMarket(state, event);
-        await this.applyEffects(market, result.state, result.effects, event);
+        await this.applyEffects(
+          market,
+          result.state,
+          result.effects,
+          event,
+          narratedUnfreezeGroups,
+        );
         if (result.state.status === 'settled' || result.state.status === 'voided') {
           this.states.delete(market.id);
         } else {
@@ -210,6 +217,7 @@ export class Settler {
     state: MarketState,
     effects: MarketEffect[],
     event: MatchEvent | null,
+    narratedUnfreezeGroups: Set<number> = new Set(),
   ): Promise<void> {
     if (!isLegacyCustody(market)) {
       if (effects.length > 0) {
@@ -222,16 +230,23 @@ export class Settler {
       switch (effect.kind) {
         case 'freeze':
           await this.deps.db.updateMarketStatus(market.id, 'frozen');
-          if (effect.reason === 'var') {
+          if (effect.reason === 'var' && !market.is_replay) {
             await this.narrate(market, 'var_freeze', {});
           }
           await this.refreshCard(market.id);
           break;
-        case 'unfreeze':
+        case 'unfreeze': {
           await this.deps.db.updateMarketStatus(market.id, 'open');
-          await this.narrate(market, 'calls_unlocked', {});
+          if (
+            !market.is_replay &&
+            !narratedUnfreezeGroups.has(market.group_id)
+          ) {
+            await this.narrate(market, 'calls_unlocked', {});
+            narratedUnfreezeGroups.add(market.group_id);
+          }
           await this.refreshCard(market.id);
           break;
+        }
         case 'settle':
           await this.settle(market, effect.outcome, effect.decidingSeq, effect.evidenceSeqs);
           break;
