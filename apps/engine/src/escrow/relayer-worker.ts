@@ -260,10 +260,9 @@ export function createEscrowRelayerWorker(options: {
       nowIso,
     }));
     if (!await placementBroadcastReady(job)) {
-      // recordRelayerSignedTransaction durably advances the row to signed.
-      // The signed-state retry preserves the exact transaction and releases
-      // the lease onto the short queue boundary without broadcasting it.
-      await retryUnknown(job, 'deployment_not_ready', nowIso);
+      // recordRelayerSignedTransaction durably advances the row to signed. A
+      // placement's short lease makes those exact bytes available for a fresh
+      // leased-state reconciliation without requiring newer retry RPC states.
       return { kind: 'retrying', jobId: job.id, signature: prepared.expectedSignature };
     }
     let broadcastAccepted = false;
@@ -279,9 +278,9 @@ export function createEscrowRelayerWorker(options: {
     }
     if (job.kind === 'position_placement') {
       // User-signed transactions arrive with less blockhash life than
-      // server-built work. The signed-state retry RPC preserves the exact raw
-      // transaction and signature while using the short queue retry boundary.
-      await retryUnknown(job, 'confirmation_unknown', nowIso);
+      // server-built work. Leave the durable signed row untouched so its short
+      // lease re-enters through processPersisted with the exact bytes and
+      // signature, including on databases predating signed-state retry.
       return { kind: 'retrying', jobId: job.id, signature: prepared.expectedSignature };
     }
     requireMutation(await options.db.markRelayerSubmitted({

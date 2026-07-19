@@ -14,6 +14,13 @@ import {
   type EscrowPlacementServiceDependencies,
 } from './placement-types.js';
 
+const POSITION_PLACEMENT_LEASE_MS = 5_000;
+// The original 0024 queue stops leasing at maxAttempts even when signed bytes
+// remain durable. Ten minutes covers the full signed-blockhash lifetime plus
+// sustained RPC jitter; normal invalid-blockhash handling still terminates the
+// exact user-signed transaction as soon as chain absence is proven.
+const POSITION_PLACEMENT_MAX_ATTEMPTS = 120;
+
 function placementIdempotencyKey(programId: string, signature: string): string {
   return `escrow:v1:position_placement:${programId.length}.${programId}:${signature.length}.${signature}`;
 }
@@ -133,7 +140,8 @@ export function createPlacementCallbackAcceptor(
         expiresAt: String(authorization.expiresAt),
       },
       dueAtIso: now.iso,
-      maxAttempts: 8,
+      maxAttempts: POSITION_PLACEMENT_MAX_ATTEMPTS,
+      leaseMs: POSITION_PLACEMENT_LEASE_MS,
       nowIso: now.iso,
     });
     if (!result.ok) return { kind: 'rejected', code: result.code };
