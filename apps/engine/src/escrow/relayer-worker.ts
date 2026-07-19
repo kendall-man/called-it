@@ -260,33 +260,38 @@ export function createEscrowRelayerWorker(options: {
       nowIso,
     }));
     if (!await placementBroadcastReady(job)) {
-      // recordRelayerSignedTransaction durably advances the row from leased to
-      // signed. The retry RPC intentionally accepts leased rows only, so do
-      // not attempt an impossible same-lease transition here. The signed row
-      // becomes leaseable again at the persisted lease deadline.
+      // recordRelayerSignedTransaction durably advances the row to signed.
+      // The signed-state retry preserves the exact transaction and releases
+      // the lease onto the short queue boundary without broadcasting it.
+      await retryUnknown(job, 'deployment_not_ready', nowIso);
       return { kind: 'retrying', jobId: job.id, signature: prepared.expectedSignature };
     }
+    let broadcastAccepted = false;
     try {
       const observed = await options.chain.broadcast(prepared.rawTransactionBase64);
       if (observed !== prepared.expectedSignature) return dead(job, 'signature_mismatch', nowIso);
+      broadcastAccepted = true;
     } catch (error) {
       if (!(error instanceof Error)) throw error;
       // A broadcast exception is ambiguous: the RPC may have accepted the
-      // exact persisted transaction. Move signed -> submitted so the next
-      // lease performs signature reconciliation without rebuilding or waiting
-      // for the original lease to expire.
-      requireMutation(await options.db.markRelayerSubmitted({
-        jobId: job.id,
-        ...lease(job),
-        expectedSignature: prepared.expectedSignature,
-        nowIso,
-      }));
+      // exact persisted transaction. The durable transition below preserves
+      // those bytes and schedules signature reconciliation.
+    }
+    if (job.kind === 'position_placement') {
+      // User-signed transactions arrive with less blockhash life than
+      // server-built work. The signed-state retry RPC preserves the exact raw
+      // transaction and signature while using the short queue retry boundary.
+      await retryUnknown(job, 'confirmation_unknown', nowIso);
       return { kind: 'retrying', jobId: job.id, signature: prepared.expectedSignature };
     }
     requireMutation(await options.db.markRelayerSubmitted({
       jobId: job.id, ...lease(job), expectedSignature: prepared.expectedSignature, nowIso,
     }));
-    return { kind: 'submitted', jobId: job.id, signature: prepared.expectedSignature };
+    return {
+      kind: broadcastAccepted ? 'submitted' : 'retrying',
+      jobId: job.id,
+      signature: prepared.expectedSignature,
+    };
   }
 
   return {
