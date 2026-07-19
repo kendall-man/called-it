@@ -109,6 +109,8 @@ function waitForWork(work: Promise<unknown>, signal: AbortSignal): Promise<void>
 
 export function createEscrowPeriodicReconciliationRunner(options: {
   readonly links: EscrowPeriodicReconciliationLinkPort;
+  /** Fail-closed admission gate invoked before any chain reconciliation read. */
+  readonly admitLink?: (link: EscrowPeriodicReconciliationLink) => Promise<boolean>;
   readonly reconciler: EscrowPeriodicReconcilePort;
   readonly batchSize: number;
   readonly intervalMs: number;
@@ -142,9 +144,20 @@ export function createEscrowPeriodicReconciliationRunner(options: {
       return SKIPPED_RESULT;
     }
 
+    const admitted: EscrowPeriodicReconciliationLink[] = [];
+    for (const link of page.links) {
+      try {
+        if (options.admitLink === undefined || await options.admitLink(link)) admitted.push(link);
+      } catch {
+        options.log.warn('escrow_periodic_reconciliation_admission_failed', {
+          code: 'admission_failed',
+        });
+      }
+    }
+
     let succeeded = 0;
     let failed = 0;
-    for (const link of page.links) {
+    for (const link of admitted) {
       try {
         const result = await options.reconciler.reconcile(link);
         succeeded += 1;
@@ -165,7 +178,7 @@ export function createEscrowPeriodicReconciliationRunner(options: {
 
     cursor = page.nextCursor;
     const result = {
-      attempted: page.links.length,
+      attempted: admitted.length,
       succeeded,
       failed,
       sweepComplete: page.nextCursor === null,

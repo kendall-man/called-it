@@ -29,7 +29,7 @@ import { ClaimSurfaceStore } from './pipeline/claim-surface.js';
 import { reactToSettledClaim, Settler } from './settle/settler.js';
 import { createGroupPointsService } from './points/service.js';
 import { createSettlementReconciler } from './settle/settlement-reconciler.js';
-import { IngestSupervisor } from './ingest/supervisor.js';
+import { IngestSupervisor, replayMarketBelongsToRun } from './ingest/supervisor.js';
 import { startCrons } from './cron/index.js';
 import { startEngineApi } from './api/server.js';
 import { createTelegramIngressHandler } from './api/telegram-ingress-boundary.js';
@@ -188,6 +188,12 @@ async function main(): Promise<void> {
 
   // `legacy` is the pre-enable mode. Once escrow liabilities exist, keep this
   // runtime enabled and roll intake back per group so recovery remains live.
+  let admitReplayPeriodicMarket = (_market: {
+    readonly group_id: number;
+    readonly fixture_id: number;
+    readonly is_replay: boolean;
+    readonly created_at: string;
+  }): boolean => false;
   const escrowRuntime = env.WAGER_CUSTODY_MODE === 'escrow'
     ? await (async () => {
         if (escrowPrivateBridge === null) throw new TypeError('escrow private bridge unavailable');
@@ -200,6 +206,11 @@ async function main(): Promise<void> {
           }),
           identities: escrowPrivateBridge,
           walletSessions: escrowPrivateBridge,
+          admitPeriodicReconciliationLink: async (link) => {
+            const market = await deps.db.getMarket(link.marketId);
+            if (market === null) return false;
+            return !market.is_replay || admitReplayPeriodicMarket(market);
+          },
           ...(escrowProgressObserver === null ? {} : {
             onRelayerResults: (results) =>
               escrowProgressObserver.observeRelayerResults(results),
@@ -300,6 +311,10 @@ async function main(): Promise<void> {
       await escrowRuntime?.lifecycle.runOnce();
     },
   });
+  admitReplayPeriodicMarket = (market) => replayMarketBelongsToRun(
+    market,
+    supervisor.replaySettlementRun(market.group_id),
+  );
   const settlementReconciler = createSettlementReconciler(backgroundDeps, log);
 
   // Bounded escrow readiness snapshot shared by the /status board and the

@@ -140,7 +140,10 @@ import { createEscrowPeriodicReconciliationRunner } from './escrow/periodic-reco
 import {
   createProductionEscrowReconciliationLinkPort,
 } from './escrow/periodic-reconciliation-runtime.js';
-import type { EscrowPeriodicReconciliationLog } from './escrow/periodic-reconciliation-runner.js';
+import type {
+  EscrowPeriodicReconciliationLink,
+  EscrowPeriodicReconciliationLog,
+} from './escrow/periodic-reconciliation-runner.js';
 import { expectedGenesisHash } from './solana-network.js';
 
 // ── Dependency construction ───────────────────────────────────────────────
@@ -436,6 +439,10 @@ export function createEscrowWave4Runtime(options: {
   };
   /** Presentation-only tap on each relayer cycle's otherwise-discarded results. */
   readonly onRelayerResults?: (results: readonly EscrowRelayerRunResult[]) => void;
+  /** Fail-closed replay-run gate evaluated before periodic chain reads. */
+  readonly admitPeriodicReconciliationLink?: (
+    link: EscrowPeriodicReconciliationLink,
+  ) => Promise<boolean>;
   readonly worker: {
     readonly intervalMs: number;
     readonly relayerLimit: number;
@@ -670,6 +677,9 @@ export function createEscrowWave4Runtime(options: {
         custodyVersion: options.recoveryDeployment.custodyVersion,
       },
     }),
+    ...(options.admitPeriodicReconciliationLink === undefined
+      ? {}
+      : { admitLink: options.admitPeriodicReconciliationLink }),
     reconciler: {
       async reconcile(link) {
         const result = await reconciler.reconcile(link);
@@ -823,6 +833,10 @@ export async function createProductionEscrowRuntime(options: {
   };
   /** Presentation-only tap on each relayer cycle's otherwise-discarded results. */
   readonly onRelayerResults?: (results: readonly EscrowRelayerRunResult[]) => void;
+  /** Fail-closed replay-run gate evaluated before periodic chain reads. */
+  readonly admitPeriodicReconciliationLink?: (
+    link: EscrowPeriodicReconciliationLink,
+  ) => Promise<boolean>;
   readonly identities: EscrowPrivateWalletIdentityProvider;
   readonly walletSessions: EscrowPrivateWalletSessionProvider;
   readonly oracleAttestationProvider?: EscrowOracleAttestationProvider;
@@ -1049,6 +1063,9 @@ export async function createProductionEscrowRuntime(options: {
     ...(options.onRelayerResults === undefined
       ? {}
       : { onRelayerResults: options.onRelayerResults }),
+    ...(options.admitPeriodicReconciliationLink === undefined
+      ? {}
+      : { admitPeriodicReconciliationLink: options.admitPeriodicReconciliationLink }),
     worker: {
       intervalMs: env.ESCROW_WORKER_INTERVAL_MS,
       relayerLimit: 25,

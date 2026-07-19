@@ -53,6 +53,36 @@ afterEach(() => {
 });
 
 describe('periodic escrow reconciliation runner', () => {
+  it('fails closed before reconciliation when a replay link is outside the active run', async () => {
+    const reconciled: string[] = [];
+    const { log } = logger();
+    const runner = createEscrowPeriodicReconciliationRunner({
+      links: {
+        async listReconciliationLinks() {
+          return { links, nextCursor: null };
+        },
+      },
+      admitLink: async (link) => link.marketId === 'market-b',
+      reconciler: {
+        async reconcile(link) {
+          reconciled.push(link.marketId);
+          return { status: 'in_sync' };
+        },
+      },
+      batchSize: 2,
+      intervalMs: 1_000,
+      log,
+    });
+
+    await expect(runner.runOnce()).resolves.toEqual({
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      sweepComplete: true,
+    });
+    expect(reconciled).toEqual(['market-b']);
+  });
+
   it('runs a bounded startup batch and advances deterministic pages on each cadence', async () => {
     vi.useFakeTimers();
     const listInputs: Array<{ cursor: string | null; limit: number }> = [];
