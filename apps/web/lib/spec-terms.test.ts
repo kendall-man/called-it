@@ -135,7 +135,7 @@ describe('describeTrustState', () => {
         { status: 'settled', tier: 'chain_proven', proofStatus: 'pending' },
         'chain_proven',
       ).label,
-    ).toBe('Chain proof not yet verified');
+    ).toBe('Solana check pending');
   });
 
   it('states unavailable and failed proof outcomes plainly', () => {
@@ -144,13 +144,13 @@ describe('describeTrustState', () => {
         { status: 'settled', tier: 'chain_proven', proofStatus: 'unavailable' },
         'chain_proven',
       ).label,
-    ).toBe('Chain proof unavailable');
+    ).toBe('Solana check unavailable');
     expect(
       describeTrustState(
         { status: 'settled', tier: 'chain_proven', proofStatus: 'failed' },
         'chain_proven',
       ).label,
-    ).toBe('Chain proof could not verify');
+    ).toBe('Solana check failed');
   });
 
   it('describes signed-feed provenance without claiming a chain proof', () => {
@@ -159,6 +159,6 @@ describe('describeTrustState', () => {
         { status: 'settled', tier: 'oracle_resolved', proofStatus: null },
         'oracle_resolved',
       ),
-    ).toMatchObject({ label: 'Signed feed resolved', tone: 'sky' });
+    ).toMatchObject({ label: 'Checked by TxLINE', tone: 'sky' });
   });
 });

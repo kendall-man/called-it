@@ -10,9 +10,9 @@ import { Badge, type BadgeTone } from './ui';
 import { EscrowBoardSummary } from './escrow-receipt';
 
 const OUTCOME_CHIP: Record<ReceiptOutcome, { tone: BadgeTone; label: string }> = {
-  claim_won: { tone: 'pitch', label: 'Called it' },
-  claim_lost: { tone: 'siren', label: 'Didn’t land' },
-  void: { tone: 'neutral', label: 'Void' },
+  claim_won: { tone: 'pitch', label: 'Yes won' },
+  claim_lost: { tone: 'siren', label: 'No won' },
+  void: { tone: 'neutral', label: 'Cancelled' },
 };
 
 type PublicMarketStatus = {
@@ -24,17 +24,17 @@ function statusChip(market: PublicMarketStatus): { tone: BadgeTone; label: strin
   if (market.outcome) return OUTCOME_CHIP[market.outcome];
   switch (market.status) {
     case 'voided':
-      return { tone: 'neutral', label: 'Void' };
+      return { tone: 'neutral', label: 'Cancelled' };
     case 'settled':
       return { tone: 'sky', label: 'Settled' };
     case 'frozen':
-      return { tone: 'flood', label: 'Calls locked' };
+      return { tone: 'flood', label: 'Picks closed' };
     case 'settling':
-      return { tone: 'flood', label: 'Settling' };
+      return { tone: 'flood', label: 'Checking result' };
     case 'pending_lineup':
-      return { tone: 'neutral', label: 'Waiting on lineups' };
+      return { tone: 'neutral', label: 'Waiting for lineups' };
     case 'open':
-      return { tone: 'sky', label: 'Calls open' };
+      return { tone: 'sky', label: 'Open' };
   }
 }
 
@@ -47,13 +47,13 @@ function AggregateSummary({ market }: { market: PublicGroupBoardMarket }) {
   return (
     <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs sm:grid-cols-3">
       <div>
-        <dt className="text-fog">Happens pot</dt>
+        <dt className="text-fog">Yes</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
           {formatAtomicAmount(market.backPotLamports, market.currency)}
         </dd>
       </div>
       <div>
-        <dt className="text-fog">Does not pot</dt>
+        <dt className="text-fog">No</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
           {formatAtomicAmount(market.doubtPotLamports, market.currency)}
         </dd>
@@ -65,19 +65,19 @@ function AggregateSummary({ market }: { market: PublicGroupBoardMarket }) {
         </dd>
       </div>
       <div>
-        <dt className="text-fog">Refunded</dt>
+        <dt className="text-fog">Returned</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
           {formatAtomicAmount(market.refundedAmountLamports, market.currency)}
         </dd>
       </div>
       <div>
-        <dt className="text-fog">Payout total</dt>
+        <dt className="text-fog">Paid to winners</dt>
         <dd className="mt-0.5 font-semibold text-chalk">
           {formatAtomicAmount(market.paidAmountLamports, market.currency)}
         </dd>
       </div>
       <div>
-        <dt className="text-fog">Positions</dt>
+        <dt className="text-fog">Picks</dt>
         <dd className="mt-0.5 font-semibold text-chalk">{market.positionCount}</dd>
       </div>
     </dl>
@@ -89,7 +89,7 @@ export function ReceiptRow({ receipt }: { receipt: PublicReceipt }) {
   return (
     <Link
       href={`/r/${receipt.marketId}`}
-      className="group flex min-h-11 items-center gap-3 rounded-xl border border-transparent px-2 py-2.5 transition-colors hover:border-line hover:bg-night-800/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+      className="group flex min-h-11 items-center gap-3 border border-transparent px-2 py-2.5 transition-colors hover:border-line hover:bg-night-800/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
     >
       <span className="display-type w-14 shrink-0 text-right text-xl text-chalk">
         {formatMultiplier(receipt.quoteMultiplier)}
@@ -100,16 +100,16 @@ export function ReceiptRow({ receipt }: { receipt: PublicReceipt }) {
           </span>
           {receipt.isReplay ? (
             <span className="mt-0.5 block text-[11px] font-semibold text-flood-300">
-              Completed-match replay · No Points
+              Past match replay · No points
             </span>
           ) : null}
           <span className="block text-[11px] text-fog">
-            {formatUtc(receipt.createdAt)} - {receipt.positionCount} positions -{' '}
+            {formatUtc(receipt.createdAt)} · {receipt.positionCount} picks ·{' '}
             {formatAtomicAmount(receipt.matchedAmountLamports, receipt.currency)} matched
           </span>
           {receipt.escrow ? (
             <span className="mt-1 block text-[11px] font-semibold text-pitch-300">
-              Finalized escrow record · {receipt.escrow.asset.toUpperCase()}
+              Paid on Solana · {receipt.escrow.asset.toUpperCase()}
             </span>
           ) : null}
       </span>
@@ -134,14 +134,14 @@ export function BoardMarketRow({ market }: { market: PublicGroupBoardMarket }) {
           <p className="mt-1 text-xs text-fog">{market.terms.period}</p>
           {market.isReplay ? (
             <p className="mt-1 text-xs font-semibold text-flood-300">
-              Completed-match replay · No Points
+              Past match replay · No points
             </p>
           ) : null}
         </div>
         <Badge tone={chip.tone}>{chip.label}</Badge>
       </div>
       <p className="mt-2 text-xs text-fog">
-        {formatMultiplier(market.quoteMultiplier)} multiplier - {timingLabel(market)}
+        {formatMultiplier(market.quoteMultiplier)} · {timingLabel(market)}
       </p>
       <AggregateSummary market={market} />
       {market.escrow ? <EscrowBoardSummary escrow={market.escrow} /> : null}

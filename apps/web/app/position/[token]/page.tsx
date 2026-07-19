@@ -4,8 +4,8 @@ import { PositionRoute } from '@/components/position-route';
 import { POSITION_TOKEN_PATTERN } from '@/lib/position-contract';
 
 export const metadata: Metadata = {
-  title: 'Review position · Rumble',
-  description: 'Review and approve one exact Rumble escrow position.',
+  title: 'Review your pick · Rumble',
+  description: 'Review and confirm one Rumble pick.',
   referrer: 'no-referrer',
   robots: { index: false, follow: false, noarchive: true },
 };

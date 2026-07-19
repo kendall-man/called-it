@@ -12,7 +12,7 @@ const PositionApplication = dynamic(
   {
     ssr: false,
     loading: () => (
-      <WalletState title="Opening position" text="Loading secure wallet approval..." loading />
+      <WalletState title="Opening your pick" text="Loading wallet approval..." loading />
     ),
   },
 );
@@ -64,10 +64,10 @@ export function PositionEntry(props: PositionEntryProps) {
       ) : launch.kind === 'unavailable' ? (
         <WalletState
           title="Open this approval in Telegram"
-          text="This approval must open from its Rumble button in Telegram. No assets moved and no position was created. Return to Telegram and tap Review and sign again."
+          text="Open this from your private Telegram chat. No SOL moved and no pick was made. Go back and tap Review and sign again."
           action={props.botUsername.length > 0 ? (
             <a
-              className="mt-5 flex min-h-12 w-full items-center justify-center rounded-lg bg-pitch-400 px-4 text-sm font-bold text-night-950 hover:bg-pitch-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+              className="mt-5 flex min-h-12 w-full items-center justify-center bg-pitch-400 px-4 font-mono text-sm font-medium text-night-950 hover:bg-pitch-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
               href={`https://t.me/${encodeURIComponent(props.botUsername)}`}
             >
               Return to Telegram
@@ -109,10 +109,10 @@ class PositionErrorBoundary extends Component<
     return (
       <WalletState
         title="Position needs attention"
-        text="The approval screen stopped before confirmation. No new position was confirmed. Return to Telegram and tap Review and sign again for a fresh approval."
+        text="This screen closed before confirmation. No pick was made. Go back to Telegram and tap Review and sign again."
         action={this.props.botUsername.length > 0 ? (
           <a
-            className="mt-5 flex min-h-12 w-full items-center justify-center rounded-lg bg-pitch-400 px-4 text-sm font-bold text-night-950 hover:bg-pitch-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+            className="mt-5 flex min-h-12 w-full items-center justify-center bg-pitch-400 px-4 font-mono text-sm font-medium text-night-950 hover:bg-pitch-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
             href={`https://t.me/${encodeURIComponent(this.props.botUsername)}`}
           >
             Return to Telegram

@@ -45,16 +45,16 @@ export default async function GroupPage({ params }: { params: Promise<{ slug: st
       <div>
         <h1 className="display-type text-4xl text-chalk sm:text-5xl">Group board</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-fog">
-          Public SOL and USDC totals for this group. Calls show compiled terms and group-wide amounts only.
+          The group’s open calls, total SOL and latest results. Individual picks stay private.
         </p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <SectionTitle>Active calls</SectionTitle>
+          <SectionTitle>Open calls</SectionTitle>
           {activeMarkets.length === 0 ? (
             <p className="mt-3 text-sm leading-relaxed text-fog">
-              There are no active calls right now. Completed calls remain below with their final public totals.
+              No calls are open right now. Finished calls are below.
             </p>
           ) : (
             <div className="mt-2">
@@ -73,7 +73,7 @@ export default async function GroupPage({ params }: { params: Promise<{ slug: st
             </div>
           ) : (
             <p className="mt-3 text-sm leading-relaxed text-fog">
-              No receipt is ready yet. Open an active call to see its current public totals.
+              No receipt yet. Open a call to see where it stands.
             </p>
           )}
         </Card>
@@ -83,7 +83,7 @@ export default async function GroupPage({ params }: { params: Promise<{ slug: st
         <SectionTitle>Recent receipts</SectionTitle>
         {recentReceipts.length === 0 ? (
           <p className="mt-3 text-sm leading-relaxed text-fog">
-            No settled receipt is public yet. This board will add one after a call reaches its final state.
+            No finished calls yet. Rumble will post the first receipt here after a result.
           </p>
         ) : (
           <div className="mt-2">

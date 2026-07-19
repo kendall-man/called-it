@@ -23,22 +23,22 @@ const OUTCOME_BANNER: Record<
   NonNullable<PublicReceipt['outcome']>,
   { readonly className: string; readonly label: string }
 > = {
-  claim_won: { className: 'bg-pitch-500 text-night-950', label: 'Called it' },
-  claim_lost: { className: 'bg-siren-500 text-night-950', label: 'Did not land' },
-  void: { className: 'bg-night-700 text-chalk', label: 'Void - recorded amounts returned' },
+  claim_won: { className: 'border-pitch-500 bg-pitch-500 text-night-950', label: 'Yes won' },
+  claim_lost: { className: 'border-siren-500 bg-siren-500 text-night-950', label: 'No won' },
+  void: { className: 'border-line bg-night-700 text-chalk', label: 'Call cancelled · SOL returned' },
 };
 
 function AggregateGrid({ receipt }: { receipt: PublicReceipt }) {
   return (
     <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
       <div>
-        <dt className="text-fog">Happens pot</dt>
+        <dt className="text-fog">Yes</dt>
         <dd className="mt-1 font-semibold text-chalk">
           {formatAtomicAmount(receipt.backPotLamports, receipt.currency)}
         </dd>
       </div>
       <div>
-        <dt className="text-fog">Does not pot</dt>
+        <dt className="text-fog">No</dt>
         <dd className="mt-1 font-semibold text-chalk">
           {formatAtomicAmount(receipt.doubtPotLamports, receipt.currency)}
         </dd>
@@ -50,19 +50,19 @@ function AggregateGrid({ receipt }: { receipt: PublicReceipt }) {
         </dd>
       </div>
       <div>
-        <dt className="text-fog">Refunded</dt>
+        <dt className="text-fog">Returned</dt>
         <dd className="mt-1 font-semibold text-chalk">
           {formatAtomicAmount(receipt.refundedAmountLamports, receipt.currency)}
         </dd>
       </div>
       <div>
-        <dt className="text-fog">Payout total</dt>
+        <dt className="text-fog">Paid to winners</dt>
         <dd className="mt-1 font-semibold text-chalk">
           {formatAtomicAmount(receipt.paidAmountLamports, receipt.currency)}
         </dd>
       </div>
       <div>
-        <dt className="text-fog">Positions</dt>
+        <dt className="text-fog">Picks</dt>
         <dd className="mt-1 font-semibold text-chalk">{receipt.positionCount}</dd>
       </div>
     </dl>
@@ -120,17 +120,17 @@ export default async function ReceiptPage({
   return (
     <PageShell topRight={<Badge tone="neutral">Receipt</Badge>}>
       {banner ? (
-        <div className={`display-type rounded-2xl px-5 py-3 text-center text-2xl ${banner.className}`}>
+        <div className={`display-type border px-5 py-3 text-center text-2xl ${banner.className}`}>
           {banner.label}
         </div>
       ) : null}
 
       <Card>
-        <p className="display-type text-xs tracking-[0.25em] text-fog">On the record</p>
+        <p className="font-mono text-xs uppercase tracking-[0.12em] text-pitch-300">Rumble receipt</p>
         {receipt.isReplay ? (
           <div className="mt-3 flex flex-wrap gap-2">
-            <Badge tone="flood">Completed-match replay</Badge>
-            <Badge tone="neutral">No Points</Badge>
+            <Badge tone="flood">Past match replay</Badge>
+            <Badge tone="neutral">No points</Badge>
           </div>
         ) : null}
         <h1 className="mt-2 break-words text-3xl font-bold leading-tight text-chalk sm:text-4xl">
@@ -139,45 +139,45 @@ export default async function ReceiptPage({
       </Card>
 
       <Card>
-        <SectionTitle>Call terms</SectionTitle>
+        <SectionTitle>What was called</SectionTitle>
         <p className="mt-2 text-sm leading-relaxed text-fog">{receipt.terms.period}</p>
       </Card>
 
       <Card>
-        <SectionTitle>Price at the call</SectionTitle>
+        <SectionTitle>Multiplier when it started</SectionTitle>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="display-type text-5xl text-chalk">{formatMultiplier(receipt.quoteMultiplier)}</p>
             <p className="mt-1 text-sm text-fog">
-              Recorded chance: {formatProbabilityPct(receipt.quoteProbability)}
+              Starting chance: {formatProbabilityPct(receipt.quoteProbability)}
             </p>
           </div>
           <Badge tone={receipt.priceProvenance === 'market' ? 'pitch' : 'flood'}>
-            {provenance.label} price
+            {provenance.label}
           </Badge>
         </div>
         <p className="mt-3 text-sm leading-relaxed text-fog">
           {provenance.blurb}{' '}
           {mainnet
-            ? `Amounts below use ${receipt.currency.toUpperCase()} on Solana mainnet.`
-            : `Amounts below use devnet ${receipt.currency.toUpperCase()} test tokens only.`}
+            ? `This call used ${receipt.currency.toUpperCase()} on Solana mainnet.`
+            : `This beta call used devnet ${receipt.currency.toUpperCase()}.`}
         </p>
       </Card>
 
       <Card>
-        <SectionTitle>Group totals</SectionTitle>
+        <SectionTitle>How the group finished</SectionTitle>
         <AggregateGrid receipt={receipt} />
       </Card>
 
       {receipt.escrow ? (
         <Card>
-          <SectionTitle>On-chain escrow</SectionTitle>
+          <SectionTitle>Payments</SectionTitle>
           <EscrowReceiptDetails escrow={receipt.escrow} />
         </Card>
       ) : null}
 
       <Card>
-        <SectionTitle>Proof status</SectionTitle>
+        <SectionTitle>How Rumble checked it</SectionTitle>
         <div className="mt-3">
           <TrustBadge
             marketId={receipt.marketId}
@@ -188,7 +188,7 @@ export default async function ReceiptPage({
       </Card>
 
       <Card>
-        <SectionTitle>Call timeline</SectionTitle>
+        <SectionTitle>What happened</SectionTitle>
         <div className="mt-4">
           <TimelineList
             steps={buildTimeline({
@@ -203,16 +203,16 @@ export default async function ReceiptPage({
       </Card>
 
       <Card>
-        <SectionTitle>Public evidence</SectionTitle>
+        <SectionTitle>Match events</SectionTitle>
         <div className="mt-3">
           <EvidenceList facts={evidence} decidingSeq={receipt.decidingSeq} state={evidenceState} />
         </div>
         {evidenceState === 'unavailable' ? (
           <Link
             href={`/r/${receipt.marketId}`}
-            className="mt-4 inline-flex min-h-11 items-center text-sm font-semibold text-sky-400 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+            className="mt-4 inline-flex min-h-11 items-center text-sm font-semibold text-pitch-300 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
           >
-            Retry public evidence
+            Try match events again
           </Link>
         ) : null}
       </Card>
@@ -220,7 +220,7 @@ export default async function ReceiptPage({
       <div className="text-center">
         <Link
           href={`/g/${receipt.groupSlug}`}
-          className="display-type inline-flex min-h-11 items-center rounded-xl border border-line bg-night-800 px-5 text-sm text-chalk transition-colors hover:border-pitch-500/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+          className="inline-flex min-h-11 items-center border border-line bg-night-800 px-5 font-mono text-sm text-chalk transition-colors hover:border-pitch-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
         >
           Open group board
         </Link>

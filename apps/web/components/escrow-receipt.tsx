@@ -9,38 +9,43 @@ import {
 import { Badge } from './ui';
 
 const OUTCOME_LABEL = {
-  claim_won: 'It happens won',
-  claim_lost: 'It does not won',
-  void: 'Voided - claims return eligible funds',
+  claim_won: 'Yes won',
+  claim_lost: 'No won',
+  void: 'Call cancelled · funds returned',
 } as const;
 
 export function EscrowReceiptDetails({ escrow }: { readonly escrow: PublicEscrowReceipt }) {
   return (
     <div className="mt-3 space-y-5">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone="pitch">Finalized escrow record</Badge>
+        <Badge tone="pitch">Paid on Solana</Badge>
         <Badge tone={escrow.cluster === 'mainnet-beta' ? 'flood' : 'sky'}>
           {escrowNetworkLabel(escrow.cluster)}
         </Badge>
         <Badge tone="neutral">{escrow.asset.toUpperCase()}</Badge>
-        {escrow.isReplay ? <Badge tone="flood">Replay · No Points</Badge> : null}
+        {escrow.isReplay ? <Badge tone="flood">Past match · No points</Badge> : null}
       </div>
 
-      <dl className="grid gap-4 text-sm sm:grid-cols-2">
-        <PublicValue label="Market PDA" value={escrow.marketPda} />
-        <PublicValue label="Per-market vault" value={escrow.vaultPda} />
-        <PublicValue label="Escrow program" value={escrow.programId} />
-        <PublicValue label="Cluster genesis" value={escrow.genesisHash} />
-        {escrow.mintPubkey ? <PublicValue label="Canonical USDC mint" value={escrow.mintPubkey} /> : null}
-        <PublicValue label="Custody version" value={String(escrow.custodyVersion)} />
-        <PublicValue label="Immutable document hash" value={escrow.documentHashHex} />
+      <dl className="grid grid-cols-2 gap-4 border-y border-line py-4 text-sm">
+        <div>
+          <dt className="text-fog">Paid to winners</dt>
+          <dd className="mt-1 font-mono font-medium tabular-nums text-chalk">
+            {formatAtomicAmount(escrow.payoutTotalAtomic, escrow.asset)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-fog">Returned</dt>
+          <dd className="mt-1 font-mono font-medium tabular-nums text-chalk">
+            {formatAtomicAmount(escrow.refundTotalAtomic, escrow.asset)}
+          </dd>
+        </div>
       </dl>
 
       <div>
-        <p className="text-sm font-semibold text-chalk">Finalized transactions</p>
+        <p className="text-sm font-semibold text-chalk">Payment records</p>
         <div className="mt-2 divide-y divide-line border-y border-line">
           <TransactionRow
-            label="Market initialized"
+            label="Call opened"
             signature={escrow.initializeSignature}
             slot={escrow.initializeSlot}
             cluster={escrow.cluster}
@@ -49,11 +54,11 @@ export function EscrowReceiptDetails({ escrow }: { readonly escrow: PublicEscrow
           />
           {escrow.settlementSignature === null || escrow.settlementSlot === null ? (
             <p className="py-3 text-sm leading-6 text-fog">
-              Settlement is not finalized yet. No final outcome is shown.
+              Rumble is still waiting for the final result.
             </p>
           ) : (
             <TransactionRow
-              label={escrow.outcome === null ? 'Market settled' : OUTCOME_LABEL[escrow.outcome]}
+              label={escrow.outcome === null ? 'Result confirmed' : OUTCOME_LABEL[escrow.outcome]}
               signature={escrow.settlementSignature}
               slot={escrow.settlementSlot}
               cluster={escrow.cluster}
@@ -64,7 +69,7 @@ export function EscrowReceiptDetails({ escrow }: { readonly escrow: PublicEscrow
           {escrow.claimTransactions.map((claim) => (
             <TransactionRow
               key={`${claim.signature}:${claim.claimKind}:${claim.slot}`}
-              label={`${claim.claimKind === 'payout' ? 'Payout' : 'Refund'} · ${formatAtomicAmount(claim.amountAtomic, escrow.asset)} · ${claim.recipientCount} ${claim.recipientCount === 1 ? 'claim' : 'claims'}`}
+              label={`${claim.claimKind === 'payout' ? 'Paid' : 'Returned'} · ${formatAtomicAmount(claim.amountAtomic, escrow.asset)} · ${claim.recipientCount} ${claim.recipientCount === 1 ? 'person' : 'people'}`}
               signature={claim.signature}
               slot={claim.slot}
               cluster={escrow.cluster}
@@ -75,15 +80,15 @@ export function EscrowReceiptDetails({ escrow }: { readonly escrow: PublicEscrow
       </div>
 
       <div>
-        <p className="text-sm font-semibold text-chalk">Finalized position aggregates</p>
+        <p className="text-sm font-semibold text-chalk">Group picks on Solana</p>
         {escrow.aggregates.length === 0 ? (
-          <p className="mt-2 text-sm leading-6 text-fog">No finalized position lots are indexed yet.</p>
+          <p className="mt-2 text-sm leading-6 text-fog">No picks are recorded on Solana yet.</p>
         ) : (
           <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-3 border-y border-line py-4 sm:grid-cols-3">
             {escrow.aggregates.map((aggregate) => (
               <div key={`${aggregate.side}:${aggregate.state}`} className="min-w-0">
                 <dt className="break-words text-xs text-fog">
-                  {aggregate.side === 'back' ? 'It happens' : 'It does not'} · {stateLabel(
+                  {aggregate.side === 'back' ? 'Yes' : 'No'} · {stateLabel(
                     aggregate.state,
                     escrow.outcome,
                   )}
@@ -92,7 +97,7 @@ export function EscrowReceiptDetails({ escrow }: { readonly escrow: PublicEscrow
                   {formatAtomicAmount(aggregate.amountAtomic, escrow.asset)}
                 </dd>
                 <dd className="mt-0.5 text-xs text-fog">
-                  {aggregate.lotCount} {aggregate.lotCount === 1 ? 'lot' : 'lots'}
+                  {aggregate.lotCount} {aggregate.lotCount === 1 ? 'pick' : 'picks'}
                 </dd>
               </div>
             ))}
@@ -100,24 +105,25 @@ export function EscrowReceiptDetails({ escrow }: { readonly escrow: PublicEscrow
         )}
       </div>
 
-      <dl className="grid grid-cols-2 gap-4 border-t border-line pt-4 text-sm">
-        <div>
-          <dt className="text-fog">Finalized payouts</dt>
-          <dd className="mt-1 font-semibold text-chalk">
-            {formatAtomicAmount(escrow.payoutTotalAtomic, escrow.asset)}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-fog">Finalized refunds</dt>
-          <dd className="mt-1 font-semibold text-chalk">
-            {formatAtomicAmount(escrow.refundTotalAtomic, escrow.asset)}
-          </dd>
-        </div>
-      </dl>
       <p className="flex items-start gap-2 text-xs leading-5 text-fog">
         <ShieldCheck className="mt-0.5 shrink-0 text-pitch-300" size={15} />
-        Aggregate chain data only. Participant identities and wallet mappings are not published here.
+        This receipt shows group totals. Names, wallets and individual picks stay private.
       </p>
+
+      <details className="border-t border-line pt-3 text-sm text-fog">
+        <summary className="min-h-11 cursor-pointer content-center font-mono text-xs uppercase tracking-[0.08em] text-chalk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300">
+          Technical details
+        </summary>
+        <dl className="mt-3 grid gap-4 text-sm sm:grid-cols-2">
+          <PublicValue label="Call account" value={escrow.marketPda} />
+          <PublicValue label="Payment vault" value={escrow.vaultPda} />
+          <PublicValue label="Solana program" value={escrow.programId} />
+          <PublicValue label="Network ID" value={escrow.genesisHash} />
+          {escrow.mintPubkey ? <PublicValue label="USDC mint" value={escrow.mintPubkey} /> : null}
+          <PublicValue label="Payment version" value={String(escrow.custodyVersion)} />
+          <PublicValue label="Receipt hash" value={escrow.documentHashHex} />
+        </dl>
+      </details>
     </div>
   );
 }
@@ -128,14 +134,14 @@ export function EscrowBoardSummary({ escrow }: { readonly escrow: PublicEscrowRe
   return (
     <div className="mt-3 border-t border-line pt-3">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="font-semibold text-pitch-300">Finalized on-chain escrow</span>
+        <span className="font-semibold text-pitch-300">Paid on Solana</span>
         <span className="text-fog">{escrowNetworkLabel(escrow.cluster)} · {escrow.asset.toUpperCase()}</span>
       </div>
       <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 text-xs sm:grid-cols-4">
-        <BoardValue label="Happens total" value={formatAtomicAmount(back, escrow.asset)} />
-        <BoardValue label="Does not total" value={formatAtomicAmount(doubt, escrow.asset)} />
-        <BoardValue label="Payouts" value={formatAtomicAmount(escrow.payoutTotalAtomic, escrow.asset)} />
-        <BoardValue label="Refunds" value={formatAtomicAmount(escrow.refundTotalAtomic, escrow.asset)} />
+        <BoardValue label="Yes" value={formatAtomicAmount(back, escrow.asset)} />
+        <BoardValue label="No" value={formatAtomicAmount(doubt, escrow.asset)} />
+        <BoardValue label="Paid" value={formatAtomicAmount(escrow.payoutTotalAtomic, escrow.asset)} />
+        <BoardValue label="Returned" value={formatAtomicAmount(escrow.refundTotalAtomic, escrow.asset)} />
       </dl>
     </div>
   );
@@ -155,9 +161,7 @@ function TransactionRow(props: {
       <div className="min-w-0">
         <p className="break-words text-sm font-semibold text-chalk">{props.label}</p>
         <p className="mt-1 text-xs text-fog">
-          Finalized at slot {props.slot}
-          {props.instructionIndex === undefined ? '' : ` · instruction ${props.instructionIndex}`}
-          {props.timestamp ? ` · ${formatUtc(props.timestamp)}` : ''}
+          Confirmed on Solana{props.timestamp ? ` · ${formatUtc(props.timestamp)}` : ''}
         </p>
       </div>
       {explorer === null ? (
@@ -167,9 +171,9 @@ function TransactionRow(props: {
           href={explorer}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex min-h-11 shrink-0 items-center gap-1 text-sm font-semibold text-sky-400 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+          className="inline-flex min-h-11 shrink-0 items-center gap-1 text-sm font-semibold text-pitch-300 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
         >
-          Explorer <ExternalLink size={15} />
+          View on Solana <ExternalLink aria-hidden size={15} />
         </a>
       )}
     </div>
@@ -206,10 +210,10 @@ function stateLabel(
   // activation state.
   if (outcome === 'void') return 'returned';
   switch (state) {
-    case 'pending': return 'pending';
-    case 'active': return 'active';
-    case 'invalidated': return 'invalidated';
-    case 'refundable': return 'refundable';
-    case 'claimed': return 'claimed';
+    case 'pending': return 'waiting';
+    case 'active': return 'matched';
+    case 'invalidated': return 'cancelled';
+    case 'refundable': return 'ready to return';
+    case 'claimed': return 'paid';
   }
 }

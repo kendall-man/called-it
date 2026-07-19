@@ -17,8 +17,7 @@ export function EvidenceList({
   if (state === 'unavailable') {
     return (
       <p className="text-sm leading-relaxed text-fog">
-        Public evidence details are unavailable right now. The recorded outcome and asset totals have
-        not changed.
+        Match events are unavailable right now. The result and totals have not changed.
       </p>
     );
   }
@@ -33,7 +32,7 @@ export function EvidenceList({
     }
     return (
       <p className="text-sm text-fog">
-        No deciding event is recorded yet. Evidence appears after the match is settled.
+        No deciding event yet. Match events appear after Rumble settles the call.
       </p>
     );
   }
@@ -54,10 +53,10 @@ export function EvidenceList({
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-chalk">{describeEvidenceFact(fact)}</p>
               <p className="text-[11px] text-fog">
-                Feed sequence {fact.seq} - {fact.confirmed ? 'confirmed' : 'not yet confirmed'}
+                {fact.confirmed ? 'Confirmed match event' : 'Waiting for confirmation'}
               </p>
             </div>
-            {isDecider ? <Badge tone="pitch">The decider</Badge> : null}
+            {isDecider ? <Badge tone="pitch">Deciding event</Badge> : null}
           </li>
         );
       })}

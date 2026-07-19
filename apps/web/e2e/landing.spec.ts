@@ -17,7 +17,7 @@ test.describe('landing page browser gate', () => {
     const response = await page.goto('/');
     expect(response, 'landing document response').not.toBeNull();
     expect(response?.ok(), 'landing document response is successful').toBe(true);
-    await expect(page.getByRole('heading', { level: 1, name: 'Rumble' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Got a football take? Put it to the group.' })).toBeVisible();
     await expect(page).toHaveTitle(/Rumble/);
 
     await assertInteractiveElementsHaveNames(page);
@@ -48,10 +48,10 @@ test.describe('landing page browser gate', () => {
     const response = await page.goto('/');
     expect(response?.ok(), 'landing document response is successful').toBe(true);
 
-    const telegramAction = page.getByRole('link', { name: 'Add to Telegram group' });
+    const telegramAction = page.getByRole('link', { name: 'Add Rumble to your group' });
     await expect(telegramAction).toHaveAttribute(
       'href',
-      'https://t.me/calledit_test_bot?startgroup=calledit_v1&admin=manage_chat',
+      'https://t.me/getrumble_bot?startgroup=calledit_v1&admin=manage_chat',
     );
     await telegramAction.click();
     await expect(page.getByRole('heading', { level: 1, name: 'Mock Telegram destination' })).toBeVisible();

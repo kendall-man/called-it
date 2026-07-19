@@ -166,14 +166,14 @@ export interface TierCopy {
 
 const TIER_COPY: Record<TrustTier, TierCopy> = {
   chain_proven: {
-    label: 'Chain-proven',
+    label: 'Checked on Solana',
     blurb:
-      'Team stats are sealed into a Merkle root published on Solana — anyone can re-check this result, no account needed.',
+      'The match result is recorded on Solana, so anyone can check it.',
   },
   oracle_resolved: {
-    label: 'Oracle-resolved',
+    label: 'Checked by TxLINE',
     blurb:
-      'Settled from the cryptographically signed TxLINE data feed. Player-level facts aren’t chain-provable yet, so the badge says so honestly.',
+      'Rumble used the signed match result from TxLINE.',
   },
 };
 
@@ -210,7 +210,7 @@ export function describeTrustState(
     return {
       tone: 'neutral',
       label: 'Call voided',
-      detail: 'There is no result to verify. Every recorded position was returned.',
+      detail: 'There is no result to check. All SOL was returned.',
     };
   }
 
@@ -220,7 +220,7 @@ export function describeTrustState(
       label: 'Not settled yet',
       detail: tier
         ? `This call is set to use ${describeTier(tier).label} after settlement.`
-        : 'The proof source will be recorded after settlement.',
+        : 'Rumble will show how it checked the result after the match.',
     };
   }
 
@@ -229,27 +229,27 @@ export function describeTrustState(
       case 'verified':
         return {
           tone: 'pitch',
-          label: 'Chain proof verified',
-          detail: 'The settled result is backed by a published Solana proof record.',
+          label: 'Checked on Solana',
+          detail: 'The result matches the record published on Solana.',
         };
       case 'pending':
       case null:
         return {
           tone: 'flood',
-          label: 'Chain proof not yet verified',
-          detail: 'The result is settled from the signed feed while the chain proof is still pending.',
+          label: 'Solana check pending',
+          detail: 'The result is in. Its Solana record is still being checked.',
         };
       case 'unavailable':
         return {
           tone: 'flood',
-          label: 'Chain proof unavailable',
-          detail: 'The result is settled from the signed feed. No chain proof is available for this receipt.',
+          label: 'Solana check unavailable',
+          detail: 'The result came from the signed match feed, but its Solana record is unavailable.',
         };
       case 'failed':
         return {
           tone: 'siren',
-          label: 'Chain proof could not verify',
-          detail: 'The result is settled from the signed feed, but this receipt has no verified chain proof.',
+          label: 'Solana check failed',
+          detail: 'The result came from the signed match feed, but the Solana record did not check out.',
         };
     }
   }
@@ -257,25 +257,25 @@ export function describeTrustState(
   if (tier === 'oracle_resolved') {
     return {
       tone: 'sky',
-      label: 'Signed feed resolved',
-      detail: 'This result comes from the signed TxLINE feed. This call does not use a chain proof.',
+      label: 'Checked by TxLINE',
+      detail: 'Rumble used the signed match result from TxLINE.',
     };
   }
 
   return {
     tone: 'neutral',
-    label: 'Proof source unavailable',
-    detail: 'The result is settled, but this receipt has no public proof source.',
+    label: 'Result check unavailable',
+    detail: 'The result is settled, but its public record is unavailable.',
   };
 }
 
 export const PROVENANCE_COPY: Record<'market' | 'modelled', { label: string; blurb: string }> = {
   market: {
-    label: 'Market',
-    blurb: 'Priced straight from live match data at the moment of the call.',
+    label: 'Live rate',
+    blurb: 'Set from live match data when the call started.',
   },
   modelled: {
-    label: 'Modelled',
-    blurb: 'Priced by our model over the live match data — labelled so you know.',
+    label: 'Rumble rate',
+    blurb: 'Set by Rumble from the live match data when the call started.',
   },
 };

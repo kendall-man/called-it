@@ -101,7 +101,7 @@ export function TrustBadge({ marketId, specTier, initial }: TrustBadgeProps) {
     const nextSnapshot = snapshotFromReceipt(next);
     setSnapshot((current) => {
       if (!hasSnapshotChanged(current, nextSnapshot)) return current;
-      setUpdateNotice('Receipt updated with the latest settlement or proof state.');
+      setUpdateNotice('Receipt updated with the latest result check.');
       return nextSnapshot;
     });
   }, [marketId]);
@@ -195,7 +195,7 @@ export function TrustBadge({ marketId, specTier, initial }: TrustBadgeProps) {
             rel="noopener noreferrer"
             className="min-h-11 content-center text-sm font-semibold text-pitch-300 underline decoration-pitch-500/50 underline-offset-4 hover:text-pitch-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
           >
-            Open proof record
+            View on Solana
           </a>
         ) : null}
       </div>
@@ -204,18 +204,18 @@ export function TrustBadge({ marketId, specTier, initial }: TrustBadgeProps) {
 
       {snapshot.tier === 'chain_proven' && snapshot.proofStatus === 'verified' ? (
         <p className="text-sm text-fog" aria-live="polite">
-          {check.state === 'checking' && 'Checking the published proof in this browser.'}
+          {check.state === 'checking' && 'Checking the Solana record.'}
           {check.state === 'confirmed' && (
-            <span className="text-pitch-300">Published proof confirmed in this browser.</span>
+            <span className="text-pitch-300">Solana record confirmed.</span>
           )}
-          {check.state === 'unavailable' && `Browser check unavailable: ${check.note}.`}
+          {check.state === 'unavailable' && `Solana check unavailable: ${check.note}.`}
         </p>
       ) : null}
 
       {tierForDetail ? (
         <details className="text-sm text-fog">
           <summary className="min-h-11 cursor-pointer content-center font-semibold underline decoration-line underline-offset-4 hover:text-chalk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300">
-            Proof source details
+            How this was checked
           </summary>
           <p className="mt-1.5 leading-relaxed">{describeTier(tierForDetail).blurb}</p>
         </details>

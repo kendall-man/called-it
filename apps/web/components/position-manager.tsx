@@ -456,7 +456,7 @@ export function PositionManager(props: PositionManagerProps) {
               <div className="mt-4">
                 <p className="break-all font-mono text-xs text-fog">{flow.signature}</p>
                 <a
-                  className="mt-1 block break-all text-sm text-sky-400 underline underline-offset-4"
+                  className="mt-1 block break-all text-sm text-pitch-300 underline underline-offset-4"
                   href={explorerTransactionUrl(flow.signature, props.network)}
                   target="_blank"
                   rel="noreferrer"
@@ -482,8 +482,8 @@ export function PositionManager(props: PositionManagerProps) {
       ? 'Checking this private approval link...'
       : jwtAuth.state.status !== 'done'
         ? 'Confirming your Telegram and Privy wallet...'
-        : 'Checking the exact position on Solana...';
-    return <WalletState title="Opening position" text={text} loading />;
+        : 'Checking your pick on Solana...';
+    return <WalletState title="Opening your pick" text={text} loading />;
   }
 
   const preparation = flow.preparation;
@@ -493,19 +493,19 @@ export function PositionManager(props: PositionManagerProps) {
   return (
     <div className="space-y-4">
       <header className="space-y-2">
-        <p className="text-xs font-semibold uppercase text-pitch-300">Secure on-chain approval</p>
-        <h1 className="display-type text-4xl text-chalk sm:text-5xl">Review position</h1>
+        <p className="font-mono text-xs font-medium uppercase text-pitch-300">Your pick</p>
+        <h1 className="display-type text-4xl text-chalk sm:text-5xl">Review your pick</h1>
         <p className="max-w-lg text-sm leading-6 text-fog">
-          Your Privy wallet signs only the exact details shown below.
+          Check the details, then approve it with your wallet.
         </p>
       </header>
-      <Card className="rounded-lg" aria-live="polite">
+      <Card aria-live="polite">
         <div className="flex items-start justify-between gap-3 border-b border-line pb-4">
           <div className="min-w-0">
             <p className="break-words text-lg font-bold leading-7 text-chalk">{flow.title}</p>
             <p className="mt-1 text-sm font-semibold text-pitch-300">{flow.choice}</p>
           </div>
-          <span className="shrink-0 rounded-full border border-line bg-night-800 px-2.5 py-1 text-xs font-semibold uppercase text-fog">
+          <span className="shrink-0 border border-line bg-night-800 px-2.5 py-1 font-mono text-xs font-medium uppercase text-fog">
             {asset}
           </span>
         </div>
@@ -521,7 +521,7 @@ export function PositionManager(props: PositionManagerProps) {
 
         <div className="border-t border-line pt-4">
           <p className="text-sm leading-6 text-fog">
-            Funds move from your Privy wallet into this call&apos;s on-chain vault only after you approve. The sponsor pays the Solana network fee.
+            SOL moves into this call only after you approve. Rumble covers the Solana network fee.
           </p>
           <p className="mt-3 text-xs leading-5 text-fog">
             {ESCROW_PUBLIC_ACTIVITY_NOTICE}

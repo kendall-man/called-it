@@ -24,23 +24,23 @@ export interface TimelineInput {
 }
 
 const LIVE_STEP_COPY: Record<Exclude<ReceiptStatus, 'settled' | 'voided'>, [string, string]> = {
-  pending_lineup: ['Waiting on lineups', 'Named a player — the call activates when the teamsheet drops'],
-  open: ['Calls open', 'Stakes matched in SOL — every multiplier locked at tap time'],
-  frozen: ['Calls locked', 'Drama on the pitch — nobody moves until it clears'],
-  settling: ['Moment of truth', 'Deciding stat confirmed — sealing the result'],
+  pending_lineup: ['Waiting for lineups', 'This call opens when the team sheet is out'],
+  open: ['Picks open', 'The group can pick yes or no'],
+  frozen: ['Picks closed', 'Rumble is waiting for the final result'],
+  settling: ['Checking the result', 'The deciding match event is confirmed'],
 };
 
 const OUTCOME_COPY: Record<ReceiptOutcome, string> = {
-  claim_won: 'Settled — called it',
-  claim_lost: 'Settled — didn’t land',
-  void: 'Settled — void, stakes returned',
+  claim_won: 'Yes won',
+  claim_lost: 'No won',
+  void: 'Call cancelled · SOL returned',
 };
 
 export function buildTimeline(input: TimelineInput): TimelineStep[] {
   const called: TimelineStep = {
     key: 'called',
     label: 'Call made',
-    detail: 'Terms confirmed by the claimer — on the record',
+    detail: 'The prediction was posted to the group',
     state: 'done',
     at: input.createdAt,
   };
@@ -48,11 +48,11 @@ export function buildTimeline(input: TimelineInput): TimelineStep[] {
   if (input.status === 'settled') {
     return [
       called,
-      { key: 'live', label: 'Calls locked', detail: null, state: 'done', at: null },
+      { key: 'live', label: 'Picks closed', detail: null, state: 'done', at: null },
       {
         key: 'settled',
         label: input.outcome ? OUTCOME_COPY[input.outcome] : 'Settled',
-        detail: 'Straight from the verified feed — no arguments',
+        detail: 'Rumble checked the match result and paid the group',
         state: 'done',
         at: input.settledAt,
       },
@@ -62,11 +62,11 @@ export function buildTimeline(input: TimelineInput): TimelineStep[] {
   if (input.status === 'voided') {
     return [
       called,
-      { key: 'live', label: 'Calls locked', detail: null, state: 'done', at: null },
+      { key: 'live', label: 'Picks closed', detail: null, state: 'done', at: null },
       {
         key: 'settled',
-        label: 'Voided — stakes returned',
-        detail: 'The match had other plans; every stake comes back',
+        label: 'Call cancelled',
+        detail: 'All SOL was returned',
         state: 'done',
         at: input.settledAt,
       },
@@ -75,15 +75,15 @@ export function buildTimeline(input: TimelineInput): TimelineStep[] {
 
   const [liveLabel, defaultLiveDetail] = LIVE_STEP_COPY[input.status];
   const liveDetail = input.status === 'open'
-    ? `Positions matched in ${(input.currency ?? 'sol').toUpperCase()} — every multiplier locked at tap time`
+    ? `Picks matched in ${(input.currency ?? 'sol').toUpperCase()}`
     : defaultLiveDetail;
   return [
     called,
     { key: 'live', label: liveLabel, detail: liveDetail, state: 'current', at: null },
     {
       key: 'settled',
-      label: 'Settlement',
-      detail: 'Lands seconds after the deciding stat is confirmed',
+      label: 'Result',
+      detail: 'Rumble checks the match and posts the receipt',
       state: 'upcoming',
       at: null,
     },

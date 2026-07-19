@@ -23,10 +23,10 @@ export function PositionRoute(props: { readonly token: string }) {
       {!configured ? (
         <WalletState
           title="Position unavailable"
-          text="Secure escrow approval is not enabled. No assets moved. Return to Telegram."
+          text="Wallet approval is unavailable. No SOL moved. Return to Telegram."
           action={process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ? (
             <a
-              className="mt-5 flex min-h-12 w-full items-center justify-center rounded-lg bg-pitch-400 px-4 text-sm font-bold text-night-950 hover:bg-pitch-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+              className="mt-5 flex min-h-12 w-full items-center justify-center bg-pitch-400 px-4 font-mono text-sm font-medium text-night-950 hover:bg-pitch-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
               href={`https://t.me/${encodeURIComponent(process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME)}`}
             >
               Return to Telegram

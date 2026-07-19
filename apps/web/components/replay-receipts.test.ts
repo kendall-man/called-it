@@ -9,10 +9,10 @@ describe('replay receipt presentation', () => {
       readFile(new URL('./escrow-receipt.tsx', import.meta.url), 'utf8'),
     ]);
 
-    expect(rows.match(/Completed-match replay · No Points/g)).toHaveLength(2);
-    expect(page).toContain('<Badge tone="flood">Completed-match replay</Badge>');
-    expect(page).toContain('<Badge tone="neutral">No Points</Badge>');
-    expect(details).toContain('Replay · No Points');
+    expect(rows.match(/Past match replay · No points/g)).toHaveLength(2);
+    expect(page).toContain('<Badge tone="flood">Past match replay</Badge>');
+    expect(page).toContain('<Badge tone="neutral">No points</Badge>');
+    expect(details).toContain('Past match · No points');
     expect(`${rows}\n${page}\n${details}`).not.toMatch(/awards? Points|earns? Points|Points earned/i);
   });
 });

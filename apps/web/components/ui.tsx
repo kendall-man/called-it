@@ -13,7 +13,7 @@ export function Card({ className, children }: { className?: string; children: Re
   return (
     <section
       className={cx(
-        'rounded-2xl border border-line bg-night-900/80 p-5 shadow-[0_1px_0_0_rgb(255_255_255/0.04)_inset]',
+        'border border-line bg-night-900/90 p-5 shadow-[0_1px_0_0_rgb(255_255_255/0.04)_inset]',
         className,
       )}
     >
@@ -26,7 +26,7 @@ export function SectionTitle({ className, children }: { className?: string; chil
   return (
     <h2
       className={cx(
-        'display-type text-sm tracking-[0.18em] text-fog',
+        'font-mono text-xs font-medium uppercase tracking-[0.12em] text-fog',
         className,
       )}
     >
@@ -59,7 +59,7 @@ export function Badge({
   return (
     <span
       className={cx(
-        'inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider',
+        'inline-flex items-center gap-1 border px-2.5 py-1 font-mono text-xs font-medium uppercase tracking-[0.08em]',
         BADGE_TONES[tone],
         className,
       )}
@@ -75,12 +75,9 @@ export function Wordmark() {
   return (
     <Link
       href="/"
-      className="display-type text-lg tracking-tight text-chalk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+      className="text-xl font-semibold text-chalk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
     >
-      Rumble
-      <span aria-hidden className="ml-1 text-pitch-400">
-        ✓
-      </span>
+      Rumble<span aria-hidden className="font-bold text-pitch-400">.</span>
     </Link>
   );
 }
@@ -98,7 +95,7 @@ export function PageShell({
   return (
     <div
       className={cx(
-        'mx-auto flex min-h-dvh w-full flex-col px-4 sm:px-6',
+        'rumble-product-shell mx-auto flex min-h-dvh w-full flex-col px-4 sm:px-6',
         width === 'board' ? 'max-w-5xl' : 'max-w-xl',
       )}
       style={{
@@ -111,13 +108,24 @@ export function PageShell({
         {topRight}
       </header>
       <main className="flex flex-1 flex-col gap-4">{children}</main>
-      <footer className="mt-10 space-y-1 text-center text-xs text-fog/80">
+      <footer className="mt-12 space-y-1 border-t border-line pt-5 text-center text-xs text-fog">
         <p>
           {mainnet
-            ? 'SOL and USDC positions settle on Solana mainnet.'
-            : 'Played in devnet SOL or USDC — test tokens, not real money.'}
+            ? 'Payments settle on Solana mainnet.'
+            : 'Public beta · Solana devnet only.'}
         </p>
-        <p>Match data by TxLINE · proofs on Solana {mainnet ? 'mainnet' : 'devnet'}.</p>
+        <p>
+          Match results by{' '}
+          <a
+            href="https://txodds.net/our-products/tx-line/"
+            target="_blank"
+            rel="noreferrer"
+            className="text-pitch-300 underline underline-offset-4 hover:text-pitch-400"
+          >
+            TxLINE
+          </a>
+          . Payments on Solana {mainnet ? 'mainnet' : 'devnet'}.
+        </p>
       </footer>
     </div>
   );

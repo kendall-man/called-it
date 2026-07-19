@@ -135,7 +135,7 @@ export function MiniAppEntry(props: MiniAppEntryProps) {
         text="This screen only works inside Telegram. No SOL moved and nothing changed. Return to Telegram and tap the button on the card again."
         action={props.botUsername.length > 0 ? (
           <a
-            className="mt-5 flex min-h-12 w-full items-center justify-center rounded-lg bg-pitch-400 px-4 text-sm font-bold text-night-950 hover:bg-pitch-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
+            className="mt-5 flex min-h-12 w-full items-center justify-center bg-pitch-400 px-4 font-mono text-sm font-medium text-night-950 hover:bg-pitch-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pitch-300"
             href={`https://t.me/${encodeURIComponent(props.botUsername)}`}
           >
             Return to Telegram
@@ -169,7 +169,7 @@ export function MiniAppEntry(props: MiniAppEntryProps) {
     return (
       <WalletState
         title="Set up your wallet first"
-        text="Your Telegram account has no wallet linked yet, so this call cannot be signed. No SOL moved and no position was created. Create your wallet below; you only do this once."
+        text="Your Telegram account needs a wallet before you can make this pick. No SOL moved. Set it up below; you only do this once."
         action={(
           <div className="mt-5">
             <WalletButton icon={<WalletCards size={18} />} onClick={() => void openWallet(launch.initData)}>
@@ -184,7 +184,7 @@ export function MiniAppEntry(props: MiniAppEntryProps) {
     return (
       <>
         {walletLinked && launch.positionLaunch && (
-          <Card className="rounded-lg">
+          <Card>
             <p role="status" className="text-sm leading-6 text-fog">
               Your wallet is ready. You can now return to your call and approve it.
             </p>
