@@ -75,8 +75,10 @@ export function createProductionEscrowEventWorkflowPort(options: {
     readonly custodyVersion: number;
   };
   readonly fetch?: FetchPort;
+  readonly nowEpochSeconds?: () => bigint;
 }): EscrowEventWorkflowPort {
   const request = options.fetch ?? fetch;
+  const nowEpochSeconds = options.nowEpochSeconds ?? (() => BigInt(Math.floor(Date.now() / 1_000)));
   const pageSize = 1_000;
   const headers = {
     apikey: options.serviceRoleKey,
@@ -205,14 +207,25 @@ export function createProductionEscrowEventWorkflowPort(options: {
 
   async function terminalAttestationExists(marketId: string): Promise<boolean> {
     const url = new URL('/rest/v1/escrow_attestation_requests', options.supabaseUrl);
-    url.searchParams.set('select', 'request_key');
+    url.searchParams.set('select', 'request_key,unsigned_payload');
     url.searchParams.set('market_id', `eq.${marketId}`);
     url.searchParams.set('operation_kind', 'in.(settle,void)');
     url.searchParams.set('state', 'in.(pending,leased,signed,enqueued,completed)');
-    url.searchParams.set('limit', '1');
+    url.searchParams.set('order', 'created_at.desc');
+    url.searchParams.set('limit', String(pageSize));
     const response = await request(url, { headers });
     if (!response.ok) throw new TypeError('escrow terminal attestation projection unavailable');
-    return rows(await response.json()).length > 0;
+    return rows(await response.json()).some((row) => {
+      const payload = row.unsigned_payload;
+      if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return false;
+      const workflow = (payload as Readonly<Record<string, unknown>>).request;
+      if (workflow === null || typeof workflow !== 'object' || Array.isArray(workflow)) return false;
+      const attestation = (workflow as Readonly<Record<string, unknown>>).attestation;
+      if (attestation === null || typeof attestation !== 'object' || Array.isArray(attestation)) return false;
+      const expiresAt = (attestation as Readonly<Record<string, unknown>>).expiresAt;
+      return typeof expiresAt === 'string' && /^-?\d+$/.test(expiresAt) &&
+        BigInt(expiresAt) > nowEpochSeconds();
+    });
   }
 
   async function positionLots(context: EscrowWorkflowMarketContext) {

@@ -24,7 +24,11 @@ import type { MatchEvent, MarketSpec } from '@calledit/market-engine';
 import { base58Decode, base58Encode } from '@calledit/solana';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseOracleSigningEnvelope } from './contracts.js';
+import {
+  journalKey,
+  parseOracleSigningEnvelope,
+  terminalSemanticDecisionHash,
+} from './contracts.js';
 import { loadOracleSignerEnv, type OracleSignerEnv } from './env.js';
 import { OracleSignatureJournal } from './journal.js';
 import { createOracleSignerServer } from './server.js';
@@ -553,6 +557,50 @@ describe('independent oracle signer', () => {
       .rejects.toThrow('equivocation');
   });
 
+  it('journals renewable terminal attestations by stable v2 semantic decision', () => {
+    const original = parseOracleSigningEnvelope(envelope()).request;
+    const renewal = parseOracleSigningEnvelope(envelope(attestation({
+      issuedAt: attestation().issuedAt + 60n,
+      expiresAt: attestation().expiresAt + 60n,
+    }))).request;
+
+    expect(journalKey(original)).toBe(`terminal:v2:${MARKET.toBuffer().toString('hex')}:9`);
+    expect(terminalSemanticDecisionHash(renewal)).toBe(terminalSemanticDecisionHash(original));
+  });
+
+  it('binds terminal semantic decisions to every non-lifetime attestation field', () => {
+    const original = parseOracleSigningEnvelope(envelope()).request;
+    if (original.kind !== 'settlement') throw new Error('expected settlement');
+    const expected = terminalSemanticDecisionHash(original);
+    const changed = [
+      { ...original.attestation, clusterGenesisHash: new Uint8Array(32).fill(1) },
+      { ...original.attestation, escrowProgramId: new Uint8Array(32).fill(2) },
+      { ...original.attestation, marketPda: new Uint8Array(32).fill(3) },
+      { ...original.attestation, marketDocumentHash: new Uint8Array(32).fill(4) },
+      { ...original.attestation, fixtureId: original.attestation.fixtureId + 1n },
+      { ...original.attestation, oracleSetEpoch: original.attestation.oracleSetEpoch + 1n },
+      { ...original.attestation, evidenceHash: new Uint8Array(32).fill(5) },
+      { ...original.attestation, outcome: 'claim_lost' as const },
+      { ...original.attestation, decidingSequence: original.attestation.decidingSequence + 1n },
+      { ...original.attestation, terminalPhase: 'POST' },
+      { ...original.attestation, regulationScore: { home: 3, away: 1 } },
+      { ...original.attestation, fullMatchScore: { home: 3, away: 1 } },
+      { ...original.attestation, evidenceSequenceCommitment: new Uint8Array(32).fill(6) },
+      { ...original.attestation, normalizedEvidenceRoot: new Uint8Array(32).fill(7) },
+    ];
+
+    for (const value of changed) {
+      expect(terminalSemanticDecisionHash({ kind: 'settlement', attestation: value })).not.toBe(expected);
+    }
+
+    const originalVoid = parseOracleSigningEnvelope(voidEnvelope()).request;
+    if (originalVoid.kind !== 'void') throw new Error('expected void');
+    expect(terminalSemanticDecisionHash({
+      kind: 'void',
+      attestation: { ...originalVoid.attestation, reason: 'coverage_loss' },
+    })).not.toBe(terminalSemanticDecisionHash(originalVoid));
+  });
+
   it('serializes concurrent conflicting records and preserves the winner after restart', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'calledit-oracle-journal-race-'));
     temporaryDirectories.push(directory);
@@ -641,9 +689,10 @@ describe('independent oracle signer', () => {
     expect(result.signerPubkey).toBe(signer.publicKey.toBase58());
     expect(verify).toHaveBeenCalledOnce();
     expect(verify.mock.calls[0]?.[1]).toBe(CLAIM_JSON);
+    const parsedRequest = parseOracleSigningEnvelope(requestEnvelope).request;
     expect(record).toHaveBeenCalledWith(
-      expect.stringMatching(/^terminal:/),
-      requestEnvelope.canonicalSha256Hex,
+      expect.stringMatching(/^terminal:v2:/),
+      terminalSemanticDecisionHash(parsedRequest),
       new Date(NOW_MS),
     );
     const publicKey = createPublicKey({

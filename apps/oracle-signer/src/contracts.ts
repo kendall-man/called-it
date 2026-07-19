@@ -188,8 +188,32 @@ export function journalKey(request: VerifiedAttestation): string {
   const epoch = request.attestation.oracleSetEpoch;
   switch (request.kind) {
     case 'settlement':
-    case 'void': return `terminal:${market}:${epoch}`;
+    case 'void': return `terminal:v2:${market}:${epoch}`;
     case 'feed_event': return `feed:${market}:${request.attestation.eventEpoch}:${request.attestation.eventKind}`;
     case 'position_invalidation': return `lot:${market}:${bytesToHex(request.attestation.positionLotPda)}:${request.attestation.invalidatedEventEpoch}`;
   }
+}
+
+export function terminalSemanticDecisionHash(request: VerifiedAttestation): string {
+  let canonicalDecision: Uint8Array;
+  switch (request.kind) {
+    case 'settlement':
+      canonicalDecision = encodeSettlementAttestationV1({
+        ...request.attestation,
+        issuedAt: 0n,
+        expiresAt: 1n,
+      });
+      break;
+    case 'void':
+      canonicalDecision = encodeVoidAttestationV1({
+        ...request.attestation,
+        issuedAt: 0n,
+        expiresAt: 1n,
+      });
+      break;
+    case 'feed_event':
+    case 'position_invalidation':
+      throw new Error('terminal semantic decision hash requires a terminal attestation');
+  }
+  return createHash('sha256').update(canonicalDecision).digest('hex');
 }
