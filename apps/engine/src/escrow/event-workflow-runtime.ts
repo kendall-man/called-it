@@ -203,6 +203,17 @@ export function createProductionEscrowEventWorkflowPort(options: {
       return [...completedLots].every((key) => projected.has(key));
   }
 
+  async function terminalAttestationExists(marketId: string): Promise<boolean> {
+    const url = new URL('/rest/v1/escrow_attestation_requests', options.supabaseUrl);
+    url.searchParams.set('select', 'request_key');
+    url.searchParams.set('market_id', `eq.${marketId}`);
+    url.searchParams.set('operation_kind', 'in.(settle,void)');
+    url.searchParams.set('limit', '1');
+    const response = await request(url, { headers });
+    if (!response.ok) throw new TypeError('escrow terminal attestation projection unavailable');
+    return rows(await response.json()).length > 0;
+  }
+
   async function positionLots(context: EscrowWorkflowMarketContext) {
       const result = [];
       for (let offset = 0; ; offset += pageSize) {
@@ -256,6 +267,7 @@ export function createProductionEscrowEventWorkflowPort(options: {
     loadMarket: marketContext,
     positionLots,
     positionProjectionComplete,
+    terminalAttestationExists,
   };
 }
 

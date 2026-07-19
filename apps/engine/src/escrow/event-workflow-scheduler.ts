@@ -41,6 +41,8 @@ export interface EscrowEventWorkflowPort {
   positionLots(context: EscrowWorkflowMarketContext): Promise<readonly EscrowWorkflowPositionLot[]>;
   /** Proves every durable placement has reached the finalized lot projection. */
   positionProjectionComplete?(context: EscrowWorkflowMarketContext): Promise<boolean>;
+  /** Recovery must resume one durable terminal decision, never mint a competing envelope. */
+  terminalAttestationExists?(marketId: string): Promise<boolean>;
 }
 
 export interface EscrowSettlementPosition {
@@ -497,6 +499,15 @@ export function createEscrowEventWorkflowScheduler(options: {
             ));
         }
         if (effect === undefined || event === undefined) continue;
+        if (
+          continueOnMarketFailure &&
+          options.workflow.terminalAttestationExists !== undefined &&
+          await options.workflow.terminalAttestationExists(market.id)
+        ) {
+          deferredReplayTerminals.delete(market.id);
+          latestReplayEvents.delete(market.id);
+          continue;
+        }
         const context = await options.workflow.loadMarket(market);
         if (context === null || !context.replay) continue;
         if (

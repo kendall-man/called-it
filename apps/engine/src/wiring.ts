@@ -1069,7 +1069,9 @@ export async function createProductionEscrowRuntime(options: {
     worker: {
       intervalMs: env.ESCROW_WORKER_INTERVAL_MS,
       relayerLimit: 25,
-      attestationLimit: 25,
+      // Each attestation independently verifies real provider evidence at the
+      // isolated signers. One lease per cycle prevents a 25x3 RPC fan-out.
+      attestationLimit: 1,
       attestationLeaseMs: env.QUEUE_LEASE_MS,
       indexerLimit: env.ESCROW_INDEXER_PAGE_SIZE,
       log: options.log,
