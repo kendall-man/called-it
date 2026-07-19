@@ -111,7 +111,7 @@ function commandHarness(options: HarnessOptions = {}) {
     },
     async say(key) {
       if (key === 'help') return 'Help recovery';
-      if (key === 'private_start') return 'Rumble lives in group chats. Add it to a group.';
+      if (key === 'intro') return 'Private Rumble introduction';
       if (key === 'group_only_recovery') return 'Open this command in the group.';
       if (key === 'table_link') return 'Open the group board.';
       return `unexpected copy key: ${key}`;
@@ -145,7 +145,7 @@ describe('navigation command baseline', () => {
     expect(harness.posts).toEqual([
       {
         chatId: PRIVATE_CHAT,
-        text: 'Rumble lives in group chats. Add it to a group.',
+        text: 'Private Rumble introduction',
         buttons: [{
           text: 'Add to group',
           url: 'https://t.me/calledit_bot?startgroup=calledit_v1&admin=manage_chat',

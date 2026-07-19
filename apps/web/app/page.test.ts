@@ -21,8 +21,8 @@ describe('landing actions', () => {
 
     // Then
     expect(activeLinkCount).toBe(2);
-    expect(pageSource).toContain('buildTelegramGroupAddUrl');
-    expect(pageSource).toContain("RUMBLE_TELEGRAM_BOT_USERNAME = 'getrumble_bot'");
+    expect(pageSource).toContain('buildTelegramInstallUrl');
+    expect(pageSource).toContain('process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME');
     expect(pageSource).toContain('Add Rumble to your group');
     expect(pageSource).toContain('<QrPanel qrCodeDataUrl={qrCodeDataUrl} />');
     expect(pageSource).not.toContain('access-section');

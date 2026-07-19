@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { Api, Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
 import { run } from '@grammyjs/runner';
+import { TERMINAL_PHASES } from '@calledit/market-engine';
 import { loadEnv } from './env.js';
 import { createLogger, type Logger } from './log.js';
 import { createDeps, createProductionEscrowRuntime } from './wiring.js';
@@ -266,6 +267,7 @@ async function main(): Promise<void> {
       db: deps.db,
       initialize: (input) => escrowRuntime.initialization.initialize(input),
       allowedGroupIds: env.ESCROW_ALLOWED_GROUP_IDS,
+      allowAnyGroup: env.PUBLIC_BETA_ENABLED,
       oracleSetEpoch: escrowRuntime.marketPolicy.oracleSetEpoch,
       maximumMarketDurationSeconds: escrowRuntime.marketPolicy.maximumMarketDurationSeconds,
       maximumResolutionDelaySeconds: escrowRuntime.marketPolicy.maximumResolutionDelaySeconds,
@@ -294,26 +296,27 @@ async function main(): Promise<void> {
     registerEscrowMarketProvisioner(deps, escrowProvisioner);
   }
 
-  const escrowScheduler = escrowRuntime === null ? null : createEscrowEventWorkflowScheduler({
+  const escrowWorkflow = escrowRuntime === null ? null : createProductionEscrowEventWorkflowPort({
+    supabaseUrl: env.SUPABASE_URL,
+    serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    db: escrowRuntime.db,
+    accounts: escrowRuntime.accounts,
+    reconcile: (input) => escrowRuntime.reconciler.reconcile(input),
+    deployment: {
+      cluster: env.SOLANA_NETWORK,
+      genesisHash: env.ESCROW_GENESIS_HASH!,
+      programId: env.ESCROW_PROGRAM_ID!,
+      custodyVersion: 1,
+    },
+  });
+  const escrowScheduler = escrowRuntime === null || escrowWorkflow === null ? null : createEscrowEventWorkflowScheduler({
     deps,
     deployment: {
       genesisHash: env.ESCROW_GENESIS_HASH!,
       programId: env.ESCROW_PROGRAM_ID!,
     },
     requests: escrowRuntime.attestationRequests,
-    workflow: createProductionEscrowEventWorkflowPort({
-      supabaseUrl: env.SUPABASE_URL,
-      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
-      db: escrowRuntime.db,
-      accounts: escrowRuntime.accounts,
-      reconcile: (input) => escrowRuntime.reconciler.reconcile(input),
-      deployment: {
-        cluster: env.SOLANA_NETWORK,
-        genesisHash: env.ESCROW_GENESIS_HASH!,
-        programId: env.ESCROW_PROGRAM_ID!,
-        custodyVersion: 1,
-      },
-    }),
+    workflow: escrowWorkflow,
   });
   const settler = escrowScheduler === null
     ? new Settler(backgroundDeps, poster, say, points, null)
@@ -330,6 +333,57 @@ async function main(): Promise<void> {
       await escrowRuntime?.lifecycle.runOnce();
     },
   });
+  const recoverReplayFixture = escrowRuntime === null || escrowScheduler === null || escrowWorkflow === null
+    ? null
+    : async (groupId: number, fixtureId: number, marketIds: readonly string[]) => {
+        // First make every already-finalized placement/control visible. Then
+        // rebuild deterministic terminal truth from canonical feed history.
+        await escrowRuntime.lifecycle.runOnce();
+        await escrowScheduler.resetReplayRecovery(groupId, fixtureId);
+        const events = [...await deps.tx.fetchScoreEvents(fixtureId)]
+          .sort((left, right) => left.seq - right.seq);
+        if (!events.some((event) => TERMINAL_PHASES.includes(event.phase))) {
+          throw new TypeError('admin replay terminal evidence missing');
+        }
+        for (const event of events) {
+          await escrowScheduler.onReplayRecoveryEvent(groupId, event);
+        }
+        await escrowScheduler.finalizeReplayRecovery(groupId, fixtureId);
+        const terminalPersisted = await Promise.all(
+          marketIds.map((marketId) => escrowWorkflow.terminalAttestationExists!(marketId)),
+        );
+        if (marketIds.length === 0 || terminalPersisted.some((persisted) => !persisted)) {
+          throw new TypeError('admin replay terminal attestation missing');
+        }
+        await escrowRuntime.lifecycle.runOnce();
+      };
+  const replayAdmin = escrowRuntime === null || escrowScheduler === null || escrowWorkflow === null
+    || recoverReplayFixture === null ? null
+    : {
+        async endMatch(groupId: number) {
+          const activeFixtureId = await supervisor.stopReplayForRecovery(groupId);
+          return supervisor.runGroupExclusive(groupId, async () => {
+            await supervisor.recoverReplayGroup(groupId);
+            const replayMarkets = (await deps.db.openMarketsForGroup(groupId))
+              .filter((market) => market.is_replay && market.custody_mode === 'escrow');
+            const latestMarket = [...replayMarkets].sort((left, right) =>
+              Date.parse(right.created_at) - Date.parse(left.created_at)
+            )[0];
+            const fixtureId = activeFixtureId ?? latestMarket?.fixture_id;
+            if (fixtureId === undefined) return { kind: 'none' as const };
+            const targets = replayMarkets.filter((market) => market.fixture_id === fixtureId);
+            if (targets.length === 0) return { kind: 'none' as const };
+
+            await recoverReplayFixture(groupId, fixtureId, targets.map((market) => market.id));
+            log.info('admin_replay_terminal_scheduled', {
+              groupId,
+              fixtureId,
+              marketCount: targets.length,
+            });
+            return { kind: 'scheduled' as const, fixtureId, marketCount: targets.length };
+          });
+        },
+      };
   admitReplayPeriodicMarket = (market) => replayMarketBelongsToRun(
     market,
     supervisor.replaySettlementRun(market.group_id),
@@ -406,12 +460,17 @@ async function main(): Promise<void> {
   // restart loses the id of any claim still mid-consent, which then falls back
   // to the fresh-post behavior for its next state.
   const claimSurfaceStore = env.STAKE_LADDER_ENABLED ? new ClaimSurfaceStore() : null;
+  const groupIntake = escrowRuntime !== null && env.PUBLIC_BETA_ENABLED
+    ? { ensure: (groupId: number) => escrowRuntime.groupRollouts.ensureEscrowGroups([groupId]) }
+    : null;
 
   const handlerCtx: HandlerCtx = {
     deps, queue, poster, say, supervisor,
     entities: new EntityCache(deps.db), budget: new LlmBudget(),
     ...(escrowRuntime === null ? {} : { escrow: escrowRuntime.telegram }),
     ...(escrowRuntime === null ? {} : { status: { escrowReadiness: probeEscrowReadiness } }),
+    ...(replayAdmin === null ? {} : { replayAdmin }),
+    ...(groupIntake === null ? {} : { groupIntake }),
     ...(uiStateStore === null ? {} : { uiState: uiStateStore }),
     ...(ephemeralPort === null ? {} : { ephemeral: ephemeralPort }),
     ...(claimSurfaceStore === null ? {} : { claimSurface: claimSurfaceStore }),
@@ -439,33 +498,39 @@ async function main(): Promise<void> {
   // Historical replay cleanup can require many finalized RPC reads. Keep it
   // fail-closed, but never hold the HTTP health listener behind that backlog:
   // Railway must be able to start the new instance while recovery progresses.
-  void Promise.all(env.ESCROW_ALLOWED_GROUP_IDS.map(async (groupId) => {
+  void (async () => {
+    const recoveryGroupIds = env.PUBLIC_BETA_ENABLED
+      ? (await deps.db.listGroups()).map((group) => group.id)
+      : env.ESCROW_ALLOWED_GROUP_IDS;
+    await Promise.all(recoveryGroupIds.map(async (groupId) => {
     try {
-      const staleReplayMarkets = (await deps.db.openMarketsForGroup(groupId))
-        .filter((market) => market.is_replay && market.custody_mode === 'escrow');
-      await supervisor.recoverReplayGroup(groupId);
-      // Replay run identity is intentionally process-local, but terminal truth
-      // is deterministic. Re-derive any interrupted run from canonical feed
-      // history so a crash between the terminal event and EOF cannot strand an
-      // on-chain replay market forever.
-      for (const fixtureId of new Set(staleReplayMarkets.map((market) => market.fixture_id))) {
-        try {
-          const events = [...await deps.tx.fetchScoreEvents(fixtureId)]
-            .sort((left, right) => left.seq - right.seq);
-          for (const event of events) {
-            await escrowScheduler?.onReplayRecoveryEvent(groupId, event);
+      await supervisor.runGroupExclusive(groupId, async () => {
+        const staleReplayMarkets = (await deps.db.openMarketsForGroup(groupId))
+          .filter((market) => market.is_replay && market.custody_mode === 'escrow');
+        await supervisor.recoverReplayGroup(groupId);
+        // Replay run identity is intentionally process-local, but terminal
+        // truth is deterministic. Re-derive any interrupted run from canonical
+        // feed history so a crash cannot strand an on-chain replay market.
+        for (const fixtureId of new Set(staleReplayMarkets.map((market) => market.fixture_id))) {
+          try {
+            const marketIds = staleReplayMarkets
+              .filter((market) => market.fixture_id === fixtureId)
+              .map((market) => market.id);
+            if (recoverReplayFixture !== null) {
+              await recoverReplayFixture(groupId, fixtureId, marketIds);
+            }
+            log.info('replay_fixture_recovery_completed', { groupId, fixtureId });
+          } catch {
+            log.warn('replay_fixture_recovery_failed', { groupId, fixtureId });
           }
-          await escrowScheduler?.finalizeReplayRecovery(groupId, fixtureId);
-          log.info('replay_fixture_recovery_completed', { groupId, fixtureId });
-        } catch {
-          log.warn('replay_fixture_recovery_failed', { groupId, fixtureId });
         }
-      }
+      });
       log.info('replay_recovery_completed', { groupId });
     } catch {
       log.warn('replay_recovery_failed', { groupId });
     }
-  }));
+    }));
+  })().catch(() => log.warn('replay_recovery_discovery_failed'));
 
   bot.use(async (_context, next) => {
     telegramHeartbeatAtMs = deps.now();

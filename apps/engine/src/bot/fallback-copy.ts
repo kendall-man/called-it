@@ -60,8 +60,12 @@ export type TemplateKey =
   | 'replay_blocked_live'
   | 'replay_blocking_call_voided'
   | 'replay_blocked_active'
+  | 'replay_blocked_recovery'
   | 'replay_unknown_fixture'
   | 'replay_stopped'
+  | 'replay_end_none'
+  | 'replay_end_scheduled'
+  | 'replay_end_failed'
   | 'replay_failed'
   | 'replay_position_recorded'
   | 'replay_position_exists'
@@ -99,7 +103,7 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     '• Use /wallet in private chat for funding, claims, refunds, and recovery.',
     '• Legacy /deposit and /withdraw remain available only for older Rumble balances.',
     '',
-    'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /help',
+    'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /endmatch · /help',
   ].join('\n') : [
     'How this works:',
     '• Add Rumble to a Telegram group.',
@@ -110,8 +114,8 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
     '• Correct choices earn 10 points automatically.',
     '',
     isMainnet(vars)
-      ? 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /help. Wallet commands are available in private chat.'
-      : 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /help',
+      ? 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /endmatch · /help. Wallet commands are available in private chat.'
+      : 'Commands: /bookit · /leaderboard · /mystats · /table · /settings · /status · /currency · /testmatch · /endmatch · /help',
     isMainnet(vars)
       ? 'SOL and native Circle USDC deposits and withdrawals use Solana mainnet.'
       : 'Runs on Solana devnet, these are test tokens.',
@@ -200,9 +204,16 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   replay_blocking_call_voided: (vars) =>
     `Call voided: “${value(vars, 'call', 'the blocking call')}”. Run /testmatch again.`,
   replay_blocked_active: () => 'A test match is already running in this group.',
+  replay_blocked_recovery: () =>
+    'A prior test match is still closing. An admin can run /endmatch before starting another one.',
   replay_unknown_fixture: () => 'No completed match is available for a test run. Try /testmatch with a completed match ID.',
   replay_stopped: () => 'Test match stopped.',
-  replay_failed: () => 'Test match stopped because its data could not be completed. Run /testmatch to try again.',
+  replay_end_none: () => 'No test match is running or awaiting a terminal result in this group. No state changed.',
+  replay_end_scheduled: (vars) =>
+    `Test match stopped. Terminal ${value(vars, 'action', 'close')} queued for ${value(vars, 'count', '1')} call(s) on ${isMainnet(vars) ? 'mainnet' : 'devnet'}; the group updates only after finalized on-chain state and the database agree.`,
+  replay_end_failed: () =>
+    'The test match is locked, but its terminal close could not be persisted yet. No result was declared. Run /endmatch again.',
+  replay_failed: () => 'Test match stopped because its data could not be completed. An admin can run /endmatch to finish its terminal close.',
   replay_position_recorded: () => 'Test choice recorded. No starter position or real funds were used.',
   replay_position_exists: () => 'Your test choice is already recorded. No starter position or real funds were used.',
   escrow_void_pending_finality: () =>
@@ -214,10 +225,10 @@ export const FALLBACK_TEMPLATES: Record<TemplateKey, (vars: CopyVars) => string>
   admin_permission_required: () =>
     'One step left: promote Rumble to group admin with permission to manage messages. I will post the ready message when setup is complete.',
   group_ready: (vars) => isEscrow(vars)
-    ? `Rumble is ready with On-chain escrow on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Make a football call, then pick a side in SOL or canonical USDC. Every live or completed-match replay choice opens a private Privy wallet approval; this group updates only after finalization. Replays do not change Points. Legacy /deposit and /withdraw remain only for older balances. Board: ${value(vars, 'webUrl', 'the group board')}`
+    ? `Rumble is ready on ${isMainnet(vars) ? 'Solana mainnet' : 'Solana devnet'}. Reply /bookit to your own football call. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Board: ${value(vars, 'webUrl', 'the group board')}`
     : isMainnet(vars)
-    ? `Rumble is ready on Solana mainnet. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this group. Correct choices earn 10 points automatically. A verified wallet is required; /wallet in private chat shows your status. Board: ${value(vars, 'webUrl', 'the group board')}`
-    : `Rumble is ready. Say a football call, mention me, or reply /bookit to your own message. Pick a side, then an amount. New calls use test SOL by default; admins can use /currency usdc. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Runs on Solana devnet, these are test tokens. Board: ${value(vars, 'webUrl', 'the group board')}`,
+    ? `Rumble is ready on Solana mainnet. Reply /bookit to your own football call. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Board: ${value(vars, 'webUrl', 'the group board')}`
+    : `Rumble is ready on Solana devnet. Reply /bookit to your own football call. Choices and named results are visible to everyone in this Telegram group. Correct choices earn 10 points automatically. Board: ${value(vars, 'webUrl', 'the group board')}`,
   private_start: () => 'Rumble lives in group chats. Add it to a group to make a football call.',
   group_only_recovery: () => 'Open this command in the group where you want to use Rumble.',
   points_unavailable: () => 'Points are temporarily unavailable. Try again shortly.',

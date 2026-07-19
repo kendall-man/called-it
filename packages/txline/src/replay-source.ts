@@ -249,6 +249,8 @@ export class ReplaySource implements MatchEventSource {
   private async run(
     onEvent: (event: MatchEvent) => Promise<void>,
   ): Promise<EventSourceEndReason> {
+    const tickWallMs = this.tickVirtualMs / this.speed;
+    let nextTickAtMs = Date.now();
     while (!this.stopped) {
       let step: ReplayStepResult;
       try {
@@ -271,7 +273,10 @@ export class ReplaySource implements MatchEventSource {
         ) {
           return 'failed';
         }
-        await sleep(this.tickVirtualMs / this.speed, this.lifecycle.signal);
+        // Retry the same virtual boundary after one full frame. Provider
+        // failures do not advance the replay clock or trigger a catch-up burst.
+        nextTickAtMs = Date.now() + tickWallMs;
+        await sleep(tickWallMs, this.lifecycle.signal);
         continue;
       }
       for (const event of step.events) {
@@ -279,7 +284,11 @@ export class ReplaySource implements MatchEventSource {
         await onEvent(event);
       }
       if (step.done) return step.terminalReached ? 'completed' : 'failed';
-      await sleep(this.tickVirtualMs / this.speed, this.lifecycle.signal);
+      // Pace against an absolute deadline so snapshot/event processing is
+      // part of the frame instead of being added on top of it. When a frame
+      // overruns, preserve every virtual tick and catch up without sleeping.
+      nextTickAtMs += tickWallMs;
+      await sleep(Math.max(0, nextTickAtMs - Date.now()), this.lifecycle.signal);
     }
     return 'stopped';
   }

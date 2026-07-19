@@ -14,3 +14,12 @@ export function buildTelegramGroupAddUrl(botUsername: string | undefined): strin
   url.searchParams.set('admin', TELEGRAM_GROUP_ADMIN_RIGHTS);
   return url.toString();
 }
+
+/** Opens the bot DM first so Telegram grants permission for the private intro. */
+export function buildTelegramInstallUrl(botUsername: string | undefined): string | null {
+  const parsedBotUsername = BotUsernameSchema.safeParse(botUsername);
+  if (!parsedBotUsername.success) return null;
+  const url = new URL(`https://t.me/${parsedBotUsername.data}`);
+  url.searchParams.set('start', 'install');
+  return url.toString();
+}

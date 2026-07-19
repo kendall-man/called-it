@@ -166,7 +166,18 @@ export function createEscrowRecoveryService(options: {
   return {
     async enqueue(request: EscrowRecoveryRequest): Promise<EnqueueEscrowRecoveryResult> {
       const readiness = await options.readiness();
-      if (readiness.status === 'not_ready') return { kind: 'blocked', reasons: readiness.reasons };
+      const terminalSubmission = request.operation === 'settle_market' || request.operation === 'void_market';
+      const projectionOnlyDelay = readiness.status === 'not_ready' && readiness.reasons.every((reason) => (
+        reason === 'indexer_unavailable' || reason === 'indexer_lagging'
+      ));
+      // A terminal attestation is already bound to a finalized market link and
+      // independently verified by the oracle quorum below. A slow projection
+      // must delay the success announcement, not the terminal transaction that
+      // the projection is waiting to observe. Every other readiness failure
+      // remains fail-closed.
+      if (readiness.status === 'not_ready' && !(terminalSubmission && projectionOnlyDelay)) {
+        return { kind: 'blocked', reasons: readiness.reasons };
+      }
       const result = await options.db.getMarketLink({ ...options.deployment, marketPda: request.marketPda });
       const link = requireLink(result, request.marketPda, options.deployment);
       if (link.chainState === 'closed') throw new EscrowRecoveryError('market_unavailable');
