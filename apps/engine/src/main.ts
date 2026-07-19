@@ -306,6 +306,7 @@ async function main(): Promise<void> {
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       db: escrowRuntime.db,
       accounts: escrowRuntime.accounts,
+      reconcile: (input) => escrowRuntime.reconciler.reconcile(input),
       deployment: {
         cluster: env.SOLANA_NETWORK,
         genesisHash: env.ESCROW_GENESIS_HASH!,

@@ -61,6 +61,13 @@ export function createProductionEscrowEventWorkflowPort(options: {
     }): Promise<EscrowPlacementMarketLinkResult>;
   };
   readonly accounts: SolanaEscrowAccountReader;
+  readonly reconcile: (input: {
+    readonly marketId: string;
+    readonly custodyMode: 'escrow';
+    readonly marketPda: string;
+    readonly vaultPda: string;
+    readonly asset: 'sol' | 'usdc';
+  }) => Promise<unknown>;
   readonly deployment: {
     readonly cluster: 'localnet' | 'devnet' | 'mainnet-beta';
     readonly genesisHash: string;
@@ -79,7 +86,7 @@ export function createProductionEscrowEventWorkflowPort(options: {
 
   async function marketContext(market: MarketRow): Promise<EscrowWorkflowMarketContext | null> {
     const marketPda = deriveMarketPda(options.deployment.programId, market.id).address;
-    const [linkValue, account] = await Promise.all([
+    const [initialLinkValue, account] = await Promise.all([
       options.db.getMarketLink({
         cluster: options.deployment.cluster,
         genesisHash: options.deployment.genesisHash,
@@ -88,7 +95,7 @@ export function createProductionEscrowEventWorkflowPort(options: {
       }),
       options.accounts.market(marketPda),
     ]);
-    const link = requireLink(linkValue, market, options.deployment);
+    let link = requireLink(initialLinkValue, market, options.deployment);
     if (account === null || account.value.state === 'closed' || account.value.state === 'settled' || account.value.state === 'voided') {
       return null;
     }
@@ -106,6 +113,24 @@ export function createProductionEscrowEventWorkflowPort(options: {
       oracle.value.epoch !== account.value.oracleSetEpoch || oracle.value.signatureThreshold !== 2 ||
       oracle.value.signers.length !== 3 || new Set(oracle.value.signers).size !== 3
     ) throw new TypeError('escrow workflow chain identity mismatch');
+    if (link.chainState !== account.value.state || link.eventEpoch !== account.value.eventEpoch) {
+      await options.reconcile({
+        marketId: link.marketId,
+        custodyMode: 'escrow',
+        marketPda: link.marketPda,
+        vaultPda: link.vaultPda,
+        asset: link.asset,
+      });
+      link = requireLink(await options.db.getMarketLink({
+        cluster: options.deployment.cluster,
+        genesisHash: options.deployment.genesisHash,
+        programId: options.deployment.programId,
+        marketPda,
+      }), market, options.deployment);
+      if (link.chainState !== account.value.state || link.eventEpoch !== account.value.eventEpoch) {
+        throw new TypeError('escrow workflow reconciliation mismatch');
+      }
+    }
     return {
       chainState: account.value.state,
       replay: account.value.replay,
